@@ -1,19 +1,20 @@
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
+import ThemeToggle from "@/components/theme/ThemeToggle";
 
 export default function Navbar({ role }) {
   return (
-    <div className="sticky top-0 z-30 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/70">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/70">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+        <div className="flex items-center gap-5">
           <Link
             href="/"
-            className="flex items-center gap-2 text-sm font-semibold text-zinc-950 dark:text-zinc-100"
+            className="flex items-center gap-2 text-lg font-semibold text-zinc-950 dark:text-zinc-100"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
-              className="h-5 w-5 shrink-0 text-red-600"
+              className="h-7 w-7 shrink-0 text-red-600"
               fill="currentColor"
               aria-hidden
             >
@@ -24,18 +25,18 @@ export default function Navbar({ role }) {
           {role === "admin" || role === "manager" ? (
             <Link
               href="/users"
-              className="text-sm font-medium text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-100"
+              className="text-base font-medium text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-100"
             >
               Users
             </Link>
           ) : null}
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-zinc-600 dark:text-zinc-300">{role}</span>
+          <ThemeToggle />
+          <span className="text-base font-medium text-zinc-600 dark:text-zinc-300">{role}</span>
           <LogoutButton />
         </div>
       </div>
-    </div>
+    </header>
   );
 }
-

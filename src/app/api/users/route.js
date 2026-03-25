@@ -9,7 +9,7 @@ export async function GET(req) {
 
   if (authedUser.role === "admin") {
     const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "createdAt"],
+      attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
       order: [["createdAt", "DESC"]],
     });
     return NextResponse.json({ users });
@@ -18,7 +18,7 @@ export async function GET(req) {
   if (authedUser.role === "manager") {
     // Manager: list their agents (not all users).
     const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "createdAt"],
+      attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
       where: { role: "agent", managerId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
@@ -65,7 +65,15 @@ export async function POST(req) {
         managerId: authedUser.id,
       });
       return NextResponse.json(
-        { user: { id: user.id, username: user.username, role: user.role, managerId: user.managerId } },
+        {
+          user: {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            managerId: user.managerId,
+            isActive: user.isActive,
+          },
+        },
         { status: 201 },
       );
     } catch (err) {
@@ -110,7 +118,15 @@ export async function POST(req) {
       managerId: managerIdToSet,
     });
     return NextResponse.json(
-      { user: { id: user.id, username: user.username, role: user.role, managerId: user.managerId } },
+      {
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          managerId: user.managerId,
+          isActive: user.isActive,
+        },
+      },
       { status: 201 },
     );
   } catch (err) {

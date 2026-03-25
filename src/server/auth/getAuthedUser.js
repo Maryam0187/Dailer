@@ -21,7 +21,7 @@ export async function getAuthedUser() {
   if (!userId) return null;
 
   const user = await db.User.findByPk(userId);
-  if (!user) return null;
+  if (!user || user.isActive === false) return null;
 
   return {
     id: user.id,
@@ -30,4 +30,5 @@ export async function getAuthedUser() {
     managerId: user.managerId,
   };
 }
+
 

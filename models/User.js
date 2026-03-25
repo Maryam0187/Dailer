@@ -31,6 +31,11 @@ module.exports = (sequelize, DataTypes) => {
           key: "id",
         },
       },
+      isActive: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
     },
     {
       tableName: "Users",
