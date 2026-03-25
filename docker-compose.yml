@@ -1,0 +1,63 @@
+version: "2.4"
+
+services:
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - NEXT_TELEMETRY_DISABLED=1
+      - DATABASE_URL=mysql://root:password@db:3306/dialer_db
+      - JWT_SECRET=change-me-to-a-long-random-string
+      - SEED_ADMIN_USERNAME=admin
+      - SEED_ADMIN_PASSWORD=admin123456
+    depends_on:
+      db:
+        condition: service_healthy
+    command: npm run dev
+
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=dialer_db
+      - MYSQL_USER=dialer_user
+      - MYSQL_PASSWORD=dialer_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ppassword"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+
+  # Adminer - Database Management Tool
+  adminer:
+    image: adminer:4.8.1
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
+      - ADMINER_DESIGN=pepa-linha
+
+volumes:
+  mysql_data:
+    driver: local

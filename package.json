@@ -3,20 +3,38 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/init-db-simple.js && node server.js",
+    "dev:server": "node server.js",
+    "dev:next": "next dev --turbopack",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "node scripts/init-db-simple.js && node server.js",
+    "start:next": "node scripts/init-db-simple.js && next start",
+    "lint": "eslint",
+    "db:sync": "npx sequelize-cli db:migrate",
+    "db:reset": "npx sequelize-cli db:migrate:undo:all && npx sequelize-cli db:migrate",
+    "db:test": "npx sequelize-cli db:migrate:status",
+    "db:seed": "npx sequelize-cli db:seed:all",
+    "db:seed:undo": "npx sequelize-cli db:seed:undo:all",
+    "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
+    "@twilio/voice-sdk": "^2.16.0",
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.2.3",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.14.5",
     "next": "16.2.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-redux": "^9.2.0",
+    "sequelize": "^6.37.7",
+    "twilio": "^5.10.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "sequelize-cli": "^6.6.3",
     "tailwindcss": "^4"
   }
 }

@@ -1,0 +1,17 @@
+# Development Dockerfile
+# Mirrors CRM/crm Dockerfile.dev; Node 20 for Next.js 16.
+FROM node:20.19.1-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

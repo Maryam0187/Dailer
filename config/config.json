@@ -1,0 +1,41 @@
+{
+  "development": {
+    "username": "root",
+    "password": "password",
+    "database": "dialer_db",
+    "host": "db",
+    "port": 3306,
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "timestamps": true,
+      "underscored": false,
+      "freezeTableName": true
+    }
+  },
+  "test": {
+    "username": "root",
+    "password": "password",
+    "database": "dialer_test",
+    "host": "db",
+    "port": 3306,
+    "dialect": "mysql",
+    "logging": false
+  },
+  "production": {
+    "use_env_variable": "DATABASE_URL",
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "timestamps": true,
+      "underscored": false,
+      "freezeTableName": true
+    },
+    "pool": {
+      "max": 5,
+      "min": 0,
+      "acquire": 30000,
+      "idle": 10000
+    }
+  }
+}
