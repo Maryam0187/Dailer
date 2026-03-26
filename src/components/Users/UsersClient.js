@@ -267,6 +267,7 @@ function EditUserModal({
 
 export default function UsersClient({ role, managers, initialUsers, currentUserId }) {
   const [users, setUsers] = useState(initialUsers ?? []);
+  const [managerOptions, setManagerOptions] = useState(managers ?? []);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -282,28 +283,36 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
 
   const managerMap = useMemo(() => {
     const map = new Map();
-    for (const m of managers) map.set(m.id, m.username);
+    for (const m of managerOptions) map.set(m.id, m.username);
     return map;
-  }, [managers]);
+  }, [managerOptions]);
 
   async function loadUsers() {
     const res = await fetch("/api/users", { credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to load users");
     const list = json.users || [];
-    setUsers(
-      list.map((u) => ({
-        ...u,
-        isActive: u.isActive !== false && u.isActive !== 0,
-      })),
-    );
+    const normalizedUsers = list.map((u) => ({
+      ...u,
+      isActive: u.isActive !== false && u.isActive !== 0,
+    }));
+    setUsers(normalizedUsers);
+    if (role === "admin") {
+      const nextManagers = normalizedUsers
+        .filter((u) => u.role === "manager")
+        .map((u) => ({ id: u.id, username: u.username }))
+        .sort((a, b) => a.username.localeCompare(b.username));
+      setManagerOptions(nextManagers);
+    }
   }
 
   useEffect(() => {
-    if (createRole === "agent" && !managerId) {
-      setManagerId(managers[0]?.id ?? null);
+    if (createRole !== "agent") return;
+    const hasSelectedManager = managerOptions.some((m) => m.id === managerId);
+    if (!managerId || !hasSelectedManager) {
+      setManagerId(managerOptions[0]?.id ?? null);
     }
-  }, [managers, createRole, managerId]);
+  }, [managerOptions, createRole, managerId]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -368,7 +377,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
           user={editingUser}
           onClose={() => setEditingUser(null)}
           role={role}
-          managers={managers}
+          managers={managerOptions}
           currentUserId={currentUserId}
           onSaved={loadUsers}
         />
@@ -472,10 +481,10 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                       value={managerId ?? ""}
                       onChange={(e) => setManagerId(e.target.value ? Number(e.target.value) : null)}
                     >
-                      {managers.length === 0 ? (
+                      {managerOptions.length === 0 ? (
                         <option value="">No managers available</option>
                       ) : null}
-                      {managers.map((m) => (
+                      {managerOptions.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.username}
                         </option>
