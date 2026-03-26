@@ -65,42 +65,27 @@ export default function QuickDialPanel() {
     "w-full rounded-xl border-2 px-5 py-4 font-mono text-xl text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-500 focus:ring-2 focus:ring-offset-0 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-offset-0";
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-zinc-200/90 bg-gradient-to-br from-white via-zinc-50/50 to-red-50/25 shadow-lg shadow-zinc-200/40 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:from-zinc-900 dark:via-zinc-900 dark:to-red-950/15 dark:shadow-none dark:ring-white/5">
+    <section className="relative overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-gradient-to-br from-white via-zinc-50/60 to-sky-50/35 shadow-lg shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:from-zinc-900 dark:via-zinc-900 dark:to-sky-950/25 dark:shadow-sky-950/20 dark:ring-sky-500/5">
       <div
-        className="pointer-events-none absolute -right-8 -top-12 h-48 w-48 rounded-full bg-red-500/10 blur-3xl dark:bg-red-500/5"
+        className="pointer-events-none absolute -right-8 -top-12 h-48 w-48 rounded-full bg-sky-500/10 blur-3xl dark:bg-sky-500/5"
         aria-hidden
       />
-      <div className="relative p-6 sm:p-8">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-white shadow-md shadow-red-600/30">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="h-6 w-6"
-                aria-hidden
-              >
-                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">
-                Dialing
-              </h2>
-              <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                Enter a number and optional contact name, then start the call. Outbound calls are logged
-                automatically.
-              </p>
-            </div>
-          </div>
+      <div className="relative border-l-4 border-l-sky-500 p-6 sm:pl-7 sm:pr-8 sm:pt-8 sm:pb-8">
+        <div className="mb-6 text-left">
+          <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">
+            <span className="text-sky-600 dark:text-sky-400">Dialing</span>
+          </h2>
+          <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+            Enter a number and optional contact name, then start the call. Outbound calls are logged
+            automatically.
+          </p>
         </div>
 
         <div className="space-y-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
             <div className="min-w-0 flex-1 lg:max-w-xl">
               <label htmlFor="dial-phone" className={labelClass}>
-                Phone number <span className="text-red-600 dark:text-red-400">*</span>
+                Phone number <span className="text-sky-600 dark:text-sky-400">*</span>
               </label>
               <input
                 id="dial-phone"
@@ -170,7 +155,7 @@ export default function QuickDialPanel() {
               onChange={(e) => setName(e.target.value)}
               placeholder="Shown on the active call card"
               disabled={hasActiveCall}
-              className="max-w-md w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-red-400/80 focus:ring-2 focus:ring-red-500/20 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-red-500/60 dark:focus:ring-red-400/15"
+              className="max-w-md w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-400/80 focus:ring-2 focus:ring-sky-500/20 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-500/60 dark:focus:ring-sky-400/15"
             />
           </div>
         </div>

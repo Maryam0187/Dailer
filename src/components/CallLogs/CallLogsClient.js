@@ -35,10 +35,10 @@ export default function CallLogsClient() {
   }, []);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-md ring-1 ring-zinc-200/40 dark:border-zinc-700/80 dark:bg-zinc-900 dark:ring-zinc-800/60">
-      <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-700">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Call history</h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">Your recent outbound calls</p>
+    <section className="overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-white shadow-md shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:bg-zinc-900 dark:shadow-sky-950/15 dark:ring-sky-500/5">
+      <div className="border-b-2 border-sky-200/70 bg-gradient-to-r from-sky-50/90 to-white px-4 py-3.5 dark:border-sky-800/60 dark:from-sky-950/40 dark:to-zinc-900">
+        <h2 className="text-lg font-semibold text-sky-950 dark:text-sky-100">Call logs</h2>
+        <p className="text-sm text-sky-800/80 dark:text-sky-300/90">Your recent outbound calls</p>
       </div>
       <div className="p-4">
         {loading ? (

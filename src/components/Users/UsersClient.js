@@ -374,12 +374,12 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
         />
       ) : null}
 
-      <section className="relative overflow-hidden rounded-2xl border border-zinc-200/90 bg-gradient-to-br from-white via-zinc-50/40 to-emerald-50/30 shadow-lg shadow-zinc-200/40 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:from-zinc-900 dark:via-zinc-900 dark:to-emerald-950/20 dark:shadow-none dark:ring-white/5">
+      <section className="relative overflow-hidden rounded-2xl border-2 border-emerald-200/80 bg-gradient-to-br from-white via-zinc-50/60 to-emerald-50/35 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/10 dark:border-emerald-900/45 dark:from-zinc-900 dark:via-zinc-900 dark:to-emerald-950/25 dark:shadow-emerald-950/20 dark:ring-emerald-500/5">
         <div
-          className="pointer-events-none absolute right-0 top-0 h-40 w-40 translate-x-1/4 -translate-y-1/4 rounded-full bg-emerald-400/15 blur-3xl dark:bg-emerald-500/10"
+          className="pointer-events-none absolute -right-8 -top-12 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl dark:bg-emerald-500/5"
           aria-hidden
         />
-        <div className="relative p-6 sm:p-8">
+        <div className="relative border-l-4 border-l-emerald-500 p-6 sm:pl-7 sm:pr-8 sm:pt-8 sm:pb-8">
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex gap-4">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/25">
@@ -395,7 +395,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
               </div>
               <div>
                 <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">
-                  Add a user
+                  <span className="text-emerald-600 dark:text-emerald-400">Add a user</span>
                 </h2>
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
