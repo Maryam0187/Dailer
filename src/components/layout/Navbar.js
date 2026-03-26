@@ -31,7 +31,7 @@ export default function Navbar({ role }) {
           {role === "admin" || role === "manager" ? (
             <Link
               href="/users"
-              className={`rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
+              className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
                 onUsersPage
                   ? "border-emerald-500/70 bg-emerald-100 text-emerald-950 shadow-md shadow-emerald-500/20 dark:border-emerald-500/55 dark:bg-emerald-950/45 dark:text-emerald-50 dark:shadow-emerald-950/30"
                   : "border-transparent text-emerald-700 hover:border-emerald-200/90 hover:bg-emerald-50/90 hover:text-emerald-950 dark:text-emerald-400 dark:hover:border-emerald-800/80 dark:hover:bg-emerald-950/35 dark:hover:text-emerald-100"
@@ -45,9 +45,11 @@ export default function Navbar({ role }) {
 
         <div className="ml-auto flex shrink-0 items-center gap-2 rounded-xl border border-zinc-200/80 bg-white/60 px-2 py-1.5 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-3 sm:px-3">
           <ThemeToggle />
-          <span className="rounded-md border border-zinc-200/80 bg-zinc-50 px-2 py-0.5 text-sm font-semibold capitalize text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200">
-            {role}
-          </span>
+          {role !== "admin" ? (
+            <span className="hidden rounded-md border border-zinc-200/80 bg-zinc-50 px-2 py-0.5 text-sm font-semibold capitalize text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 sm:inline-flex">
+              {role}
+            </span>
+          ) : null}
           <LogoutButton />
         </div>
       </div>
