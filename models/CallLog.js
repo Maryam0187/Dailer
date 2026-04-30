@@ -35,6 +35,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "queued",
       },
+      twilioSid: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
       durationSeconds: {
         type: DataTypes.INTEGER,
         allowNull: true,
@@ -43,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       tableName: "CallLogs",
       timestamps: true,
-      indexes: [{ fields: ["userId"] }],
+      indexes: [{ fields: ["userId"] }, { fields: ["twilioSid"] }],
     },
   );
 

@@ -4,6 +4,9 @@ const { Sequelize } = require("sequelize");
 const config = require("../config/config.json");
 const userModelFactory = require("./User");
 const callLogModelFactory = require("./CallLog");
+const billingSettingModelFactory = require("./BillingSetting");
+const billModelFactory = require("./Bill");
+const billItemModelFactory = require("./BillItem");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -54,6 +57,9 @@ if (process.env.DATABASE_URL) {
 const db = { sequelize };
 db.User = userModelFactory(sequelize, Sequelize.DataTypes);
 db.CallLog = callLogModelFactory(sequelize, Sequelize.DataTypes);
+db.BillingSetting = billingSettingModelFactory(sequelize, Sequelize.DataTypes);
+db.Bill = billModelFactory(sequelize, Sequelize.DataTypes);
+db.BillItem = billItemModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

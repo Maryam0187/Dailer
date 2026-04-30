@@ -14,10 +14,11 @@ export async function POST(req) {
     return NextResponse.json({ error: "toNumber is required" }, { status: 400 });
   }
 
+  const fromNumber = getTwilioFromNumber(body?.fromNumber);
+  let twilioCall = null;
   try {
-    const fromNumber = getTwilioFromNumber(body?.fromNumber);
     const client = getTwilioClient();
-    await client.calls.create({
+    twilioCall = await client.calls.create({
       to: toNumber,
       from: fromNumber,
       // Placeholder TwiML URL for basic outbound initiation.
@@ -39,6 +40,7 @@ export async function POST(req) {
     toNumber,
     direction: "outbound",
     status: "queued",
+    twilioSid: twilioCall?.sid || null,
     durationSeconds: null,
   });
 

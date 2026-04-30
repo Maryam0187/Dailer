@@ -49,6 +49,8 @@ module.exports = (sequelize, DataTypes) => {
     User.belongsTo(models.User, { as: "manager", foreignKey: "managerId" });
     User.hasMany(models.User, { as: "agents", foreignKey: "managerId" });
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
+    User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
+    User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });
   };
 
   return User;
