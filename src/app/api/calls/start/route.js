@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getTwilioClient, getTwilioFromNumber } from "@/server/twilio";
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -8,10 +9,28 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const toNumber = body?.toNumber;
-  const fromNumber = body?.fromNumber ?? process.env.DIAL_FROM_NUMBER ?? null;
 
   if (!toNumber || typeof toNumber !== "string") {
     return NextResponse.json({ error: "toNumber is required" }, { status: 400 });
+  }
+
+  try {
+    const fromNumber = getTwilioFromNumber(body?.fromNumber);
+    const client = getTwilioClient();
+    await client.calls.create({
+      to: toNumber,
+      from: fromNumber,
+      // Placeholder TwiML URL for basic outbound initiation.
+      // Replace with your own TwiML app/URL as needed.
+      url: "http://demo.twilio.com/docs/voice.xml",
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: err?.message || "Failed to place call with Twilio",
+      },
+      { status: 502 },
+    );
   }
 
   const call = await db.CallLog.create({

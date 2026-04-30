@@ -18,7 +18,7 @@
     "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
-    "@twilio/voice-sdk": "^2.16.0",
+    "@twilio/voice-sdk": "^2.18.2",
     "bcrypt": "^6.0.0",
     "dotenv": "^17.2.3",
     "jsonwebtoken": "^9.0.2",
@@ -28,7 +28,7 @@
     "react-dom": "19.2.4",
     "react-redux": "^9.2.0",
     "sequelize": "^6.37.7",
-    "twilio": "^5.10.3"
+    "twilio": "^6.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
