@@ -71,6 +71,25 @@ export async function writeBillPdf({ bill, items }) {
   drawText(`Markup total: ${bill.currency} ${bill.markupAmount}`, 40);
   nextLine();
   drawText(`Final total: ${bill.currency} ${bill.totalAmount}`, 40, 13, true);
+  nextLine(24);
+  drawText(
+    "Note: Some billed entries may not show To/From numbers.",
+    40,
+    9,
+    true,
+  );
+  nextLine(12);
+  drawText(
+    "These are Twilio-generated billable call legs (for example, client or conference segments).",
+    40,
+    9,
+  );
+  nextLine(12);
+  drawText(
+    "Any line with non-zero Twilio cost is included in this invoice and traceable by Call SID.",
+    40,
+    9,
+  );
 
   const bytes = await doc.save();
   fs.writeFileSync(filePath, bytes);

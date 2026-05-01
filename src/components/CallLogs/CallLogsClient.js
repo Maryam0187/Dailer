@@ -103,6 +103,7 @@ export default function CallLogsClient() {
               <thead>
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
+                  <th className="py-2 pr-3">Agent</th>
                   <th className="py-2 pr-3">From</th>
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
@@ -115,6 +116,9 @@ export default function CallLogsClient() {
                   <tr key={c.id} className="border-b border-zinc-100 dark:border-zinc-800">
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {new Date(c.createdAt).toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                      {c.agentName || "—"}
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.fromNumber || "—"}

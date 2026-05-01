@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { getTwilioClient } from "@/server/twilio";
@@ -27,7 +26,10 @@ async function listCompletedCalls({ fromDate, toDate }) {
     pageSize: 1000,
   });
 
-  return calls.filter((call) => Number.isFinite(Math.abs(Number(call.price))));
+  return calls.filter((call) => {
+    const twilioCost = Math.abs(Number(call.price));
+    return Number.isFinite(twilioCost) && twilioCost > 0;
+  });
 }
 
 export async function POST(req) {
@@ -42,20 +44,6 @@ export async function POST(req) {
   }
   if (fromDate > toDate) {
     return NextResponse.json({ error: "fromDate must be before toDate" }, { status: 400 });
-  }
-
-  const duplicate = await db.Bill.findOne({
-    where: {
-      fromDate: { [Op.eq]: fromDate },
-      toDate: { [Op.eq]: toDate },
-    },
-    order: [["createdAt", "DESC"]],
-  });
-  if (duplicate) {
-    return NextResponse.json(
-      { error: "Bill already exists for this exact date range" },
-      { status: 409 },
-    );
   }
 
   const settings =
