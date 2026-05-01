@@ -296,6 +296,62 @@ export default function BillingClient() {
             >
               {generating ? "Generating PDF..." : "Generate PDF"}
             </button>
+
+            <div className="mt-5 overflow-x-auto rounded-xl border border-emerald-200/80 bg-white/80 p-3 dark:border-emerald-900/40 dark:bg-zinc-900/70">
+              <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Preview logs ({billPreview.lines?.length || 0})
+              </h3>
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                    <th className="py-2 pr-3">Call SID</th>
+                    <th className="py-2 pr-3">To</th>
+                    <th className="py-2 pr-3">From</th>
+                    <th className="py-2 pr-3">Duration</th>
+                    <th className="py-2 pr-3">Twilio</th>
+                    <th className="py-2 pr-3">Markup</th>
+                    <th className="py-2">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(billPreview.lines || []).map((line) => (
+                    <tr
+                      key={line.twilioSid}
+                      className="border-b border-zinc-100 dark:border-zinc-800"
+                    >
+                      <td className="py-2 pr-3 font-mono text-xs text-zinc-700 dark:text-zinc-200">
+                        {line.twilioSid}
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {line.toNumber || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {line.fromNumber || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {line.durationSeconds ?? "—"}s
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {money(line.twilioCost, billPreview.currency)}
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {money(line.markupApplied, billPreview.currency)}
+                      </td>
+                      <td className="py-2 font-semibold text-zinc-900 dark:text-zinc-100">
+                        {money(line.lineAmount, billPreview.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                  {(billPreview.lines || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-3 text-zinc-600 dark:text-zinc-300">
+                        No billable logs found in selected range.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
 

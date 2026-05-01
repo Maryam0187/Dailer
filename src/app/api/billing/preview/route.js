@@ -70,6 +70,7 @@ export async function POST(req) {
       twilioBaseAmount: totals.twilioBaseAmount,
       markupAmount: totals.markupAmount,
       totalAmount: totals.totalAmount,
+      lines: totals.lines,
     },
   });
 }
