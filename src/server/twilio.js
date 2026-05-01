@@ -34,3 +34,30 @@ export function getTwilioFromNumber(fallback) {
   );
 }
 
+export function getTwilioCallCreateParams() {
+  const appSid = process.env.TWILIO_APP_SID;
+  if (appSid) {
+    return { applicationSid: appSid };
+  }
+
+  const twimlUrl = process.env.TWILIO_TWIML_URL;
+  if (twimlUrl) {
+    return { url: twimlUrl };
+  }
+
+  throw new Error(
+    "Twilio call flow not configured. Set TWILIO_APP_SID or TWILIO_TWIML_URL.",
+  );
+}
+
+export function getTwilioStatusCallbackParams() {
+  const callbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL;
+  if (!callbackUrl) return {};
+
+  return {
+    statusCallback: callbackUrl,
+    statusCallbackMethod: "POST",
+    statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
+  };
+}
+

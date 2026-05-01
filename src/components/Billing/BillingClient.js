@@ -84,6 +84,10 @@ export default function BillingClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to generate bill");
       setBillResult(json.bill);
+      setBillHistory((prev) => {
+        const next = [json.bill, ...prev.filter((b) => b.id !== json.bill.id)];
+        return next.slice(0, 50);
+      });
       await loadData();
     } catch (err) {
       setError(err.message || "Failed to generate bill");

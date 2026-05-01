@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getTwilioClient, getTwilioFromNumber } from "@/server/twilio";
+import {
+  getTwilioCallCreateParams,
+  getTwilioClient,
+  getTwilioFromNumber,
+  getTwilioStatusCallbackParams,
+} from "@/server/twilio";
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -18,12 +23,13 @@ export async function POST(req) {
   let twilioCall = null;
   try {
     const client = getTwilioClient();
+    const flowParams = getTwilioCallCreateParams();
+    const callbackParams = getTwilioStatusCallbackParams();
     twilioCall = await client.calls.create({
       to: toNumber,
       from: fromNumber,
-      // Placeholder TwiML URL for basic outbound initiation.
-      // Replace with your own TwiML app/URL as needed.
-      url: "http://demo.twilio.com/docs/voice.xml",
+      ...flowParams,
+      ...callbackParams,
     });
   } catch (err) {
     return NextResponse.json(

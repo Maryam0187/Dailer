@@ -75,6 +75,7 @@ export async function POST(req) {
   const totals = calculateTotals(calls, settings.fixedMarkupPerCall);
 
   const tx = await db.sequelize.transaction();
+  let committed = false;
   try {
     const bill = await db.Bill.create(
       {
@@ -115,11 +116,11 @@ export async function POST(req) {
     }));
 
     await db.BillItem.bulkCreate(items, { transaction: tx });
-    await tx.commit();
 
     const pdfPath = await writeBillPdf({ bill, items });
-    bill.pdfPath = pdfPath;
-    await bill.save();
+    await bill.update({ pdfPath }, { transaction: tx });
+    await tx.commit();
+    committed = true;
 
     return NextResponse.json(
       {
@@ -140,7 +141,16 @@ export async function POST(req) {
       { status: 201 },
     );
   } catch (err) {
-    await tx.rollback();
-    throw err;
+    if (!committed && tx.finished !== "commit") {
+      try {
+        await tx.rollback();
+      } catch {
+        // Ignore rollback errors when transaction is already finalized.
+      }
+    }
+    return NextResponse.json(
+      { error: err?.message || "Failed to generate bill PDF" },
+      { status: 500 },
+    );
   }
 }

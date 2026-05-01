@@ -15,6 +15,7 @@ export async function writeBillPdf({ bill, items }) {
   await new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
     const out = fs.createWriteStream(filePath);
+    doc.on("error", reject);
     doc.pipe(out);
 
     writeLine(doc, "Dialer - Twilio Billing Invoice", 50, 40, { size: 18 });
