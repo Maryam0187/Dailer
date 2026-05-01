@@ -5,6 +5,7 @@ import UsersClient from "@/components/Users/UsersClient";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
+  if (!authedUser) redirect("/sign-in");
   if (authedUser.role !== "admin" && authedUser.role !== "manager") redirect("/");
 
   const [usersRows, managersRows] = await Promise.all([

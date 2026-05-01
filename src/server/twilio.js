@@ -34,6 +34,19 @@ export function getTwilioFromNumber(fallback) {
   );
 }
 
+function getWebhookBaseUrl() {
+  const baseUrl =
+    process.env.TWILIO_WEBHOOK_BASE_URL ||
+    process.env.RAILWAY_STATIC_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.VERCEL_URL ||
+    "";
+
+  if (!baseUrl) return null;
+  return baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
+}
+
 export function getTwilioCallCreateParams() {
   const appSid = process.env.TWILIO_APP_SID;
   if (appSid) {
@@ -45,13 +58,22 @@ export function getTwilioCallCreateParams() {
     return { url: twimlUrl };
   }
 
+  const webhookBaseUrl = getWebhookBaseUrl();
+  if (webhookBaseUrl) {
+    return { url: `${webhookBaseUrl}/api/twilio/voice` };
+  }
+
   throw new Error(
-    "Twilio call flow not configured. Set TWILIO_APP_SID or TWILIO_TWIML_URL.",
+    "Twilio call flow not configured. Set TWILIO_APP_SID or TWILIO_TWIML_URL or TWILIO_WEBHOOK_BASE_URL.",
   );
 }
 
 export function getTwilioStatusCallbackParams() {
-  const callbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL;
+  const callbackUrl =
+    process.env.TWILIO_STATUS_CALLBACK_URL || (() => {
+      const webhookBaseUrl = getWebhookBaseUrl();
+      return webhookBaseUrl ? `${webhookBaseUrl}/api/twilio/status` : null;
+    })();
   if (!callbackUrl) return {};
 
   return {

@@ -1,9 +1,11 @@
+import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import CallLogsClient from "@/components/CallLogs/CallLogsClient";
 import QuickDialPanel from "@/components/Dialer/QuickDialPanel";
 
 export default async function Home() {
   const authedUser = await getAuthedUser();
+  if (!authedUser) redirect("/sign-in");
   const role = authedUser.role;
 
   return (
