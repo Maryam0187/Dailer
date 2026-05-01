@@ -5,8 +5,24 @@ import {
   getTwilioCallCreateParams,
   getTwilioClient,
   getTwilioFromNumber,
-  getTwilioStatusCallbackParams,
+  getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
+
+function getRequestBaseUrl(req) {
+  const xfProto = req.headers.get("x-forwarded-proto");
+  const xfHost = req.headers.get("x-forwarded-host");
+  if (xfProto && xfHost) return `${xfProto}://${xfHost}`;
+
+  const host = req.headers.get("host");
+  if (host) {
+    const isLocalHost =
+      host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]");
+    const protocol = isLocalHost ? "http" : "https";
+    return `${protocol}://${host}`;
+  }
+
+  return req?.nextUrl?.origin || null;
+}
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -20,11 +36,12 @@ export async function POST(req) {
   }
 
   const fromNumber = getTwilioFromNumber(body?.fromNumber);
+  const fallbackBaseUrl = getRequestBaseUrl(req);
   let twilioCall = null;
   try {
     const client = getTwilioClient();
-    const flowParams = getTwilioCallCreateParams();
-    const callbackParams = getTwilioStatusCallbackParams();
+    const flowParams = getTwilioCallCreateParams({ fallbackBaseUrl });
+    const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
     twilioCall = await client.calls.create({
       to: toNumber,
       from: fromNumber,
@@ -45,7 +62,7 @@ export async function POST(req) {
     fromNumber,
     toNumber,
     direction: "outbound",
-    status: "queued",
+    status: twilioCall?.status || "queued",
     twilioSid: twilioCall?.sid || null,
     durationSeconds: null,
   });
