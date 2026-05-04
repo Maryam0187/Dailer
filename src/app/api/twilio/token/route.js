@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { createVoiceAccessToken, isTwilioBrowserAgentConfigured } from "@/server/twilioVoiceToken";
+import {
+  createVoiceAccessToken,
+  getAgentClientIdentity,
+  isTwilioBrowserAgentConfigured,
+} from "@/server/twilioVoiceToken";
 
 export const runtime = "nodejs";
 
@@ -14,14 +18,15 @@ export async function GET() {
     return NextResponse.json(
       {
         error: "Twilio browser agent is not configured",
-        hint: "Set TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, and TWILIO_AGENT_CLIENT_IDENTITY (see .env.local.example).",
+        hint: "Set TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET (see .env.local.example). Identities are per user (agent_{userId}).",
       },
       { status: 503 },
     );
   }
 
   try {
-    const { token, identity } = createVoiceAccessToken();
+    const identity = getAgentClientIdentity(authedUser.id, authedUser.username);
+    const { token } = createVoiceAccessToken(identity);
     return NextResponse.json({ token, identity });
   } catch (err) {
     return NextResponse.json(

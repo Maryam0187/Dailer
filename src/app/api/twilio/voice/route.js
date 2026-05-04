@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import db from "@/server/db";
+import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
 export const runtime = "nodejs";
 
@@ -22,7 +24,25 @@ export async function POST(req) {
   const twilioFrom = String(form.get("From") || "").trim();
   const fallbackCallerId = process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_FROM_NUMBER || "";
   const callerId = twilioFrom || fallbackCallerId;
-  const clientIdentity = String(process.env.TWILIO_AGENT_CLIENT_IDENTITY || "").trim();
+
+  const url = new URL(req.url);
+  const agentUserIdParam = url.searchParams.get("agentUserId");
+  let clientIdentity = "";
+  if (agentUserIdParam != null && /^\d+$/.test(agentUserIdParam.trim())) {
+    const uid = Number(agentUserIdParam.trim());
+    const user = await db.User.findByPk(uid, { attributes: ["id", "username"] });
+    if (user) {
+      try {
+        clientIdentity = getAgentClientIdentity(user.id, user.username);
+      } catch {
+        clientIdentity = "";
+      }
+    }
+  }
+  if (!clientIdentity) {
+    clientIdentity = String(process.env.TWILIO_AGENT_CLIENT_IDENTITY || "").trim();
+  }
+
   const agentNumber = String(process.env.TWILIO_AGENT_NUMBER || "").trim();
 
   if (!clientIdentity && !agentNumber) {
@@ -48,6 +68,6 @@ export async function POST(req) {
   return twimlResponse(xml);
 }
 
-export async function GET() {
-  return POST();
+export async function GET(req) {
+  return POST(req);
 }

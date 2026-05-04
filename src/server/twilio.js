@@ -48,7 +48,12 @@ function getWebhookBaseUrl(fallbackBaseUrl) {
   return baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
 }
 
-export function getTwilioCallCreateParams({ fallbackBaseUrl } = {}) {
+/**
+ * @param {object} [opts]
+ * @param {string} [opts.fallbackBaseUrl]
+ * @param {number|string} [opts.agentUserId] – Appended as `?agentUserId=` on the voice URL so TwiML dials that agent's Twilio Client.
+ */
+export function getTwilioCallCreateParams({ fallbackBaseUrl, agentUserId } = {}) {
   const appSid = process.env.TWILIO_APP_SID;
   if (appSid) {
     return { applicationSid: appSid };
@@ -56,7 +61,11 @@ export function getTwilioCallCreateParams({ fallbackBaseUrl } = {}) {
 
   const webhookBaseUrl = getWebhookBaseUrl(fallbackBaseUrl);
   if (webhookBaseUrl) {
-    return { url: `${webhookBaseUrl}/api/twilio/voice` };
+    const qs =
+      agentUserId != null && agentUserId !== ""
+        ? `?${new URLSearchParams({ agentUserId: String(agentUserId) })}`
+        : "";
+    return { url: `${webhookBaseUrl}/api/twilio/voice${qs}` };
   }
 
   const twimlUrl = process.env.TWILIO_TWIML_URL;

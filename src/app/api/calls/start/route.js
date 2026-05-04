@@ -59,7 +59,10 @@ export async function POST(req) {
   let twilioCall = null;
   try {
     const client = getTwilioClient();
-    const flowParams = getTwilioCallCreateParams({ fallbackBaseUrl });
+    const flowParams = getTwilioCallCreateParams({
+      fallbackBaseUrl,
+      agentUserId: authedUser.id,
+    });
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
     twilioCall = await client.calls.create({
       to: normalizedToNumber,

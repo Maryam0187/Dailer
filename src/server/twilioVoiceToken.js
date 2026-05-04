@@ -3,28 +3,59 @@ import twilio from "twilio";
 const AccessToken = twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 
+/** Lowercase slug safe for Twilio Client names: letters, digits, hyphens. */
+function slugifyAgentName(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s.length > 0 ? s.slice(0, 64) : "user";
+}
+
+/**
+ * Twilio Voice Client identity: `{prefix}-{id}-{name}` (e.g. `agent-3-maryam`).
+ * Must match TwiML &lt;Client&gt; and the JWT from /api/twilio/token.
+ * @param {number|string} userId
+ * @param {string} [username] – display/login name; falls back to `user` if empty
+ */
+export function getAgentClientIdentity(userId, username) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0 || !Number.isInteger(id)) {
+    throw new Error("userId must be a positive integer");
+  }
+  const prefix = (process.env.TWILIO_AGENT_IDENTITY_PREFIX?.trim() || "agent").replace(
+    /[^a-zA-Z0-9_-]/g,
+    "",
+  ) || "agent";
+  const name = slugifyAgentName(username);
+  return `${prefix}-${id}-${name}`;
+}
+
 export function isTwilioBrowserAgentConfigured() {
   return Boolean(
     process.env.TWILIO_ACCOUNT_SID &&
       process.env.TWILIO_API_KEY_SID &&
-      process.env.TWILIO_API_KEY_SECRET &&
-      process.env.TWILIO_AGENT_CLIENT_IDENTITY?.trim(),
+      process.env.TWILIO_API_KEY_SECRET,
   );
 }
 
 /**
  * JWT for Twilio Voice JS SDK (`@twilio/voice-sdk`). Requires API Key (create in Twilio Console).
+ * @param {string} identity – Twilio Client name (e.g. from {@link getAgentClientIdentity}).
  */
-export function createVoiceAccessToken() {
+export function createVoiceAccessToken(identity) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const apiKeySid = process.env.TWILIO_API_KEY_SID;
   const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
-  const identity = process.env.TWILIO_AGENT_CLIENT_IDENTITY?.trim();
 
-  if (!accountSid || !apiKeySid || !apiKeySecret || !identity) {
+  if (!accountSid || !apiKeySid || !apiKeySecret) {
     throw new Error(
-      "Browser agent voice token requires TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET, and TWILIO_AGENT_CLIENT_IDENTITY.",
+      "Browser agent voice token requires TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID, and TWILIO_API_KEY_SECRET.",
     );
+  }
+  if (!identity || typeof identity !== "string") {
+    throw new Error("identity is required for the voice access token.");
   }
 
   const token = new AccessToken(accountSid, apiKeySid, apiKeySecret, {
