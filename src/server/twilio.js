@@ -54,14 +54,14 @@ export function getTwilioCallCreateParams({ fallbackBaseUrl } = {}) {
     return { applicationSid: appSid };
   }
 
-  const twimlUrl = process.env.TWILIO_TWIML_URL;
-  if (twimlUrl) {
-    return { url: twimlUrl };
-  }
-
   const webhookBaseUrl = getWebhookBaseUrl(fallbackBaseUrl);
   if (webhookBaseUrl) {
     return { url: `${webhookBaseUrl}/api/twilio/voice` };
+  }
+
+  const twimlUrl = process.env.TWILIO_TWIML_URL;
+  if (twimlUrl) {
+    return { url: twimlUrl };
   }
 
   throw new Error(

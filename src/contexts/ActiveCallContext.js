@@ -22,6 +22,10 @@ export function ActiveCallProvider({ children }) {
     router.refresh();
   }, [router]);
 
+  const markInProgress = useCallback(() => {
+    setSession((s) => (s ? { ...s, phase: "in_progress" } : s));
+  }, []);
+
   useEffect(() => {
     if (!session?.callId || session.phase !== "connecting") return;
     const t = setTimeout(() => {
@@ -33,7 +37,7 @@ export function ActiveCallProvider({ children }) {
   }, [session?.callId, session?.phase]);
 
   return (
-    <ActiveCallContext.Provider value={{ session, beginSession, endCall }}>
+    <ActiveCallContext.Provider value={{ session, beginSession, endCall, markInProgress }}>
       {children}
     </ActiveCallContext.Provider>
   );

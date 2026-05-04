@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -10,9 +11,11 @@ function formatTimer(totalSeconds) {
 }
 
 function ActiveCallPanel({ session, endCall }) {
+  const { voiceConnected, muted: sdkMuted, toggleMute, sdkError } = useTwilioVoice();
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
     if (session.phase !== "in_progress") return undefined;
@@ -105,10 +108,22 @@ function ActiveCallPanel({ session, endCall }) {
               </div>
             )}
 
+            {sdkError ? (
+              <p
+                className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+                role="status"
+              >
+                Voice SDK: {sdkError}
+              </p>
+            ) : null}
+
             <div className="mt-2 flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => setIsMuted((m) => !m)}
+                onClick={() => {
+                  if (voiceConnected) toggleMute();
+                  else setUiMuted((m) => !m);
+                }}
                 className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                   isMuted
                     ? "bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-100"
