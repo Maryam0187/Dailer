@@ -2,14 +2,64 @@
 
 import { useEffect, useState } from "react";
 
+const inputClass =
+  "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
+
+const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+
+function formatDateInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getPresetRange(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "today") {
+    const d = formatDateInput(today);
+    return { from: d, to: d };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const d = formatDateInput(y);
+    return { from: d, to: d };
+  }
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  if (preset === "month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  return { from: "", to: "" };
+}
+
 export default function CallLogsClient() {
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [callingId, setCallingId] = useState(null);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 20,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
+  const [rangePreset, setRangePreset] = useState("today");
+  const initialRange = getPresetRange("today");
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
 
-  async function loadCalls({ signal, silent = false } = {}) {
+  async function loadCalls({ signal, silent = false, targetPage = page, fromDate = rangeFrom, toDate = rangeTo } = {}) {
     if (silent) {
       setRefreshing(true);
     } else {
@@ -17,7 +67,15 @@ export default function CallLogsClient() {
     }
     setError(null);
     try {
-      const res = await fetch("/api/calls", {
+      const qs = new URLSearchParams({
+        page: String(targetPage),
+        pageSize: "20",
+      });
+      if (fromDate && toDate) {
+        qs.set("fromDate", fromDate);
+        qs.set("toDate", toDate);
+      }
+      const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
         credentials: "include",
         signal,
@@ -25,6 +83,10 @@ export default function CallLogsClient() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to fetch call logs");
       setCalls(json.calls || []);
+      if (json.pagination) {
+        setPagination(json.pagination);
+        setPage(json.pagination.page || targetPage);
+      }
     } catch (e) {
       if (e.name === "AbortError") return;
       setError(e.message || "Failed to fetch call logs");
@@ -50,7 +112,7 @@ export default function CallLogsClient() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to place call");
-      await loadCalls({ silent: true });
+      await loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
     } catch (e) {
       setError(e.message || "Failed to place call");
     } finally {
@@ -60,15 +122,44 @@ export default function CallLogsClient() {
 
   useEffect(() => {
     const controller = new AbortController();
-    loadCalls({ signal: controller.signal });
-    const interval = setInterval(() => {
-      loadCalls({ signal: controller.signal, silent: true });
-    }, 10000);
+    loadCalls({ signal: controller.signal, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+    const onCallEnded = () => {
+      loadCalls({ signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+    };
+    window.addEventListener("call-ended", onCallEnded);
     return () => {
-      clearInterval(interval);
+      window.removeEventListener("call-ended", onCallEnded);
       controller.abort();
     };
-  }, []);
+  }, [page, rangeFrom, rangeTo]);
+
+  function applyPreset(preset) {
+    setRangePreset(preset);
+    if (preset === "custom") return;
+    const next = getPresetRange(preset);
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setPage(1);
+  }
+
+  async function onApplyRange() {
+    setPage(1);
+    await loadCalls({ targetPage: 1, fromDate: rangeFrom, toDate: rangeTo });
+  }
+
+  async function onPrevPage() {
+    if (!pagination.hasPrev || loading || refreshing) return;
+    const nextPage = Math.max(1, page - 1);
+    setPage(nextPage);
+    await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+  }
+
+  async function onNextPage() {
+    if (!pagination.hasNext || loading || refreshing) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-white shadow-md shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:bg-zinc-900 dark:shadow-sky-950/15 dark:ring-sky-500/5">
@@ -80,17 +171,110 @@ export default function CallLogsClient() {
               Your recent outbound calls
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => loadCalls({ silent: true })}
-            disabled={refreshing || loading}
-            className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-700 dark:bg-zinc-900 dark:text-sky-200 dark:hover:bg-zinc-800"
-          >
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onPrevPage}
+              disabled={!pagination.hasPrev || refreshing || loading}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Prev
+            </button>
+            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              Page {pagination.page} / {pagination.totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={onNextPage}
+              disabled={!pagination.hasNext || refreshing || loading}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo })}
+              disabled={refreshing || loading}
+              className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-700 dark:bg-zinc-900 dark:text-sky-200 dark:hover:bg-zinc-800"
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
       </div>
       <div className="p-4">
+        <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+          <div className="mb-3">
+            <label className={labelClass}>Range presets</label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "today", label: "Today" },
+                { id: "yesterday", label: "Yesterday" },
+                { id: "week", label: "Week" },
+                { id: "month", label: "Month" },
+                { id: "custom", label: "Custom" },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyPreset(p.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    rangePreset === p.id
+                      ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="calls-from-date" className={labelClass}>
+                From date
+              </label>
+              <input
+                id="calls-from-date"
+                type="date"
+                className={inputClass}
+                value={rangeFrom}
+                onChange={(e) => {
+                  setRangePreset("custom");
+                  setRangeFrom(e.target.value);
+                }}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="calls-to-date" className={labelClass}>
+                To date
+              </label>
+              <input
+                id="calls-to-date"
+                type="date"
+                className={inputClass}
+                value={rangeTo}
+                onChange={(e) => {
+                  setRangePreset("custom");
+                  setRangeTo(e.target.value);
+                }}
+                required
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={onApplyRange}
+                disabled={loading || refreshing}
+                className="h-10 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+              >
+                Apply range
+              </button>
+            </div>
+          </div>
+        </div>
+
         {loading ? (
           <p className="text-base text-zinc-600 dark:text-zinc-300">Loading...</p>
         ) : error ? (
@@ -144,6 +328,11 @@ export default function CallLogsClient() {
             </table>
           </div>
         )}
+        {!loading && !error ? (
+          <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Showing {calls.length} of {pagination.total} calls
+          </p>
+        ) : null}
       </div>
     </section>
   );

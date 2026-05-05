@@ -1,12 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 const ActiveCallContext = createContext(undefined);
 
 export function ActiveCallProvider({ children }) {
-  const router = useRouter();
   const [session, setSession] = useState(null);
 
   const beginSession = useCallback((payload) => {
@@ -32,8 +30,10 @@ export function ActiveCallProvider({ children }) {
       }
     }
     setSession(null);
-    router.refresh();
-  }, [router, session]);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("call-ended", { detail: { callId: current?.callId || null } }));
+    }
+  }, [session]);
 
   const markInProgress = useCallback(() => {
     setSession((s) => (s ? { ...s, phase: "in_progress" } : s));
