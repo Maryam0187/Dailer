@@ -17,10 +17,23 @@ export function ActiveCallProvider({ children }) {
     });
   }, []);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
+    const current = session;
+    if (current?.callId) {
+      try {
+        await fetch("/api/calls/end", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ callId: current.callId }),
+        });
+      } catch {
+        // UI still ends the local session even if API fails.
+      }
+    }
     setSession(null);
     router.refresh();
-  }, [router]);
+  }, [router, session]);
 
   const markInProgress = useCallback(() => {
     setSession((s) => (s ? { ...s, phase: "in_progress" } : s));
