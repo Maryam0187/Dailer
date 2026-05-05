@@ -11,73 +11,102 @@ export function TwilioVoiceProvider({ children }) {
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [sdkError, setSdkError] = useState(null);
   const [registered, setRegistered] = useState(false);
+  const [sdkInitializing, setSdkInitializing] = useState(false);
   const callRef = useRef(null);
   const deviceRef = useRef(null);
+  const deviceInitPromiseRef = useRef(null);
 
+  // Cleanup when the provider unmounts.
   useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/twilio/token", { credentials: "include" });
-        if (res.status === 503) {
-          return;
-        }
-        if (!res.ok) return;
-
-        const data = await res.json().catch(() => ({}));
-        const token = data?.token;
-        if (!token || cancelled) return;
-
-        const { Device } = await import("@twilio/voice-sdk");
-        const device = new Device(token, { logLevel: 1 });
-
-        device.on("registered", () => {
-          if (!cancelled) setRegistered(true);
-        });
-
-        device.on("error", (err) => {
-          if (!cancelled) setSdkError(err?.message || "Twilio Device error");
-        });
-
-        device.on("incoming", (call) => {
-          call.accept();
-          callRef.current = call;
-          setMuted(call.isMuted());
-          setVoiceConnected(true);
-          markInProgress();
-
-          call.on("mute", (isMuted) => setMuted(isMuted));
-          call.on("disconnect", () => {
-            callRef.current = null;
-            setVoiceConnected(false);
-            setMuted(false);
-            endCall();
-          });
-        });
-
-        await device.register();
-        if (cancelled) {
-          device.destroy();
-          return;
-        }
-        deviceRef.current = device;
-      } catch (e) {
-        if (!cancelled) setSdkError(e?.message || "Voice SDK init failed");
-      }
-    })();
-
     return () => {
-      cancelled = true;
       callRef.current?.disconnect();
       callRef.current = null;
       deviceRef.current?.destroy();
       deviceRef.current = null;
-      setRegistered(false);
-      setVoiceConnected(false);
-      setMuted(false);
+      deviceInitPromiseRef.current = null;
     };
-  }, [markInProgress, endCall]);
+  }, []);
+
+  const ensureRegistered = useCallback(async () => {
+    // If already initialized, just wait until we have a registered device.
+    if (deviceRef.current && registered) return true;
+    if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
+
+    setSdkInitializing(true);
+    setSdkError(null);
+    setRegistered(false);
+
+    deviceInitPromiseRef.current = (async () => {
+      const res = await fetch("/api/twilio/token", { credentials: "include" });
+      if (res.status === 503) {
+        throw new Error("Twilio browser agent is not configured");
+      }
+      if (!res.ok) {
+        throw new Error(`Failed to create Twilio voice token (${res.status})`);
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const token = data?.token;
+      if (!token) throw new Error("Missing Twilio voice token");
+
+      const { Device } = await import("@twilio/voice-sdk");
+      const device = new Device(token, { logLevel: 1 });
+
+      device.on("registered", () => setRegistered(true));
+
+      device.on("error", (err) => {
+        setSdkError(err?.message || "Twilio Device error");
+      });
+
+      device.on("incoming", (call) => {
+        call.accept();
+        callRef.current = call;
+        setMuted(call.isMuted());
+        setVoiceConnected(true);
+        markInProgress();
+
+        call.on("mute", (isMuted) => setMuted(isMuted));
+        call.on("disconnect", () => {
+          callRef.current = null;
+          setVoiceConnected(false);
+          setMuted(false);
+          endCall();
+        });
+      });
+
+      // Await registration (so Twilio doesn't dial an unregistered identity).
+      await new Promise((resolve, reject) => {
+        const timeoutMs = 10000;
+        const t = window.setTimeout(() => {
+          reject(new Error("Twilio Device registration timed out"));
+        }, timeoutMs);
+
+        const onRegistered = () => {
+          window.clearTimeout(t);
+          resolve(true);
+        };
+
+        const onError = (err) => {
+          window.clearTimeout(t);
+          reject(err || new Error("Twilio Device error"));
+        };
+
+        device.once("registered", onRegistered);
+        device.once("error", onError);
+        device.register().catch(onError);
+      });
+      deviceRef.current = device;
+      return true;
+    })();
+
+    try {
+      const ok = await deviceInitPromiseRef.current;
+      return ok;
+    } finally {
+      deviceInitPromiseRef.current = null;
+      setSdkInitializing(false);
+    }
+  }, [registered, markInProgress, endCall]);
 
   useEffect(() => {
     if (session) return;
@@ -103,9 +132,11 @@ export function TwilioVoiceProvider({ children }) {
       value={{
         muted,
         sdkError,
+        sdkInitializing,
         registered,
         voiceConnected,
         toggleMute,
+        ensureRegistered,
       }}
     >
       {children}

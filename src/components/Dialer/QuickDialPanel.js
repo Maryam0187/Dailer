@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
+  const { ensureRegistered, registered, sdkInitializing } = useTwilioVoice();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
@@ -43,6 +45,14 @@ export default function QuickDialPanel() {
     setLoading(true);
     setError(null);
     try {
+      // Ensure the browser agent is ready before starting the outbound call.
+      // Otherwise Twilio may dial a not-yet-registered <Client> identity.
+      if (!registered) {
+        await ensureRegistered();
+      } else if (sdkInitializing) {
+        await ensureRegistered();
+      }
+
       const result = await startOutgoingCall(toDigits);
       if (!result.ok) throw new Error(result.error);
       beginSession({
