@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import db from "@/server/db";
-import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
 export const runtime = "nodejs";
 
@@ -26,43 +24,29 @@ export async function POST(req) {
   const callerId = twilioFrom || fallbackCallerId;
 
   const url = new URL(req.url);
-  const agentUserIdParam = url.searchParams.get("agentUserId");
-  let clientIdentity = "";
-  if (agentUserIdParam != null && /^\d+$/.test(agentUserIdParam.trim())) {
-    const uid = Number(agentUserIdParam.trim());
-    const user = await db.User.findByPk(uid, { attributes: ["id", "username"] });
-    if (user) {
-      try {
-        clientIdentity = getAgentClientIdentity(user.id, user.username);
-      } catch {
-        clientIdentity = "";
-      }
-    }
-  }
-  if (!clientIdentity) {
-    clientIdentity = String(process.env.TWILIO_AGENT_CLIENT_IDENTITY || "").trim();
-  }
+  const conferenceName = String(url.searchParams.get("conferenceName") || "").trim();
+  const participant = String(url.searchParams.get("participant") || "").trim().toLowerCase();
 
-  const agentNumber = String(process.env.TWILIO_AGENT_NUMBER || "").trim();
-
-  if (!clientIdentity && !agentNumber) {
-    const missingAgentXml = `<?xml version="1.0" encoding="UTF-8"?>
+  if (!conferenceName) {
+    const missingConferenceXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Call routing is not configured. Set agent phone or browser client identity.</Say>
+  <Say voice="alice">Conference name is required for call routing.</Say>
   <Hangup/>
 </Response>`;
-    return twimlResponse(missingAgentXml);
+    return twimlResponse(missingConferenceXml);
   }
 
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
-  const dialTarget = clientIdentity
-    ? `<Client>${escapeXmlAttr(clientIdentity)}</Client>`
-    : `<Number>${escapeXmlAttr(agentNumber)}</Number>`;
-
+  const startConferenceOnEnter = participant === "agent" ? "true" : "false";
+  const endConferenceOnExit = participant === "customer" ? "true" : "false";
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial answerOnBridge="true"${callerIdAttr}>
-    ${dialTarget}
+    <Conference
+      startConferenceOnEnter="${startConferenceOnEnter}"
+      endConferenceOnExit="${endConferenceOnExit}"
+      beep="false"
+    >${escapeXmlAttr(conferenceName)}</Conference>
   </Dial>
 </Response>`;
   return twimlResponse(xml);

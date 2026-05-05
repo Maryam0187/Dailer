@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
-  getTwilioCallCreateParams,
   getTwilioClient,
   getTwilioFromNumber,
   getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
+import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
 function getRequestBaseUrl(req) {
   const xfProto = req.headers.get("x-forwarded-proto");
@@ -39,6 +39,20 @@ function normalizeToE164(rawNumber) {
   return null;
 }
 
+function buildVoiceUrl(baseUrl, conferenceName, participant) {
+  const qs = new URLSearchParams({
+    conferenceName,
+    participant,
+  });
+  return `${baseUrl}/api/twilio/voice?${qs.toString()}`;
+}
+
+function createConferenceName({ userId }) {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `dialer-${userId}-${ts}-${rand}`;
+}
+
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -56,18 +70,34 @@ export async function POST(req) {
 
   const fromNumber = getTwilioFromNumber(body?.fromNumber);
   const fallbackBaseUrl = getRequestBaseUrl(req);
-  let twilioCall = null;
+  if (!fallbackBaseUrl) {
+    return NextResponse.json(
+      { error: "Could not determine public app URL for Twilio voice webhook" },
+      { status: 500 },
+    );
+  }
+
+  const conferenceName = createConferenceName({ userId: authedUser.id });
+  let customerLeg = null;
   try {
     const client = getTwilioClient();
-    const flowParams = getTwilioCallCreateParams({
-      fallbackBaseUrl,
-      agentUserId: authedUser.id,
-    });
+    const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
+    const agentVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
+    const customerVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
-    twilioCall = await client.calls.create({
+
+    // Start agent leg first so the browser can join before customer is answered.
+    await client.calls.create({
+      to: `client:${clientIdentity}`,
+      from: fromNumber,
+      url: agentVoiceUrl,
+      ...callbackParams,
+    });
+
+    customerLeg = await client.calls.create({
       to: normalizedToNumber,
       from: fromNumber,
-      ...flowParams,
+      url: customerVoiceUrl,
       ...callbackParams,
     });
   } catch (err) {
@@ -84,11 +114,11 @@ export async function POST(req) {
     fromNumber,
     toNumber: normalizedToNumber,
     direction: "outbound",
-    status: twilioCall?.status || "queued",
-    twilioSid: twilioCall?.sid || null,
+    status: customerLeg?.status || "queued",
+    twilioSid: customerLeg?.sid || null,
     durationSeconds: null,
   });
 
-  return NextResponse.json({ ok: true, call }, { status: 201 });
+  return NextResponse.json({ ok: true, call, conferenceName }, { status: 201 });
 }
 

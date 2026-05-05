@@ -114,9 +114,13 @@ export function TwilioVoiceProvider({ children }) {
     if (active) {
       active.disconnect();
       callRef.current = null;
-      setVoiceConnected(false);
-      setMuted(false);
     }
+    deviceRef.current?.destroy();
+    deviceRef.current = null;
+    deviceInitPromiseRef.current = null;
+    setRegistered(false);
+    setVoiceConnected(false);
+    setMuted(false);
   }, [session]);
 
   const toggleMute = useCallback(() => {

@@ -60,6 +60,7 @@ export default function QuickDialPanel() {
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,
+        conferenceName: result.conferenceName || undefined,
       });
       setPhone("");
       setName("");
