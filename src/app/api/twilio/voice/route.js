@@ -37,7 +37,7 @@ export async function POST(req) {
   }
 
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
-  const startConferenceOnEnter = participant === "agent" ? "true" : "false";
+  const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
   const endConferenceOnExit = participant === "customer" ? "true" : "false";
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

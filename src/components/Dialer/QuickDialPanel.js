@@ -76,23 +76,45 @@ export default function QuickDialPanel() {
     "w-full rounded-xl border-2 px-5 py-4 font-mono text-xl text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-500 focus:ring-2 focus:ring-offset-0 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-offset-0";
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-gradient-to-br from-white via-zinc-50/60 to-sky-50/35 shadow-lg shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:from-zinc-900 dark:via-zinc-900 dark:to-sky-950/25 dark:shadow-sky-950/20 dark:ring-sky-500/5">
+    <section className="relative overflow-hidden rounded-3xl border border-sky-200/90 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/40 shadow-2xl shadow-sky-500/10 ring-1 ring-sky-400/15 dark:border-sky-900/50 dark:from-zinc-900 dark:via-zinc-900 dark:to-sky-950/25 dark:shadow-sky-950/35 dark:ring-sky-500/10">
       <div
-        className="pointer-events-none absolute -right-8 -top-12 h-48 w-48 rounded-full bg-sky-500/10 blur-3xl dark:bg-sky-500/5"
+        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-sky-500/15 blur-3xl dark:bg-sky-500/10"
         aria-hidden
       />
-      <div className="relative border-l-4 border-l-sky-500 p-6 sm:pl-7 sm:pr-8 sm:pt-8 sm:pb-8">
+      <div
+        className="pointer-events-none absolute -bottom-16 -left-12 h-56 w-56 rounded-full bg-indigo-500/10 blur-3xl dark:bg-indigo-500/10"
+        aria-hidden
+      />
+
+      <div className="relative p-6 sm:pl-7 sm:pr-8 sm:pt-8 sm:pb-8">
         <div className="mb-6 text-left">
-          <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">
-            <span className="text-sky-600 dark:text-sky-400">Dialing</span>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs font-semibold text-sky-800 shadow-sm dark:border-sky-800/80 dark:bg-zinc-900/70 dark:text-sky-200">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+            Voice Console
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-3xl">
+            <span className="bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent dark:from-sky-300 dark:via-blue-300 dark:to-indigo-300">
+              Smart Dialer
+            </span>
           </h2>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             Enter a number and optional contact name, then start the call. Outbound calls are logged
             automatically.
           </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+              Conference Ready
+            </span>
+            <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-300">
+              Warm Transfer
+            </span>
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300">
+              Browser Agent
+            </span>
+          </div>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-5 rounded-2xl border border-white/70 bg-white/70 p-4 shadow-inner shadow-sky-100/60 backdrop-blur-sm dark:border-zinc-700/70 dark:bg-zinc-900/70 dark:shadow-none sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
             <div className="min-w-0 flex-1 lg:max-w-xl">
               <label htmlFor="dial-phone" className={labelClass}>
@@ -125,7 +147,7 @@ export default function QuickDialPanel() {
               type="button"
               onClick={onCall}
               disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall}
-              className="inline-flex h-14 shrink-0 items-center justify-center gap-2.5 rounded-xl bg-emerald-600 px-8 text-base font-semibold text-white shadow-md shadow-emerald-600/25 transition-colors hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:shadow-none dark:disabled:bg-zinc-600 lg:self-end"
+              className="inline-flex h-14 shrink-0 items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/30 transition-[transform,box-shadow,filter] hover:-translate-y-0.5 hover:from-emerald-600 hover:to-emerald-700 hover:shadow-emerald-600/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:shadow-none dark:disabled:bg-zinc-600 lg:self-end"
             >
               {loading ? (
                 <span

@@ -10,11 +10,19 @@ function formatTimer(totalSeconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function formatTransferInput(raw) {
+  return String(raw || "").replace(/[^\d+()\- ]/g, "");
+}
+
 function ActiveCallPanel({ session, endCall }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sdkError } = useTwilioVoice();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [transferTo, setTransferTo] = useState("");
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferError, setTransferError] = useState(null);
+  const [transferStatus, setTransferStatus] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
@@ -32,14 +40,49 @@ function ActiveCallPanel({ session, endCall }) {
   const title = session.customerName?.trim() || "Active call";
   const subtitle = session.phoneLabel || session.toNumber;
 
+  async function startWarmTransfer() {
+    if (!session?.conferenceName || !session?.callId) {
+      setTransferError("Warm transfer is unavailable: missing conference session.");
+      return;
+    }
+    if (!transferTo.trim()) {
+      setTransferError("Enter a transfer phone number.");
+      return;
+    }
+
+    setTransferLoading(true);
+    setTransferError(null);
+    setTransferStatus(null);
+    try {
+      const res = await fetch("/api/calls/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          callId: session.callId,
+          conferenceName: session.conferenceName,
+          toNumber: transferTo.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Warm transfer failed");
+      setTransferStatus(`Dialing transfer target ${json?.transfer?.toNumber || transferTo.trim()}...`);
+      setTransferTo("");
+    } catch (e) {
+      setTransferError(e?.message || "Warm transfer failed");
+    } finally {
+      setTransferLoading(false);
+    }
+  }
+
   return (
     <div
       className={`fixed bottom-4 right-4 z-[9999] transition-all duration-300 ${
-        isMinimized ? "w-64" : "w-80 max-h-[calc(100vh-2rem)]"
+        isMinimized ? "w-72" : "w-[26rem] max-h-[calc(100vh-2rem)]"
       }`}
     >
-      <div className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-lg border-2 border-blue-200 bg-white shadow-2xl backdrop-blur-sm dark:border-blue-800 dark:bg-zinc-900">
-        <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-blue-500 to-blue-600 p-3 text-white">
+      <div className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border-2 border-sky-200 bg-white shadow-2xl shadow-sky-500/10 backdrop-blur-sm dark:border-sky-800 dark:bg-zinc-900 dark:shadow-sky-950/20">
+        <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="flex-shrink-0">
               {displayCallStatus === "in-progress" ? (
@@ -63,9 +106,7 @@ function ActiveCallPanel({ session, endCall }) {
                 >
                   {displayCallStatus === "in-progress" ? "In progress" : "Queued"}
                 </div>
-                {displayCallStatus === "in-progress" ? (
-                  <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div>
-                ) : null}
+                {displayCallStatus === "in-progress" ? <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div> : null}
               </div>
             </div>
           </div>
@@ -117,7 +158,49 @@ function ActiveCallPanel({ session, endCall }) {
               </p>
             ) : null}
 
-            <div className="mt-2 flex flex-col gap-2">
+            <div className="mt-2 space-y-3">
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/30">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                    Warm Transfer
+                  </p>
+                  {transferLoading ? (
+                    <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+                      Dialing...
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    placeholder="Transfer number"
+                    value={transferTo}
+                    onChange={(e) => setTransferTo(formatTransferInput(e.target.value))}
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-violet-200 bg-white px-2.5 text-sm text-zinc-900 outline-none transition-[border-color,box-shadow] focus:border-violet-500 focus:ring-2 focus:ring-violet-300/50 dark:border-violet-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-violet-500 dark:focus:ring-violet-500/30"
+                    disabled={transferLoading}
+                  />
+                  <button
+                    type="button"
+                    onClick={startWarmTransfer}
+                    disabled={transferLoading || !transferTo.trim()}
+                    className="h-9 rounded-lg bg-violet-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                  >
+                    Add
+                  </button>
+                </div>
+                {transferError ? (
+                  <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{transferError}</p>
+                ) : null}
+                {transferStatus ? (
+                  <p className="mt-2 text-xs font-medium text-violet-700 dark:text-violet-300">{transferStatus}</p>
+                ) : (
+                  <p className="mt-2 text-xs text-violet-700/80 dark:text-violet-300/80">
+                    Add another participant, then hang up after they join.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -147,6 +230,7 @@ function ActiveCallPanel({ session, endCall }) {
                 </svg>
                 Hang up
               </button>
+              </div>
             </div>
           </div>
         )}
