@@ -167,6 +167,19 @@ export function TwilioVoiceProvider({ children }) {
     setMuted(next);
   }, []);
 
+  const sendDtmf = useCallback((digits) => {
+    const call = callRef.current;
+    if (!call) return false;
+    const clean = String(digits || "").replace(/[^0-9*#wW]/g, "");
+    if (!clean) return false;
+    try {
+      call.sendDigits(clean);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const acceptIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
     if (!call) return;
@@ -211,6 +224,7 @@ export function TwilioVoiceProvider({ children }) {
         registered,
         voiceConnected,
         toggleMute,
+        sendDtmf,
         ensureRegistered,
         incomingInvite,
         acceptIncomingInvite,

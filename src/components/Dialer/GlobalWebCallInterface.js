@@ -10,8 +10,10 @@ function formatTimer(totalSeconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+
 function ActiveCallPanel({ session, endCall }) {
-  const { voiceConnected, muted: sdkMuted, toggleMute, sdkError } = useTwilioVoice();
+  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError } = useTwilioVoice();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -25,6 +27,9 @@ function ActiveCallPanel({ session, endCall }) {
   const [addAgentLoading, setAddAgentLoading] = useState(false);
   const [addAgentError, setAddAgentError] = useState(null);
   const [addAgentStatus, setAddAgentStatus] = useState(null);
+  const [showKeypad, setShowKeypad] = useState(false);
+  const [dtmfInput, setDtmfInput] = useState("");
+  const [dtmfStatus, setDtmfStatus] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
@@ -132,6 +137,26 @@ function ActiveCallPanel({ session, endCall }) {
     } finally {
       setAddAgentLoading(false);
     }
+  }
+
+  function onDtmfKey(key) {
+    if (!voiceConnected) return;
+    const ok = sendDtmf(key);
+    setDtmfStatus(ok ? `Sent tone: ${key}` : "Unable to send tone.");
+    if (ok) {
+      window.setTimeout(() => setDtmfStatus(null), 1200);
+    }
+  }
+
+  function submitDtmfInput() {
+    const clean = dtmfInput.replace(/[^0-9*#wW]/g, "");
+    if (!clean) {
+      setDtmfStatus("Enter digits to send.");
+      return;
+    }
+    const ok = sendDtmf(clean);
+    setDtmfStatus(ok ? `Sent: ${clean}` : "Unable to send digits.");
+    if (ok) setDtmfInput("");
   }
 
   return (
@@ -276,6 +301,59 @@ function ActiveCallPanel({ session, endCall }) {
               </div>
 
               <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setShowKeypad((v) => !v)}
+                disabled={!voiceConnected}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+              >
+                {showKeypad ? "Hide Keypad" : "Show Keypad"}
+              </button>
+
+              {showKeypad ? (
+                <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900/50 dark:bg-sky-950/20">
+                  <div className="grid grid-cols-3 gap-2">
+                    {DTMF_KEYS.map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => onDtmfKey(key)}
+                        disabled={!voiceConnected}
+                        className="h-10 rounded-lg border border-sky-200 bg-white text-sm font-semibold text-sky-900 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-sky-800 dark:bg-zinc-900 dark:text-sky-100 dark:hover:bg-sky-900/40 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="text"
+                      value={dtmfInput}
+                      onChange={(e) => setDtmfInput(e.target.value.replace(/[^0-9*#wW]/g, ""))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          submitDtmfInput();
+                        }
+                      }}
+                      placeholder="Enter digits then press Enter"
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-2.5 text-sm text-zinc-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-300/50 dark:border-sky-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-sky-500 dark:focus:ring-sky-500/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={submitDtmfInput}
+                      disabled={!voiceConnected || !dtmfInput.trim()}
+                      className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                    >
+                      Send
+                    </button>
+                  </div>
+                  {dtmfStatus ? (
+                    <p className="mt-2 text-xs font-medium text-sky-700 dark:text-sky-300">{dtmfStatus}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => {
