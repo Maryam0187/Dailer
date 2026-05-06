@@ -39,12 +39,16 @@ function ActiveCallPanel({ session, endCall }) {
   const displayCallStatus = session.phase === "connecting" ? "queued" : "in-progress";
   const elapsed = session.phase === "in_progress" ? elapsedSec : 0;
 
-  const title = session.customerName?.trim() || "Active call";
+  const customerName = session.customerName?.trim() || "Customer";
+  const title = customerName;
   const subtitle = session.phoneLabel || session.toNumber;
 
   useEffect(() => {
-    if (!session?.conferenceName || !session?.callId) {
+    const hasRealCallId = Number.isInteger(Number(session?.callId)) && Number(session?.callId) > 0;
+    if (!session?.conferenceName || !hasRealCallId) {
       setParticipants([]);
+      setParticipantsLoading(false);
+      setParticipantsError(null);
       return undefined;
     }
 
@@ -54,7 +58,7 @@ function ActiveCallPanel({ session, endCall }) {
       setParticipantsError(null);
       try {
         const qs = new URLSearchParams({
-          callId: String(session.callId),
+          callId: String(Number(session.callId)),
           conferenceName: String(session.conferenceName),
         });
         const res = await fetch(`/api/calls/participants?${qs.toString()}`, { credentials: "include" });
@@ -232,6 +236,9 @@ function ActiveCallPanel({ session, endCall }) {
                     Add Agent
                   </button>
                 </div>
+                <p className="mt-2 text-xs font-medium text-cyan-800 dark:text-cyan-200">
+                  Customer: {customerName}
+                </p>
 
                 <div className="mt-3 rounded-lg border border-cyan-200/80 bg-white/80 p-2.5 dark:border-cyan-900/50 dark:bg-zinc-900/40">
                   <div className="mb-1 flex items-center justify-between">
@@ -360,13 +367,85 @@ function ActiveCallPanel({ session, endCall }) {
 
 export default function GlobalWebCallInterface() {
   const { session, endCall } = useActiveCall();
+  const { incomingInvite, acceptIncomingInvite, rejectIncomingInvite } = useTwilioVoice();
   const isDev = process.env.NODE_ENV === "development";
 
   if (session) {
-    return <ActiveCallPanel key={session.callId} session={session} endCall={endCall} />;
+    return (
+      <>
+        <ActiveCallPanel key={session.callId || "active-call"} session={session} endCall={endCall} />
+        {incomingInvite ? (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-sm rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                You were invited to join an active conference call.
+              </p>
+              <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                User: {incomingInvite.from || "Unknown"}
+              </p>
+              <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                Customer: {incomingInvite.customerName?.trim() || "Customer"}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={rejectIncomingInvite}
+                  className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Decline
+                </button>
+                <button
+                  type="button"
+                  onClick={acceptIncomingInvite}
+                  className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+                >
+                  Join Call
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
   }
 
-  if (!isDev) return null;
+  if (!isDev && !incomingInvite) return null;
+
+  if (incomingInvite) {
+    return (
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-sm rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
+          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+            You were invited to join an active conference call.
+          </p>
+          <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+            User: {incomingInvite.from || "Unknown"}
+          </p>
+          <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+            Customer: {incomingInvite.customerName?.trim() || "Customer"}
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={rejectIncomingInvite}
+              className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Decline
+            </button>
+            <button
+              type="button"
+              onClick={acceptIncomingInvite}
+              className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+            >
+              Join Call
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const devPreviewSession = {
     callId: "dev-preview-call",

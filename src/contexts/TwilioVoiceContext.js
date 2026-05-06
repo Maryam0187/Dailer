@@ -6,21 +6,24 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 const TwilioVoiceContext = createContext(undefined);
 
 export function TwilioVoiceProvider({ children }) {
-  const { session, endCall, markInProgress } = useActiveCall();
+  const { session, beginSession, endCall, markInProgress } = useActiveCall();
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [sdkError, setSdkError] = useState(null);
   const [registered, setRegistered] = useState(false);
   const [sdkInitializing, setSdkInitializing] = useState(false);
+  const [incomingInvite, setIncomingInvite] = useState(null);
   const callRef = useRef(null);
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
+  const incomingCallRef = useRef(null);
 
   // Cleanup when the provider unmounts.
   useEffect(() => {
     return () => {
       callRef.current?.disconnect();
       callRef.current = null;
+      incomingCallRef.current = null;
       deviceRef.current?.destroy();
       deviceRef.current = null;
       deviceInitPromiseRef.current = null;
@@ -59,18 +62,21 @@ export function TwilioVoiceProvider({ children }) {
       });
 
       device.on("incoming", (call) => {
-        call.accept();
-        callRef.current = call;
-        setMuted(call.isMuted());
-        setVoiceConnected(true);
-        markInProgress();
+        incomingCallRef.current = call;
+        const from = String(call?.parameters?.From || "").trim();
+        setIncomingInvite({
+          from: from || "Conference invite",
+          callSid: call?.parameters?.CallSid || null,
+          customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
+        });
 
-        call.on("mute", (isMuted) => setMuted(isMuted));
-        call.on("disconnect", () => {
-          callRef.current = null;
-          setVoiceConnected(false);
-          setMuted(false);
-          endCall();
+        call.on("cancel", () => {
+          incomingCallRef.current = null;
+          setIncomingInvite(null);
+        });
+        call.on("reject", () => {
+          incomingCallRef.current = null;
+          setIncomingInvite(null);
         });
       });
 
@@ -106,7 +112,7 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, markInProgress, endCall]);
+  }, [registered]);
 
   useEffect(() => {
     if (session) return;
@@ -115,6 +121,8 @@ export function TwilioVoiceProvider({ children }) {
       active.disconnect();
       callRef.current = null;
     }
+    incomingCallRef.current = null;
+    setIncomingInvite(null);
     deviceRef.current?.destroy();
     deviceRef.current = null;
     deviceInitPromiseRef.current = null;
@@ -131,6 +139,49 @@ export function TwilioVoiceProvider({ children }) {
     setMuted(next);
   }, []);
 
+  const acceptIncomingInvite = useCallback(() => {
+    const call = incomingCallRef.current;
+    if (!call) return;
+    setSdkError(null);
+    setIncomingInvite(null);
+    try {
+      call.accept();
+      incomingCallRef.current = null;
+      callRef.current = call;
+      setMuted(call.isMuted());
+      setVoiceConnected(true);
+      beginSession({
+        callId: null,
+        conferenceName: null,
+        customerName: "Conference call",
+        phoneLabel: call?.parameters?.From || "",
+        toNumber: call?.parameters?.From || "",
+      });
+      markInProgress();
+
+      call.on("mute", (isMuted) => setMuted(isMuted));
+      call.on("disconnect", () => {
+        callRef.current = null;
+        setVoiceConnected(false);
+        setMuted(false);
+        endCall();
+      });
+    } catch (err) {
+      setSdkError(err?.message || "Unable to join incoming call");
+    }
+  }, [beginSession, endCall, markInProgress]);
+
+  const rejectIncomingInvite = useCallback(() => {
+    const call = incomingCallRef.current;
+    setIncomingInvite(null);
+    if (!call) return;
+    try {
+      call.reject();
+    } finally {
+      incomingCallRef.current = null;
+    }
+  }, []);
+
   return (
     <TwilioVoiceContext.Provider
       value={{
@@ -141,6 +192,9 @@ export function TwilioVoiceProvider({ children }) {
         voiceConnected,
         toggleMute,
         ensureRegistered,
+        incomingInvite,
+        acceptIncomingInvite,
+        rejectIncomingInvite,
       }}
     >
       {children}
