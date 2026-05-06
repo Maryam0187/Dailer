@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { startOutgoingCall } from "@/lib/startOutgoingCall";
 
 const inputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -40,6 +43,8 @@ function getPresetRange(preset) {
 }
 
 export default function CallLogsClient() {
+  const { session, beginSession } = useActiveCall();
+  const { ensureRegistered, registered, sdkInitializing } = useTwilioVoice();
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,17 +106,25 @@ export default function CallLogsClient() {
   }
 
   async function redial(toNumber, id) {
+    if (session) return;
     setError(null);
     setCallingId(id);
     try {
-      const res = await fetch("/api/calls/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ toNumber }),
+      if (!registered || sdkInitializing) {
+        await ensureRegistered();
+      }
+
+      const result = await startOutgoingCall(toNumber);
+      if (!result.ok) throw new Error(result.error);
+
+      beginSession({
+        callId: result.call.id,
+        toNumber: result.call.toNumber,
+        phoneLabel: toNumber,
+        customerName: undefined,
+        conferenceName: result.conferenceName || undefined,
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to place call");
+
       await loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
     } catch (e) {
       setError(e.message || "Failed to place call");
@@ -316,10 +329,10 @@ export default function CallLogsClient() {
                       <button
                         type="button"
                         onClick={() => redial(c.toNumber, c.id)}
-                        disabled={callingId === c.id}
+                        disabled={callingId === c.id || Boolean(session)}
                         className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
                       >
-                        {callingId === c.id ? "Calling..." : "Call"}
+                        {session ? "Call in progress" : callingId === c.id ? "Calling..." : "Call"}
                       </button>
                     </td>
                   </tr>
