@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 export default function Footer() {
   const year = new Date().getFullYear();
   const [now, setNow] = useState(() => new Date());
+  const [mounted, setMounted] = useState(false);
 
   const deploymentNumber = process.env.NEXT_PUBLIC_DEPLOYMENT_NUMBER || process.env.NEXT_PUBLIC_RELEASE || "dev";
   const deployedAtLabel = useMemo(() => {
@@ -15,6 +16,7 @@ export default function Footer() {
   }, []);
 
   useEffect(() => {
+    setMounted(true);
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -25,7 +27,7 @@ export default function Footer() {
         <p>© {year} Dialer</p>
         <div className="flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
           <span>Deployment: {deploymentNumber}</span>
-          <span>Date/Time: {now.toLocaleString()}</span>
+          <span>Date/Time: {mounted ? now.toLocaleString() : "—"}</span>
           <span>Deployed At: {deployedAtLabel}</span>
         </div>
       </div>

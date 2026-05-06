@@ -30,6 +30,9 @@ function ActiveCallPanel({ session, endCall }) {
   const [showKeypad, setShowKeypad] = useState(false);
   const [dtmfInput, setDtmfInput] = useState("");
   const [dtmfStatus, setDtmfStatus] = useState(null);
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingStatus, setRecordingStatus] = useState("idle");
+  const [recordingMessage, setRecordingMessage] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
@@ -157,6 +160,59 @@ function ActiveCallPanel({ session, endCall }) {
     const ok = sendDtmf(clean);
     setDtmfStatus(ok ? `Sent: ${clean}` : "Unable to send digits.");
     if (ok) setDtmfInput("");
+  }
+
+  async function startRecording() {
+    if (!session?.callId || !session?.conferenceName) {
+      setRecordingMessage("Recording unavailable for this session.");
+      return;
+    }
+    setRecordingLoading(true);
+    setRecordingMessage(null);
+    try {
+      const res = await fetch("/api/calls/recording/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          callId: Number(session.callId),
+          conferenceName: session.conferenceName,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to start recording");
+      setRecordingStatus("in-progress");
+      setRecordingMessage("Recording started.");
+    } catch (e) {
+      setRecordingMessage(e?.message || "Failed to start recording");
+    } finally {
+      setRecordingLoading(false);
+    }
+  }
+
+  async function stopRecording() {
+    if (!session?.callId) {
+      setRecordingMessage("Recording unavailable for this session.");
+      return;
+    }
+    setRecordingLoading(true);
+    setRecordingMessage(null);
+    try {
+      const res = await fetch("/api/calls/recording/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ callId: Number(session.callId) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to stop recording");
+      setRecordingStatus("stopped");
+      setRecordingMessage("Recording stopped. It will be downloadable from call logs.");
+    } catch (e) {
+      setRecordingMessage(e?.message || "Failed to stop recording");
+    } finally {
+      setRecordingLoading(false);
+    }
   }
 
   return (
@@ -301,6 +357,42 @@ function ActiveCallPanel({ session, endCall }) {
               </div>
 
               <div className="flex flex-col gap-2">
+              <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                    Recording
+                  </p>
+                  <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                    {recordingStatus === "in-progress" ? "REC" : "IDLE"}
+                  </span>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={recordingLoading || recordingStatus === "in-progress"}
+                    className="h-9 rounded-lg bg-rose-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                  >
+                    Start
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    disabled={recordingLoading || recordingStatus !== "in-progress"}
+                    className="h-9 rounded-lg border border-rose-300 bg-white px-3 text-sm font-semibold text-rose-800 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-700 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-zinc-800"
+                  >
+                    Stop
+                  </button>
+                </div>
+                {recordingMessage ? (
+                  <p className="mt-2 text-xs font-medium text-rose-700 dark:text-rose-300">{recordingMessage}</p>
+                ) : (
+                  <p className="mt-2 text-xs text-rose-700/80 dark:text-rose-300/80">
+                    Download recording from Call Logs after stop/completion.
+                  </p>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setShowKeypad((v) => !v)}

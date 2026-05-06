@@ -17,6 +17,8 @@ export function TwilioVoiceProvider({ children }) {
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
+  const expectedIncomingUntilRef = useRef(0);
+  const interactionPrimedRef = useRef(false);
 
   const bindActiveCallEvents = useCallback(
     (call) => {
@@ -82,7 +84,12 @@ export function TwilioVoiceProvider({ children }) {
       device.on("incoming", (call) => {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
-        if (session?.callId || session?.conferenceName) {
+        const shouldAutoAccept =
+          session?.callId ||
+          session?.conferenceName ||
+          expectedIncomingUntilRef.current > Date.now();
+        if (shouldAutoAccept) {
+          expectedIncomingUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
           call.accept();
@@ -141,6 +148,29 @@ export function TwilioVoiceProvider({ children }) {
       setSdkInitializing(false);
     }
   }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents]);
+
+  // Prime browser agent registration after first user interaction so invitees
+  // can receive calls even when not dialing themselves.
+  useEffect(() => {
+    if (registered || deviceRef.current || interactionPrimedRef.current) return undefined;
+
+    const onUserGesture = () => {
+      if (interactionPrimedRef.current) return;
+      interactionPrimedRef.current = true;
+      ensureRegistered().catch(() => {
+        interactionPrimedRef.current = false;
+      });
+      window.removeEventListener("pointerdown", onUserGesture);
+      window.removeEventListener("keydown", onUserGesture);
+    };
+
+    window.addEventListener("pointerdown", onUserGesture, { passive: true });
+    window.addEventListener("keydown", onUserGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onUserGesture);
+      window.removeEventListener("keydown", onUserGesture);
+    };
+  }, [registered, ensureRegistered]);
 
   useEffect(() => {
     if (session) return;
@@ -215,6 +245,12 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, []);
 
+  const markExpectIncomingAutoAccept = useCallback((ttlMs = 30000) => {
+    const ttl = Number(ttlMs);
+    const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 30000;
+    expectedIncomingUntilRef.current = Date.now() + safeTtl;
+  }, []);
+
   return (
     <TwilioVoiceContext.Provider
       value={{
@@ -229,6 +265,7 @@ export function TwilioVoiceProvider({ children }) {
         incomingInvite,
         acceptIncomingInvite,
         rejectIncomingInvite,
+        markExpectIncomingAutoAccept,
       }}
     >
       {children}

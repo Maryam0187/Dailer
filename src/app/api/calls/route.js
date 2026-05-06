@@ -55,6 +55,9 @@ export async function GET(req) {
       "direction",
       "status",
       "durationSeconds",
+      "recordingSid",
+      "recordingStatus",
+      "recordingDurationSeconds",
       "createdAt",
     ],
     include: [
@@ -76,6 +79,11 @@ export async function GET(req) {
       direction: call.direction,
       status: call.status,
       durationSeconds: call.durationSeconds,
+      recordingStatus: call.recordingStatus || null,
+      recordingDurationSeconds: call.recordingDurationSeconds ?? null,
+      recordingDownloadUrl: call.recordingSid
+        ? `/api/calls/recording/download/${call.id}`
+        : null,
       createdAt: call.createdAt,
     })),
     pagination: {

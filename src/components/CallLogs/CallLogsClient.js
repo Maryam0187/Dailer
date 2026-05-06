@@ -44,7 +44,7 @@ function getPresetRange(preset) {
 
 export default function CallLogsClient() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing } = useTwilioVoice();
+  const { ensureRegistered, registered, sdkInitializing, markExpectIncomingAutoAccept } = useTwilioVoice();
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -110,6 +110,7 @@ export default function CallLogsClient() {
     setError(null);
     setCallingId(id);
     try {
+      markExpectIncomingAutoAccept(45000);
       if (!registered || sdkInitializing) {
         await ensureRegistered();
       }
@@ -305,6 +306,7 @@ export default function CallLogsClient() {
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Duration</th>
+                  <th className="py-2 pr-3">Recording</th>
                   <th className="py-2 text-right">Action</th>
                 </tr>
               </thead>
@@ -324,6 +326,19 @@ export default function CallLogsClient() {
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.durationSeconds ?? "—"}s
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                      {c.recordingDownloadUrl ? (
+                        <a
+                          href={c.recordingDownloadUrl}
+                          download
+                          className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                        >
+                          Download
+                        </a>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2 text-right">
                       <button

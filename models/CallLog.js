@@ -43,11 +43,23 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
       },
+      recordingSid: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      recordingStatus: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      recordingDurationSeconds: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
     },
     {
       tableName: "CallLogs",
       timestamps: true,
-      indexes: [{ fields: ["userId"] }, { fields: ["twilioSid"] }],
+      indexes: [{ fields: ["userId"] }, { fields: ["twilioSid"] }, { fields: ["recordingSid"] }],
     },
   );
 
