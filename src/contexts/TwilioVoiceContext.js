@@ -18,6 +18,24 @@ export function TwilioVoiceProvider({ children }) {
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
 
+  const bindActiveCallEvents = useCallback(
+    (call) => {
+      callRef.current = call;
+      setMuted(call.isMuted());
+      setVoiceConnected(true);
+      markInProgress();
+
+      call.on("mute", (isMuted) => setMuted(isMuted));
+      call.on("disconnect", () => {
+        callRef.current = null;
+        setVoiceConnected(false);
+        setMuted(false);
+        endCall();
+      });
+    },
+    [endCall, markInProgress],
+  );
+
   // Cleanup when the provider unmounts.
   useEffect(() => {
     return () => {
@@ -62,6 +80,16 @@ export function TwilioVoiceProvider({ children }) {
       });
 
       device.on("incoming", (call) => {
+        // If this browser already has an active/connecting session, this is
+        // the expected call leg for that session -> auto-join without prompt.
+        if (session?.callId || session?.conferenceName) {
+          setIncomingInvite(null);
+          incomingCallRef.current = null;
+          call.accept();
+          bindActiveCallEvents(call);
+          return;
+        }
+
         incomingCallRef.current = call;
         const from = String(call?.parameters?.From || "").trim();
         setIncomingInvite({
@@ -112,7 +140,7 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered]);
+  }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents]);
 
   useEffect(() => {
     if (session) return;
@@ -147,29 +175,21 @@ export function TwilioVoiceProvider({ children }) {
     try {
       call.accept();
       incomingCallRef.current = null;
-      callRef.current = call;
-      setMuted(call.isMuted());
-      setVoiceConnected(true);
-      beginSession({
-        callId: null,
-        conferenceName: null,
-        customerName: "Conference call",
-        phoneLabel: call?.parameters?.From || "",
-        toNumber: call?.parameters?.From || "",
-      });
-      markInProgress();
-
-      call.on("mute", (isMuted) => setMuted(isMuted));
-      call.on("disconnect", () => {
-        callRef.current = null;
-        setVoiceConnected(false);
-        setMuted(false);
-        endCall();
-      });
+      // Only create a synthetic session if there isn't one already.
+      if (!session) {
+        beginSession({
+          callId: `incoming-${Date.now()}`,
+          conferenceName: "incoming-conference",
+          customerName: incomingInvite?.customerName?.trim() || "Customer",
+          phoneLabel: call?.parameters?.From || "",
+          toNumber: call?.parameters?.From || "",
+        });
+      }
+      bindActiveCallEvents(call);
     } catch (err) {
       setSdkError(err?.message || "Unable to join incoming call");
     }
-  }, [beginSession, endCall, markInProgress]);
+  }, [session, incomingInvite?.customerName, beginSession, bindActiveCallEvents]);
 
   const rejectIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
