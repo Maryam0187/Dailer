@@ -88,7 +88,7 @@ export default function QuickDialPanel() {
 
       <div className="relative p-6 sm:pl-7 sm:pr-8 sm:pt-8 sm:pb-8">
         <div className="mb-6 text-left">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs font-semibold text-sky-800 shadow-sm dark:border-sky-800/80 dark:bg-zinc-900/70 dark:text-sky-200">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-200/80 bg-white/85 px-3 py-1 text-xs font-semibold text-sky-800 shadow-sm shadow-sky-200/40 dark:border-sky-800/80 dark:bg-zinc-900/70 dark:text-sky-200 dark:shadow-none">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
             Voice Console
           </div>
@@ -97,75 +97,68 @@ export default function QuickDialPanel() {
               Smart Dialer
             </span>
           </h2>
-          <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             Enter a number and optional contact name, then start the call. Outbound calls are logged
             automatically.
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-              Conference Ready
-            </span>
-            <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-300">
-              Warm Transfer
-            </span>
-            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300">
-              Browser Agent
-            </span>
-          </div>
         </div>
 
-        <div className="space-y-5 rounded-2xl border border-white/70 bg-white/70 p-4 shadow-inner shadow-sky-100/60 backdrop-blur-sm dark:border-zinc-700/70 dark:bg-zinc-900/70 dark:shadow-none sm:p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-            <div className="min-w-0 flex-1 lg:max-w-xl">
-              <label htmlFor="dial-phone" className={labelClass}>
-                Phone number <span className="text-sky-600 dark:text-sky-400">*</span>
-              </label>
-              <input
-                id="dial-phone"
-                type="tel"
-                value={phone}
-                onChange={onPhoneChange}
-                onPaste={onPhonePaste}
-                placeholder="Paste or type number"
-                disabled={hasActiveCall}
-                className={`${phoneInputBase} ${
-                  validation.isValid
-                    ? "border-sky-400/80 bg-sky-50/80 focus:border-sky-500 focus:ring-sky-500/30 dark:border-sky-600/60 dark:bg-sky-950/35 dark:focus:border-sky-500 dark:focus:ring-sky-400/25"
-                    : "border-red-400 bg-red-50/80 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500 dark:bg-red-950/30 dark:focus:ring-red-400/25"
-                }`}
-              />
+        <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_10px_30px_rgba(56,189,248,0.08)] backdrop-blur-sm dark:border-zinc-700/70 dark:bg-zinc-900/75 dark:shadow-none sm:p-5">
+          <div>
+            <label htmlFor="dial-phone" className={labelClass}>
+              Phone number <span className="text-sky-600 dark:text-sky-400">*</span>
+            </label>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1 lg:max-w-xl">
+                <input
+                  id="dial-phone"
+                  type="tel"
+                  value={phone}
+                  onChange={onPhoneChange}
+                  onPaste={onPhonePaste}
+                  placeholder="Paste or type number"
+                  disabled={hasActiveCall}
+                maxLength={12}
+                  className={`${phoneInputBase} ${
+                    validation.isValid
+                      ? "border-sky-400/80 bg-sky-50/80 focus:border-sky-500 focus:ring-sky-500/30 dark:border-sky-600/60 dark:bg-sky-950/35 dark:focus:border-sky-500 dark:focus:ring-sky-400/25"
+                      : "border-red-400 bg-red-50/80 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500 dark:bg-red-950/30 dark:focus:ring-red-400/25"
+                  }`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={onCall}
+                disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall}
+                className="inline-flex h-14 shrink-0 items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/30 transition-[transform,box-shadow,filter] hover:-translate-y-0.5 hover:from-emerald-600 hover:to-emerald-700 hover:shadow-emerald-600/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:shadow-none dark:disabled:bg-zinc-600 lg:self-auto"
+              >
+                {loading ? (
+                  <span
+                    className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                    aria-hidden
+                  />
+                ) : (
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                    />
+                  </svg>
+                )}
+                {hasActiveCall ? "Call in progress" : loading ? "Connecting…" : "Call"}
+              </button>
+            </div>
+            <div className="mt-1.5 min-h-[1.25rem]">
               {validation.message ? (
                 <p
-                  className={`mt-1.5 text-xs ${validation.isValid ? "text-zinc-500 dark:text-zinc-400" : "font-medium text-red-600 dark:text-red-400"}`}
+                  className={`text-xs ${validation.isValid ? "text-zinc-500 dark:text-zinc-400" : "font-medium text-red-600 dark:text-red-400"}`}
                 >
                   {validation.message}
                 </p>
               ) : null}
             </div>
-
-            <button
-              type="button"
-              onClick={onCall}
-              disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall}
-              className="inline-flex h-14 shrink-0 items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/30 transition-[transform,box-shadow,filter] hover:-translate-y-0.5 hover:from-emerald-600 hover:to-emerald-700 hover:shadow-emerald-600/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:shadow-none dark:disabled:bg-zinc-600 lg:self-end"
-            >
-              {loading ? (
-                <span
-                  className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
-                  aria-hidden
-                />
-              ) : (
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                  />
-                </svg>
-              )}
-              {hasActiveCall ? "Call in progress" : loading ? "Connecting…" : "Call"}
-            </button>
           </div>
 
           {error ? (
