@@ -14,7 +14,7 @@ function slugifyAgentName(raw) {
 }
 
 /**
- * Twilio Voice Client identity: `{prefix}-{id}-{name}` (e.g. `agent-3-maryam`).
+ * Twilio Voice Client identity: `{id}-{name}` (e.g. `3-maryam`).
  * Must match TwiML &lt;Client&gt; and the JWT from /api/twilio/token.
  * @param {number|string} userId
  * @param {string} [username] – display/login name; falls back to `user` if empty
@@ -24,12 +24,8 @@ export function getAgentClientIdentity(userId, username) {
   if (!Number.isFinite(id) || id <= 0 || !Number.isInteger(id)) {
     throw new Error("userId must be a positive integer");
   }
-  const prefix = (process.env.TWILIO_AGENT_IDENTITY_PREFIX?.trim() || "agent").replace(
-    /[^a-zA-Z0-9_-]/g,
-    "",
-  ) || "agent";
   const name = slugifyAgentName(username);
-  return `${prefix}-${id}-${name}`;
+  return `${id}-${name}`;
 }
 
 export function isTwilioBrowserAgentConfigured() {
