@@ -8,6 +8,17 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 export default async function MainLayout({ children }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  const railwayTag =
+    process.env.RAILWAY_GIT_TAG ||
+    process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 8) ||
+    process.env.RAILWAY_DEPLOYMENT_ID ||
+    null;
+  const deployedAt =
+    process.env.RAILWAY_DEPLOYMENT_CREATED_AT ||
+    process.env.RAILWAY_DEPLOYED_AT ||
+    process.env.NEXT_PUBLIC_DEPLOYED_AT ||
+    process.env.NEXT_PUBLIC_BUILD_TIME ||
+    null;
 
   return (
     <MainAppShell>
@@ -16,7 +27,7 @@ export default async function MainLayout({ children }) {
         <main className="min-h-0 flex-1">
           <MainContentShell>{children}</MainContentShell>
         </main>
-        <Footer />
+        <Footer railwayTag={railwayTag} deployedAt={deployedAt} />
       </div>
     </MainAppShell>
   );

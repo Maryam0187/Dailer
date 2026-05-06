@@ -10,13 +10,12 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, sdkError, markExpectIncomingAutoAccept } = useTwilioVoice();
+  const { ensureRegistered, registered, sdkInitializing, markExpectIncomingAutoAccept } = useTwilioVoice();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [voiceReadyLoading, setVoiceReadyLoading] = useState(false);
 
   const hasActiveCall = Boolean(session);
 
@@ -74,18 +73,6 @@ export default function QuickDialPanel() {
     }
   }
 
-  async function enableIncomingCalls() {
-    setVoiceReadyLoading(true);
-    setError(null);
-    try {
-      await ensureRegistered();
-    } catch (e) {
-      setError(e?.message || "Failed to enable incoming calls");
-    } finally {
-      setVoiceReadyLoading(false);
-    }
-  }
-
   const phoneInputBase =
     "w-full rounded-xl border-2 px-5 py-4 font-mono text-xl text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-500 focus:ring-2 focus:ring-offset-0 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-offset-0";
 
@@ -116,22 +103,6 @@ export default function QuickDialPanel() {
             {registered ? "Voice Ready" : "Voice Not Ready"}
           </div>
         </div>
-
-        {!registered ? (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-            <p className="text-xs font-medium">
-              Incoming invites require browser voice registration.
-            </p>
-            <button
-              type="button"
-              onClick={enableIncomingCalls}
-              disabled={voiceReadyLoading || sdkInitializing}
-              className="h-9 shrink-0 rounded-lg bg-amber-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
-            >
-              {voiceReadyLoading || sdkInitializing ? "Enabling..." : "Enable Incoming Calls"}
-            </button>
-          </div>
-        ) : null}
 
         <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
           <div>
@@ -199,15 +170,6 @@ export default function QuickDialPanel() {
               role="alert"
             >
               {error}
-            </p>
-          ) : null}
-
-          {sdkError ? (
-            <p
-              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
-              role="status"
-            >
-              Voice SDK: {sdkError}
             </p>
           ) : null}
 

@@ -18,7 +18,7 @@ export function TwilioVoiceProvider({ children }) {
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
   const expectedIncomingUntilRef = useRef(0);
-  const interactionPrimedRef = useRef(false);
+  const initialRegisterAttemptedRef = useRef(false);
 
   const bindActiveCallEvents = useCallback(
     (call) => {
@@ -149,27 +149,14 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents]);
 
-  // Prime browser agent registration after first user interaction so invitees
-  // can receive calls even when not dialing themselves.
+  // Auto-register device on load (previous behavior) so agents can receive
+  // incoming invites without any extra action.
   useEffect(() => {
-    if (registered || deviceRef.current || interactionPrimedRef.current) return undefined;
-
-    const onUserGesture = () => {
-      if (interactionPrimedRef.current) return;
-      interactionPrimedRef.current = true;
-      ensureRegistered().catch(() => {
-        interactionPrimedRef.current = false;
-      });
-      window.removeEventListener("pointerdown", onUserGesture);
-      window.removeEventListener("keydown", onUserGesture);
-    };
-
-    window.addEventListener("pointerdown", onUserGesture, { passive: true });
-    window.addEventListener("keydown", onUserGesture);
-    return () => {
-      window.removeEventListener("pointerdown", onUserGesture);
-      window.removeEventListener("keydown", onUserGesture);
-    };
+    if (registered || deviceRef.current || initialRegisterAttemptedRef.current) return;
+    initialRegisterAttemptedRef.current = true;
+    ensureRegistered().catch(() => {
+      // Keep silent; outbound actions still retry registration explicitly.
+    });
   }, [registered, ensureRegistered]);
 
   useEffect(() => {

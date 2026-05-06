@@ -2,18 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export default function Footer() {
+export default function Footer({ railwayTag, deployedAt }) {
   const year = new Date().getFullYear();
   const [now, setNow] = useState(() => new Date());
   const [mounted, setMounted] = useState(false);
 
-  const deploymentNumber = process.env.NEXT_PUBLIC_DEPLOYMENT_NUMBER || process.env.NEXT_PUBLIC_RELEASE || "dev";
+  const deploymentNumber =
+    railwayTag ||
+    process.env.NEXT_PUBLIC_DEPLOYMENT_NUMBER ||
+    process.env.NEXT_PUBLIC_RELEASE ||
+    "dev";
   const deployedAtLabel = useMemo(() => {
-    const raw = process.env.NEXT_PUBLIC_DEPLOYED_AT || process.env.NEXT_PUBLIC_BUILD_TIME || "";
+    const raw = deployedAt || process.env.NEXT_PUBLIC_DEPLOYED_AT || process.env.NEXT_PUBLIC_BUILD_TIME || "";
     if (!raw) return "Not set";
     const dt = new Date(raw);
     return Number.isNaN(dt.getTime()) ? "Not set" : dt.toLocaleString();
-  }, []);
+  }, [deployedAt]);
 
   useEffect(() => {
     setMounted(true);
@@ -26,7 +30,7 @@ export default function Footer() {
       <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4">
         <p>© {year} Dialer</p>
         <div className="flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
-          <span>Deployment: {deploymentNumber}</span>
+          <span>Railway Tag: {deploymentNumber}</span>
           <span>Date/Time: {mounted ? now.toLocaleString() : "—"}</span>
           <span>Deployed At: {deployedAtLabel}</span>
         </div>
