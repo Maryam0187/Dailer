@@ -10,19 +10,21 @@ function formatTimer(totalSeconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function formatTransferInput(raw) {
-  return String(raw || "").replace(/[^\d+()\- ]/g, "");
-}
-
 function ActiveCallPanel({ session, endCall }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sdkError } = useTwilioVoice();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
-  const [transferTo, setTransferTo] = useState("");
-  const [transferLoading, setTransferLoading] = useState(false);
-  const [transferError, setTransferError] = useState(null);
-  const [transferStatus, setTransferStatus] = useState(null);
+  const [participants, setParticipants] = useState([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participantsError, setParticipantsError] = useState(null);
+  const [showAddAgentDialog, setShowAddAgentDialog] = useState(false);
+  const [agents, setAgents] = useState([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [addAgentLoading, setAddAgentLoading] = useState(false);
+  const [addAgentError, setAddAgentError] = useState(null);
+  const [addAgentStatus, setAddAgentStatus] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
@@ -40,38 +42,91 @@ function ActiveCallPanel({ session, endCall }) {
   const title = session.customerName?.trim() || "Active call";
   const subtitle = session.phoneLabel || session.toNumber;
 
-  async function startWarmTransfer() {
+  useEffect(() => {
     if (!session?.conferenceName || !session?.callId) {
-      setTransferError("Warm transfer is unavailable: missing conference session.");
-      return;
+      setParticipants([]);
+      return undefined;
     }
-    if (!transferTo.trim()) {
-      setTransferError("Enter a transfer phone number.");
+
+    let cancelled = false;
+    async function loadParticipants(showLoading = false) {
+      if (showLoading) setParticipantsLoading(true);
+      setParticipantsError(null);
+      try {
+        const qs = new URLSearchParams({
+          callId: String(session.callId),
+          conferenceName: String(session.conferenceName),
+        });
+        const res = await fetch(`/api/calls/participants?${qs.toString()}`, { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load participants");
+        if (!cancelled) setParticipants(json?.participants || []);
+      } catch (e) {
+        if (!cancelled) setParticipantsError(e?.message || "Failed to load participants");
+      } finally {
+        if (!cancelled) setParticipantsLoading(false);
+      }
+    }
+
+    loadParticipants(true);
+    const id = window.setInterval(() => loadParticipants(false), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [session?.callId, session?.conferenceName]);
+
+  async function openAddAgentDialog() {
+    setShowAddAgentDialog(true);
+    setAddAgentError(null);
+    setSelectedAgentId("");
+    setAgentsLoading(true);
+    try {
+      const res = await fetch("/api/users", { credentials: "include" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load users");
+      setAgents((json?.users || []).filter((u) => u.role === "agent" && u.isActive !== false));
+    } catch (e) {
+      setAddAgentError(e?.message || "Failed to load agents");
+      setAgents([]);
+    } finally {
+      setAgentsLoading(false);
+    }
+  }
+
+  async function addAgentToConference() {
+    if (!selectedAgentId) {
+      setAddAgentError("Please select an agent.");
       return;
     }
 
-    setTransferLoading(true);
-    setTransferError(null);
-    setTransferStatus(null);
+    setAddAgentLoading(true);
+    setAddAgentError(null);
+    setAddAgentStatus(null);
     try {
-      const res = await fetch("/api/calls/transfer", {
+      const res = await fetch("/api/calls/add-agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           callId: session.callId,
           conferenceName: session.conferenceName,
-          toNumber: transferTo.trim(),
+          agentUserId: Number(selectedAgentId),
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Warm transfer failed");
-      setTransferStatus(`Dialing transfer target ${json?.transfer?.toNumber || transferTo.trim()}...`);
-      setTransferTo("");
+      if (!res.ok) throw new Error(json?.error || "Failed to invite agent");
+      const invitedName = json?.invitedAgent?.username || "agent";
+      const statusMessage = `Inviting ${invitedName} to join...`;
+      setAddAgentStatus(statusMessage);
+      if (Array.isArray(json?.participants) && json.participants.length > 0) {
+        setParticipants(json.participants);
+      }
+      setShowAddAgentDialog(false);
     } catch (e) {
-      setTransferError(e?.message || "Warm transfer failed");
+      setAddAgentError(e?.message || "Failed to invite agent");
     } finally {
-      setTransferLoading(false);
+      setAddAgentLoading(false);
     }
   }
 
@@ -159,45 +214,58 @@ function ActiveCallPanel({ session, endCall }) {
             ) : null}
 
             <div className="mt-2 space-y-3">
-              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/30">
+              <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-950/30">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
-                    Warm Transfer
+                  <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                    Agent Collaboration
                   </p>
-                  {transferLoading ? (
-                    <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300">
-                      Dialing...
-                    </span>
-                  ) : null}
                 </div>
-                <div className="flex gap-2">
-                  <input
-                    type="tel"
-                    placeholder="Transfer number"
-                    value={transferTo}
-                    onChange={(e) => setTransferTo(formatTransferInput(e.target.value))}
-                    className="h-9 min-w-0 flex-1 rounded-lg border border-violet-200 bg-white px-2.5 text-sm text-zinc-900 outline-none transition-[border-color,box-shadow] focus:border-violet-500 focus:ring-2 focus:ring-violet-300/50 dark:border-violet-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-violet-500 dark:focus:ring-violet-500/30"
-                    disabled={transferLoading}
-                  />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-cyan-700/90 dark:text-cyan-300/90">
+                    Invite internal agents to join this live call.
+                  </p>
                   <button
                     type="button"
-                    onClick={startWarmTransfer}
-                    disabled={transferLoading || !transferTo.trim()}
-                    className="h-9 rounded-lg bg-violet-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                    onClick={openAddAgentDialog}
+                    className="h-9 rounded-lg bg-cyan-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-700"
                   >
-                    Add
+                    Add Agent
                   </button>
                 </div>
-                {transferError ? (
-                  <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{transferError}</p>
+
+                <div className="mt-3 rounded-lg border border-cyan-200/80 bg-white/80 p-2.5 dark:border-cyan-900/50 dark:bg-zinc-900/40">
+                  <div className="mb-1 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                      Participants
+                    </p>
+                    {participantsLoading ? (
+                      <span className="text-[11px] text-cyan-700/80 dark:text-cyan-300/80">Refreshing...</span>
+                    ) : null}
+                  </div>
+                  {participantsError ? (
+                    <p className="text-xs font-medium text-red-700 dark:text-red-300">{participantsError}</p>
+                  ) : participants.length ? (
+                    <ul className="space-y-1">
+                      {participants.map((p) => (
+                        <li
+                          key={p.callSid || `${p.label}-${p.type}`}
+                          className="flex items-center justify-between rounded-md bg-cyan-50 px-2 py-1 text-xs dark:bg-cyan-950/30"
+                        >
+                          <span className="truncate text-cyan-900 dark:text-cyan-100">{p.label}</span>
+                          <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-200">
+                            {p.type}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-cyan-700/80 dark:text-cyan-300/80">No participants joined yet.</p>
+                  )}
+                </div>
+
+                {addAgentStatus ? (
+                  <p className="mt-2 text-xs font-medium text-cyan-700 dark:text-cyan-300">{addAgentStatus}</p>
                 ) : null}
-                {transferStatus ? (
-                  <p className="mt-2 text-xs font-medium text-violet-700 dark:text-violet-300">{transferStatus}</p>
-                ) : (
-                  <p className="mt-2 text-xs text-violet-700/80 dark:text-violet-300/80">
-                    Add another participant, then hang up after they join.
-                  </p>
-                )}
               </div>
 
               <div className="flex flex-col gap-2">
@@ -235,12 +303,91 @@ function ActiveCallPanel({ session, endCall }) {
           </div>
         )}
       </div>
+
+      {showAddAgentDialog ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Add Agent to Call</h3>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+              Select an agent user to join this conference.
+            </p>
+
+            <div className="mt-3">
+              <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Agent</label>
+              <select
+                value={selectedAgentId}
+                onChange={(e) => setSelectedAgentId(e.target.value)}
+                disabled={agentsLoading || addAgentLoading}
+                className="h-9 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm text-zinc-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-300/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-sky-500 dark:focus:ring-sky-500/30"
+              >
+                <option value="">{agentsLoading ? "Loading agents..." : "Select an agent"}</option>
+                {agents.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {addAgentError ? (
+              <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{addAgentError}</p>
+            ) : null}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAddAgentDialog(false)}
+                disabled={addAgentLoading}
+                className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addAgentToConference}
+                disabled={addAgentLoading || agentsLoading || !selectedAgentId}
+                className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+              >
+                {addAgentLoading ? "Adding..." : "Add Agent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export default function GlobalWebCallInterface() {
   const { session, endCall } = useActiveCall();
-  if (!session) return null;
-  return <ActiveCallPanel key={session.callId} session={session} endCall={endCall} />;
+  const isDev = process.env.NODE_ENV === "development";
+
+  if (session) {
+    return <ActiveCallPanel key={session.callId} session={session} endCall={endCall} />;
+  }
+
+  if (!isDev) return null;
+
+  const devPreviewSession = {
+    callId: "dev-preview-call",
+    conferenceName: "dev-preview-conference",
+    customerName: "UI Preview Customer",
+    phoneLabel: "(555) 010-1234",
+    toNumber: "+15550101234",
+    phase: "in_progress",
+    startedAt: Date.now() - 90 * 1000,
+  };
+
+  return (
+    <>
+      <div className="fixed bottom-4 left-4 z-[9999] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 shadow-md dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+        Dev preview mode: showing GlobalWebCallInterface without active call.
+      </div>
+      <ActiveCallPanel
+        key={devPreviewSession.callId}
+        session={devPreviewSession}
+        endCall={() => {}}
+      />
+    </>
+  );
 }
