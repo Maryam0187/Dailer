@@ -42,6 +42,13 @@ async function addOwnerToNameMap(agentNameMap, ownerUserId) {
   if (owner) agentNameMap.set(owner.id, owner.username);
 }
 
+async function addUserToNameMap(agentNameMap, userId) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0 || agentNameMap.has(uid)) return;
+  const user = await db.User.findByPk(uid, { attributes: ["id", "username"] });
+  if (user) agentNameMap.set(user.id, user.username);
+}
+
 function inferParticipantLabel(participant, agentNameMap, customerNumber) {
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
@@ -91,6 +98,23 @@ function appendOwnerParticipant(items, ownerLabel) {
   ];
 }
 
+function appendAgentParticipant(items, label, keyPrefix) {
+  const safeLabel = String(label || "").trim();
+  if (!safeLabel) return items;
+  return [
+    ...items,
+    {
+      callSid: `${keyPrefix}:${safeLabel.toLowerCase()}`,
+      label: safeLabel,
+      type: "agent",
+      muted: false,
+      hold: false,
+      status: "joined",
+      joinedAt: null,
+    },
+  ];
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -130,6 +154,7 @@ export async function GET(req) {
       .participants.list({ limit: 50 });
     const agentNameMap = await buildAgentNameMap(participantRecords);
     await addOwnerToNameMap(agentNameMap, callLog.userId);
+    await addUserToNameMap(agentNameMap, authedUser.id);
     const participantsRaw = participantRecords.map((p) => ({
       callSid: p.callSid,
       label: inferParticipantLabel(p, agentNameMap, callLog.toNumber),
@@ -140,7 +165,14 @@ export async function GET(req) {
       joinedAt: p.dateCreated ? new Date(p.dateCreated).toISOString() : null,
     }));
     const ownerLabel = agentNameMap.get(Number(callLog.userId));
-    const participants = dedupeParticipants(appendOwnerParticipant(participantsRaw, ownerLabel));
+    const viewerLabel = agentNameMap.get(Number(authedUser.id));
+    const participants = dedupeParticipants(
+      appendAgentParticipant(
+        appendOwnerParticipant(participantsRaw, ownerLabel),
+        viewerLabel,
+        "viewer",
+      ),
+    );
 
     return NextResponse.json({
       conferenceName,

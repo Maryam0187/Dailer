@@ -79,7 +79,28 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
         if (!res.ok) throw new Error(json?.error || "Failed to load participants");
         const nextParticipants = Array.isArray(json?.participants) ? json.participants : [];
         if (!cancelled) {
-          setParticipants(nextParticipants);
+          const joinedName = String(recentJoinedAgent || "").trim();
+          const normalizedJoined = joinedName.toLowerCase();
+          const hasJoinedAgentInApi =
+            joinedName &&
+            nextParticipants.some(
+              (p) =>
+                String(p?.type || "").toLowerCase() === "agent" &&
+                String(p?.label || "").toLowerCase().trim() === normalizedJoined,
+            );
+          setParticipants(
+            hasJoinedAgentInApi || !joinedName
+              ? nextParticipants
+              : [
+                  ...nextParticipants,
+                  {
+                    callSid: `joined:${normalizedJoined}`,
+                    label: joinedName,
+                    type: "agent",
+                    status: "joined",
+                  },
+                ],
+          );
           if (session?.phase === "in_progress") {
             if (!nextParticipants.length) {
               setEmptyParticipantHits((n) => {
@@ -109,25 +130,28 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [session?.callId, session?.conferenceName, session?.phase, endCall]);
+  }, [session?.callId, session?.conferenceName, session?.phase, endCall, recentJoinedAgent]);
 
   useEffect(() => {
     const joinedName = String(recentJoinedAgent || "").trim();
     if (!joinedName) return;
+    const normalized = joinedName.toLowerCase();
     setParticipants((prev) => {
-      const candidate = {
-        callSid: `joined:${joinedName.toLowerCase()}`,
-        label: joinedName,
-        type: "agent",
-        status: "joined",
-      };
-      const normalized = joinedName.toLowerCase();
       const exists = prev.some(
-        (p) => String(p?.type || "").toLowerCase() === "agent" &&
+        (p) =>
+          String(p?.type || "").toLowerCase() === "agent" &&
           String(p?.label || "").toLowerCase().trim() === normalized,
       );
       if (exists) return prev;
-      return [...prev, candidate];
+      return [
+        ...prev,
+        {
+          callSid: `joined:${normalized}`,
+          label: joinedName,
+          type: "agent",
+          status: "joined",
+        },
+      ];
     });
   }, [recentJoinedAgent]);
 
@@ -615,6 +639,15 @@ export default function GlobalWebCallInterface() {
     setPendingJoinCallId(null);
   }, [session, pendingJoinCallId]);
 
+  useEffect(() => {
+    if (!session || !agentJoinedNotification) return;
+    const toastCallId = Number(agentJoinedNotification.callId);
+    const activeCallId = Number(session.callId);
+    if (Number.isInteger(toastCallId) && Number.isInteger(activeCallId) && toastCallId !== activeCallId) {
+      dismissAgentJoinedNotification();
+    }
+  }, [session, agentJoinedNotification, dismissAgentJoinedNotification]);
+
   function acceptIncomingInviteWithLoading() {
     const cid = Number(incomingInvite?.callId);
     if (Number.isInteger(cid) && cid > 0) setPendingJoinCallId(cid);
@@ -624,7 +657,9 @@ export default function GlobalWebCallInterface() {
   }
 
   const ownerJoinToast =
-    session && agentJoinedNotification ? (
+    session &&
+    agentJoinedNotification &&
+    Number(agentJoinedNotification.callId) === Number(session.callId) ? (
       <div className="fixed right-4 top-4 z-[10001] w-full max-w-sm rounded-xl border border-emerald-200 bg-white p-3 shadow-xl dark:border-emerald-900 dark:bg-zinc-900">
         <div className="flex items-start justify-between gap-2">
           <div>
