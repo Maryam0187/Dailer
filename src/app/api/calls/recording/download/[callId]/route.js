@@ -36,39 +36,28 @@ export async function GET(_req, { params }) {
   }
 
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-  let bytes;
+  let mediaRes;
   try {
     const client = getTwilioClient();
     const recording = await client.recordings(callLog.recordingSid).fetch();
-    const mediaUrl = String(recording?.mediaUrl || "").trim();
+    const mediaUrlRaw = String(recording?.mediaUrl || "").trim();
+    const mediaUrl = mediaUrlRaw.endsWith(".json")
+      ? mediaUrlRaw.replace(/\.json$/i, ".mp3")
+      : mediaUrlRaw;
     if (!mediaUrl) {
       return NextResponse.json({ error: "Recording media URL is missing" }, { status: 404 });
     }
 
-    const twilioRes = await fetch(mediaUrl, {
+    mediaRes = await fetch(mediaUrl, {
       headers: { Authorization: `Basic ${auth}` },
-      redirect: "manual",
+      redirect: "follow",
     });
-    let mediaRes = twilioRes;
-    if (twilioRes.status >= 300 && twilioRes.status < 400) {
-      const redirectLocation = twilioRes.headers.get("location");
-      if (!redirectLocation) {
-        return NextResponse.json(
-          { error: "Recording media redirect URL missing" },
-          { status: 502 },
-        );
-      }
-      const redirectUrl = new URL(redirectLocation, mediaUrl).toString();
-      mediaRes = await fetch(redirectUrl, { redirect: "follow" });
-    }
-
     if (!mediaRes.ok) {
       return NextResponse.json(
         { error: `Recording media is not ready yet (${mediaRes.status})` },
         { status: 404 },
       );
     }
-    bytes = await mediaRes.arrayBuffer();
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to fetch recording media" },
@@ -81,15 +70,18 @@ export async function GET(_req, { params }) {
     .slice(0, 15);
   const phonePart = safePhone || "unknown-number";
   const filename = `recording-${phonePart}-call-${callLog.id}.mp3`;
-  const fileBuffer = Buffer.from(bytes);
-  return new NextResponse(fileBuffer, {
+  const contentType = mediaRes.headers.get("content-type") || "audio/mpeg";
+  const contentLength = mediaRes.headers.get("content-length");
+  const acceptRanges = mediaRes.headers.get("accept-ranges");
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  if (contentLength) headers.set("Content-Length", contentLength);
+  if (acceptRanges) headers.set("Accept-Ranges", acceptRanges);
+  headers.set("Content-Disposition", `attachment; filename="${filename}"`);
+  headers.set("Cache-Control", "no-store");
+  return new NextResponse(mediaRes.body, {
     status: 200,
-    headers: {
-      "Content-Type": "audio/mpeg",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Content-Length": String(fileBuffer.length),
-      "Cache-Control": "no-store",
-    },
+    headers,
   });
 }
 
