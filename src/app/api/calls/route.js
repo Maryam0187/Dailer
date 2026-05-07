@@ -34,7 +34,10 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  const canSeeAllCalls = authedUser.role === "admin" || authedUser.role === "manager";
+  const canSeeAllCalls =
+    authedUser.role === "admin" ||
+    authedUser.role === "manager" ||
+    authedUser.role === "supervisor";
   const where = canSeeAllCalls ? {} : { userId: authedUser.id };
   if (fromDate && toDate) {
     const after = new Date(`${fromDate}T00:00:00.000Z`);

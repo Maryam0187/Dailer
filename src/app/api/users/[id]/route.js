@@ -6,7 +6,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 async function assertCanManageTarget(authedUser, target) {
   if (authedUser.role === "admin") return true;
   if (authedUser.role === "manager") {
-    return target.role === "agent" && target.managerId === authedUser.id;
+    return (target.role === "agent" || target.role === "supervisor") && target.managerId === authedUser.id;
   }
   return false;
 }
@@ -34,7 +34,7 @@ export async function PATCH(req, { params }) {
 
   const isAdmin = authedUser.role === "admin";
 
-  if (!isAdmin && (body.role !== undefined || body.managerId !== undefined)) {
+  if (!isAdmin && (body.role !== undefined || body.managerId !== undefined || body.supervisorId !== undefined)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -59,37 +59,63 @@ export async function PATCH(req, { params }) {
   }
 
   if (isAdmin && body.role !== undefined) {
-    const allowedRoles = ["agent", "manager", "admin"];
+    const allowedRoles = ["agent", "manager", "supervisor", "admin"];
     if (!allowedRoles.includes(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     updates.role = body.role;
-    if (body.role !== "agent") {
+    if (body.role !== "agent" && body.role !== "supervisor") {
       updates.managerId = null;
+      updates.supervisorId = null;
     }
   }
 
   const effectiveRole = updates.role ?? target.role;
 
-  if (isAdmin && effectiveRole === "agent") {
+  if (isAdmin && (effectiveRole === "agent" || effectiveRole === "supervisor")) {
     if (body.managerId !== undefined) {
       const parsed = body.managerId != null ? Number(body.managerId) : null;
-      if (!parsed || Number.isNaN(parsed)) {
+      if (effectiveRole === "agent" && (!parsed || Number.isNaN(parsed))) {
         return NextResponse.json({ error: "Invalid managerId" }, { status: 400 });
       }
-      const managerUser = await db.User.findOne({
-        where: { id: parsed, role: "manager", isActive: true },
-      });
-      if (!managerUser) {
-        return NextResponse.json({ error: "managerId must be an active manager" }, { status: 400 });
+      if (parsed && !Number.isNaN(parsed)) {
+        const managerUser = await db.User.findOne({
+          where: { id: parsed, role: "manager", isActive: true },
+        });
+        if (!managerUser) {
+          return NextResponse.json(
+            { error: "managerId must be an active manager" },
+            { status: 400 },
+          );
+        }
+        updates.managerId = parsed;
+      } else {
+        updates.managerId = null;
       }
-      updates.managerId = parsed;
-    } else if (updates.role === "agent" && target.role !== "agent") {
-      return NextResponse.json(
-        { error: "managerId is required when changing role to agent" },
-        { status: 400 },
-      );
     }
+  }
+  if (isAdmin && effectiveRole === "agent" && body.supervisorId !== undefined) {
+    const parsedSupervisor = body.supervisorId != null ? Number(body.supervisorId) : null;
+    if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
+      const supervisorUser = await db.User.findOne({
+        where: { id: parsedSupervisor, role: "supervisor", isActive: true },
+        attributes: ["id", "managerId"],
+      });
+      if (!supervisorUser) {
+        return NextResponse.json(
+          { error: "supervisorId must be an active supervisor" },
+          { status: 400 },
+        );
+      }
+      updates.supervisorId = parsedSupervisor;
+      if (!updates.managerId && !target.managerId && supervisorUser.managerId) {
+        updates.managerId = supervisorUser.managerId;
+      }
+    } else {
+      updates.supervisorId = null;
+    }
+  } else if (isAdmin && effectiveRole !== "agent") {
+    updates.supervisorId = null;
   }
 
   if (body.isActive !== undefined) {
@@ -110,7 +136,7 @@ export async function PATCH(req, { params }) {
   }
 
   const fresh = await db.User.findByPk(id, {
-    attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
+    attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
   });
 
   return NextResponse.json({ user: fresh });

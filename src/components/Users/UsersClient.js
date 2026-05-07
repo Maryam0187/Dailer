@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 function roleLabel(role) {
   if (role === "agent") return "Agent";
   if (role === "manager") return "Manager";
+  if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
   return role;
 }
@@ -18,10 +19,11 @@ function RoleBadge({ value }) {
   const styles = {
     admin: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     manager: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+    supervisor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
     agent: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
   };
   const palette =
-    value === "admin" || value === "manager" || value === "agent"
+    value === "admin" || value === "manager" || value === "supervisor" || value === "agent"
       ? styles[value]
       : "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200";
   return (
@@ -48,6 +50,7 @@ function EditUserModal({
   onClose,
   role: viewerRole,
   managers,
+  supervisors,
   currentUserId,
   onSaved,
 }) {
@@ -56,6 +59,7 @@ function EditUserModal({
   const [password, setPassword] = useState("");
   const [editRole, setEditRole] = useState(user.role);
   const [managerId, setManagerId] = useState(user.managerId ?? "");
+  const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -65,6 +69,7 @@ function EditUserModal({
     setPassword("");
     setEditRole(user.role);
     setManagerId(user.managerId ?? "");
+    setSupervisorId(user.supervisorId ?? "");
     setIsActive(user.isActive !== false);
     setError(null);
   }, [user]);
@@ -82,21 +87,25 @@ function EditUserModal({
         if (editRole !== user.role) {
           payload.role = editRole;
           if (editRole === "agent") {
-            const mid = managerId === "" || managerId == null ? NaN : Number(managerId);
-            if (!mid || Number.isNaN(mid)) {
-              throw new Error("Select a manager for this agent");
-            }
-            payload.managerId = mid;
+            payload.managerId = managerId === "" || managerId == null ? null : Number(managerId);
+            payload.supervisorId =
+              supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
+          } else if (editRole === "supervisor") {
+            payload.managerId = managerId === "" || managerId == null ? null : Number(managerId);
           }
         } else if (editRole === "agent") {
-          const mid = managerId === "" || managerId == null ? NaN : Number(managerId);
+          const mid = managerId === "" || managerId == null ? null : Number(managerId);
           const prev = user.managerId != null ? Number(user.managerId) : null;
           if (mid !== prev) {
-            if (!mid || Number.isNaN(mid)) {
-              throw new Error("Select a manager for this agent");
-            }
             payload.managerId = mid;
           }
+          const sid = supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
+          const prevSid = user.supervisorId != null ? Number(user.supervisorId) : null;
+          if (sid !== prevSid) payload.supervisorId = sid;
+        } else if (editRole === "supervisor") {
+          const mid = managerId === "" || managerId == null ? null : Number(managerId);
+          const prev = user.managerId != null ? Number(user.managerId) : null;
+          if (mid !== prev) payload.managerId = mid;
         }
       }
 
@@ -125,7 +134,12 @@ function EditUserModal({
     }
   }
 
-  const showManager = isAdmin && editRole === "agent";
+  const showManager = isAdmin && (editRole === "agent" || editRole === "supervisor");
+  const showSupervisor = isAdmin && editRole === "agent";
+  const filteredSupervisors =
+    managerId == null || managerId === ""
+      ? supervisors
+      : supervisors.filter((s) => Number(s.managerId) === Number(managerId));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6">
@@ -189,13 +203,14 @@ function EditUserModal({
                 >
                   <option value="agent">Agent</option>
                   <option value="manager">Manager</option>
+                  <option value="supervisor">Supervisor</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
               {showManager ? (
                 <div>
                   <label htmlFor="edit-manager" className={labelClass}>
-                    Manager
+                    Manager (optional)
                   </label>
                   <select
                     id="edit-manager"
@@ -203,12 +218,36 @@ function EditUserModal({
                     value={managerId === null || managerId === undefined ? "" : String(managerId)}
                     onChange={(e) => setManagerId(e.target.value ? Number(e.target.value) : "")}
                   >
+                    <option value="">No manager</option>
                     {managers.length === 0 ? (
                       <option value="">No managers</option>
                     ) : null}
                     {managers.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.username}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {showSupervisor ? (
+                <div>
+                  <label htmlFor="edit-supervisor" className={labelClass}>
+                    Supervisor (optional)
+                  </label>
+                  <select
+                    id="edit-supervisor"
+                    className={inputClass}
+                    value={supervisorId === null || supervisorId === undefined ? "" : String(supervisorId)}
+                    onChange={(e) => setSupervisorId(e.target.value ? Number(e.target.value) : "")}
+                  >
+                    <option value="">No supervisor</option>
+                    {supervisors.length === 0 ? (
+                      <option value="">No supervisors available</option>
+                    ) : null}
+                    {filteredSupervisors.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.username}
                       </option>
                     ))}
                   </select>
@@ -265,14 +304,16 @@ function EditUserModal({
   );
 }
 
-export default function UsersClient({ role, managers, initialUsers, currentUserId }) {
+export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
   const [users, setUsers] = useState(initialUsers ?? []);
   const [managerOptions, setManagerOptions] = useState(managers ?? []);
+  const [supervisorOptions, setSupervisorOptions] = useState(supervisors ?? []);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const [createRole, setCreateRole] = useState(role === "admin" ? "agent" : "agent");
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
+  const [supervisorId, setSupervisorId] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -303,16 +344,32 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
         .map((u) => ({ id: u.id, username: u.username }))
         .sort((a, b) => a.username.localeCompare(b.username));
       setManagerOptions(nextManagers);
+      const nextSupervisors = normalizedUsers
+        .filter((u) => u.role === "supervisor")
+        .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+        .sort((a, b) => a.username.localeCompare(b.username));
+      setSupervisorOptions(nextSupervisors);
     }
   }
 
   useEffect(() => {
-    if (createRole !== "agent") return;
+    if (createRole !== "agent" && createRole !== "supervisor") return;
     const hasSelectedManager = managerOptions.some((m) => m.id === managerId);
-    if (!managerId || !hasSelectedManager) {
-      setManagerId(managerOptions[0]?.id ?? null);
+    if (managerId != null && !hasSelectedManager) {
+      setManagerId(null);
     }
   }, [managerOptions, createRole, managerId]);
+
+  useEffect(() => {
+    if (createRole !== "agent") {
+      setSupervisorId(null);
+      return;
+    }
+    const hasSelectedSupervisor = supervisorOptions.some(
+      (s) => s.id === supervisorId && (!managerId || Number(s.managerId) === Number(managerId)),
+    );
+    if (supervisorId != null && !hasSelectedSupervisor) setSupervisorId(null);
+  }, [createRole, managerId, supervisorId, supervisorOptions]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -326,6 +383,8 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
         role: createRole,
       };
       if (createRole === "agent") payload.managerId = managerId;
+      if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
+      if (createRole === "supervisor") payload.managerId = managerId ?? null;
 
       const res = await fetch("/api/users", {
         method: "POST",
@@ -368,7 +427,13 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
   }
 
   const showRoleSelector = role === "admin";
-  const showManagerSelector = role === "admin" && createRole === "agent";
+  const showManagerSelector =
+    role === "admin" && (createRole === "agent" || createRole === "supervisor");
+  const showSupervisorSelector = role === "admin" && createRole === "agent";
+  const filteredSupervisorOptions =
+    managerId == null || managerId === ""
+      ? supervisorOptions
+      : supervisorOptions.filter((s) => Number(s.managerId) === Number(managerId));
 
   return (
     <div className="flex flex-col gap-8 lg:gap-10">
@@ -378,6 +443,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
           onClose={() => setEditingUser(null)}
           role={role}
           managers={managerOptions}
+          supervisors={supervisorOptions}
           currentUserId={currentUserId}
           onSaved={loadUsers}
         />
@@ -409,7 +475,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
                   {showRoleSelector
-                    ? " Choose a role and, for agents, assign a manager."
+                    ? " Choose a role and, for agents or supervisors, optionally assign a manager."
                     : " New users are added as agents under you."}
                 </p>
               </div>
@@ -448,9 +514,13 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
               </div>
             </div>
 
-            {(showRoleSelector || showManagerSelector) && (
+            {(showRoleSelector || showManagerSelector || showSupervisorSelector) && (
               <div
-                className={`grid gap-5 ${showRoleSelector && showManagerSelector ? "sm:grid-cols-2" : ""}`}
+                className={`grid gap-5 ${
+                  showRoleSelector && (showManagerSelector || showSupervisorSelector)
+                    ? "sm:grid-cols-2"
+                    : ""
+                }`}
               >
                 {showRoleSelector ? (
                   <div>
@@ -465,6 +535,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                     >
                       <option value="agent">Agent</option>
                       <option value="manager">Manager</option>
+                      <option value="supervisor">Supervisor</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -473,7 +544,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                 {showManagerSelector ? (
                   <div>
                     <label htmlFor="new-user-manager" className={labelClass}>
-                      Assign manager
+                      Assign manager (optional)
                     </label>
                     <select
                       id="new-user-manager"
@@ -481,12 +552,36 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                       value={managerId ?? ""}
                       onChange={(e) => setManagerId(e.target.value ? Number(e.target.value) : null)}
                     >
+                      <option value="">No manager</option>
                       {managerOptions.length === 0 ? (
                         <option value="">No managers available</option>
                       ) : null}
                       {managerOptions.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.username}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                {showSupervisorSelector ? (
+                  <div>
+                    <label htmlFor="new-user-supervisor" className={labelClass}>
+                      Assign supervisor (optional)
+                    </label>
+                    <select
+                      id="new-user-supervisor"
+                      className={inputClass}
+                      value={supervisorId ?? ""}
+                      onChange={(e) => setSupervisorId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">No supervisor</option>
+                      {supervisorOptions.length === 0 ? (
+                        <option value="">No supervisors available</option>
+                      ) : null}
+                      {filteredSupervisorOptions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.username}
                         </option>
                       ))}
                     </select>
@@ -508,7 +603,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
               <button
                 type="submit"
                 disabled={
-                  loading || (role === "admin" && createRole === "agent" && !managerId)
+                  loading
                 }
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-8 text-base font-semibold text-white shadow-md shadow-emerald-600/25 transition-colors hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:shadow-emerald-900/20"
               >
@@ -592,6 +687,7 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                     <th className="px-4 py-3.5">Role</th>
                     <th className="px-4 py-3.5">Status</th>
                     <th className="px-4 py-3.5">Manager</th>
+                    <th className="px-4 py-3.5">Supervisor</th>
                     <th className="px-4 py-3.5">Created</th>
                     <th className="px-4 py-3.5 text-right">Actions</th>
                   </tr>
@@ -614,7 +710,16 @@ export default function UsersClient({ role, managers, initialUsers, currentUserI
                           <ActiveBadge active={active} />
                         </td>
                         <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.role === "agent" ? managerMap.get(u.managerId) ?? u.managerId : "—"}
+                          {u.role === "agent" || u.role === "supervisor"
+                            ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                          {u.role === "agent"
+                            ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
+                              u.supervisorId ??
+                              "—"
+                            : "—"}
                         </td>
                         <td className="px-4 py-3.5 tabular-nums text-zinc-600 dark:text-zinc-300">
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}

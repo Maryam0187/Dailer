@@ -19,11 +19,19 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       role: {
-        type: DataTypes.ENUM("agent", "manager", "admin"),
+        type: DataTypes.ENUM("agent", "manager", "supervisor", "admin"),
         allowNull: false,
         defaultValue: "agent",
       },
       managerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "Users",
+          key: "id",
+        },
+      },
+      supervisorId: {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: {
@@ -45,9 +53,11 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   User.associate = (models) => {
-    // Self-relation to map agent -> manager.
+    // Self-relations for org hierarchy.
     User.belongsTo(models.User, { as: "manager", foreignKey: "managerId" });
     User.hasMany(models.User, { as: "agents", foreignKey: "managerId" });
+    User.belongsTo(models.User, { as: "supervisor", foreignKey: "supervisorId" });
+    User.hasMany(models.User, { as: "supervisedAgents", foreignKey: "supervisorId" });
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });

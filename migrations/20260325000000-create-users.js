@@ -19,11 +19,21 @@ module.exports = {
         allowNull: false,
       },
       role: {
-        type: Sequelize.ENUM("agent", "manager", "admin"),
+        type: Sequelize.ENUM("agent", "manager", "supervisor", "admin"),
         allowNull: false,
         defaultValue: "agent",
       },
       managerId: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        references: {
+          model: "Users",
+          key: "id",
+        },
+        onUpdate: "CASCADE",
+        onDelete: "SET NULL",
+      },
+      supervisorId: {
         type: Sequelize.INTEGER,
         allowNull: true,
         references: {

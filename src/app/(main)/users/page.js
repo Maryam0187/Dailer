@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import UsersClient from "@/components/Users/UsersClient";
@@ -11,12 +12,15 @@ export default async function UsersPage() {
   const [usersRows, managersRows] = await Promise.all([
     authedUser.role === "admin"
       ? db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
+          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
           order: [["createdAt", "DESC"]],
         })
       : db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
-          where: { role: "agent", managerId: authedUser.id },
+          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+          where: {
+            role: { [Op.in]: ["agent", "supervisor"] },
+            managerId: authedUser.id,
+          },
           order: [["createdAt", "DESC"]],
         }),
     authedUser.role === "admin"
@@ -33,11 +37,15 @@ export default async function UsersPage() {
     username: r.username,
     role: r.role,
     managerId: r.managerId,
+    supervisorId: r.supervisorId,
     createdAt: r.createdAt,
     isActive: !(r.isActive === false || r.isActive === 0),
   }));
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
+  const supervisors = users
+    .filter((u) => u.role === "supervisor")
+    .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }));
 
   return (
     <>
@@ -58,6 +66,7 @@ export default async function UsersPage() {
       <UsersClient
         role={authedUser.role}
         managers={managers}
+        supervisors={supervisors}
         initialUsers={users}
         currentUserId={authedUser.id}
       />

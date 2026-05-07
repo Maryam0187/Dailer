@@ -14,7 +14,10 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Invalid callId" }, { status: 400 });
   }
 
-  const canSeeAllCalls = authedUser.role === "admin" || authedUser.role === "manager";
+  const canSeeAllCalls =
+    authedUser.role === "admin" ||
+    authedUser.role === "manager" ||
+    authedUser.role === "supervisor";
   const where = canSeeAllCalls ? { id: callId } : { id: callId, userId: authedUser.id };
 
   const callLog = await db.CallLog.findOne({

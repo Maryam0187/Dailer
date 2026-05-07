@@ -9,7 +9,7 @@ export async function GET(req) {
 
   if (authedUser.role === "admin") {
     const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
+      attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
       order: [["createdAt", "DESC"]],
     });
     return NextResponse.json({ users });
@@ -18,8 +18,8 @@ export async function GET(req) {
   if (authedUser.role === "manager") {
     // Manager: list their agents (not all users).
     const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "createdAt", "isActive"],
-      where: { role: "agent", managerId: authedUser.id },
+      attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+      where: { managerId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
     return NextResponse.json({ users });
@@ -37,6 +37,7 @@ export async function POST(req) {
   const password = body?.password;
   const role = body?.role;
   const managerId = body?.managerId;
+  const supervisorId = body?.supervisorId;
 
   if (!username || !password) {
     return NextResponse.json({ error: "username and password are required" }, { status: 400 });
@@ -56,6 +57,18 @@ export async function POST(req) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
+    let supervisorIdToSet = null;
+    if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
+      const supervisorUser = await db.User.findOne({
+        where: { id: parsedSupervisor, role: "supervisor", managerId: authedUser.id, isActive: true },
+      });
+      if (!supervisorUser) {
+        return NextResponse.json({ error: "supervisorId must be an active supervisor under you" }, { status: 400 });
+      }
+      supervisorIdToSet = parsedSupervisor;
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
     try {
       const user = await db.User.create({
@@ -63,6 +76,7 @@ export async function POST(req) {
         passwordHash,
         role: "agent",
         managerId: authedUser.id,
+        supervisorId: supervisorIdToSet,
       });
       return NextResponse.json(
         {
@@ -71,6 +85,7 @@ export async function POST(req) {
             username: user.username,
             role: user.role,
             managerId: user.managerId,
+            supervisorId: user.supervisorId,
             isActive: user.isActive,
           },
         },
@@ -90,23 +105,41 @@ export async function POST(req) {
   }
 
   // Admin can create any role.
-  const allowedRoles = ["agent", "manager", "admin"];
+  const allowedRoles = ["agent", "manager", "supervisor", "admin"];
   if (!allowedRoles.includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
   let managerIdToSet = null;
-  if (role === "agent") {
+  let supervisorIdToSet = null;
+  if (role === "agent" || role === "supervisor") {
     const parsed = managerId ? Number(managerId) : null;
-    if (!parsed || Number.isNaN(parsed)) {
-      return NextResponse.json({ error: "managerId is required for agent" }, { status: 400 });
+    if (parsed && !Number.isNaN(parsed)) {
+      const managerUser = await db.User.findOne({ where: { id: parsed, role: "manager" } });
+      if (!managerUser) {
+        return NextResponse.json(
+          { error: "managerId must point to a manager user" },
+          { status: 400 },
+        );
+      }
+      managerIdToSet = parsed;
     }
-
-    const managerUser = await db.User.findOne({ where: { id: parsed, role: "manager" } });
-    if (!managerUser) {
-      return NextResponse.json({ error: "managerId must point to a manager user" }, { status: 400 });
+  }
+  if (role === "agent") {
+    const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
+    if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
+      const supervisorUser = await db.User.findOne({
+        where: { id: parsedSupervisor, role: "supervisor", isActive: true },
+        attributes: ["id", "managerId"],
+      });
+      if (!supervisorUser) {
+        return NextResponse.json({ error: "supervisorId must point to an active supervisor" }, { status: 400 });
+      }
+      supervisorIdToSet = parsedSupervisor;
+      if (!managerIdToSet && supervisorUser.managerId) {
+        managerIdToSet = supervisorUser.managerId;
+      }
     }
-    managerIdToSet = parsed;
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -116,6 +149,7 @@ export async function POST(req) {
       passwordHash,
       role,
       managerId: managerIdToSet,
+      supervisorId: supervisorIdToSet,
     });
     return NextResponse.json(
       {
@@ -124,6 +158,7 @@ export async function POST(req) {
           username: user.username,
           role: user.role,
           managerId: user.managerId,
+          supervisorId: user.supervisorId,
           isActive: user.isActive,
         },
       },
