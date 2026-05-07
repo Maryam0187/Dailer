@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -13,6 +14,7 @@ export function TwilioVoiceProvider({ children }) {
   const [registered, setRegistered] = useState(false);
   const [sdkInitializing, setSdkInitializing] = useState(false);
   const [incomingInvite, setIncomingInvite] = useState(null);
+  const [inviteNotification, setInviteNotification] = useState(null);
   const callRef = useRef(null);
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
@@ -191,6 +193,29 @@ export function TwilioVoiceProvider({ children }) {
     setMuted(false);
   }, [session]);
 
+  useEffect(() => {
+    const socket = ioClient({
+      path: "/socket.io",
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("call:invite", (payload) => {
+      setInviteNotification({
+        fromAgent: payload?.fromAgent || "Unknown",
+        callId: Number(payload?.callId) || null,
+        conferenceName: payload?.conferenceName || null,
+        customer: payload?.customer || null,
+        participants: Array.isArray(payload?.participants) ? payload.participants : [],
+        sentAt: payload?.sentAt || null,
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   const toggleMute = useCallback(() => {
     const call = callRef.current;
     if (!call) return;
@@ -250,6 +275,10 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, []);
 
+  const dismissInviteNotification = useCallback(() => {
+    setInviteNotification(null);
+  }, []);
+
   const markExpectIncomingAutoAccept = useCallback((ttlMs = 30000) => {
     const ttl = Number(ttlMs);
     const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 30000;
@@ -268,8 +297,10 @@ export function TwilioVoiceProvider({ children }) {
         sendDtmf,
         ensureRegistered,
         incomingInvite,
+        inviteNotification,
         acceptIncomingInvite,
         rejectIncomingInvite,
+        dismissInviteNotification,
         markExpectIncomingAutoAccept,
       }}
     >

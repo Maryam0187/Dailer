@@ -30,6 +30,8 @@
     "react-dom": "19.2.4",
     "react-redux": "^9.2.0",
     "sequelize": "^6.37.7",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "twilio": "^6.0.0"
   },
   "devDependencies": {

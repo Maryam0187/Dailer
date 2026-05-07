@@ -7,6 +7,7 @@ import {
   getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
+import { emitToUser } from "@/server/socketHub";
 
 function getRequestBaseUrl(req) {
   const xfProto = req.headers.get("x-forwarded-proto");
@@ -67,7 +68,7 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "userId"],
+    attributes: ["id", "userId", "toNumber"],
   });
   if (!callLog) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -122,6 +123,15 @@ export async function POST(req) {
       from: fromNumber,
       url: joinVoiceUrl,
       ...callbackParams,
+    });
+
+    emitToUser(targetAgent.id, "call:invite", {
+      callId,
+      conferenceName,
+      fromAgent: authedUser.username,
+      customer: callLog?.toNumber || null,
+      participants: existingParticipants,
+      sentAt: new Date().toISOString(),
     });
 
     return NextResponse.json(

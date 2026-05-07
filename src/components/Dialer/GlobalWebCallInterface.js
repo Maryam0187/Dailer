@@ -537,7 +537,13 @@ function ActiveCallPanel({ session, endCall }) {
 
 export default function GlobalWebCallInterface() {
   const { session, endCall } = useActiveCall();
-  const { incomingInvite, acceptIncomingInvite, rejectIncomingInvite } = useTwilioVoice();
+  const {
+    incomingInvite,
+    inviteNotification,
+    acceptIncomingInvite,
+    rejectIncomingInvite,
+    dismissInviteNotification,
+  } = useTwilioVoice();
   const isDev = process.env.NODE_ENV === "development";
 
   if (session) {
@@ -584,11 +590,38 @@ export default function GlobalWebCallInterface() {
             </div>
           </div>
         ) : null}
+        {!incomingInvite && inviteNotification ? (
+          <div className="fixed bottom-4 left-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                  From {inviteNotification.fromAgent}
+                </p>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                  Customer: {inviteNotification.customer || "Customer"}
+                </p>
+                {inviteNotification.participants?.length ? (
+                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                    Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={dismissInviteNotification}
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
       </>
     );
   }
 
-  if (!isDev && !incomingInvite) return null;
+  if (!isDev && !incomingInvite && !inviteNotification) return null;
 
   if (incomingInvite) {
     return (
@@ -628,6 +661,36 @@ export default function GlobalWebCallInterface() {
               Join Call
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (inviteNotification) {
+    return (
+      <div className="fixed bottom-4 left-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+              From {inviteNotification.fromAgent}
+            </p>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+              Customer: {inviteNotification.customer || "Customer"}
+            </p>
+            {inviteNotification.participants?.length ? (
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={dismissInviteNotification}
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Dismiss
+          </button>
         </div>
       </div>
     );
