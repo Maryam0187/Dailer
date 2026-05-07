@@ -76,6 +76,12 @@ function dedupeParticipants(items) {
   return Array.from(map.values());
 }
 
+function appendOwnerParticipant(items, ownerLabel) {
+  const label = String(ownerLabel || "").trim();
+  if (!label) return items;
+  return [...items, { callSid: `owner:${label.toLowerCase()}`, label, type: "agent", status: "joined" }];
+}
+
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -166,7 +172,10 @@ export async function POST(req) {
       type: inferParticipantType(p),
       status: p.status || "joined",
     }));
-    const existingParticipants = dedupeParticipants(existingParticipantsRaw);
+    const ownerLabel = userMap.get(Number(callLog.userId));
+    const existingParticipants = dedupeParticipants(
+      appendOwnerParticipant(existingParticipantsRaw, ownerLabel),
+    );
 
     const participantSummary = existingParticipants.map((p) => p.label).join(", ");
     const joinVoiceUrl = `${buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent")}&participantSummary=${encodeURIComponent(participantSummary)}`;

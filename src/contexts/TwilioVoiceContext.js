@@ -15,6 +15,7 @@ export function TwilioVoiceProvider({ children }) {
   const [sdkInitializing, setSdkInitializing] = useState(false);
   const [incomingInvite, setIncomingInvite] = useState(null);
   const [inviteNotification, setInviteNotification] = useState(null);
+  const [agentJoinedNotification, setAgentJoinedNotification] = useState(null);
   const callRef = useRef(null);
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
@@ -210,6 +211,14 @@ export function TwilioVoiceProvider({ children }) {
         sentAt: payload?.sentAt || null,
       });
     });
+    socket.on("call:agent-joined", (payload) => {
+      setAgentJoinedNotification({
+        callId: Number(payload?.callId) || null,
+        joinedAgent: payload?.joinedAgent || "Agent",
+        customer: payload?.customer || null,
+        joinedAt: payload?.joinedAt || null,
+      });
+    });
 
     return () => {
       socket.disconnect();
@@ -279,6 +288,10 @@ export function TwilioVoiceProvider({ children }) {
     setInviteNotification(null);
   }, []);
 
+  const dismissAgentJoinedNotification = useCallback(() => {
+    setAgentJoinedNotification(null);
+  }, []);
+
   const markExpectIncomingAutoAccept = useCallback((ttlMs = 30000) => {
     const ttl = Number(ttlMs);
     const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 30000;
@@ -298,9 +311,11 @@ export function TwilioVoiceProvider({ children }) {
         ensureRegistered,
         incomingInvite,
         inviteNotification,
+        agentJoinedNotification,
         acceptIncomingInvite,
         rejectIncomingInvite,
         dismissInviteNotification,
+        dismissAgentJoinedNotification,
         markExpectIncomingAutoAccept,
       }}
     >

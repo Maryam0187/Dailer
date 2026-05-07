@@ -540,21 +540,76 @@ export default function GlobalWebCallInterface() {
   const {
     incomingInvite,
     inviteNotification,
+    agentJoinedNotification,
     ensureRegistered,
     markExpectIncomingAutoAccept,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
+    dismissAgentJoinedNotification,
   } = useTwilioVoice();
   const isDev = process.env.NODE_ENV === "development";
   const [inviteActionMsg, setInviteActionMsg] = useState(null);
+  const [joiningInvite, setJoiningInvite] = useState(false);
+  const [pendingJoinCallId, setPendingJoinCallId] = useState(null);
+
+  useEffect(() => {
+    if (!joiningInvite || !session) return;
+    setJoiningInvite(false);
+    setInviteActionMsg(null);
+    dismissInviteNotification();
+  }, [joiningInvite, session, dismissInviteNotification]);
+
+  useEffect(() => {
+    if (!session || !pendingJoinCallId) return;
+    if (Number(session.callId) !== Number(pendingJoinCallId)) return;
+    fetch("/api/calls/agent-joined", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ callId: Number(pendingJoinCallId) }),
+    }).catch(() => {});
+    setPendingJoinCallId(null);
+  }, [session, pendingJoinCallId]);
+
+  function acceptIncomingInviteWithLoading() {
+    const cid = Number(incomingInvite?.callId);
+    if (Number.isInteger(cid) && cid > 0) setPendingJoinCallId(cid);
+    setJoiningInvite(true);
+    setInviteActionMsg("Joining call...");
+    acceptIncomingInvite();
+  }
+
+  const ownerJoinToast =
+    session && agentJoinedNotification ? (
+      <div className="fixed right-4 top-4 z-[10001] w-full max-w-sm rounded-xl border border-emerald-200 bg-white p-3 shadow-xl dark:border-emerald-900 dark:bg-zinc-900">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Joined</p>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+              {agentJoinedNotification.joinedAgent} joined this call.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={dismissAgentJoinedNotification}
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    ) : null;
 
   async function joinFromNotification() {
     setInviteActionMsg(null);
     if (!inviteNotification) return;
+    const callId = Number(inviteNotification.callId);
+    if (Number.isInteger(callId) && callId > 0) setPendingJoinCallId(callId);
+    setJoiningInvite(true);
+    setInviteActionMsg("Joining call...");
     if (incomingInvite) {
-      acceptIncomingInvite();
-      dismissInviteNotification();
+      acceptIncomingInviteWithLoading();
       return;
     }
     try {
@@ -570,9 +625,8 @@ export default function GlobalWebCallInterface() {
         phoneLabel: inviteNotification.customer || "",
         toNumber: inviteNotification.customer || "",
       });
-      dismissInviteNotification();
-      setInviteActionMsg("Joining call...");
     } catch (e) {
+      setJoiningInvite(false);
       setInviteActionMsg(e?.message || "Unable to prepare device for join.");
     }
   }
@@ -580,6 +634,7 @@ export default function GlobalWebCallInterface() {
   if (session) {
     return (
       <>
+        {ownerJoinToast}
         <ActiveCallPanel key={session.callId || "active-call"} session={session} endCall={endCall} />
         {incomingInvite ? (
           <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
@@ -612,10 +667,11 @@ export default function GlobalWebCallInterface() {
                 </button>
                 <button
                   type="button"
-                  onClick={acceptIncomingInvite}
-                  className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+                  onClick={acceptIncomingInviteWithLoading}
+                  disabled={joiningInvite}
+                  className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  Join Call
+                  {joiningInvite ? "Joining..." : "Join Call"}
                 </button>
               </div>
             </div>
@@ -645,13 +701,15 @@ export default function GlobalWebCallInterface() {
                 <button
                   type="button"
                   onClick={joinFromNotification}
-                  className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+                  disabled={joiningInvite}
+                  className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  Join Call
+                  {joiningInvite ? "Joining..." : "Join Call"}
                 </button>
                 <button
                   type="button"
                   onClick={dismissInviteNotification}
+                  disabled={joiningInvite}
                   className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   Dismiss
@@ -698,10 +756,11 @@ export default function GlobalWebCallInterface() {
             </button>
             <button
               type="button"
-              onClick={acceptIncomingInvite}
-              className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+                  onClick={acceptIncomingInviteWithLoading}
+                  disabled={joiningInvite}
+                  className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Join Call
+                  {joiningInvite ? "Joining..." : "Join Call"}
             </button>
           </div>
         </div>
@@ -734,13 +793,15 @@ export default function GlobalWebCallInterface() {
             <button
               type="button"
               onClick={joinFromNotification}
-              className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+              disabled={joiningInvite}
+              className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Join Call
+              {joiningInvite ? "Joining..." : "Join Call"}
             </button>
             <button
               type="button"
               onClick={dismissInviteNotification}
+              disabled={joiningInvite}
               className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               Dismiss
@@ -763,6 +824,7 @@ export default function GlobalWebCallInterface() {
 
   return (
     <>
+      {ownerJoinToast}
       <div className="fixed bottom-4 left-4 z-[9999] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 shadow-md dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
         Dev preview mode: showing GlobalWebCallInterface without active call.
       </div>

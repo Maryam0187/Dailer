@@ -52,6 +52,12 @@ function dedupeParticipants(items) {
   return Array.from(map.values());
 }
 
+function appendOwnerParticipant(items, ownerLabel) {
+  const label = String(ownerLabel || "").trim();
+  if (!label) return items;
+  return [...items, { callSid: `owner:${label.toLowerCase()}`, label, type: "agent", status: "joined" }];
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,6 +102,7 @@ export async function GET(req) {
       const userMap = new Map(users.map((u) => [u.id, u.username]));
       let resolvedCallId = null;
       let customerNumber = null;
+      let ownerLabel = null;
       if (participantCallSids.length) {
         const log = await db.CallLog.findOne({
           where: { twilioSid: participantCallSids },
@@ -107,7 +114,10 @@ export async function GET(req) {
         const ownerId = Number(log?.userId);
         if (Number.isInteger(ownerId) && ownerId > 0) {
           const ownerUser = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
-          if (ownerUser) userMap.set(ownerUser.id, ownerUser.username);
+          if (ownerUser) {
+            userMap.set(ownerUser.id, ownerUser.username);
+            ownerLabel = ownerUser.username;
+          }
         }
       }
 
@@ -127,7 +137,7 @@ export async function GET(req) {
       return NextResponse.json({
         callId: resolvedCallId,
         conferenceName: conference.friendlyName || null,
-        participants: dedupeParticipants(participantsResolved),
+        participants: dedupeParticipants(appendOwnerParticipant(participantsResolved, ownerLabel)),
       });
     }
 

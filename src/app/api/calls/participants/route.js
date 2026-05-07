@@ -74,6 +74,23 @@ function dedupeParticipants(items) {
   return Array.from(map.values());
 }
 
+function appendOwnerParticipant(items, ownerLabel) {
+  const label = String(ownerLabel || "").trim();
+  if (!label) return items;
+  return [
+    ...items,
+    {
+      callSid: `owner:${label.toLowerCase()}`,
+      label,
+      type: "agent",
+      muted: false,
+      hold: false,
+      status: "joined",
+      joinedAt: null,
+    },
+  ];
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -122,7 +139,8 @@ export async function GET(req) {
       status: p.status || "joined",
       joinedAt: p.dateCreated ? new Date(p.dateCreated).toISOString() : null,
     }));
-    const participants = dedupeParticipants(participantsRaw);
+    const ownerLabel = agentNameMap.get(Number(callLog.userId));
+    const participants = dedupeParticipants(appendOwnerParticipant(participantsRaw, ownerLabel));
 
     return NextResponse.json({
       conferenceName,
