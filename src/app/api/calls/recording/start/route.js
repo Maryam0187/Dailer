@@ -27,17 +27,13 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const callId = Number(body?.callId);
-  const conferenceName = String(body?.conferenceName || "").trim();
   if (!Number.isInteger(callId) || callId <= 0) {
     return NextResponse.json({ error: "callId must be a positive integer" }, { status: 400 });
-  }
-  if (!conferenceName) {
-    return NextResponse.json({ error: "conferenceName is required" }, { status: 400 });
   }
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "recordingSid", "recordingStatus"],
+    attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
   if (callLog.recordingStatus === "in-progress") {
@@ -51,45 +47,21 @@ export async function POST(req) {
 
   try {
     const client = getTwilioClient();
-    const conferences = await client.conferences.list({
-      friendlyName: conferenceName,
-      status: "in-progress",
-      limit: 1,
-    });
-    if (!conferences.length) {
-      return NextResponse.json({ error: "Conference is not in progress" }, { status: 404 });
-    }
-
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
-      return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 });
+    const callSid = String(callLog.twilioSid || "").trim();
+    if (!callSid) {
+      return NextResponse.json(
+        { error: "Call customer leg not established yet. Try again in a few seconds." },
+        { status: 409 },
+      );
     }
 
     const callbackUrl = `${fallbackBaseUrl}/api/twilio/recording-status?callId=${callId}`;
-    const conferenceSid = conferences[0].sid;
-    const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Conferences/${conferenceSid}/Recordings.json`;
-    const form = new URLSearchParams({
-      RecordingStatusCallback: callbackUrl,
-      RecordingStatusCallbackMethod: "POST",
+    const recording = await client.calls(callSid).recordings.create({
+      recordingStatusCallback: callbackUrl,
+      recordingStatusCallbackMethod: "POST",
+      recordingStatusCallbackEvent: ["in-progress", "completed", "absent"],
+      playBeep: true,
     });
-    form.append("RecordingStatusCallbackEvent", "in-progress");
-    form.append("RecordingStatusCallbackEvent", "completed");
-    form.append("RecordingStatusCallbackEvent", "absent");
-
-    const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-    const startRes = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: form.toString(),
-    });
-    const recording = await startRes.json().catch(() => ({}));
-    if (!startRes.ok || !recording?.sid) {
-      throw new Error(recording?.message || "Failed to start conference recording");
-    }
 
     await db.CallLog.update(
       {

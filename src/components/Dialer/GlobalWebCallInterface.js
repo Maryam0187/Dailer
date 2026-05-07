@@ -536,11 +536,12 @@ function ActiveCallPanel({ session, endCall }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall } = useActiveCall();
+  const { session, endCall, beginSession } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
     ensureRegistered,
+    markExpectIncomingAutoAccept,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
@@ -550,14 +551,27 @@ export default function GlobalWebCallInterface() {
 
   async function joinFromNotification() {
     setInviteActionMsg(null);
+    if (!inviteNotification) return;
     if (incomingInvite) {
       acceptIncomingInvite();
       dismissInviteNotification();
       return;
     }
     try {
+      markExpectIncomingAutoAccept(45000);
       await ensureRegistered();
-      setInviteActionMsg("Waiting for incoming ring... click Join again when available.");
+      beginSession({
+        callId: Number.isInteger(Number(inviteNotification.callId))
+          ? Number(inviteNotification.callId)
+          : null,
+        callOwnedByMe: false,
+        conferenceName: inviteNotification.conferenceName || null,
+        customerName: inviteNotification.customer || "Customer",
+        phoneLabel: inviteNotification.customer || "",
+        toNumber: inviteNotification.customer || "",
+      });
+      dismissInviteNotification();
+      setInviteActionMsg("Joining call...");
     } catch (e) {
       setInviteActionMsg(e?.message || "Unable to prepare device for join.");
     }

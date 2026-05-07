@@ -17,7 +17,7 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "recordingSid", "recordingStatus"],
+    attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
   if (!callLog.recordingSid) {
@@ -26,7 +26,17 @@ export async function POST(req) {
 
   try {
     const client = getTwilioClient();
-    const recording = await client.recordings(callLog.recordingSid).update({ status: "stopped" });
+    const callSid = String(callLog.twilioSid || "").trim();
+    if (!callSid) {
+      return NextResponse.json(
+        { error: "Call customer leg not established yet." },
+        { status: 409 },
+      );
+    }
+    const recording = await client
+      .calls(callSid)
+      .recordings(callLog.recordingSid)
+      .update({ status: "stopped" });
 
     await db.CallLog.update(
       { recordingStatus: recording.status || "stopped" },
