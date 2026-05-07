@@ -35,6 +35,13 @@ async function buildAgentNameMap(participants) {
   return new Map(users.map((u) => [u.id, u.username]));
 }
 
+async function addOwnerToNameMap(agentNameMap, ownerUserId) {
+  const ownerId = Number(ownerUserId);
+  if (!Number.isInteger(ownerId) || ownerId <= 0 || agentNameMap.has(ownerId)) return;
+  const owner = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
+  if (owner) agentNameMap.set(owner.id, owner.username);
+}
+
 function inferParticipantLabel(participant, agentNameMap, customerNumber) {
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
@@ -54,6 +61,19 @@ function inferParticipantType(participant) {
   return "external";
 }
 
+function dedupeParticipants(items) {
+  const map = new Map();
+  for (const p of items) {
+    const normalizedLabel =
+      p.type === "external"
+        ? String(p.label || "").replace(/[^\d+]/g, "")
+        : String(p.label || "").toLowerCase().trim();
+    const key = `${p.type}:${normalizedLabel}`;
+    if (!map.has(key)) map.set(key, p);
+  }
+  return Array.from(map.values());
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -70,8 +90,8 @@ export async function GET(req) {
   }
 
   const callLog = await db.CallLog.findOne({
-    where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "toNumber"],
+    where: { id: callId },
+    attributes: ["id", "toNumber", "userId"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
 
@@ -92,7 +112,8 @@ export async function GET(req) {
       .conferences(conference.sid)
       .participants.list({ limit: 50 });
     const agentNameMap = await buildAgentNameMap(participantRecords);
-    const participants = participantRecords.map((p) => ({
+    await addOwnerToNameMap(agentNameMap, callLog.userId);
+    const participantsRaw = participantRecords.map((p) => ({
       callSid: p.callSid,
       label: inferParticipantLabel(p, agentNameMap, callLog.toNumber),
       type: inferParticipantType(p),
@@ -101,6 +122,7 @@ export async function GET(req) {
       status: p.status || "joined",
       joinedAt: p.dateCreated ? new Date(p.dateCreated).toISOString() : null,
     }));
+    const participants = dedupeParticipants(participantsRaw);
 
     return NextResponse.json({
       conferenceName,

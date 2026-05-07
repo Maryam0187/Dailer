@@ -32,7 +32,7 @@ export async function POST(req) {
   }
 
   const callLog = await db.CallLog.findOne({
-    where: { id: callId, userId: authedUser.id },
+    where: { id: callId },
     attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });

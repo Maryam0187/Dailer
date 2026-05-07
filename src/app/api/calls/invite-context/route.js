@@ -16,6 +16,14 @@ function inferParticipantLabel(participant) {
   return "Customer";
 }
 
+function extractIdentity(participant) {
+  const to = String(participant?.to || "").trim();
+  const from = String(participant?.from || "").trim();
+  if (to.startsWith("client:")) return to.replace("client:", "");
+  if (from.startsWith("client:")) return from.replace("client:", "");
+  return null;
+}
+
 function extractUserIdFromIdentity(identity) {
   if (!identity) return null;
   const value = String(identity).trim();
@@ -29,6 +37,19 @@ function inferParticipantType(participant) {
   const from = String(participant?.from || "").trim();
   if (to.startsWith("client:") || from.startsWith("client:")) return "agent";
   return "external";
+}
+
+function dedupeParticipants(items) {
+  const map = new Map();
+  for (const p of items) {
+    const normalizedLabel =
+      p.type === "external"
+        ? String(p.label || "").replace(/[^\d+]/g, "")
+        : String(p.label || "").toLowerCase().trim();
+    const key = `${p.type}:${normalizedLabel}`;
+    if (!map.has(key)) map.set(key, p);
+  }
+  return Array.from(map.values());
 }
 
 export async function GET(req) {
@@ -62,16 +83,7 @@ export async function GET(req) {
       const participantUserIds = Array.from(
         new Set(
           participants
-            .map((p) => {
-              const to = String(p.to || "").trim();
-              const from = String(p.from || "").trim();
-              const identity = to.startsWith("client:")
-                ? to.replace("client:", "")
-                : from.startsWith("client:")
-                  ? from.replace("client:", "")
-                  : null;
-              return extractUserIdFromIdentity(identity);
-            })
+            .map((p) => extractUserIdFromIdentity(extractIdentity(p)))
             .filter((id) => Number.isInteger(id) && id > 0),
         ),
       );
@@ -87,28 +99,35 @@ export async function GET(req) {
       if (participantCallSids.length) {
         const log = await db.CallLog.findOne({
           where: { twilioSid: participantCallSids },
-          attributes: ["id", "toNumber"],
+          attributes: ["id", "toNumber", "userId"],
           order: [["createdAt", "DESC"]],
         });
         resolvedCallId = log?.id ?? null;
         customerNumber = log?.toNumber ?? null;
+        const ownerId = Number(log?.userId);
+        if (Number.isInteger(ownerId) && ownerId > 0) {
+          const ownerUser = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
+          if (ownerUser) userMap.set(ownerUser.id, ownerUser.username);
+        }
       }
+
+      const participantsResolved = participants.map((p) => ({
+        callSid: p.callSid,
+        label: (() => {
+          const raw = inferParticipantLabel(p);
+          const uid = extractUserIdFromIdentity(raw);
+          if (uid && userMap.get(uid)) return userMap.get(uid);
+          if (raw === "Customer" && customerNumber) return customerNumber;
+          return raw;
+        })(),
+        type: inferParticipantType(p),
+        status: p.status || "joined",
+      }));
 
       return NextResponse.json({
         callId: resolvedCallId,
         conferenceName: conference.friendlyName || null,
-        participants: participants.map((p) => ({
-          callSid: p.callSid,
-          label: (() => {
-            const raw = inferParticipantLabel(p);
-            const uid = extractUserIdFromIdentity(raw);
-            if (uid && userMap.get(uid)) return userMap.get(uid);
-            if (raw === "Customer" && customerNumber) return customerNumber;
-            return raw;
-          })(),
-          type: inferParticipantType(p),
-          status: p.status || "joined",
-        })),
+        participants: dedupeParticipants(participantsResolved),
       });
     }
 

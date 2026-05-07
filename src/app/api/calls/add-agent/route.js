@@ -40,6 +40,14 @@ function inferParticipantLabel(participant) {
   return "Customer";
 }
 
+function extractIdentity(participant) {
+  const to = String(participant?.to || "").trim();
+  const from = String(participant?.from || "").trim();
+  if (to.startsWith("client:")) return to.replace("client:", "");
+  if (from.startsWith("client:")) return from.replace("client:", "");
+  return null;
+}
+
 function extractUserIdFromIdentity(identity) {
   if (!identity) return null;
   const value = String(identity).trim();
@@ -53,6 +61,19 @@ function inferParticipantType(participant) {
   const from = String(participant?.from || "").trim();
   if (to.startsWith("client:") || from.startsWith("client:")) return "agent";
   return "external";
+}
+
+function dedupeParticipants(items) {
+  const map = new Map();
+  for (const p of items) {
+    const normalizedLabel =
+      p.type === "external"
+        ? String(p.label || "").replace(/[^\d+]/g, "")
+        : String(p.label || "").toLowerCase().trim();
+    const key = `${p.type}:${normalizedLabel}`;
+    if (!map.has(key)) map.set(key, p);
+  }
+  return Array.from(map.values());
 }
 
 export async function POST(req) {
@@ -119,10 +140,13 @@ export async function POST(req) {
     const identityIds = Array.from(
       new Set(
         participantRecords
-          .map((p) => extractUserIdFromIdentity(inferParticipantLabel(p)))
+          .map((p) => extractUserIdFromIdentity(extractIdentity(p)))
           .filter((id) => Number.isInteger(id) && id > 0),
       ),
     );
+    if (Number.isInteger(Number(callLog.userId)) && Number(callLog.userId) > 0) {
+      identityIds.push(Number(callLog.userId));
+    }
     const users = identityIds.length
       ? await db.User.findAll({
           where: { id: identityIds },
@@ -130,7 +154,7 @@ export async function POST(req) {
         })
       : [];
     const userMap = new Map(users.map((u) => [u.id, u.username]));
-    const existingParticipants = participantRecords.map((p) => ({
+    const existingParticipantsRaw = participantRecords.map((p) => ({
       callSid: p.callSid,
       label: (() => {
         const raw = inferParticipantLabel(p);
@@ -142,6 +166,7 @@ export async function POST(req) {
       type: inferParticipantType(p),
       status: p.status || "joined",
     }));
+    const existingParticipants = dedupeParticipants(existingParticipantsRaw);
 
     const participantSummary = existingParticipants.map((p) => p.label).join(", ");
     const joinVoiceUrl = `${buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent")}&participantSummary=${encodeURIComponent(participantSummary)}`;
