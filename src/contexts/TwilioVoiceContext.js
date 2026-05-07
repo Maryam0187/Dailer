@@ -94,6 +94,16 @@ export function TwilioVoiceProvider({ children }) {
           expectedIncomingUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
+          if (!session) {
+            beginSession({
+              callId: null,
+              callOwnedByMe: false,
+              conferenceName: null,
+              customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
+              phoneLabel: call?.parameters?.From || "",
+              toNumber: call?.parameters?.From || "",
+            });
+          }
           call.accept();
           bindActiveCallEvents(call);
           return;

@@ -6,10 +6,11 @@ export const runtime = "nodejs";
 
 export async function GET(_req, { params }) {
   try {
+    const { callId: rawCallId } = await params;
     const authedUser = await getAuthedUser();
     if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const callId = Number(params?.callId);
+    const callId = Number(rawCallId);
     if (!Number.isInteger(callId) || callId <= 0) {
       return NextResponse.json({ error: "Invalid callId" }, { status: 400 });
     }

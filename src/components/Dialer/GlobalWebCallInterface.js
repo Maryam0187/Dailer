@@ -603,7 +603,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall, beginSession } = useActiveCall();
+  const { session, endCall } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
@@ -699,16 +699,7 @@ export default function GlobalWebCallInterface() {
     try {
       markExpectIncomingAutoAccept(45000);
       await ensureRegistered();
-      beginSession({
-        callId: Number.isInteger(Number(inviteNotification.callId))
-          ? Number(inviteNotification.callId)
-          : null,
-        callOwnedByMe: false,
-        conferenceName: inviteNotification.conferenceName || null,
-        customerName: inviteNotification.customer || "Customer",
-        phoneLabel: inviteNotification.customer || "",
-        toNumber: inviteNotification.customer || "",
-      });
+      setInviteActionMsg("Waiting for incoming call...");
     } catch (e) {
       setJoiningInvite(false);
       setInviteActionMsg(e?.message || "Unable to prepare device for join.");
