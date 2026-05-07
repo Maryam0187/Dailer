@@ -58,6 +58,7 @@ export default function QuickDialPanel() {
       if (!result.ok) throw new Error(result.error);
       beginSession({
         callId: result.call.id,
+        callOwnedByMe: true,
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,

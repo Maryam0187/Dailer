@@ -17,13 +17,14 @@ export function ActiveCallProvider({ children }) {
 
   const endCall = useCallback(async () => {
     const current = session;
-    if (current?.callId) {
+    const callIdNum = Number(current?.callId);
+    if (Number.isInteger(callIdNum) && callIdNum > 0) {
       try {
         await fetch("/api/calls/end", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ callId: current.callId }),
+          body: JSON.stringify({ callId: callIdNum }),
         });
       } catch {
         // UI still ends the local session even if API fails.

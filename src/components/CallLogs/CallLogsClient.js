@@ -120,6 +120,7 @@ export default function CallLogsClient() {
 
       beginSession({
         callId: result.call.id,
+        callOwnedByMe: true,
         toNumber: result.call.toNumber,
         phoneLabel: toNumber,
         customerName: undefined,

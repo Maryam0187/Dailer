@@ -18,7 +18,6 @@ export function TwilioVoiceProvider({ children }) {
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
   const expectedIncomingUntilRef = useRef(0);
-  const initialRegisterAttemptedRef = useRef(false);
 
   const bindActiveCallEvents = useCallback(
     (call) => {
@@ -99,11 +98,37 @@ export function TwilioVoiceProvider({ children }) {
 
         incomingCallRef.current = call;
         const from = String(call?.parameters?.From || "").trim();
-        setIncomingInvite({
+        const baseInvite = {
           from: from || "Conference invite",
           callSid: call?.parameters?.CallSid || null,
           customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
-        });
+          callId: null,
+          conferenceName: null,
+          participants: [],
+        };
+        setIncomingInvite(baseInvite);
+
+        const sidForContext = baseInvite.callSid;
+        if (sidForContext) {
+          fetch(`/api/calls/invite-context?callSid=${encodeURIComponent(sidForContext)}`, {
+            credentials: "include",
+          })
+            .then((res) => res.json().catch(() => ({})))
+            .then((json) => {
+              setIncomingInvite((prev) => {
+                if (!prev || prev.callSid !== sidForContext) return prev;
+                return {
+                  ...prev,
+                  callId: Number.isInteger(Number(json?.callId)) ? Number(json.callId) : null,
+                  conferenceName: json?.conferenceName || null,
+                  participants: Array.isArray(json?.participants) ? json.participants : [],
+                };
+              });
+            })
+            .catch(() => {
+              // Best effort only; dialog still works without context list.
+            });
+        }
 
         call.on("cancel", () => {
           incomingCallRef.current = null;
@@ -148,16 +173,6 @@ export function TwilioVoiceProvider({ children }) {
       setSdkInitializing(false);
     }
   }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents]);
-
-  // Auto-register device on load (previous behavior) so agents can receive
-  // incoming invites without any extra action.
-  useEffect(() => {
-    if (registered || deviceRef.current || initialRegisterAttemptedRef.current) return;
-    initialRegisterAttemptedRef.current = true;
-    ensureRegistered().catch(() => {
-      // Keep silent; outbound actions still retry registration explicitly.
-    });
-  }, [registered, ensureRegistered]);
 
   useEffect(() => {
     if (session) return;
@@ -208,8 +223,11 @@ export function TwilioVoiceProvider({ children }) {
       // Only create a synthetic session if there isn't one already.
       if (!session) {
         beginSession({
-          callId: `incoming-${Date.now()}`,
-          conferenceName: "incoming-conference",
+          callId: Number.isInteger(Number(incomingInvite?.callId))
+            ? Number(incomingInvite.callId)
+            : null,
+          callOwnedByMe: false,
+          conferenceName: incomingInvite?.conferenceName || null,
           customerName: incomingInvite?.customerName?.trim() || "Customer",
           phoneLabel: call?.parameters?.From || "",
           toNumber: call?.parameters?.From || "",

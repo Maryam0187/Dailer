@@ -557,6 +557,14 @@ export default function GlobalWebCallInterface() {
               <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
                 Customer: {incomingInvite.customerName?.trim() || "Customer"}
               </p>
+              {Array.isArray(incomingInvite.participants) && incomingInvite.participants.length ? (
+                <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                  <p className="font-semibold">Current participants:</p>
+                  <p className="mt-1">
+                    {incomingInvite.participants.map((p) => p.label).join(", ")}
+                  </p>
+                </div>
+              ) : null}
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
@@ -596,6 +604,14 @@ export default function GlobalWebCallInterface() {
           <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
             Customer: {incomingInvite.customerName?.trim() || "Customer"}
           </p>
+          {Array.isArray(incomingInvite.participants) && incomingInvite.participants.length ? (
+            <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+              <p className="font-semibold">Current participants:</p>
+              <p className="mt-1">
+                {incomingInvite.participants.map((p) => p.label).join(", ")}
+              </p>
+            </div>
+          ) : null}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"

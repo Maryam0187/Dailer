@@ -14,11 +14,18 @@ export async function POST(req) {
   }
 
   const call = await db.CallLog.findOne({
-    where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "twilioSid", "status"],
+    where: { id: callId },
+    attributes: ["id", "userId", "twilioSid", "status"],
   });
   if (!call) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
+  }
+
+  // Any authenticated agent/manager/admin can end an active call by callId.
+  // Restrict non-privileged users to their own calls.
+  const privileged = authedUser.role === "admin" || authedUser.role === "manager" || authedUser.role === "agent";
+  if (!privileged && call.userId !== authedUser.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (!call.twilioSid) {
