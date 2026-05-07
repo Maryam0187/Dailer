@@ -36,25 +36,41 @@ export async function GET(_req, { params }) {
   }
 
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-  let mediaRes;
+  let mediaRes = null;
   try {
     const client = getTwilioClient();
     const recording = await client.recordings(callLog.recordingSid).fetch();
     const mediaUrlRaw = String(recording?.mediaUrl || "").trim();
-    const mediaUrl = mediaUrlRaw.endsWith(".json")
-      ? mediaUrlRaw.replace(/\.json$/i, ".mp3")
-      : mediaUrlRaw;
-    if (!mediaUrl) {
+    if (!mediaUrlRaw) {
       return NextResponse.json({ error: "Recording media URL is missing" }, { status: 404 });
     }
 
-    mediaRes = await fetch(mediaUrl, {
-      headers: { Authorization: `Basic ${auth}` },
-      redirect: "follow",
-    });
-    if (!mediaRes.ok) {
+    const candidateUrls = Array.from(
+      new Set([
+        mediaUrlRaw,
+        mediaUrlRaw.endsWith(".json") ? mediaUrlRaw.replace(/\.json$/i, ".mp3") : `${mediaUrlRaw}.mp3`,
+        mediaUrlRaw.endsWith(".json") ? mediaUrlRaw.replace(/\.json$/i, ".wav") : `${mediaUrlRaw}.wav`,
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
+      ]),
+    );
+
+    const failureStatuses = [];
+    for (const url of candidateUrls) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Basic ${auth}` },
+        redirect: "follow",
+      });
+      const ctype = String(res.headers.get("content-type") || "").toLowerCase();
+      if (res.ok && (ctype.startsWith("audio/") || ctype.includes("octet-stream"))) {
+        mediaRes = res;
+        break;
+      }
+      failureStatuses.push(`${url} -> ${res.status} (${ctype || "unknown"})`);
+    }
+
+    if (!mediaRes) {
       return NextResponse.json(
-        { error: `Recording media is not ready yet (${mediaRes.status})` },
+        { error: `Recording media unavailable. Attempts: ${failureStatuses.join("; ")}` },
         { status: 404 },
       );
     }
@@ -79,6 +95,13 @@ export async function GET(_req, { params }) {
   if (acceptRanges) headers.set("Accept-Ranges", acceptRanges);
   headers.set("Content-Disposition", `attachment; filename="${filename}"`);
   headers.set("Cache-Control", "no-store");
+  if (!mediaRes.body) {
+    const bytes = await mediaRes.arrayBuffer();
+    return new NextResponse(Buffer.from(bytes), {
+      status: 200,
+      headers,
+    });
+  }
   return new NextResponse(mediaRes.body, {
     status: 200,
     headers,
