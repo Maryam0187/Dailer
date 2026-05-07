@@ -12,7 +12,7 @@ function formatTimer(totalSeconds) {
 
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
-function ActiveCallPanel({ session, endCall }) {
+function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError } = useTwilioVoice();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
@@ -33,6 +33,7 @@ function ActiveCallPanel({ session, endCall }) {
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState("idle");
   const [recordingMessage, setRecordingMessage] = useState(null);
+  const [emptyParticipantHits, setEmptyParticipantHits] = useState(0);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   useEffect(() => {
@@ -71,8 +72,30 @@ function ActiveCallPanel({ session, endCall }) {
         });
         const res = await fetch(`/api/calls/participants?${qs.toString()}`, { credentials: "include" });
         const json = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          if (!cancelled) endCall();
+          return;
+        }
         if (!res.ok) throw new Error(json?.error || "Failed to load participants");
-        if (!cancelled) setParticipants(json?.participants || []);
+        const nextParticipants = Array.isArray(json?.participants) ? json.participants : [];
+        if (!cancelled) {
+          setParticipants(nextParticipants);
+          if (session?.phase === "in_progress") {
+            if (!nextParticipants.length) {
+              setEmptyParticipantHits((n) => {
+                const next = n + 1;
+                if (next >= 2) {
+                  window.setTimeout(() => endCall(), 0);
+                }
+                return next;
+              });
+            } else {
+              setEmptyParticipantHits(0);
+            }
+          } else {
+            setEmptyParticipantHits(0);
+          }
+        }
       } catch (e) {
         if (!cancelled) setParticipantsError(e?.message || "Failed to load participants");
       } finally {
@@ -86,7 +109,27 @@ function ActiveCallPanel({ session, endCall }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [session?.callId, session?.conferenceName]);
+  }, [session?.callId, session?.conferenceName, session?.phase, endCall]);
+
+  useEffect(() => {
+    const joinedName = String(recentJoinedAgent || "").trim();
+    if (!joinedName) return;
+    setParticipants((prev) => {
+      const candidate = {
+        callSid: `joined:${joinedName.toLowerCase()}`,
+        label: joinedName,
+        type: "agent",
+        status: "joined",
+      };
+      const normalized = joinedName.toLowerCase();
+      const exists = prev.some(
+        (p) => String(p?.type || "").toLowerCase() === "agent" &&
+          String(p?.label || "").toLowerCase().trim() === normalized,
+      );
+      if (exists) return prev;
+      return [...prev, candidate];
+    });
+  }, [recentJoinedAgent]);
 
   async function openAddAgentDialog() {
     setShowAddAgentDialog(true);
@@ -600,6 +643,12 @@ export default function GlobalWebCallInterface() {
         </div>
       </div>
     ) : null;
+  const recentJoinedAgentForSession =
+    session &&
+    agentJoinedNotification &&
+    Number(agentJoinedNotification.callId) === Number(session.callId)
+      ? agentJoinedNotification.joinedAgent
+      : null;
 
   async function joinFromNotification() {
     setInviteActionMsg(null);
@@ -635,7 +684,12 @@ export default function GlobalWebCallInterface() {
     return (
       <>
         {ownerJoinToast}
-        <ActiveCallPanel key={session.callId || "active-call"} session={session} endCall={endCall} />
+        <ActiveCallPanel
+          key={session.callId || "active-call"}
+          session={session}
+          endCall={endCall}
+          recentJoinedAgent={recentJoinedAgentForSession}
+        />
         {incomingInvite ? (
           <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-sm rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
