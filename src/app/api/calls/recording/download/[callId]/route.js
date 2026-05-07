@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getTwilioClient } from "@/server/twilio";
 
 export const runtime = "nodejs";
 
@@ -31,10 +32,16 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 });
   }
 
-  const mediaUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   let bytes;
   try {
+    const client = getTwilioClient();
+    const recording = await client.recordings(callLog.recordingSid).fetch();
+    const mediaUrl = String(recording?.mediaUrl || "").trim();
+    if (!mediaUrl) {
+      return NextResponse.json({ error: "Recording media URL is missing" }, { status: 404 });
+    }
+
     const twilioRes = await fetch(mediaUrl, {
       headers: { Authorization: `Basic ${auth}` },
       redirect: "manual",
@@ -71,11 +78,13 @@ export async function GET(_req, { params }) {
     .slice(0, 15);
   const phonePart = safePhone || "unknown-number";
   const filename = `recording-${phonePart}-call-${callLog.id}.mp3`;
-  return new NextResponse(bytes, {
+  const fileBuffer = Buffer.from(bytes);
+  return new NextResponse(fileBuffer, {
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",
       "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(fileBuffer.length),
       "Cache-Control": "no-store",
     },
   });
