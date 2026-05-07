@@ -60,12 +60,36 @@ export async function POST(req) {
       return NextResponse.json({ error: "Conference is not in progress" }, { status: 404 });
     }
 
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 });
+    }
+
     const callbackUrl = `${fallbackBaseUrl}/api/twilio/recording-status?callId=${callId}`;
-    const recording = await client.conferences(conferences[0].sid).recordings.create({
-      recordingStatusCallback: callbackUrl,
-      recordingStatusCallbackMethod: "POST",
-      recordingStatusCallbackEvent: ["in-progress", "completed", "absent"],
+    const conferenceSid = conferences[0].sid;
+    const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Conferences/${conferenceSid}/Recordings.json`;
+    const form = new URLSearchParams({
+      RecordingStatusCallback: callbackUrl,
+      RecordingStatusCallbackMethod: "POST",
     });
+    form.append("RecordingStatusCallbackEvent", "in-progress");
+    form.append("RecordingStatusCallbackEvent", "completed");
+    form.append("RecordingStatusCallbackEvent", "absent");
+
+    const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+    const startRes = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    });
+    const recording = await startRes.json().catch(() => ({}));
+    if (!startRes.ok || !recording?.sid) {
+      throw new Error(recording?.message || "Failed to start conference recording");
+    }
 
     await db.CallLog.update(
       {

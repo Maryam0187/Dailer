@@ -540,11 +540,28 @@ export default function GlobalWebCallInterface() {
   const {
     incomingInvite,
     inviteNotification,
+    ensureRegistered,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
   } = useTwilioVoice();
   const isDev = process.env.NODE_ENV === "development";
+  const [inviteActionMsg, setInviteActionMsg] = useState(null);
+
+  async function joinFromNotification() {
+    setInviteActionMsg(null);
+    if (incomingInvite) {
+      acceptIncomingInvite();
+      dismissInviteNotification();
+      return;
+    }
+    try {
+      await ensureRegistered();
+      setInviteActionMsg("Waiting for incoming ring... click Join again when available.");
+    } catch (e) {
+      setInviteActionMsg(e?.message || "Unable to prepare device for join.");
+    }
+  }
 
   if (session) {
     return (
@@ -591,7 +608,7 @@ export default function GlobalWebCallInterface() {
           </div>
         ) : null}
         {!incomingInvite && inviteNotification ? (
-          <div className="fixed bottom-4 left-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+          <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
@@ -606,14 +623,26 @@ export default function GlobalWebCallInterface() {
                     Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
                   </p>
                 ) : null}
+                {inviteActionMsg ? (
+                  <p className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-300">{inviteActionMsg}</p>
+                ) : null}
               </div>
-              <button
-                type="button"
-                onClick={dismissInviteNotification}
-                className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Dismiss
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={joinFromNotification}
+                  className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+                >
+                  Join Call
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissInviteNotification}
+                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -668,7 +697,7 @@ export default function GlobalWebCallInterface() {
 
   if (inviteNotification) {
     return (
-      <div className="fixed bottom-4 left-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+      <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
@@ -683,14 +712,26 @@ export default function GlobalWebCallInterface() {
                 Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
               </p>
             ) : null}
+            {inviteActionMsg ? (
+              <p className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-300">{inviteActionMsg}</p>
+            ) : null}
           </div>
-          <button
-            type="button"
-            onClick={dismissInviteNotification}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Dismiss
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={joinFromNotification}
+              className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+            >
+              Join Call
+            </button>
+            <button
+              type="button"
+              onClick={dismissInviteNotification}
+              className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       </div>
     );

@@ -35,9 +35,17 @@ function inferParticipantLabel(participant) {
   const from = String(participant?.from || "").trim();
   if (to.startsWith("client:")) return to.replace("client:", "");
   if (from.startsWith("client:")) return from.replace("client:", "");
-  if (to) return to;
-  if (from) return from;
-  return String(participant?.callSid || "Unknown participant");
+  if (to) return "Customer";
+  if (from) return "Customer";
+  return "Customer";
+}
+
+function extractUserIdFromIdentity(identity) {
+  if (!identity) return null;
+  const value = String(identity).trim();
+  if (/^\d+-/.test(value)) return Number(value.split("-")[0]);
+  if (/^agent-\d+-/.test(value)) return Number(value.split("-")[1]);
+  return null;
 }
 
 function inferParticipantType(participant) {
@@ -108,9 +116,29 @@ export async function POST(req) {
     const participantRecords = conferenceMatches.length
       ? await client.conferences(conferenceMatches[0].sid).participants.list({ limit: 50 })
       : [];
+    const identityIds = Array.from(
+      new Set(
+        participantRecords
+          .map((p) => extractUserIdFromIdentity(inferParticipantLabel(p)))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    );
+    const users = identityIds.length
+      ? await db.User.findAll({
+          where: { id: identityIds },
+          attributes: ["id", "username"],
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u.username]));
     const existingParticipants = participantRecords.map((p) => ({
       callSid: p.callSid,
-      label: inferParticipantLabel(p),
+      label: (() => {
+        const raw = inferParticipantLabel(p);
+        const uid = extractUserIdFromIdentity(raw);
+        if (uid && userMap.get(uid)) return userMap.get(uid);
+        if (raw === "Customer" && callLog?.toNumber) return callLog.toNumber;
+        return raw;
+      })(),
       type: inferParticipantType(p),
       status: p.status || "joined",
     }));

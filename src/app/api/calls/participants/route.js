@@ -3,16 +3,48 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { getTwilioClient } from "@/server/twilio";
 
-function inferParticipantLabel(participant) {
+function extractIdentity(participant) {
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
-  const callSid = String(participant?.callSid || "").trim();
-
   if (to.startsWith("client:")) return to.replace("client:", "");
   if (from.startsWith("client:")) return from.replace("client:", "");
-  if (to) return to;
-  if (from) return from;
-  return callSid || "Unknown participant";
+  return null;
+}
+
+function extractUserIdFromIdentity(identity) {
+  if (!identity) return null;
+  const value = String(identity).trim();
+  if (/^\d+-/.test(value)) return Number(value.split("-")[0]);
+  if (/^agent-\d+-/.test(value)) return Number(value.split("-")[1]);
+  return null;
+}
+
+async function buildAgentNameMap(participants) {
+  const ids = Array.from(
+    new Set(
+      participants
+        .map((p) => extractUserIdFromIdentity(extractIdentity(p)))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  );
+  if (!ids.length) return new Map();
+  const users = await db.User.findAll({
+    where: { id: ids },
+    attributes: ["id", "username"],
+  });
+  return new Map(users.map((u) => [u.id, u.username]));
+}
+
+function inferParticipantLabel(participant, agentNameMap, customerNumber) {
+  const to = String(participant?.to || "").trim();
+  const from = String(participant?.from || "").trim();
+  const identity = extractIdentity(participant);
+  if (identity) {
+    const uid = extractUserIdFromIdentity(identity);
+    return agentNameMap.get(uid) || identity;
+  }
+  if (to || from) return customerNumber || to || from;
+  return customerNumber || "Customer";
 }
 
 function inferParticipantType(participant) {
@@ -39,7 +71,7 @@ export async function GET(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id"],
+    attributes: ["id", "toNumber"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
 
@@ -59,9 +91,10 @@ export async function GET(req) {
     const participantRecords = await client
       .conferences(conference.sid)
       .participants.list({ limit: 50 });
+    const agentNameMap = await buildAgentNameMap(participantRecords);
     const participants = participantRecords.map((p) => ({
       callSid: p.callSid,
-      label: inferParticipantLabel(p),
+      label: inferParticipantLabel(p, agentNameMap, callLog.toNumber),
       type: inferParticipantType(p),
       muted: Boolean(p.muted),
       hold: Boolean(p.hold),

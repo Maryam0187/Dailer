@@ -11,9 +11,17 @@ function inferParticipantLabel(participant) {
   const from = String(participant?.from || "").trim();
   if (to.startsWith("client:")) return to.replace("client:", "");
   if (from.startsWith("client:")) return from.replace("client:", "");
-  if (to) return to;
-  if (from) return from;
-  return String(participant?.callSid || "Unknown participant");
+  if (to) return "Customer";
+  if (from) return "Customer";
+  return "Customer";
+}
+
+function extractUserIdFromIdentity(identity) {
+  if (!identity) return null;
+  const value = String(identity).trim();
+  if (/^\d+-/.test(value)) return Number(value.split("-")[0]);
+  if (/^agent-\d+-/.test(value)) return Number(value.split("-")[1]);
+  return null;
 }
 
 function inferParticipantType(participant) {
@@ -51,14 +59,39 @@ export async function GET(req) {
       const participantCallSids = participants
         .map((p) => String(p.callSid || "").trim())
         .filter(Boolean);
+      const participantUserIds = Array.from(
+        new Set(
+          participants
+            .map((p) => {
+              const to = String(p.to || "").trim();
+              const from = String(p.from || "").trim();
+              const identity = to.startsWith("client:")
+                ? to.replace("client:", "")
+                : from.startsWith("client:")
+                  ? from.replace("client:", "")
+                  : null;
+              return extractUserIdFromIdentity(identity);
+            })
+            .filter((id) => Number.isInteger(id) && id > 0),
+        ),
+      );
+      const users = participantUserIds.length
+        ? await db.User.findAll({
+            where: { id: participantUserIds },
+            attributes: ["id", "username"],
+          })
+        : [];
+      const userMap = new Map(users.map((u) => [u.id, u.username]));
       let resolvedCallId = null;
+      let customerNumber = null;
       if (participantCallSids.length) {
         const log = await db.CallLog.findOne({
           where: { twilioSid: participantCallSids },
-          attributes: ["id"],
+          attributes: ["id", "toNumber"],
           order: [["createdAt", "DESC"]],
         });
         resolvedCallId = log?.id ?? null;
+        customerNumber = log?.toNumber ?? null;
       }
 
       return NextResponse.json({
@@ -66,7 +99,13 @@ export async function GET(req) {
         conferenceName: conference.friendlyName || null,
         participants: participants.map((p) => ({
           callSid: p.callSid,
-          label: inferParticipantLabel(p),
+          label: (() => {
+            const raw = inferParticipantLabel(p);
+            const uid = extractUserIdFromIdentity(raw);
+            if (uid && userMap.get(uid)) return userMap.get(uid);
+            if (raw === "Customer" && customerNumber) return customerNumber;
+            return raw;
+          })(),
           type: inferParticipantType(p),
           status: p.status || "joined",
         })),
