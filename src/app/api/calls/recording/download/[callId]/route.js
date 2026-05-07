@@ -6,6 +6,7 @@ import { getTwilioClient } from "@/server/twilio";
 export const runtime = "nodejs";
 
 export async function GET(_req, { params }) {
+  try {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -87,24 +88,22 @@ export async function GET(_req, { params }) {
   const phonePart = safePhone || "unknown-number";
   const filename = `recording-${phonePart}-call-${callLog.id}.mp3`;
   const contentType = mediaRes.headers.get("content-type") || "audio/mpeg";
-  const contentLength = mediaRes.headers.get("content-length");
-  const acceptRanges = mediaRes.headers.get("accept-ranges");
+  const bytes = await mediaRes.arrayBuffer();
+  const fileBuffer = Buffer.from(bytes);
   const headers = new Headers();
   headers.set("Content-Type", contentType);
-  if (contentLength) headers.set("Content-Length", contentLength);
-  if (acceptRanges) headers.set("Accept-Ranges", acceptRanges);
+  headers.set("Content-Length", String(fileBuffer.length));
   headers.set("Content-Disposition", `attachment; filename="${filename}"`);
   headers.set("Cache-Control", "no-store");
-  if (!mediaRes.body) {
-    const bytes = await mediaRes.arrayBuffer();
-    return new NextResponse(Buffer.from(bytes), {
-      status: 200,
-      headers,
-    });
-  }
-  return new NextResponse(mediaRes.body, {
+  return new NextResponse(fileBuffer, {
     status: 200,
     headers,
   });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Recording download failed unexpectedly" },
+      { status: 500 },
+    );
+  }
 }
 
