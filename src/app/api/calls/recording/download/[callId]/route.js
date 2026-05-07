@@ -36,10 +36,27 @@ export async function GET(_req, { params }) {
     }
 
     const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-    const candidateUrls = [
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.wav`,
-    ];
+    const metadataUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.json`;
+    const metaRes = await fetch(metadataUrl, {
+      headers: { Authorization: `Basic ${auth}` },
+      redirect: "follow",
+    });
+    if (!metaRes.ok) {
+      return NextResponse.json(
+        { error: `Recording metadata unavailable (${metaRes.status})` },
+        { status: 404 },
+      );
+    }
+    const meta = await metaRes.json().catch(() => null);
+    const mediaFromMeta = String(meta?.media_url || "").trim();
+    const candidateUrls = Array.from(
+      new Set([
+        mediaFromMeta,
+        mediaFromMeta.endsWith(".json") ? mediaFromMeta.replace(/\.json$/i, ".mp3") : "",
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.wav`,
+      ].filter(Boolean)),
+    );
 
     let mediaRes = null;
     const attempts = [];

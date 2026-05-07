@@ -49,6 +49,7 @@ export default function CallLogsClient() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [callingId, setCallingId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -174,6 +175,36 @@ export default function CallLogsClient() {
     const nextPage = page + 1;
     setPage(nextPage);
     await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+  }
+
+  async function downloadRecording(callId, url) {
+    if (!url) return;
+    setError(null);
+    setDownloadingId(callId);
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Failed to download recording");
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] || `recording-call-${callId}.mp3`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      setError(e?.message || "Failed to download recording");
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   return (
@@ -330,13 +361,14 @@ export default function CallLogsClient() {
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.recordingDownloadUrl ? (
-                        <a
-                          href={c.recordingDownloadUrl}
-                          download
+                        <button
+                          type="button"
+                          onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
+                          disabled={downloadingId === c.id}
                           className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
                         >
-                          Download
-                        </a>
+                          {downloadingId === c.id ? "Downloading..." : "Download"}
+                        </button>
                       ) : (
                         "—"
                       )}
