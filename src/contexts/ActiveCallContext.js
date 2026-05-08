@@ -40,6 +40,15 @@ export function ActiveCallProvider({ children }) {
     setSession((s) => (s ? { ...s, phase: "in_progress" } : s));
   }, []);
 
+  const patchSession = useCallback((patch) => {
+    setSession((current) => {
+      if (!current) return current;
+      const nextPatch = typeof patch === "function" ? patch(current) : patch;
+      if (!nextPatch || typeof nextPatch !== "object") return current;
+      return { ...current, ...nextPatch };
+    });
+  }, []);
+
   useEffect(() => {
     if (!session?.callId || session.phase !== "connecting") return;
     const t = setTimeout(() => {
@@ -51,7 +60,7 @@ export function ActiveCallProvider({ children }) {
   }, [session?.callId, session?.phase]);
 
   return (
-    <ActiveCallContext.Provider value={{ session, beginSession, endCall, markInProgress }}>
+    <ActiveCallContext.Provider value={{ session, beginSession, patchSession, endCall, markInProgress }}>
       {children}
     </ActiveCallContext.Provider>
   );

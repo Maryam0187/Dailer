@@ -619,12 +619,16 @@ export default function GlobalWebCallInterface() {
   const [inviteActionMsg, setInviteActionMsg] = useState(null);
   const [joiningInvite, setJoiningInvite] = useState(false);
   const [pendingJoinCallId, setPendingJoinCallId] = useState(null);
+  const [devPreviewStartedAt] = useState(() => Date.now() - 90 * 1000);
 
   useEffect(() => {
     if (!joiningInvite || !session) return;
-    setJoiningInvite(false);
-    setInviteActionMsg(null);
-    dismissInviteNotification();
+    const t = window.setTimeout(() => {
+      setJoiningInvite(false);
+      setInviteActionMsg(null);
+      dismissInviteNotification();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [joiningInvite, session, dismissInviteNotification]);
 
   useEffect(() => {
@@ -638,7 +642,8 @@ export default function GlobalWebCallInterface() {
       credentials: "include",
       body: JSON.stringify({ callId: pendingCallId }),
     }).catch(() => {});
-    setPendingJoinCallId(null);
+    const t = window.setTimeout(() => setPendingJoinCallId(null), 0);
+    return () => window.clearTimeout(t);
   }, [session, pendingJoinCallId]);
 
   useEffect(() => {
@@ -782,6 +787,11 @@ export default function GlobalWebCallInterface() {
     if (Number.isInteger(callId) && callId > 0) setPendingJoinCallId(callId);
     setJoiningInvite(true);
     setInviteActionMsg("Joining call...");
+    // Try immediate accept first even if incomingInvite state is stale/missing.
+    const accepted = acceptIncomingInvite();
+    if (accepted) {
+      return;
+    }
     if (incomingInvite) {
       await acceptIncomingInviteWithLoading();
       return;
@@ -816,7 +826,7 @@ export default function GlobalWebCallInterface() {
     phoneLabel: "(555) 010-1234",
     toNumber: "+15550101234",
     phase: "in_progress",
-    startedAt: Date.now() - 90 * 1000,
+    startedAt: devPreviewStartedAt,
   };
 
   return (

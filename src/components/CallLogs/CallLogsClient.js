@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
@@ -65,7 +65,10 @@ export default function CallLogsClient() {
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
 
-  async function loadCalls({ signal, silent = false, targetPage = page, fromDate = rangeFrom, toDate = rangeTo } = {}) {
+  const loadCalls = useCallback(async ({ signal, silent = false, targetPage, fromDate, toDate } = {}) => {
+    const resolvedPage = targetPage ?? page;
+    const resolvedFromDate = fromDate ?? rangeFrom;
+    const resolvedToDate = toDate ?? rangeTo;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -74,12 +77,12 @@ export default function CallLogsClient() {
     setError(null);
     try {
       const qs = new URLSearchParams({
-        page: String(targetPage),
+        page: String(resolvedPage),
         pageSize: "20",
       });
-      if (fromDate && toDate) {
-        qs.set("fromDate", fromDate);
-        qs.set("toDate", toDate);
+      if (resolvedFromDate && resolvedToDate) {
+        qs.set("fromDate", resolvedFromDate);
+        qs.set("toDate", resolvedToDate);
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -91,7 +94,7 @@ export default function CallLogsClient() {
       setCalls(json.calls || []);
       if (json.pagination) {
         setPagination(json.pagination);
-        setPage(json.pagination.page || targetPage);
+        setPage(json.pagination.page || resolvedPage);
       }
     } catch (e) {
       if (e.name === "AbortError") return;
@@ -104,7 +107,7 @@ export default function CallLogsClient() {
         setLoading(false);
       }
     }
-  }
+  }, [page, rangeFrom, rangeTo]);
 
   async function redial(toNumber, id) {
     if (session) return;
@@ -147,7 +150,7 @@ export default function CallLogsClient() {
       window.removeEventListener("call-ended", onCallEnded);
       controller.abort();
     };
-  }, [page, rangeFrom, rangeTo]);
+  }, [loadCalls, page, rangeFrom, rangeTo]);
 
   function applyPreset(preset) {
     setRangePreset(preset);

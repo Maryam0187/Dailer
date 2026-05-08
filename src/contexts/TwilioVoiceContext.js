@@ -7,7 +7,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 const TwilioVoiceContext = createContext(undefined);
 
 export function TwilioVoiceProvider({ children }) {
-  const { session, beginSession, endCall, markInProgress } = useActiveCall();
+  const { session, beginSession, patchSession, endCall, markInProgress } = useActiveCall();
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [sdkError, setSdkError] = useState(null);
@@ -26,6 +26,7 @@ export function TwilioVoiceProvider({ children }) {
   const deviceIdentityRef = useRef(null);
   const inviteToneCtxRef = useRef(null);
   const inviteToneIntervalRef = useRef(null);
+  const callIdResolveSidRef = useRef(null);
 
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
@@ -182,6 +183,7 @@ export function TwilioVoiceProvider({ children }) {
               callId: null,
               callOwnedByMe: false,
               conferenceName: null,
+              inviteCallSid: String(call?.parameters?.CallSid || "").trim() || null,
               customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
               phoneLabel: call?.parameters?.From || "",
               toNumber: call?.parameters?.From || "",
@@ -268,7 +270,7 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, session?.callId, session?.conferenceName, inviteNotification, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
+  }, [registered, session, inviteNotification, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
   // Keep browser reachable for invite legs while idle, but only
   // after a real user gesture so browsers allow AudioContext startup.
@@ -307,9 +309,43 @@ export function TwilioVoiceProvider({ children }) {
   }, [session]);
 
   useEffect(() => {
-    if (incomingInvite) startInviteTone();
+    if (incomingInvite || inviteNotification) startInviteTone();
     else stopInviteTone();
-  }, [incomingInvite, startInviteTone, stopInviteTone]);
+  }, [incomingInvite, inviteNotification, startInviteTone, stopInviteTone]);
+
+  useEffect(() => {
+    const hasResolvedCallId = Number.isInteger(Number(session?.callId)) && Number(session?.callId) > 0;
+    const sid = String(session?.inviteCallSid || "").trim();
+    if (!session || hasResolvedCallId || !sid) {
+      callIdResolveSidRef.current = null;
+      return;
+    }
+    if (callIdResolveSidRef.current === sid) return;
+    callIdResolveSidRef.current = sid;
+
+    fetch(`/api/calls/invite-context?callSid=${encodeURIComponent(sid)}`, {
+      credentials: "include",
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((json) => {
+        const resolvedCallId = Number(json?.callId);
+        const resolvedConferenceName = String(json?.conferenceName || "").trim();
+        patchSession((current) => {
+          if (!current) return null;
+          const currentHasCallId =
+            Number.isInteger(Number(current.callId)) && Number(current.callId) > 0;
+          if (currentHasCallId) return null;
+          const nextPatch = {};
+          if (Number.isInteger(resolvedCallId) && resolvedCallId > 0) nextPatch.callId = resolvedCallId;
+          if (!current.conferenceName && resolvedConferenceName) nextPatch.conferenceName = resolvedConferenceName;
+          return Object.keys(nextPatch).length ? nextPatch : null;
+        });
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (callIdResolveSidRef.current === sid) callIdResolveSidRef.current = null;
+      });
+  }, [session, session?.callId, session?.inviteCallSid, session?.conferenceName, patchSession]);
 
   useEffect(() => {
     function onLogout() {
@@ -396,10 +432,12 @@ export function TwilioVoiceProvider({ children }) {
       // Only create a synthetic session if there isn't one already.
       if (!session) {
         const inviteCallId = Number(incomingInvite?.callId || inviteNotification?.callId);
+        const inviteCallSid = String(incomingInvite?.callSid || "").trim() || null;
         beginSession({
           callId: Number.isInteger(inviteCallId) && inviteCallId > 0 ? inviteCallId : null,
           callOwnedByMe: false,
           conferenceName: incomingInvite?.conferenceName || inviteNotification?.conferenceName || null,
+          inviteCallSid: inviteCallSid,
           customerName: incomingInvite?.customerName?.trim() || "Customer",
           phoneLabel: call?.parameters?.From || "",
           toNumber: call?.parameters?.From || "",
