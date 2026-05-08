@@ -20,8 +20,11 @@ export function TwilioVoiceProvider({ children }) {
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
+  const expectedIncomingUntilRef = useRef(0);
   const attemptedWarmRegistrationRef = useRef(false);
   const deviceIdentityRef = useRef(null);
+  const inviteToneCtxRef = useRef(null);
+  const inviteToneIntervalRef = useRef(null);
 
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
@@ -33,6 +36,45 @@ export function TwilioVoiceProvider({ children }) {
     setRegistered(false);
     setVoiceConnected(false);
     setMuted(false);
+  }, []);
+
+  const stopInviteTone = useCallback(() => {
+    if (inviteToneIntervalRef.current) {
+      window.clearInterval(inviteToneIntervalRef.current);
+      inviteToneIntervalRef.current = null;
+    }
+    if (inviteToneCtxRef.current) {
+      inviteToneCtxRef.current.close().catch(() => {});
+      inviteToneCtxRef.current = null;
+    }
+  }, []);
+
+  const startInviteTone = useCallback(() => {
+    if (inviteToneIntervalRef.current || typeof window === "undefined") return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    try {
+      const ctx = new AudioContextCtor();
+      inviteToneCtxRef.current = ctx;
+      const playBeep = () => {
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.24);
+      };
+      playBeep();
+      inviteToneIntervalRef.current = window.setInterval(playBeep, 1400);
+    } catch {
+      // Ignore autoplay/audio-context restrictions.
+    }
   }, []);
 
   const isFatalDeviceError = useCallback((err) => {
@@ -70,9 +112,10 @@ export function TwilioVoiceProvider({ children }) {
     return () => {
       callRef.current?.disconnect();
       callRef.current = null;
+      stopInviteTone();
       destroyDevice();
     };
-  }, [destroyDevice]);
+  }, [destroyDevice, stopInviteTone]);
 
   const ensureRegistered = useCallback(async () => {
     // If already initialized, just wait until we have a registered device.
@@ -104,8 +147,9 @@ export function TwilioVoiceProvider({ children }) {
       const { Device } = await import("@twilio/voice-sdk");
       const device = new Device(token, {
         logLevel: 1,
-        // Keep call media audio, but disable SDK beeps/ringtones.
-        sounds: false,
+        // Suppress SDK-generated beeps/ringtones (accept/connect tones).
+        // This does not mute actual call media audio.
+        disableAudioContextSounds: true,
       });
       deviceIdentityRef.current = identity;
 
@@ -121,8 +165,10 @@ export function TwilioVoiceProvider({ children }) {
       device.on("incoming", (call) => {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
-        const shouldAutoAccept = session?.callId || session?.conferenceName;
+        const shouldAutoAccept =
+          session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now();
         if (shouldAutoAccept) {
+          expectedIncomingUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
           if (!session) {
@@ -253,6 +299,11 @@ export function TwilioVoiceProvider({ children }) {
   }, [session]);
 
   useEffect(() => {
+    if (incomingInvite) startInviteTone();
+    else stopInviteTone();
+  }, [incomingInvite, startInviteTone, stopInviteTone]);
+
+  useEffect(() => {
     function onLogout() {
       destroyDevice();
     }
@@ -328,6 +379,7 @@ export function TwilioVoiceProvider({ children }) {
     if (!call) return false;
     setSdkError(null);
     setIncomingInvite(null);
+    stopInviteTone();
     try {
       call.accept();
       incomingCallRef.current = null;
@@ -349,18 +401,19 @@ export function TwilioVoiceProvider({ children }) {
       setSdkError(err?.message || "Unable to join incoming call");
       return false;
     }
-  }, [session, incomingInvite, inviteNotification, beginSession, bindActiveCallEvents]);
+  }, [session, incomingInvite, inviteNotification, beginSession, bindActiveCallEvents, stopInviteTone]);
 
   const rejectIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
     setIncomingInvite(null);
+    stopInviteTone();
     if (!call) return;
     try {
       call.reject();
     } finally {
       incomingCallRef.current = null;
     }
-  }, []);
+  }, [stopInviteTone]);
 
   const dismissInviteNotification = useCallback(() => {
     setInviteNotification(null);
@@ -368,6 +421,12 @@ export function TwilioVoiceProvider({ children }) {
 
   const dismissAgentJoinedNotification = useCallback(() => {
     setAgentJoinedNotification(null);
+  }, []);
+
+  const expectOutgoingIncomingLeg = useCallback((ttlMs = 45000) => {
+    const ttl = Number(ttlMs);
+    const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 45000;
+    expectedIncomingUntilRef.current = Date.now() + safeTtl;
   }, []);
 
   return (
@@ -388,6 +447,7 @@ export function TwilioVoiceProvider({ children }) {
         rejectIncomingInvite,
         dismissInviteNotification,
         dismissAgentJoinedNotification,
+        expectOutgoingIncomingLeg,
       }}
     >
       {children}

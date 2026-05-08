@@ -609,6 +609,7 @@ export default function GlobalWebCallInterface() {
     inviteNotification,
     agentJoinedNotification,
     ensureRegistered,
+    expectOutgoingIncomingLeg,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
@@ -666,6 +667,9 @@ export default function GlobalWebCallInterface() {
         }
       }
 
+      // Arm short auto-accept window for the expected Twilio incoming leg
+      // that arrives after user explicitly clicks Join Call.
+      expectOutgoingIncomingLeg(45000);
       await ensureRegistered();
       beginSession({
         callId: Number.isInteger(inviteCallId)
