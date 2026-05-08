@@ -6,6 +6,9 @@ export default function LogoutButton() {
   const router = useRouter();
 
   async function onLogout() {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+    }
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     router.push("/sign-in");
   }

@@ -21,6 +21,32 @@ export function TwilioVoiceProvider({ children }) {
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
   const expectedIncomingUntilRef = useRef(0);
+  const attemptedWarmRegistrationRef = useRef(false);
+  const deviceIdentityRef = useRef(null);
+
+  const destroyDevice = useCallback(() => {
+    deviceRef.current?.destroy();
+    deviceRef.current = null;
+    deviceInitPromiseRef.current = null;
+    deviceIdentityRef.current = null;
+    incomingCallRef.current = null;
+    setIncomingInvite(null);
+    setRegistered(false);
+    setVoiceConnected(false);
+    setMuted(false);
+  }, []);
+
+  const isFatalDeviceError = useCallback((err) => {
+    const code = Number(err?.code);
+    if (Number.isFinite(code) && (code === 20101 || code === 31005 || code === 31205)) return true;
+    const message = String(err?.message || "").toLowerCase();
+    return (
+      message.includes("jwt token expired") ||
+      message.includes("access token expired") ||
+      message.includes("authentication failed") ||
+      message.includes("token is invalid")
+    );
+  }, []);
 
   const bindActiveCallEvents = useCallback(
     (call) => {
@@ -45,12 +71,9 @@ export function TwilioVoiceProvider({ children }) {
     return () => {
       callRef.current?.disconnect();
       callRef.current = null;
-      incomingCallRef.current = null;
-      deviceRef.current?.destroy();
-      deviceRef.current = null;
-      deviceInitPromiseRef.current = null;
+      destroyDevice();
     };
-  }, []);
+  }, [destroyDevice]);
 
   const ensureRegistered = useCallback(async () => {
     // If already initialized, just wait until we have a registered device.
@@ -72,15 +95,24 @@ export function TwilioVoiceProvider({ children }) {
 
       const data = await res.json().catch(() => ({}));
       const token = data?.token;
+      const identity = data?.identity || null;
       if (!token) throw new Error("Missing Twilio voice token");
+      if (deviceIdentityRef.current && identity && deviceIdentityRef.current !== identity) {
+        // Auth context changed (account switch): reset and rebuild with new identity.
+        destroyDevice();
+      }
 
       const { Device } = await import("@twilio/voice-sdk");
       const device = new Device(token, { logLevel: 1 });
+      deviceIdentityRef.current = identity;
 
       device.on("registered", () => setRegistered(true));
 
       device.on("error", (err) => {
         setSdkError(err?.message || "Twilio Device error");
+        if (isFatalDeviceError(err)) {
+          destroyDevice();
+        }
       });
 
       device.on("incoming", (call) => {
@@ -185,7 +217,14 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents]);
+  }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
+
+  // Keep browser reachable for invite legs while idle.
+  useEffect(() => {
+    if (attemptedWarmRegistrationRef.current) return;
+    attemptedWarmRegistrationRef.current = true;
+    ensureRegistered().catch(() => {});
+  }, [ensureRegistered]);
 
   useEffect(() => {
     if (session) return;
@@ -196,13 +235,28 @@ export function TwilioVoiceProvider({ children }) {
     }
     incomingCallRef.current = null;
     setIncomingInvite(null);
-    deviceRef.current?.destroy();
-    deviceRef.current = null;
-    deviceInitPromiseRef.current = null;
-    setRegistered(false);
     setVoiceConnected(false);
     setMuted(false);
   }, [session]);
+
+  useEffect(() => {
+    function onLogout() {
+      destroyDevice();
+    }
+
+    function onPageClose() {
+      destroyDevice();
+    }
+
+    window.addEventListener("auth:logout", onLogout);
+    window.addEventListener("beforeunload", onPageClose);
+    window.addEventListener("pagehide", onPageClose);
+    return () => {
+      window.removeEventListener("auth:logout", onLogout);
+      window.removeEventListener("beforeunload", onPageClose);
+      window.removeEventListener("pagehide", onPageClose);
+    };
+  }, [destroyDevice]);
 
   useEffect(() => {
     const socket = ioClient({
@@ -258,7 +312,7 @@ export function TwilioVoiceProvider({ children }) {
 
   const acceptIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
-    if (!call) return;
+    if (!call) return false;
     setSdkError(null);
     setIncomingInvite(null);
     try {
@@ -278,10 +332,12 @@ export function TwilioVoiceProvider({ children }) {
         });
       }
       bindActiveCallEvents(call);
+      return true;
     } catch (err) {
       setSdkError(err?.message || "Unable to join incoming call");
+      return false;
     }
-  }, [session, incomingInvite?.customerName, beginSession, bindActiveCallEvents]);
+  }, [session, incomingInvite, beginSession, bindActiveCallEvents]);
 
   const rejectIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;

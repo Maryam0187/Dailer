@@ -603,7 +603,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall } = useActiveCall();
+  const { session, endCall, beginSession } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
@@ -648,12 +648,39 @@ export default function GlobalWebCallInterface() {
     }
   }, [session, agentJoinedNotification, dismissAgentJoinedNotification]);
 
-  function acceptIncomingInviteWithLoading() {
+  async function prepareJoinFromNotification() {
+    if (!inviteNotification) return false;
+    try {
+      markExpectIncomingAutoAccept(45000);
+      await ensureRegistered();
+      beginSession({
+        callId: Number.isInteger(Number(inviteNotification.callId))
+          ? Number(inviteNotification.callId)
+          : null,
+        callOwnedByMe: false,
+        conferenceName: inviteNotification.conferenceName || null,
+        customerName: inviteNotification.customer || "Customer",
+        phoneLabel: inviteNotification.customer || "",
+        toNumber: inviteNotification.customer || "",
+      });
+      setInviteActionMsg("Waiting for incoming call...");
+      return true;
+    } catch (e) {
+      setInviteActionMsg(e?.message || "Unable to prepare device for join.");
+      return false;
+    }
+  }
+
+  async function acceptIncomingInviteWithLoading() {
     const cid = Number(incomingInvite?.callId);
     if (Number.isInteger(cid) && cid > 0) setPendingJoinCallId(cid);
     setJoiningInvite(true);
     setInviteActionMsg("Joining call...");
-    acceptIncomingInvite();
+    const accepted = acceptIncomingInvite();
+    if (!accepted) {
+      const prepared = await prepareJoinFromNotification();
+      if (!prepared) setJoiningInvite(false);
+    }
   }
 
   const ownerJoinToast =
@@ -693,17 +720,11 @@ export default function GlobalWebCallInterface() {
     setJoiningInvite(true);
     setInviteActionMsg("Joining call...");
     if (incomingInvite) {
-      acceptIncomingInviteWithLoading();
+      await acceptIncomingInviteWithLoading();
       return;
     }
-    try {
-      markExpectIncomingAutoAccept(45000);
-      await ensureRegistered();
-      setInviteActionMsg("Waiting for incoming call...");
-    } catch (e) {
-      setJoiningInvite(false);
-      setInviteActionMsg(e?.message || "Unable to prepare device for join.");
-    }
+    const prepared = await prepareJoinFromNotification();
+    if (!prepared) setJoiningInvite(false);
   }
 
   if (session) {
