@@ -103,7 +103,11 @@ export function TwilioVoiceProvider({ children }) {
       }
 
       const { Device } = await import("@twilio/voice-sdk");
-      const device = new Device(token, { logLevel: 1 });
+      const device = new Device(token, {
+        logLevel: 1,
+        // Keep call media audio, but disable SDK beeps/ringtones.
+        sounds: false,
+      });
       deviceIdentityRef.current = identity;
 
       device.on("registered", () => setRegistered(true));
@@ -219,11 +223,25 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
-  // Keep browser reachable for invite legs while idle.
+  // Keep browser reachable for invite legs while idle, but only
+  // after a real user gesture so browsers allow AudioContext startup.
   useEffect(() => {
     if (attemptedWarmRegistrationRef.current) return;
-    attemptedWarmRegistrationRef.current = true;
-    ensureRegistered().catch(() => {});
+    const prime = () => {
+      if (attemptedWarmRegistrationRef.current) return;
+      attemptedWarmRegistrationRef.current = true;
+      ensureRegistered().catch(() => {});
+    };
+
+    const opts = { once: true, passive: true };
+    window.addEventListener("pointerdown", prime, opts);
+    window.addEventListener("keydown", prime, opts);
+    window.addEventListener("touchstart", prime, opts);
+    return () => {
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+      window.removeEventListener("touchstart", prime);
+    };
   }, [ensureRegistered]);
 
   useEffect(() => {
@@ -320,12 +338,11 @@ export function TwilioVoiceProvider({ children }) {
       incomingCallRef.current = null;
       // Only create a synthetic session if there isn't one already.
       if (!session) {
+        const inviteCallId = Number(incomingInvite?.callId || inviteNotification?.callId);
         beginSession({
-          callId: Number.isInteger(Number(incomingInvite?.callId))
-            ? Number(incomingInvite.callId)
-            : null,
+          callId: Number.isInteger(inviteCallId) && inviteCallId > 0 ? inviteCallId : null,
           callOwnedByMe: false,
-          conferenceName: incomingInvite?.conferenceName || null,
+          conferenceName: incomingInvite?.conferenceName || inviteNotification?.conferenceName || null,
           customerName: incomingInvite?.customerName?.trim() || "Customer",
           phoneLabel: call?.parameters?.From || "",
           toNumber: call?.parameters?.From || "",
@@ -337,7 +354,7 @@ export function TwilioVoiceProvider({ children }) {
       setSdkError(err?.message || "Unable to join incoming call");
       return false;
     }
-  }, [session, incomingInvite, beginSession, bindActiveCallEvents]);
+  }, [session, incomingInvite, inviteNotification, beginSession, bindActiveCallEvents]);
 
   const rejectIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
