@@ -653,14 +653,28 @@ export default function GlobalWebCallInterface() {
   async function prepareJoinFromNotification() {
     if (!inviteNotification) return false;
     try {
+      const inviteCallId = Number(inviteNotification.callId);
+      const inviteConferenceName = String(inviteNotification.conferenceName || "").trim();
+      if (Number.isInteger(inviteCallId) && inviteCallId > 0 && inviteConferenceName) {
+        const qs = new URLSearchParams({
+          callId: String(inviteCallId),
+          conferenceName: inviteConferenceName,
+        });
+        const res = await fetch(`/api/calls/participants?${qs.toString()}`, { credentials: "include" });
+        if (res.status === 404) {
+          setInviteActionMsg("This call has already ended.");
+          return false;
+        }
+      }
+
       markExpectIncomingAutoAccept(45000);
       await ensureRegistered();
       beginSession({
-        callId: Number.isInteger(Number(inviteNotification.callId))
-          ? Number(inviteNotification.callId)
+        callId: Number.isInteger(inviteCallId)
+          ? inviteCallId
           : null,
         callOwnedByMe: false,
-        conferenceName: inviteNotification.conferenceName || null,
+        conferenceName: inviteConferenceName || null,
         customerName: inviteNotification.customer || "Customer",
         phoneLabel: inviteNotification.customer || "",
         toNumber: inviteNotification.customer || "",
@@ -719,6 +733,54 @@ export default function GlobalWebCallInterface() {
       : Array.isArray(inviteNotification?.participants)
         ? inviteNotification.participants
         : [];
+  const hasIncomingInvite = Boolean(incomingInvite);
+  const inviteFromLabel = hasIncomingInvite
+    ? incomingInvite?.from || "Unknown"
+    : inviteNotification?.fromAgent || "Unknown";
+  const inviteCustomerLabel = hasIncomingInvite
+    ? incomingInvite?.customerName?.trim() || "Customer"
+    : inviteNotification?.customer || "Customer";
+  const inviteToast = incomingInvite || inviteNotification ? (
+    <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
+      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
+      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+        You were invited to join an active conference call.
+      </p>
+      <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+        User: {inviteFromLabel}
+      </p>
+      <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+        Customer: {inviteCustomerLabel}
+      </p>
+      {incomingParticipants.length ? (
+        <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+          <p className="font-semibold">Current participants:</p>
+          <p className="mt-1">{incomingParticipants.map((p) => p.label).join(", ")}</p>
+        </div>
+      ) : null}
+      {inviteActionMsg ? (
+        <p className="mt-2 text-xs font-medium text-sky-700 dark:text-sky-300">{inviteActionMsg}</p>
+      ) : null}
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={hasIncomingInvite ? rejectIncomingInvite : dismissInviteNotification}
+          disabled={joiningInvite}
+          className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          {hasIncomingInvite ? "Decline" : "Dismiss"}
+        </button>
+        <button
+          type="button"
+          onClick={hasIncomingInvite ? acceptIncomingInviteWithLoading : joinFromNotification}
+          disabled={joiningInvite}
+          className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {joiningInvite ? "Joining..." : "Join Call"}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   async function joinFromNotification() {
     setInviteActionMsg(null);
@@ -745,177 +807,14 @@ export default function GlobalWebCallInterface() {
           endCall={endCall}
           recentJoinedAgent={recentJoinedAgentForSession}
         />
-        {incomingInvite ? (
-          <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              You were invited to join an active conference call.
-            </p>
-            <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-              User: {incomingInvite.from || "Unknown"}
-            </p>
-            <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-              Customer: {incomingInvite.customerName?.trim() || "Customer"}
-            </p>
-            {incomingParticipants.length ? (
-              <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-                <p className="font-semibold">Current participants:</p>
-                <p className="mt-1">
-                  {incomingParticipants.map((p) => p.label).join(", ")}
-                </p>
-              </div>
-            ) : null}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={rejectIncomingInvite}
-                className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Decline
-              </button>
-              <button
-                type="button"
-                onClick={acceptIncomingInviteWithLoading}
-                disabled={joiningInvite}
-                className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {joiningInvite ? "Joining..." : "Join Call"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {!incomingInvite && inviteNotification ? (
-          <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
-                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                  From {inviteNotification.fromAgent}
-                </p>
-                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                  Customer: {inviteNotification.customer || "Customer"}
-                </p>
-                {inviteNotification.participants?.length ? (
-                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                    Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
-                  </p>
-                ) : null}
-                {inviteActionMsg ? (
-                  <p className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-300">{inviteActionMsg}</p>
-                ) : null}
-              </div>
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={joinFromNotification}
-                  disabled={joiningInvite}
-                  className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {joiningInvite ? "Joining..." : "Join Call"}
-                </button>
-                <button
-                  type="button"
-                  onClick={dismissInviteNotification}
-                  disabled={joiningInvite}
-                  className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+        {inviteToast}
       </>
     );
   }
 
   if (!isDev && !incomingInvite && !inviteNotification) return null;
 
-  if (incomingInvite) {
-    return (
-      <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
-        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-          You were invited to join an active conference call.
-        </p>
-        <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-          User: {incomingInvite.from || "Unknown"}
-        </p>
-        <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-          Customer: {incomingInvite.customerName?.trim() || "Customer"}
-        </p>
-        {incomingParticipants.length ? (
-          <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-            <p className="font-semibold">Current participants:</p>
-            <p className="mt-1">
-              {incomingParticipants.map((p) => p.label).join(", ")}
-            </p>
-          </div>
-        ) : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={rejectIncomingInvite}
-            className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Decline
-          </button>
-          <button
-            type="button"
-            onClick={acceptIncomingInviteWithLoading}
-            disabled={joiningInvite}
-            className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {joiningInvite ? "Joining..." : "Join Call"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (inviteNotification) {
-    return (
-      <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Agent Invite Received</p>
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              From {inviteNotification.fromAgent}
-            </p>
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              Customer: {inviteNotification.customer || "Customer"}
-            </p>
-            {inviteNotification.participants?.length ? (
-              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-                Participants: {inviteNotification.participants.map((p) => p.label).join(", ")}
-              </p>
-            ) : null}
-            {inviteActionMsg ? (
-              <p className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-300">{inviteActionMsg}</p>
-            ) : null}
-          </div>
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={joinFromNotification}
-              disabled={joiningInvite}
-              className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {joiningInvite ? "Joining..." : "Join Call"}
-            </button>
-            <button
-              type="button"
-              onClick={dismissInviteNotification}
-              disabled={joiningInvite}
-              className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (inviteToast) return inviteToast;
 
   const devPreviewSession = {
     callId: "dev-preview-call",

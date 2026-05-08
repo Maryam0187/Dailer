@@ -177,8 +177,7 @@ export async function POST(req) {
       appendOwnerParticipant(existingParticipantsRaw, ownerLabel),
     );
 
-    const participantSummary = existingParticipants.map((p) => p.label).join(", ");
-    const joinVoiceUrl = `${buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent")}&participantSummary=${encodeURIComponent(participantSummary)}`;
+    const joinVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
     const leg = await client.calls.create({
       to: `client:${agentIdentity}`,

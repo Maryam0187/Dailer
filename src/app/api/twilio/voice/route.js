@@ -17,13 +17,6 @@ function escapeXmlAttr(value) {
     .replace(/"/g, "&quot;");
 }
 
-function escapeXmlText(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 export async function POST(req) {
   const form = await req.formData();
   const twilioFrom = String(form.get("From") || "").trim();
@@ -33,7 +26,6 @@ export async function POST(req) {
   const url = new URL(req.url);
   const conferenceName = String(url.searchParams.get("conferenceName") || "").trim();
   const participant = String(url.searchParams.get("participant") || "").trim().toLowerCase();
-  const participantSummary = String(url.searchParams.get("participantSummary") || "").trim();
 
   if (!conferenceName) {
     const missingConferenceXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -47,14 +39,8 @@ export async function POST(req) {
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
   const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
   const endConferenceOnExit = participant === "customer" ? "true" : "false";
-  const participantIntroXml =
-    participant === "agent" && participantSummary
-      ? `
-  <Say voice="alice">Current participants: ${escapeXmlText(participantSummary)}.</Say>`
-      : "";
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${participantIntroXml}
   <Dial answerOnBridge="true"${callerIdAttr}>
     <Conference
       startConferenceOnEnter="${startConferenceOnEnter}"
