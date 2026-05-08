@@ -165,8 +165,10 @@ export function TwilioVoiceProvider({ children }) {
       device.on("incoming", (call) => {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
+        const hasPendingInviteNotification = Boolean(inviteNotification) && !session;
         const shouldAutoAccept =
-          session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now();
+          !hasPendingInviteNotification &&
+          (session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now());
         if (shouldAutoAccept) {
           expectedIncomingUntilRef.current = 0;
           setIncomingInvite(null);
@@ -262,7 +264,7 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, session?.callId, session?.conferenceName, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
+  }, [registered, session?.callId, session?.conferenceName, inviteNotification, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
   // Keep browser reachable for invite legs while idle, but only
   // after a real user gesture so browsers allow AudioContext startup.
@@ -294,6 +296,7 @@ export function TwilioVoiceProvider({ children }) {
     }
     incomingCallRef.current = null;
     setIncomingInvite(null);
+    expectedIncomingUntilRef.current = 0;
     setVoiceConnected(false);
     setMuted(false);
   }, [session]);
@@ -330,6 +333,8 @@ export function TwilioVoiceProvider({ children }) {
     });
 
     socket.on("call:invite", (payload) => {
+      // New invite should ring/show prompt, not be auto-accepted by stale window.
+      expectedIncomingUntilRef.current = 0;
       setInviteNotification({
         fromAgent: payload?.fromAgent || "Unknown",
         callId: Number(payload?.callId) || null,
