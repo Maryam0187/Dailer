@@ -196,6 +196,10 @@ export function TwilioVoiceProvider({ children }) {
     }
     incomingCallRef.current = null;
     setIncomingInvite(null);
+    deviceRef.current?.destroy();
+    deviceRef.current = null;
+    deviceInitPromiseRef.current = null;
+    setRegistered(false);
     setVoiceConnected(false);
     setMuted(false);
   }, [session]);
