@@ -609,7 +609,6 @@ export default function GlobalWebCallInterface() {
     inviteNotification,
     agentJoinedNotification,
     ensureRegistered,
-    markExpectIncomingAutoAccept,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
@@ -667,7 +666,6 @@ export default function GlobalWebCallInterface() {
         }
       }
 
-      markExpectIncomingAutoAccept(45000);
       await ensureRegistered();
       beginSession({
         callId: Number.isInteger(inviteCallId)

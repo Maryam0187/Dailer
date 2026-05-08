@@ -44,7 +44,7 @@ function getPresetRange(preset) {
 
 export default function CallLogsClient() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, markExpectIncomingAutoAccept } = useTwilioVoice();
+  const { ensureRegistered, registered, sdkInitializing } = useTwilioVoice();
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -111,7 +111,6 @@ export default function CallLogsClient() {
     setError(null);
     setCallingId(id);
     try {
-      markExpectIncomingAutoAccept(45000);
       if (!registered || sdkInitializing) {
         await ensureRegistered();
       }

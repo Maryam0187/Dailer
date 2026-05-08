@@ -20,7 +20,6 @@ export function TwilioVoiceProvider({ children }) {
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
-  const expectedIncomingUntilRef = useRef(0);
   const attemptedWarmRegistrationRef = useRef(false);
   const deviceIdentityRef = useRef(null);
 
@@ -122,12 +121,8 @@ export function TwilioVoiceProvider({ children }) {
       device.on("incoming", (call) => {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
-        const shouldAutoAccept =
-          session?.callId ||
-          session?.conferenceName ||
-          expectedIncomingUntilRef.current > Date.now();
+        const shouldAutoAccept = session?.callId || session?.conferenceName;
         if (shouldAutoAccept) {
-          expectedIncomingUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
           if (!session) {
@@ -375,12 +370,6 @@ export function TwilioVoiceProvider({ children }) {
     setAgentJoinedNotification(null);
   }, []);
 
-  const markExpectIncomingAutoAccept = useCallback((ttlMs = 30000) => {
-    const ttl = Number(ttlMs);
-    const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 30000;
-    expectedIncomingUntilRef.current = Date.now() + safeTtl;
-  }, []);
-
   return (
     <TwilioVoiceContext.Provider
       value={{
@@ -399,7 +388,6 @@ export function TwilioVoiceProvider({ children }) {
         rejectIncomingInvite,
         dismissInviteNotification,
         dismissAgentJoinedNotification,
-        markExpectIncomingAutoAccept,
       }}
     >
       {children}

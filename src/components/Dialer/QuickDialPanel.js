@@ -10,7 +10,7 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, markExpectIncomingAutoAccept } = useTwilioVoice();
+  const { ensureRegistered, registered, sdkInitializing } = useTwilioVoice();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
@@ -45,7 +45,6 @@ export default function QuickDialPanel() {
     setLoading(true);
     setError(null);
     try {
-      markExpectIncomingAutoAccept(45000);
       // Ensure the browser agent is ready before starting the outbound call.
       // Otherwise Twilio may dial a not-yet-registered <Client> identity.
       if (!registered) {
