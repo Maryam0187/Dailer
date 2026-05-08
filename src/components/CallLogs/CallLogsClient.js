@@ -45,6 +45,7 @@ function getPresetRange(preset) {
 export default function CallLogsClient() {
   const { session, beginSession } = useActiveCall();
   const { ensureRegistered, registered, sdkInitializing, expectOutgoingIncomingLeg } = useTwilioVoice();
+  const canStartCall = registered && !sdkInitializing;
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -380,10 +381,16 @@ export default function CallLogsClient() {
                       <button
                         type="button"
                         onClick={() => redial(c.toNumber, c.id)}
-                        disabled={callingId === c.id || Boolean(session)}
+                        disabled={callingId === c.id || Boolean(session) || !canStartCall}
                         className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
                       >
-                        {session ? "Call in progress" : callingId === c.id ? "Calling..." : "Call"}
+                        {session
+                          ? "Call in progress"
+                          : !canStartCall
+                            ? "Voice Not Ready"
+                            : callingId === c.id
+                              ? "Calling..."
+                              : "Call"}
                       </button>
                     </td>
                   </tr>

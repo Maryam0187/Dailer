@@ -18,6 +18,7 @@ export default function QuickDialPanel() {
   const [error, setError] = useState(null);
 
   const hasActiveCall = Boolean(session);
+  const canStartCall = registered && !sdkInitializing;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -131,7 +132,7 @@ export default function QuickDialPanel() {
               <button
                 type="button"
                 onClick={onCall}
-                disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall}
+                disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall || !canStartCall}
                 className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
               >
                 {loading ? (
@@ -149,7 +150,13 @@ export default function QuickDialPanel() {
                     />
                   </svg>
                 )}
-                {hasActiveCall ? "In call" : loading ? "Dialing..." : "Start Call"}
+                {hasActiveCall
+                  ? "In call"
+                  : !canStartCall
+                    ? "Voice Not Ready"
+                    : loading
+                      ? "Dialing..."
+                      : "Start Call"}
               </button>
             </div>
             <div className="mt-2 min-h-[1.25rem]">

@@ -272,25 +272,11 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, [registered, session, inviteNotification, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
-  // Keep browser reachable for invite legs while idle, but only
-  // after a real user gesture so browsers allow AudioContext startup.
+  // Keep browser reachable for invite legs while idle on initial page load.
   useEffect(() => {
     if (attemptedWarmRegistrationRef.current) return;
-    const prime = () => {
-      if (attemptedWarmRegistrationRef.current) return;
-      attemptedWarmRegistrationRef.current = true;
-      ensureRegistered().catch(() => {});
-    };
-
-    const opts = { once: true, passive: true };
-    window.addEventListener("pointerdown", prime, opts);
-    window.addEventListener("keydown", prime, opts);
-    window.addEventListener("touchstart", prime, opts);
-    return () => {
-      window.removeEventListener("pointerdown", prime);
-      window.removeEventListener("keydown", prime);
-      window.removeEventListener("touchstart", prime);
-    };
+    attemptedWarmRegistrationRef.current = true;
+    ensureRegistered().catch(() => {});
   }, [ensureRegistered]);
 
   useEffect(() => {
