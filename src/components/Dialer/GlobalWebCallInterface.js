@@ -738,7 +738,8 @@ export default function GlobalWebCallInterface() {
   const inviteCustomerLabel = hasIncomingInvite
     ? incomingInvite?.customerName?.trim() || "Customer"
     : inviteNotification?.customer || "Customer";
-  const inviteToast = incomingInvite || inviteNotification ? (
+  const shouldShowInviteToast = !session || !session.callOwnedByMe;
+  const inviteToast = shouldShowInviteToast && (incomingInvite || inviteNotification) ? (
     <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
       <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
