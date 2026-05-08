@@ -21,6 +21,7 @@ export function TwilioVoiceProvider({ children }) {
   const deviceInitPromiseRef = useRef(null);
   const incomingCallRef = useRef(null);
   const expectedIncomingUntilRef = useRef(0);
+  const expectedInviteJoinUntilRef = useRef(0);
   const attemptedWarmRegistrationRef = useRef(false);
   const deviceIdentityRef = useRef(null);
   const inviteToneCtxRef = useRef(null);
@@ -166,11 +167,14 @@ export function TwilioVoiceProvider({ children }) {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
         const hasPendingInviteNotification = Boolean(inviteNotification) && !session;
+        const inviteJoinIntentActive = expectedInviteJoinUntilRef.current > Date.now();
         const shouldAutoAccept =
-          !hasPendingInviteNotification &&
-          (session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now());
+          (inviteJoinIntentActive && hasPendingInviteNotification) ||
+          (!hasPendingInviteNotification &&
+            (session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now()));
         if (shouldAutoAccept) {
           expectedIncomingUntilRef.current = 0;
+          expectedInviteJoinUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
           if (!session) {
@@ -297,6 +301,7 @@ export function TwilioVoiceProvider({ children }) {
     incomingCallRef.current = null;
     setIncomingInvite(null);
     expectedIncomingUntilRef.current = 0;
+    expectedInviteJoinUntilRef.current = 0;
     setVoiceConnected(false);
     setMuted(false);
   }, [session]);
@@ -428,6 +433,12 @@ export function TwilioVoiceProvider({ children }) {
     setAgentJoinedNotification(null);
   }, []);
 
+  const expectInviteJoinIncomingLeg = useCallback((ttlMs = 45000) => {
+    const ttl = Number(ttlMs);
+    const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 45000;
+    expectedInviteJoinUntilRef.current = Date.now() + safeTtl;
+  }, []);
+
   const expectOutgoingIncomingLeg = useCallback((ttlMs = 45000) => {
     const ttl = Number(ttlMs);
     const safeTtl = Number.isFinite(ttl) && ttl > 0 ? ttl : 45000;
@@ -452,6 +463,7 @@ export function TwilioVoiceProvider({ children }) {
         rejectIncomingInvite,
         dismissInviteNotification,
         dismissAgentJoinedNotification,
+        expectInviteJoinIncomingLeg,
         expectOutgoingIncomingLeg,
       }}
     >

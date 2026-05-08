@@ -603,13 +603,13 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall, beginSession } = useActiveCall();
+  const { session, endCall } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
     agentJoinedNotification,
     ensureRegistered,
-    expectOutgoingIncomingLeg,
+    expectInviteJoinIncomingLeg,
     acceptIncomingInvite,
     rejectIncomingInvite,
     dismissInviteNotification,
@@ -667,20 +667,10 @@ export default function GlobalWebCallInterface() {
         }
       }
 
-      // Arm short auto-accept window for the expected Twilio incoming leg
-      // that arrives after user explicitly clicks Join Call.
-      expectOutgoingIncomingLeg(45000);
+      // User explicitly chose Join; allow only this invite leg to auto-accept
+      // when Twilio incoming arrives, without opening call UI beforehand.
+      expectInviteJoinIncomingLeg(45000);
       await ensureRegistered();
-      beginSession({
-        callId: Number.isInteger(inviteCallId)
-          ? inviteCallId
-          : null,
-        callOwnedByMe: false,
-        conferenceName: inviteConferenceName || null,
-        customerName: inviteNotification.customer || "Customer",
-        phoneLabel: inviteNotification.customer || "",
-        toNumber: inviteNotification.customer || "",
-      });
       setInviteActionMsg("Waiting for incoming call...");
       return true;
     } catch (e) {
