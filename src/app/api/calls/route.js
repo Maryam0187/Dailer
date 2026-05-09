@@ -41,14 +41,16 @@ export async function GET(req) {
     authedUser.role === "admin" ||
     authedUser.role === "manager" ||
     authedUser.role === "supervisor";
-  const where = canSeeAllCalls ? {} : { userId: authedUser.id };
+
+  /** CallLog IDs that have at least one InviteDialLeg (conference / multi-agent). */
+  let conferenceCallIds = [];
   if (conferenceOnly) {
     const legGroups = await db.InviteDialLeg.findAll({
       attributes: ["callLogId"],
       group: ["callLogId"],
       raw: true,
     });
-    const conferenceCallIds = legGroups.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
+    conferenceCallIds = legGroups.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
     if (conferenceCallIds.length === 0) {
       return NextResponse.json({
         calls: [],
@@ -62,7 +64,32 @@ export async function GET(req) {
         },
       });
     }
-    where.id = { [Op.in]: conferenceCallIds };
+  }
+
+  let where;
+  if (canSeeAllCalls) {
+    where = {};
+    if (conferenceOnly) {
+      where.id = { [Op.in]: conferenceCallIds };
+    }
+  } else if (conferenceOnly) {
+    const invitedRows = await db.InviteDialLeg.findAll({
+      where: { invitedUserId: authedUser.id },
+      attributes: ["callLogId"],
+      group: ["callLogId"],
+      raw: true,
+    });
+    const invitedCallIds = invitedRows.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
+    where = {
+      [Op.or]: [
+        {
+          [Op.and]: [{ userId: authedUser.id }, { id: { [Op.in]: conferenceCallIds } }],
+        },
+        ...(invitedCallIds.length > 0 ? [{ id: { [Op.in]: invitedCallIds } }] : []),
+      ],
+    };
+  } else {
+    where = { userId: authedUser.id };
   }
   if (fromDate && toDate) {
     const after = new Date(`${fromDate}T00:00:00.000Z`);
@@ -97,61 +124,9 @@ export async function GET(req) {
     ],
   });
 
-  const callIds = rows.map((r) => r.id);
-  const inviteRows =
-    callIds.length > 0
-      ? await db.InviteDialLeg.findAll({
-          where: { callLogId: callIds },
-          attributes: ["callLogId", "invitedUserId", "inviterUserId"],
-          include: [
-            {
-              model: db.User,
-              as: "invitedUser",
-              attributes: ["username"],
-            },
-            {
-              model: db.User,
-              as: "inviter",
-              attributes: ["username"],
-            },
-          ],
-          order: [["createdAt", "ASC"]],
-        })
-      : [];
-
-  const invitesByCallId = new Map();
-  for (const leg of inviteRows) {
-    const id = leg.callLogId;
-    if (!invitesByCallId.has(id)) invitesByCallId.set(id, []);
-    invitesByCallId.get(id).push(leg);
-  }
-
   return NextResponse.json({
     calls: rows.map((call) => {
-      const legs = invitesByCallId.get(call.id) || [];
-      const distinctInviteeIds = new Set(legs.map((l) => l.invitedUserId).filter(Number.isInteger));
-      const invitedAgents = [...distinctInviteeIds]
-        .map((uid) => {
-          const leg = legs.find((l) => l.invitedUserId === uid);
-          return leg?.invitedUser?.username || null;
-        })
-        .filter(Boolean);
-      const inviteDialCount = legs.length;
-      const estimatedAgentSlots = 1 + distinctInviteeIds.size;
-      const inviterNames = [
-        ...new Set(
-          legs
-            .map((l) => l.inviter?.username || null)
-            .filter(Boolean),
-        ),
-      ];
-      const invitedBy =
-        inviterNames.length > 0
-          ? inviterNames.join(", ")
-          : inviteDialCount > 0
-            ? call.user?.username || "—"
-            : null;
-
+      const recordingVisible = canSeeAllCalls || call.userId === authedUser.id;
       return {
         id: call.id,
         userId: call.userId,
@@ -161,16 +136,13 @@ export async function GET(req) {
         direction: call.direction,
         status: call.status,
         durationSeconds: call.durationSeconds,
-        recordingStatus: call.recordingStatus || null,
-        recordingDurationSeconds: call.recordingDurationSeconds ?? null,
-        recordingDownloadUrl: call.recordingSid
-          ? `/api/calls/recording/download/${call.id}`
-          : null,
+        recordingStatus: recordingVisible ? call.recordingStatus || null : null,
+        recordingDurationSeconds: recordingVisible ? call.recordingDurationSeconds ?? null : null,
+        recordingDownloadUrl:
+          recordingVisible && call.recordingSid
+            ? `/api/calls/recording/download/${call.id}`
+            : null,
         createdAt: call.createdAt,
-        inviteDialCount,
-        invitedAgents,
-        estimatedAgentSlots,
-        invitedBy,
       };
     }),
     pagination: {

@@ -15,8 +15,8 @@ export default async function ConferenceCallLogsPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           Calls where at least one other agent was invited via{" "}
-          <span className="font-medium text-zinc-800 dark:text-zinc-200">Add agent</span> during an active call
-          (owner plus invited agents). Use date filters to narrow the list.{" "}
+          <span className="font-medium text-zinc-800 dark:text-zinc-200">Add agent</span> during an active call.
+          Includes calls you started and conference calls you joined as an invited agent. Use date filters to narrow the list.{" "}
           <Link
             href="/"
             className="font-semibold text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"

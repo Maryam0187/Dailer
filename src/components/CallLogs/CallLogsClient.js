@@ -300,11 +300,11 @@ export default function CallLogsClient({ initialScope = "all" }) {
                     : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 }`}
               >
-                Conference calls (2+ agents)
+                Conference calls
               </button>
             </div>
             <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Conference list uses invites sent from “Add agent”; estimated agents = owner + distinct invitees.
+              Conference list includes calls where another agent was invited via “Add agent”.
             </p>
           </div>
           <div className="mb-3">
@@ -395,8 +395,6 @@ export default function CallLogsClient({ initialScope = "all" }) {
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
                   <th className="py-2 pr-3">Agent</th>
-                  <th className="py-2 pr-3">Invited by</th>
-                  <th className="py-2 pr-3">Conference</th>
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Duration</th>
@@ -412,25 +410,6 @@ export default function CallLogsClient({ initialScope = "all" }) {
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {c.invitedBy || "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-xs text-zinc-700 dark:text-zinc-200">
-                      {c.inviteDialCount > 0 ? (
-                        <span className="inline-flex flex-col gap-0.5">
-                          <span className="font-semibold text-sky-800 dark:text-sky-200">
-                            ~{c.estimatedAgentSlots} agents
-                          </span>
-                          <span className="text-zinc-500 dark:text-zinc-400">
-                            {c.invitedAgents?.length
-                              ? c.invitedAgents.join(", ")
-                              : `${c.inviteDialCount} invite(s)`}
-                          </span>
-                        </span>
-                      ) : (
-                        "—"
-                      )}
                     </td>
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
