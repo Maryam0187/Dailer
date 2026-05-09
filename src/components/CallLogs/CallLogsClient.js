@@ -42,7 +42,11 @@ function getPresetRange(preset) {
   return { from: "", to: "" };
 }
 
-export default function CallLogsClient() {
+function normalizeListScope(scope) {
+  return scope === "conference" ? "conference" : "all";
+}
+
+export default function CallLogsClient({ initialScope = "all" }) {
   const { session, beginSession } = useActiveCall();
   const { ensureRegistered, registered, sdkInitializing, expectOutgoingIncomingLeg } = useTwilioVoice();
   const canStartCall = registered && !sdkInitializing;
@@ -66,7 +70,7 @@ export default function CallLogsClient() {
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
-  const [listScope, setListScope] = useState("all");
+  const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
 
   const loadCalls = useCallback(
     async ({ signal, silent = false, targetPage, fromDate, toDate, scope: scopeOverride } = {}) => {
@@ -225,11 +229,13 @@ export default function CallLogsClient() {
       <div className="border-b-2 border-sky-200/70 bg-gradient-to-r from-sky-50/90 to-white px-4 py-3.5 dark:border-sky-800/60 dark:from-sky-950/40 dark:to-zinc-900">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-sky-950 dark:text-sky-100">Call logs</h2>
+            <h2 className="text-lg font-semibold text-sky-950 dark:text-sky-100">
+              {listScope === "conference" ? "Conference call logs" : "Call logs"}
+            </h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
               {listScope === "conference"
-                ? "Calls where another agent was invited (multi-agent conference)"
-                : "Your recent outbound calls"}
+                ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
+                : "Your recent outbound calls."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -391,7 +397,6 @@ export default function CallLogsClient() {
                   <th className="py-2 pr-3">Agent</th>
                   <th className="py-2 pr-3">Invited by</th>
                   <th className="py-2 pr-3">Conference</th>
-                  <th className="py-2 pr-3">From</th>
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Duration</th>
@@ -426,9 +431,6 @@ export default function CallLogsClient() {
                       ) : (
                         "—"
                       )}
-                    </td>
-                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {c.fromNumber || "—"}
                     </td>
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>

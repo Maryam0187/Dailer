@@ -15,7 +15,9 @@ export default async function Home() {
           Dialer
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Place outbound calls and review call logs below. Signed in as{" "}
+          Place outbound calls, review call logs below, and open{" "}
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">Conference</span> in the nav for
+          multi-agent calls. Signed in as{" "}
           <span className="font-semibold text-zinc-800 dark:text-zinc-200">{authedUser.username}</span>
           <span className="mx-1.5 text-zinc-400 dark:text-zinc-500">·</span>
           <span className="capitalize">{role}</span>
