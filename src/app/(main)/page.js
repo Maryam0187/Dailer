@@ -3,10 +3,14 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import CallLogsClient from "@/components/CallLogs/CallLogsClient";
 import QuickDialPanel from "@/components/Dialer/QuickDialPanel";
 
-export default async function Home() {
+export default async function Home({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   const role = authedUser.role;
+
+  const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
+  const scopeRaw = typeof sp?.scope === "string" ? sp.scope.trim().toLowerCase() : "";
+  const initialLogsScope = scopeRaw === "conference" ? "conference" : "all";
 
   return (
     <>
@@ -15,9 +19,9 @@ export default async function Home() {
           Dialer
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Place outbound calls, review call logs below, and open{" "}
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">Conference</span> in the nav for
-          multi-agent calls. Signed in as{" "}
+          Place outbound calls and review call logs below — use{" "}
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">Conference calls</span> in the
+          log filters for multi-agent invites. Signed in as{" "}
           <span className="font-semibold text-zinc-800 dark:text-zinc-200">{authedUser.username}</span>
           <span className="mx-1.5 text-zinc-400 dark:text-zinc-500">·</span>
           <span className="capitalize">{role}</span>
@@ -26,7 +30,7 @@ export default async function Home() {
 
       <div className="flex flex-col gap-8">
         <QuickDialPanel />
-        <CallLogsClient />
+        <CallLogsClient initialScope={initialLogsScope} />
       </div>
     </>
   );
