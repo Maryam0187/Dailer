@@ -722,8 +722,26 @@ export function TwilioVoiceProvider({ children }) {
     expectedIncomingUntilRef.current = Date.now() + safeTtl;
   }, []);
 
-  const leaveConference = useCallback(() => {
+  const leaveConference = useCallback(async () => {
+    const snap = sessionSyncRef.current;
     const active = callRef.current;
+    const isInvitee = snap?.callOwnedByMe === false;
+
+    // Owner "Leave" only drops this browser leg — the conference/customer call may continue.
+    // Invited agents leaving last must end the CallLog + Twilio parent call or it stays open.
+    if (isInvitee) {
+      await endCall();
+      if (callRef.current) {
+        leaveWithoutEndingRef.current = false;
+        try {
+          callRef.current.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
     if (active) {
       leaveWithoutEndingRef.current = true;
       try {
@@ -735,7 +753,7 @@ export function TwilioVoiceProvider({ children }) {
     } else {
       clearLocalSession();
     }
-  }, [clearLocalSession]);
+  }, [clearLocalSession, endCall]);
 
   return (
     <TwilioVoiceContext.Provider

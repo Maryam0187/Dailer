@@ -21,10 +21,16 @@ export async function POST(req) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
 
-  // Any authenticated agent/manager/admin can end an active call by callId.
-  // Restrict non-privileged users to their own calls.
-  const privileged = authedUser.role === "admin" || authedUser.role === "manager" || authedUser.role === "agent";
-  if (!privileged && call.userId !== authedUser.id) {
+  const privileged =
+    authedUser.role === "admin" ||
+    authedUser.role === "manager" ||
+    authedUser.role === "supervisor";
+  const isOwner = call.userId === authedUser.id;
+  const isInvitee = !!(await db.InviteDialLeg.findOne({
+    where: { callLogId: callId, invitedUserId: authedUser.id },
+    attributes: ["callSid"],
+  }));
+  if (!privileged && !isOwner && !isInvitee) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
