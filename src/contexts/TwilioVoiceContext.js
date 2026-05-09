@@ -7,7 +7,8 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 const TwilioVoiceContext = createContext(undefined);
 
 export function TwilioVoiceProvider({ children }) {
-  const { session, beginSession, patchSession, endCall, markInProgress } = useActiveCall();
+  const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
+    useActiveCall();
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [sdkError, setSdkError] = useState(null);
@@ -27,6 +28,13 @@ export function TwilioVoiceProvider({ children }) {
   const inviteToneCtxRef = useRef(null);
   const inviteToneIntervalRef = useRef(null);
   const callIdResolveSidRef = useRef(null);
+  const inviteNotificationRef = useRef(null);
+  /** True when user chose Leave — disconnect handler must not POST /api/calls/end. */
+  const leaveWithoutEndingRef = useRef(false);
+
+  useEffect(() => {
+    inviteNotificationRef.current = inviteNotification;
+  }, [inviteNotification]);
 
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
@@ -94,6 +102,20 @@ export function TwilioVoiceProvider({ children }) {
   const bindActiveCallEvents = useCallback(
     (call) => {
       callRef.current = call;
+
+      // Conference TwiML `muted` does not always sync to the Voice SDK UI/state for
+      // browser legs; invited agents (non-owner) must start with mic muted locally too.
+      const applyInvitedDefaultMute = () => {
+        if (sessionSyncRef.current?.callOwnedByMe !== false) return;
+        try {
+          call.mute(true);
+        } catch {
+          /* ignore */
+        }
+      };
+      applyInvitedDefaultMute();
+      call.once("audio", applyInvitedDefaultMute);
+
       setMuted(call.isMuted());
       setVoiceConnected(true);
       markInProgress();
@@ -103,10 +125,20 @@ export function TwilioVoiceProvider({ children }) {
         callRef.current = null;
         setVoiceConnected(false);
         setMuted(false);
+        if (leaveWithoutEndingRef.current) {
+          leaveWithoutEndingRef.current = false;
+          clearLocalSession();
+          return;
+        }
+        if (!sessionSyncRef.current) return;
+        if (!sessionSyncRef.current.callOwnedByMe) {
+          clearLocalSession();
+          return;
+        }
         endCall();
       });
     },
-    [endCall, markInProgress],
+    [clearLocalSession, endCall, markInProgress, sessionSyncRef],
   );
 
   // Cleanup when the provider unmounts.
@@ -167,30 +199,177 @@ export function TwilioVoiceProvider({ children }) {
       device.on("incoming", (call) => {
         // If this browser already has an active/connecting session, this is
         // the expected call leg for that session -> auto-join without prompt.
-        const hasPendingInviteNotification = Boolean(inviteNotification) && !session;
+        const sessionSnap = sessionSyncRef.current;
+        const inviteNotify = inviteNotificationRef.current;
+        const hasPendingInviteNotification = Boolean(inviteNotify) && !sessionSnap;
         const inviteJoinIntentActive = expectedInviteJoinUntilRef.current > Date.now();
+        const outboundExpectActive = expectedIncomingUntilRef.current > Date.now();
+        const sessionHasResolvedCallId =
+          Number.isInteger(Number(sessionSnap?.callId)) && Number(sessionSnap.callId) > 0;
         const shouldAutoAccept =
           (inviteJoinIntentActive && hasPendingInviteNotification) ||
           (!hasPendingInviteNotification &&
-            (session?.callId || session?.conferenceName || expectedIncomingUntilRef.current > Date.now()));
+            (sessionHasResolvedCallId ||
+              sessionSnap?.conferenceName ||
+              outboundExpectActive));
+
         if (shouldAutoAccept) {
           expectedIncomingUntilRef.current = 0;
           expectedInviteJoinUntilRef.current = 0;
           setIncomingInvite(null);
           incomingCallRef.current = null;
-          if (!session) {
-            beginSession({
-              callId: null,
-              callOwnedByMe: false,
-              conferenceName: null,
-              inviteCallSid: String(call?.parameters?.CallSid || "").trim() || null,
-              customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
-              phoneLabel: call?.parameters?.From || "",
-              toNumber: call?.parameters?.From || "",
-            });
+
+          const sid = String(call?.parameters?.CallSid || "").trim();
+          const customerName =
+            String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer";
+          const fromParam = call?.parameters?.From || "";
+
+          const acceptAndBind = () => {
+            try {
+              call.accept();
+              bindActiveCallEvents(call);
+            } catch (err) {
+              setSdkError(err?.message || "Unable to accept call");
+            }
+          };
+
+          if (sessionSyncRef.current) {
+            acceptAndBind();
+            return;
           }
-          call.accept();
-          bindActiveCallEvents(call);
+
+          const notifyCallId = Number(inviteNotify?.callId);
+          if (Number.isInteger(notifyCallId) && notifyCallId > 0) {
+            beginSession({
+              callId: notifyCallId,
+              callOwnedByMe: false,
+              conferenceName: inviteNotify?.conferenceName || null,
+              inviteCallSid: sid || null,
+              customerName,
+              phoneLabel: fromParam,
+              toNumber: fromParam,
+            });
+            acceptAndBind();
+            return;
+          }
+
+          if (inviteJoinIntentActive && hasPendingInviteNotification) {
+            (async () => {
+              try {
+                let resolvedId = notifyCallId;
+                let confName = inviteNotify?.conferenceName || null;
+                if (sid && (!Number.isInteger(resolvedId) || resolvedId <= 0)) {
+                  const res = await fetch(
+                    `/api/calls/invite-context?callSid=${encodeURIComponent(sid)}`,
+                    { credentials: "include" },
+                  );
+                  const json = await res.json().catch(() => ({}));
+                  resolvedId = Number(json?.callId);
+                  if (!confName && json?.conferenceName) confName = String(json.conferenceName);
+                }
+                if (!Number.isInteger(resolvedId) || resolvedId <= 0) {
+                  try {
+                    call.reject();
+                  } catch {
+                    /* ignore */
+                  }
+                  setSdkError("Could not resolve this invite call. It may have ended.");
+                  return;
+                }
+                if (!sessionSyncRef.current) {
+                  beginSession({
+                    callId: resolvedId,
+                    callOwnedByMe: false,
+                    conferenceName: confName || inviteNotify?.conferenceName || null,
+                    inviteCallSid: sid || null,
+                    customerName,
+                    phoneLabel: fromParam,
+                    toNumber: fromParam,
+                  });
+                }
+                acceptAndBind();
+              } catch (err) {
+                try {
+                  call.reject();
+                } catch {
+                  /* ignore */
+                }
+                setSdkError(err?.message || "Unable to accept invite call");
+              }
+            })();
+            return;
+          }
+
+          if (outboundExpectActive) {
+            let attempts = 0;
+            const maxAttempts = 160;
+            const tick = () => {
+              attempts++;
+              const snap = sessionSyncRef.current;
+              const id = Number(snap?.callId);
+              if (Number.isInteger(id) && id > 0) {
+                acceptAndBind();
+                return;
+              }
+              if (attempts >= maxAttempts) {
+                try {
+                  call.reject();
+                } catch {
+                  /* ignore */
+                }
+                setSdkError("Outbound leg arrived before the session was ready. Try again.");
+                return;
+              }
+              window.setTimeout(tick, 25);
+            };
+            window.setTimeout(tick, 0);
+            return;
+          }
+
+          if (sid) {
+            (async () => {
+              try {
+                const res = await fetch(`/api/calls/invite-context?callSid=${encodeURIComponent(sid)}`, {
+                  credentials: "include",
+                });
+                const json = await res.json().catch(() => ({}));
+                const resolvedId = Number(json?.callId);
+                if (!Number.isInteger(resolvedId) || resolvedId <= 0) {
+                  try {
+                    call.reject();
+                  } catch {
+                    /* ignore */
+                  }
+                  return;
+                }
+                if (!sessionSyncRef.current) {
+                  beginSession({
+                    callId: resolvedId,
+                    callOwnedByMe: false,
+                    conferenceName: json?.conferenceName || null,
+                    inviteCallSid: sid,
+                    customerName,
+                    phoneLabel: fromParam,
+                    toNumber: fromParam,
+                  });
+                }
+                acceptAndBind();
+              } catch {
+                try {
+                  call.reject();
+                } catch {
+                  /* ignore */
+                }
+              }
+            })();
+            return;
+          }
+
+          try {
+            call.reject();
+          } catch {
+            /* ignore */
+          }
           return;
         }
 
@@ -270,7 +449,7 @@ export function TwilioVoiceProvider({ children }) {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, session, inviteNotification, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
+  }, [registered, sessionSyncRef, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
   // Keep browser reachable for invite legs while idle on initial page load.
   useEffect(() => {
@@ -406,36 +585,60 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, []);
 
-  const acceptIncomingInvite = useCallback(() => {
+  const acceptIncomingInvite = useCallback(async () => {
     const call = incomingCallRef.current;
     if (!call) return false;
+
+    const snapshotInvite = incomingInvite;
+    const snapshotNotify = inviteNotification;
+    let callId = Number(snapshotInvite?.callId ?? snapshotNotify?.callId);
+    const inviteCallSid = String(snapshotInvite?.callSid || "").trim() || null;
+
+    if (!Number.isInteger(callId) || callId <= 0) {
+      if (inviteCallSid) {
+        try {
+          const res = await fetch(
+            `/api/calls/invite-context?callSid=${encodeURIComponent(inviteCallSid)}`,
+            { credentials: "include" },
+          );
+          const json = await res.json().catch(() => ({}));
+          callId = Number(json?.callId);
+        } catch {
+          callId = NaN;
+        }
+      }
+    }
+
+    if (!Number.isInteger(callId) || callId <= 0) {
+      setSdkError("Could not resolve this call. It may have ended — ask the host to send a new invite.");
+      return false;
+    }
+
     setSdkError(null);
     setIncomingInvite(null);
     stopInviteTone();
+
     try {
-      call.accept();
-      incomingCallRef.current = null;
-      // Only create a synthetic session if there isn't one already.
-      if (!session) {
-        const inviteCallId = Number(incomingInvite?.callId || inviteNotification?.callId);
-        const inviteCallSid = String(incomingInvite?.callSid || "").trim() || null;
+      if (!sessionSyncRef.current) {
         beginSession({
-          callId: Number.isInteger(inviteCallId) && inviteCallId > 0 ? inviteCallId : null,
+          callId,
           callOwnedByMe: false,
-          conferenceName: incomingInvite?.conferenceName || inviteNotification?.conferenceName || null,
-          inviteCallSid: inviteCallSid,
-          customerName: incomingInvite?.customerName?.trim() || "Customer",
+          conferenceName: snapshotInvite?.conferenceName || snapshotNotify?.conferenceName || null,
+          inviteCallSid,
+          customerName: snapshotInvite?.customerName?.trim() || "Customer",
           phoneLabel: call?.parameters?.From || "",
           toNumber: call?.parameters?.From || "",
         });
       }
+      call.accept();
+      incomingCallRef.current = null;
       bindActiveCallEvents(call);
       return true;
     } catch (err) {
       setSdkError(err?.message || "Unable to join incoming call");
       return false;
     }
-  }, [session, incomingInvite, inviteNotification, beginSession, bindActiveCallEvents, stopInviteTone]);
+  }, [incomingInvite, inviteNotification, beginSession, bindActiveCallEvents, stopInviteTone, sessionSyncRef]);
 
   const rejectIncomingInvite = useCallback(() => {
     const call = incomingCallRef.current;
@@ -469,6 +672,21 @@ export function TwilioVoiceProvider({ children }) {
     expectedIncomingUntilRef.current = Date.now() + safeTtl;
   }, []);
 
+  const leaveConference = useCallback(() => {
+    const active = callRef.current;
+    if (active) {
+      leaveWithoutEndingRef.current = true;
+      try {
+        active.disconnect();
+      } catch {
+        leaveWithoutEndingRef.current = false;
+        clearLocalSession();
+      }
+    } else {
+      clearLocalSession();
+    }
+  }, [clearLocalSession]);
+
   return (
     <TwilioVoiceContext.Provider
       value={{
@@ -480,6 +698,7 @@ export function TwilioVoiceProvider({ children }) {
         toggleMute,
         sendDtmf,
         ensureRegistered,
+        leaveConference,
         incomingInvite,
         inviteNotification,
         agentJoinedNotification,

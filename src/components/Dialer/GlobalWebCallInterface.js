@@ -12,8 +12,16 @@ function formatTimer(totalSeconds) {
 
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
+/** Active call UI must not render until we have a DB-backed call id (avoids null-callId races). */
+function hasResolvedNumericCallId(sess) {
+  if (!sess) return false;
+  const n = Number(sess.callId);
+  return Number.isInteger(n) && n > 0;
+}
+
 function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
-  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError } = useTwilioVoice();
+  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError, leaveConference } = useTwilioVoice();
+  const isCallOwner = Boolean(session.callOwnedByMe);
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -73,7 +81,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
         const res = await fetch(`/api/calls/participants?${qs.toString()}`, { credentials: "include" });
         const json = await res.json().catch(() => ({}));
         if (res.status === 404) {
-          if (!cancelled) endCall();
+          if (!cancelled) leaveConference();
           return;
         }
         if (!res.ok) throw new Error(json?.error || "Failed to load participants");
@@ -113,7 +121,10 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
               setEmptyParticipantHits((n) => {
                 const next = n + 1;
                 if (next >= 2) {
-                  window.setTimeout(() => endCall(), 0);
+                  window.setTimeout(() => {
+                    if (session?.callOwnedByMe) endCall();
+                    else leaveConference();
+                  }, 0);
                 }
                 return next;
               });
@@ -137,7 +148,15 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [session?.callId, session?.conferenceName, session?.phase, endCall, recentJoinedAgent]);
+  }, [
+    session?.callId,
+    session?.conferenceName,
+    session?.phase,
+    session?.callOwnedByMe,
+    endCall,
+    leaveConference,
+    recentJoinedAgent,
+  ]);
 
   useEffect(() => {
     const joinedName = String(recentJoinedAgent || "").trim();
@@ -536,19 +555,36 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
               </button>
               <button
                 type="button"
-                onClick={endCall}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 font-medium text-white shadow-lg transition-colors hover:bg-red-700"
+                onClick={leaveConference}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
               >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
                   />
                 </svg>
-                Hang up
+                Leave conference
               </button>
+              {isCallOwner ? (
+                <button
+                  type="button"
+                  onClick={endCall}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg transition-colors hover:bg-red-700"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"
+                    />
+                  </svg>
+                  End call for everyone
+                </button>
+              ) : null}
               </div>
             </div>
           </div>
@@ -629,7 +665,7 @@ export default function GlobalWebCallInterface() {
   const [devPreviewStartedAt] = useState(() => Date.now() - 90 * 1000);
 
   useEffect(() => {
-    if (!joiningInvite || !session) return;
+    if (!joiningInvite || !hasResolvedNumericCallId(session)) return;
     const t = window.setTimeout(() => {
       setJoiningInvite(false);
       setInviteActionMsg(null);
@@ -696,7 +732,7 @@ export default function GlobalWebCallInterface() {
     if (Number.isInteger(cid) && cid > 0) setPendingJoinCallId(cid);
     setJoiningInvite(true);
     setInviteActionMsg("Joining call...");
-    const accepted = acceptIncomingInvite();
+    const accepted = await acceptIncomingInvite();
     if (!accepted) {
       const prepared = await prepareJoinFromNotification();
       if (!prepared) setJoiningInvite(false);
@@ -705,6 +741,7 @@ export default function GlobalWebCallInterface() {
 
   const ownerJoinToast =
     session &&
+    hasResolvedNumericCallId(session) &&
     agentJoinedNotification &&
     Number(agentJoinedNotification.callId) === Number(session.callId) ? (
       <div className="fixed right-4 top-4 z-[10001] w-full max-w-sm rounded-xl border border-emerald-200 bg-white p-3 shadow-xl dark:border-emerald-900 dark:bg-zinc-900">
@@ -727,6 +764,7 @@ export default function GlobalWebCallInterface() {
     ) : null;
   const recentJoinedAgentForSession =
     session &&
+    hasResolvedNumericCallId(session) &&
     agentJoinedNotification &&
     Number(agentJoinedNotification.callId) === Number(session.callId)
       ? agentJoinedNotification.joinedAgent
@@ -744,7 +782,8 @@ export default function GlobalWebCallInterface() {
   const inviteCustomerLabel = hasIncomingInvite
     ? incomingInvite?.customerName?.trim() || "Customer"
     : inviteNotification?.customer || "Customer";
-  const shouldShowInviteToast = !session || !session.callOwnedByMe;
+  const shouldShowInviteToast =
+    !hasResolvedNumericCallId(session) || !session.callOwnedByMe;
   const inviteToast = shouldShowInviteToast && (incomingInvite || inviteNotification) ? (
     <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
@@ -795,7 +834,7 @@ export default function GlobalWebCallInterface() {
     setJoiningInvite(true);
     setInviteActionMsg("Joining call...");
     // Try immediate accept first even if incomingInvite state is stale/missing.
-    const accepted = acceptIncomingInvite();
+    const accepted = await acceptIncomingInvite();
     if (accepted) {
       return;
     }
@@ -807,7 +846,7 @@ export default function GlobalWebCallInterface() {
     if (!prepared) setJoiningInvite(false);
   }
 
-  if (session) {
+  if (session && hasResolvedNumericCallId(session)) {
     return (
       <>
         {ownerJoinToast}
@@ -834,6 +873,7 @@ export default function GlobalWebCallInterface() {
     toNumber: "+15550101234",
     phase: "in_progress",
     startedAt: devPreviewStartedAt,
+    callOwnedByMe: true,
   };
 
   return (
