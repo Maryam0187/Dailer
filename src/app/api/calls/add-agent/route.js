@@ -25,8 +25,9 @@ function getRequestBaseUrl(req) {
   return req?.nextUrl?.origin || null;
 }
 
-function buildVoiceUrl(baseUrl, conferenceName, participant) {
+function buildVoiceUrl(baseUrl, conferenceName, participant, options = {}) {
   const qs = new URLSearchParams({ conferenceName, participant });
+  if (options.muteOnEntry) qs.set("muteOnEntry", "1");
   return `${baseUrl}/api/twilio/voice?${qs.toString()}`;
 }
 
@@ -177,7 +178,9 @@ export async function POST(req) {
       appendOwnerParticipant(existingParticipantsRaw, ownerLabel),
     );
 
-    const joinVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
+    const joinVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent", {
+      muteOnEntry: true,
+    });
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
     const leg = await client.calls.create({
       to: `client:${agentIdentity}`,

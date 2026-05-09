@@ -102,7 +102,14 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                 ],
           );
           if (session?.phase === "in_progress") {
-            if (!nextParticipants.length) {
+            const hasCustomer = nextParticipants.some(
+              (p) => String(p?.type || "").toLowerCase() === "external",
+            );
+            const hasAnyAgent = nextParticipants.some(
+              (p) => String(p?.type || "").toLowerCase() === "agent",
+            );
+            const shouldAutoEnd = !hasCustomer || !hasAnyAgent;
+            if (shouldAutoEnd) {
               setEmptyParticipantHits((n) => {
                 const next = n + 1;
                 if (next >= 2) {

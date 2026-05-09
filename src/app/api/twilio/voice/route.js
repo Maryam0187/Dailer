@@ -26,6 +26,7 @@ export async function POST(req) {
   const url = new URL(req.url);
   const conferenceName = String(url.searchParams.get("conferenceName") || "").trim();
   const participant = String(url.searchParams.get("participant") || "").trim().toLowerCase();
+  const muteOnEntry = url.searchParams.get("muteOnEntry") === "1";
 
   if (!conferenceName) {
     const missingConferenceXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -39,12 +40,14 @@ export async function POST(req) {
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
   const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
   const endConferenceOnExit = participant === "customer" ? "true" : "false";
+  const muted = muteOnEntry ? "true" : "false";
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial answerOnBridge="true"${callerIdAttr}>
     <Conference
       startConferenceOnEnter="${startConferenceOnEnter}"
       endConferenceOnExit="${endConferenceOnExit}"
+      muted="${muted}"
       beep="false"
     >${escapeXmlAttr(conferenceName)}</Conference>
   </Dial>
