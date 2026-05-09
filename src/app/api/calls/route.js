@@ -102,11 +102,16 @@ export async function GET(req) {
     callIds.length > 0
       ? await db.InviteDialLeg.findAll({
           where: { callLogId: callIds },
-          attributes: ["callLogId", "invitedUserId"],
+          attributes: ["callLogId", "invitedUserId", "inviterUserId"],
           include: [
             {
               model: db.User,
               as: "invitedUser",
+              attributes: ["username"],
+            },
+            {
+              model: db.User,
+              as: "inviter",
               attributes: ["username"],
             },
           ],
@@ -133,6 +138,19 @@ export async function GET(req) {
         .filter(Boolean);
       const inviteDialCount = legs.length;
       const estimatedAgentSlots = 1 + distinctInviteeIds.size;
+      const inviterNames = [
+        ...new Set(
+          legs
+            .map((l) => l.inviter?.username || null)
+            .filter(Boolean),
+        ),
+      ];
+      const invitedBy =
+        inviterNames.length > 0
+          ? inviterNames.join(", ")
+          : inviteDialCount > 0
+            ? call.user?.username || "—"
+            : null;
 
       return {
         id: call.id,
@@ -152,6 +170,7 @@ export async function GET(req) {
         inviteDialCount,
         invitedAgents,
         estimatedAgentSlots,
+        invitedBy,
       };
     }),
     pagination: {

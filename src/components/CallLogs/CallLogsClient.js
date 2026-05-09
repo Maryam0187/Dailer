@@ -389,6 +389,7 @@ export default function CallLogsClient() {
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
                   <th className="py-2 pr-3">Agent</th>
+                  <th className="py-2 pr-3">Invited by</th>
                   <th className="py-2 pr-3">Conference</th>
                   <th className="py-2 pr-3">From</th>
                   <th className="py-2 pr-3">To</th>
@@ -406,6 +407,9 @@ export default function CallLogsClient() {
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                      {c.invitedBy || "—"}
                     </td>
                     <td className="py-2 pr-3 text-xs text-zinc-700 dark:text-zinc-200">
                       {c.inviteDialCount > 0 ? (

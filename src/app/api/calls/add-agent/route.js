@@ -194,6 +194,7 @@ export async function POST(req) {
       callLogId: callId,
       conferenceName,
       invitedUserId: targetAgent.id,
+      inviterUserId: authedUser.id,
     });
 
     emitToUser(targetAgent.id, "call:invite", {
