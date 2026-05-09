@@ -21,10 +21,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
-      inviterUserId: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-      },
     },
     {
       tableName: "InviteDialLegs",
@@ -35,7 +31,6 @@ module.exports = (sequelize, DataTypes) => {
   InviteDialLeg.associate = (models) => {
     InviteDialLeg.belongsTo(models.CallLog, { foreignKey: "callLogId" });
     InviteDialLeg.belongsTo(models.User, { foreignKey: "invitedUserId", as: "invitedUser" });
-    InviteDialLeg.belongsTo(models.User, { foreignKey: "inviterUserId", as: "inviter" });
   };
 
   return InviteDialLeg;

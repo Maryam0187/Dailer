@@ -178,8 +178,12 @@ export async function POST(req) {
       appendOwnerParticipant(existingParticipantsRaw, ownerLabel),
     );
 
+    // Do NOT use TwiML `<Conference muted="true">` for browser legs. Conference-level
+    // mute is independent from the Voice SDK — invited agents could not be heard after
+    // Unmute (SDK mute(false) does not clear Twilio bridge mute). Start unmuted on the
+    // bridge and rely on client-side `call.mute(true)` for invited agents instead.
     const joinVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent", {
-      muteOnEntry: true,
+      muteOnEntry: false,
     });
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
     const leg = await client.calls.create({
@@ -194,7 +198,6 @@ export async function POST(req) {
       callLogId: callId,
       conferenceName,
       invitedUserId: targetAgent.id,
-      inviterUserId: authedUser.id,
     });
 
     emitToUser(targetAgent.id, "call:invite", {

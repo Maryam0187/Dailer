@@ -129,8 +129,8 @@ export function TwilioVoiceProvider({ children }) {
     (call) => {
       callRef.current = call;
 
-      // Conference TwiML `muted` does not always sync to the Voice SDK UI/state for
-      // browser legs; invited agents (non-owner) must start with mic muted locally too.
+      // Invited agents join without TwiML conference mute (bridge mute cannot be cleared
+      // with SDK unmute). Force mic muted here so they start muted until they choose Unmute.
       const applyInvitedDefaultMute = () => {
         if (sessionSyncRef.current?.callOwnedByMe !== false) return;
         try {
