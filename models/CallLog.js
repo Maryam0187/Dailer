@@ -65,6 +65,7 @@ module.exports = (sequelize, DataTypes) => {
 
   CallLog.associate = (models) => {
     CallLog.belongsTo(models.User, { as: "user", foreignKey: "userId" });
+    CallLog.hasMany(models.InviteDialLeg, { foreignKey: "callLogId", as: "inviteDialLegs" });
   };
 
   return CallLog;

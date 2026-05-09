@@ -65,11 +65,15 @@ export default function CallLogsClient() {
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
+  /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
+  const [listScope, setListScope] = useState("all");
 
-  const loadCalls = useCallback(async ({ signal, silent = false, targetPage, fromDate, toDate } = {}) => {
+  const loadCalls = useCallback(
+    async ({ signal, silent = false, targetPage, fromDate, toDate, scope: scopeOverride } = {}) => {
     const resolvedPage = targetPage ?? page;
     const resolvedFromDate = fromDate ?? rangeFrom;
     const resolvedToDate = toDate ?? rangeTo;
+    const resolvedScope = scopeOverride ?? listScope;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -84,6 +88,9 @@ export default function CallLogsClient() {
       if (resolvedFromDate && resolvedToDate) {
         qs.set("fromDate", resolvedFromDate);
         qs.set("toDate", resolvedToDate);
+      }
+      if (resolvedScope === "conference") {
+        qs.set("scope", "conference");
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -108,7 +115,9 @@ export default function CallLogsClient() {
         setLoading(false);
       }
     }
-  }, [page, rangeFrom, rangeTo]);
+  },
+    [page, rangeFrom, rangeTo, listScope],
+  );
 
   async function redial(toNumber, id) {
     if (session) return;
@@ -218,7 +227,9 @@ export default function CallLogsClient() {
           <div>
             <h2 className="text-lg font-semibold text-sky-950 dark:text-sky-100">Call logs</h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
-              Your recent outbound calls
+              {listScope === "conference"
+                ? "Calls where another agent was invited (multi-agent conference)"
+                : "Your recent outbound calls"}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -254,6 +265,42 @@ export default function CallLogsClient() {
       </div>
       <div className="p-4">
         <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+          <div className="mb-3">
+            <label className={labelClass}>List</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setListScope("all");
+                  setPage(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  listScope === "all"
+                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                All calls
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setListScope("conference");
+                  setPage(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  listScope === "conference"
+                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                Conference calls (2+ agents)
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              Conference list uses invites sent from “Add agent”; estimated agents = owner + distinct invitees.
+            </p>
+          </div>
           <div className="mb-3">
             <label className={labelClass}>Range presets</label>
             <div className="flex flex-wrap gap-2">
@@ -330,7 +377,11 @@ export default function CallLogsClient() {
         ) : error ? (
           <p className="text-base font-medium text-red-600">{error}</p>
         ) : calls.length === 0 ? (
-          <p className="text-base text-zinc-600 dark:text-zinc-300">No calls yet.</p>
+          <p className="text-base text-zinc-600 dark:text-zinc-300">
+            {listScope === "conference"
+              ? "No conference calls in this range (no agent invites on record)."
+              : "No calls yet."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-base">
@@ -338,6 +389,7 @@ export default function CallLogsClient() {
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
                   <th className="py-2 pr-3">Agent</th>
+                  <th className="py-2 pr-3">Conference</th>
                   <th className="py-2 pr-3">From</th>
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
@@ -354,6 +406,22 @@ export default function CallLogsClient() {
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-zinc-700 dark:text-zinc-200">
+                      {c.inviteDialCount > 0 ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <span className="font-semibold text-sky-800 dark:text-sky-200">
+                            ~{c.estimatedAgentSlots} agents
+                          </span>
+                          <span className="text-zinc-500 dark:text-zinc-400">
+                            {c.invitedAgents?.length
+                              ? c.invitedAgents.join(", ")
+                              : `${c.inviteDialCount} invite(s)`}
+                          </span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.fromNumber || "—"}

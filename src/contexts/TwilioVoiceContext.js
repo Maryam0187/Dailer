@@ -6,6 +6,18 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 
 const TwilioVoiceContext = createContext(undefined);
 
+function getIncomingCallSid(call) {
+  try {
+    const p = call?.parameters;
+    if (p && typeof p.get === "function") {
+      return String(p.get("CallSid") || p.get("callSid") || "").trim();
+    }
+    return String(p?.CallSid || p?.callSid || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 export function TwilioVoiceProvider({ children }) {
   const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
@@ -27,6 +39,9 @@ export function TwilioVoiceProvider({ children }) {
   const deviceIdentityRef = useRef(null);
   const inviteToneCtxRef = useRef(null);
   const inviteToneIntervalRef = useRef(null);
+  /** Browsers block audio until a user gesture (autoplay policy). */
+  const audioUnlockedRef = useRef(false);
+  const pendingInviteRingRef = useRef(false);
   const callIdResolveSidRef = useRef(null);
   const inviteNotificationRef = useRef(null);
   /** True when user chose Leave — disconnect handler must not POST /api/calls/end. */
@@ -60,6 +75,7 @@ export function TwilioVoiceProvider({ children }) {
   }, []);
 
   const startInviteTone = useCallback(() => {
+    if (!audioUnlockedRef.current) return;
     if (inviteToneIntervalRef.current || typeof window === "undefined") return;
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) return;
@@ -67,18 +83,28 @@ export function TwilioVoiceProvider({ children }) {
       const ctx = new AudioContextCtor();
       inviteToneCtxRef.current = ctx;
       const playBeep = () => {
-        if (ctx.state === "suspended") ctx.resume().catch(() => {});
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.24);
+        const scheduleOsc = () => {
+          try {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.24);
+          } catch {
+            // Autoplay / graph errors
+          }
+        };
+        if (ctx.state === "suspended") {
+          void ctx.resume().then(scheduleOsc).catch(() => {});
+        } else {
+          scheduleOsc();
+        }
       };
       playBeep();
       inviteToneIntervalRef.current = window.setInterval(playBeep, 1400);
@@ -180,9 +206,13 @@ export function TwilioVoiceProvider({ children }) {
 
       const { Device } = await import("@twilio/voice-sdk");
       const device = new Device(token, {
-        logLevel: 1,
+        // 1=debug is very noisy (WSTransport, EventPublisher, AudioHelper "incoming undefined").
+        // "warn" keeps real issues without chatty Twilio internals.
+        logLevel: process.env.NODE_ENV === "development" ? "warn" : "error",
         // Suppress SDK-generated beeps/ringtones (accept/connect tones).
-        // This does not mute actual call media audio.
+        // This does not mute actual call media audio. HTMLAudio fallback then has no
+        // `sounds.incoming` URL, so you may see "[AudioHelper] .incoming undefined" at
+        // debug log level — harmless; use our in-app invite tone after user gesture.
         disableAudioContextSounds: true,
       });
       deviceIdentityRef.current = identity;
@@ -219,7 +249,7 @@ export function TwilioVoiceProvider({ children }) {
           setIncomingInvite(null);
           incomingCallRef.current = null;
 
-          const sid = String(call?.parameters?.CallSid || "").trim();
+          const sid = getIncomingCallSid(call);
           const customerName =
             String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer";
           const fromParam = call?.parameters?.From || "";
@@ -377,7 +407,7 @@ export function TwilioVoiceProvider({ children }) {
         const from = String(call?.parameters?.From || "").trim();
         const baseInvite = {
           from: from || "Conference invite",
-          callSid: call?.parameters?.CallSid || null,
+          callSid: getIncomingCallSid(call) || null,
           customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
           callId: null,
           conferenceName: null,
@@ -474,9 +504,29 @@ export function TwilioVoiceProvider({ children }) {
   }, [session]);
 
   useEffect(() => {
-    if (incomingInvite || inviteNotification) startInviteTone();
-    else stopInviteTone();
+    const pending = Boolean(incomingInvite || inviteNotification);
+    pendingInviteRingRef.current = pending;
+    if (!pending) {
+      stopInviteTone();
+      return;
+    }
+    if (audioUnlockedRef.current) startInviteTone();
   }, [incomingInvite, inviteNotification, startInviteTone, stopInviteTone]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    function onAudioUnlock() {
+      if (audioUnlockedRef.current) return;
+      audioUnlockedRef.current = true;
+      if (pendingInviteRingRef.current) startInviteTone();
+    }
+    window.addEventListener("pointerdown", onAudioUnlock, { passive: true });
+    window.addEventListener("keydown", onAudioUnlock);
+    return () => {
+      window.removeEventListener("pointerdown", onAudioUnlock);
+      window.removeEventListener("keydown", onAudioUnlock);
+    };
+  }, [startInviteTone]);
 
   useEffect(() => {
     const hasResolvedCallId = Number.isInteger(Number(session?.callId)) && Number(session?.callId) > 0;

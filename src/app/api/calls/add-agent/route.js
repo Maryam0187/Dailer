@@ -189,6 +189,13 @@ export async function POST(req) {
       ...callbackParams,
     });
 
+    await db.InviteDialLeg.create({
+      callSid: leg.sid,
+      callLogId: callId,
+      conferenceName,
+      invitedUserId: targetAgent.id,
+    });
+
     emitToUser(targetAgent.id, "call:invite", {
       callId,
       conferenceName,

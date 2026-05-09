@@ -58,6 +58,83 @@ function appendOwnerParticipant(items, ownerLabel) {
   return [...items, { callSid: `owner:${label.toLowerCase()}`, label, type: "agent", status: "joined" }];
 }
 
+/**
+ * Build invite-context payload. Pass resolvedCallIdHint when known (mapped outbound dial leg → CallLog).
+ */
+async function buildInviteJson(db, conferenceFriendlyName, twilioParticipants, resolvedCallIdHint) {
+  const participantCallSids = twilioParticipants
+    .map((p) => String(p.callSid || "").trim())
+    .filter(Boolean);
+  const participantUserIds = Array.from(
+    new Set(
+      twilioParticipants
+        .map((p) => extractUserIdFromIdentity(extractIdentity(p)))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  );
+  const users = participantUserIds.length
+    ? await db.User.findAll({
+        where: { id: participantUserIds },
+        attributes: ["id", "username"],
+      })
+    : [];
+  const userMap = new Map(users.map((u) => [u.id, u.username]));
+
+  let resolvedCallId = resolvedCallIdHint ?? null;
+  let customerNumber = null;
+  let ownerLabel = null;
+
+  if (!resolvedCallId && participantCallSids.length) {
+    const log = await db.CallLog.findOne({
+      where: { twilioSid: participantCallSids },
+      attributes: ["id", "toNumber", "userId"],
+      order: [["createdAt", "DESC"]],
+    });
+    resolvedCallId = log?.id ?? null;
+    customerNumber = log?.toNumber ?? null;
+    const ownerId = Number(log?.userId);
+    if (Number.isInteger(ownerId) && ownerId > 0) {
+      const ownerUser = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
+      if (ownerUser) {
+        userMap.set(ownerUser.id, ownerUser.username);
+        ownerLabel = ownerUser.username;
+      }
+    }
+  } else if (resolvedCallId) {
+    const log = await db.CallLog.findByPk(resolvedCallId, {
+      attributes: ["id", "toNumber", "userId"],
+    });
+    customerNumber = log?.toNumber ?? null;
+    const ownerId = Number(log?.userId);
+    if (Number.isInteger(ownerId) && ownerId > 0) {
+      const ownerUser = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
+      if (ownerUser) {
+        userMap.set(ownerUser.id, ownerUser.username);
+        ownerLabel = ownerUser.username;
+      }
+    }
+  }
+
+  const participantsResolved = twilioParticipants.map((p) => ({
+    callSid: p.callSid,
+    label: (() => {
+      const raw = inferParticipantLabel(p);
+      const uid = extractUserIdFromIdentity(raw);
+      if (uid && userMap.get(uid)) return userMap.get(uid);
+      if (raw === "Customer" && customerNumber) return customerNumber;
+      return raw;
+    })(),
+    type: inferParticipantType(p),
+    status: p.status || "joined",
+  }));
+
+  return {
+    callId: resolvedCallId,
+    conferenceName: conferenceFriendlyName,
+    participants: dedupeParticipants(appendOwnerParticipant(participantsResolved, ownerLabel)),
+  };
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -72,6 +149,29 @@ export async function GET(req) {
     const client = getTwilioClient();
     const identity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const clientTarget = `client:${identity}`;
+
+    const mapping = await db.InviteDialLeg.findOne({
+      where: { callSid: incomingCallSid, invitedUserId: authedUser.id },
+    });
+
+    if (mapping) {
+      const conferenceMatches = await client.conferences.list({
+        friendlyName: mapping.conferenceName,
+        status: "in-progress",
+        limit: 1,
+      });
+      const twilioParticipants = conferenceMatches.length
+        ? await client.conferences(conferenceMatches[0].sid).participants.list({ limit: 60 })
+        : [];
+      const json = await buildInviteJson(
+        db,
+        mapping.conferenceName,
+        twilioParticipants,
+        mapping.callLogId,
+      );
+      return NextResponse.json(json);
+    }
+
     const conferences = await client.conferences.list({ status: "in-progress", limit: 30 });
 
     for (const conference of conferences) {
@@ -83,62 +183,8 @@ export async function GET(req) {
       });
       if (!matched) continue;
 
-      const participantCallSids = participants
-        .map((p) => String(p.callSid || "").trim())
-        .filter(Boolean);
-      const participantUserIds = Array.from(
-        new Set(
-          participants
-            .map((p) => extractUserIdFromIdentity(extractIdentity(p)))
-            .filter((id) => Number.isInteger(id) && id > 0),
-        ),
-      );
-      const users = participantUserIds.length
-        ? await db.User.findAll({
-            where: { id: participantUserIds },
-            attributes: ["id", "username"],
-          })
-        : [];
-      const userMap = new Map(users.map((u) => [u.id, u.username]));
-      let resolvedCallId = null;
-      let customerNumber = null;
-      let ownerLabel = null;
-      if (participantCallSids.length) {
-        const log = await db.CallLog.findOne({
-          where: { twilioSid: participantCallSids },
-          attributes: ["id", "toNumber", "userId"],
-          order: [["createdAt", "DESC"]],
-        });
-        resolvedCallId = log?.id ?? null;
-        customerNumber = log?.toNumber ?? null;
-        const ownerId = Number(log?.userId);
-        if (Number.isInteger(ownerId) && ownerId > 0) {
-          const ownerUser = await db.User.findByPk(ownerId, { attributes: ["id", "username"] });
-          if (ownerUser) {
-            userMap.set(ownerUser.id, ownerUser.username);
-            ownerLabel = ownerUser.username;
-          }
-        }
-      }
-
-      const participantsResolved = participants.map((p) => ({
-        callSid: p.callSid,
-        label: (() => {
-          const raw = inferParticipantLabel(p);
-          const uid = extractUserIdFromIdentity(raw);
-          if (uid && userMap.get(uid)) return userMap.get(uid);
-          if (raw === "Customer" && customerNumber) return customerNumber;
-          return raw;
-        })(),
-        type: inferParticipantType(p),
-        status: p.status || "joined",
-      }));
-
-      return NextResponse.json({
-        callId: resolvedCallId,
-        conferenceName: conference.friendlyName || null,
-        participants: dedupeParticipants(appendOwnerParticipant(participantsResolved, ownerLabel)),
-      });
+      const json = await buildInviteJson(db, conference.friendlyName || null, participants, null);
+      return NextResponse.json(json);
     }
 
     return NextResponse.json({ callId: null, conferenceName: null, participants: [] });
@@ -149,4 +195,3 @@ export async function GET(req) {
     );
   }
 }
-
