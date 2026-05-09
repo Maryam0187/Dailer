@@ -124,9 +124,38 @@ export async function GET(req) {
     ],
   });
 
+  const callIds = rows.map((r) => r.id);
+  /** Distinct invitee usernames per call (conference scope only). */
+  let invitedNamesByCallId = new Map();
+  if (conferenceOnly && callIds.length > 0) {
+    const legs = await db.InviteDialLeg.findAll({
+      where: { callLogId: callIds },
+      attributes: ["callLogId", "invitedUserId"],
+      include: [
+        {
+          model: db.User,
+          as: "invitedUser",
+          attributes: ["username"],
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+    for (const leg of legs) {
+      const cid = leg.callLogId;
+      const name = String(leg.invitedUser?.username || "").trim();
+      if (!name) continue;
+      if (!invitedNamesByCallId.has(cid)) invitedNamesByCallId.set(cid, []);
+      const list = invitedNamesByCallId.get(cid);
+      if (!list.includes(name)) list.push(name);
+    }
+  }
+
   return NextResponse.json({
     calls: rows.map((call) => {
       const recordingVisible = canSeeAllCalls || call.userId === authedUser.id;
+      const showInvitedNames =
+        conferenceOnly && (canSeeAllCalls || call.userId === authedUser.id);
+      const invitedToNames = showInvitedNames ? invitedNamesByCallId.get(call.id) || [] : null;
       return {
         id: call.id,
         userId: call.userId,
@@ -143,6 +172,7 @@ export async function GET(req) {
             ? `/api/calls/recording/download/${call.id}`
             : null,
         createdAt: call.createdAt,
+        ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),
     pagination: {

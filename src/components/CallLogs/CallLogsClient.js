@@ -395,6 +395,9 @@ export default function CallLogsClient({ initialScope = "all" }) {
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
                   <th className="py-2 pr-3">Agent</th>
+                  {listScope === "conference" ? (
+                    <th className="py-2 pr-3">Invited</th>
+                  ) : null}
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Duration</th>
@@ -411,6 +414,13 @@ export default function CallLogsClient({ initialScope = "all" }) {
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
                     </td>
+                    {listScope === "conference" ? (
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {Array.isArray(c.invitedToNames) && c.invitedToNames.length > 0
+                          ? c.invitedToNames.join(", ")
+                          : "—"}
+                      </td>
+                    ) : null}
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
