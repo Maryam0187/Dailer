@@ -8,7 +8,8 @@ let patched = false;
 
 export async function patchTwilioVoiceSoundsForAutoplayPolicy() {
   if (patched || typeof window === "undefined") return;
-  const { default: Sound } = await import("@twilio/voice-sdk/esm/twilio/sound.js");
+  // Package "exports" only exposes "." — deep imports fail under Turbopack. Load the module file directly.
+  const { default: Sound } = await import("../../node_modules/@twilio/voice-sdk/esm/twilio/sound.js");
   if (!Sound?.prototype?._play) return;
   if (Sound.prototype._play.__dialerAutoplayPatched) {
     patched = true;
