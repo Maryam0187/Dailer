@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceContext = createContext(undefined);
 
@@ -204,6 +205,7 @@ export function TwilioVoiceProvider({ children }) {
         destroyDevice();
       }
 
+      await patchTwilioVoiceSoundsForAutoplayPolicy();
       const { Device } = await import("@twilio/voice-sdk");
       const device = new Device(token, {
         // 1=debug is very noisy (WSTransport, EventPublisher, AudioHelper "incoming undefined").

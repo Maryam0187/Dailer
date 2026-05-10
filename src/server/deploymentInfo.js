@@ -1,8 +1,10 @@
 /**
- * Railway-style deployment identity. Use the same optional vars on every Railway
- * service (Dialer + CRM) so all apps show one label:
- *   DEPLOYMENT_TAG or RELEASE_TAG — highest priority, set manually to match CRM.
- * Otherwise mirrors typical Railway: git tag → short commit SHA → deployment id.
+ * Deployment label for the footer. Railway injects vars at **runtime**; Next.js can
+ * inline `process.env.FOO` at **build** time if it sees a static property access.
+ * Always read with dynamic keys so runtime values from Railway reach the server.
+ *
+ * Railway reference (no official `RAILWAY_GIT_TAG`; use SHA, branch, deployment id):
+ * https://docs.railway.com/reference/variables
  */
 
 function trimStr(v) {
@@ -14,36 +16,59 @@ function trimStr(v) {
 /** Git short SHA length (matches default `git rev-parse --short`). */
 const SHORT_SHA_LEN = 7;
 
+/**
+ * @param {string} key
+ * @returns {string}
+ */
+function env(key) {
+  return trimStr(process.env[key]);
+}
+
 export function getDeploymentTag() {
-  const shared =
-    trimStr(process.env.DEPLOYMENT_TAG) ||
-    trimStr(process.env.RELEASE_TAG) ||
-    trimStr(process.env.APP_VERSION);
-  if (shared) return shared;
-
-  const gitTag = trimStr(process.env.RAILWAY_GIT_TAG);
-  if (gitTag) return gitTag;
-
-  const sha = trimStr(process.env.RAILWAY_GIT_COMMIT_SHA);
-  if (sha) {
-    return sha.length > SHORT_SHA_LEN ? sha.slice(0, SHORT_SHA_LEN) : sha;
+  const explicitOrder = [
+    "DEPLOYMENT_TAG",
+    "RELEASE_TAG",
+    "APP_VERSION",
+    // Not injected by Railway by default; ok if you set it manually in the service.
+    "RAILWAY_GIT_TAG",
+    "SOURCE_VERSION",
+  ];
+  for (const k of explicitOrder) {
+    const v = env(k);
+    if (v) return v;
   }
 
-  const deploymentId = trimStr(process.env.RAILWAY_DEPLOYMENT_ID);
+  const shaFull = env("RAILWAY_GIT_COMMIT_SHA");
+  const branch = env("RAILWAY_GIT_BRANCH");
+  if (shaFull) {
+    const short = shaFull.length > SHORT_SHA_LEN ? shaFull.slice(0, SHORT_SHA_LEN) : shaFull;
+    if (branch) return `${branch}@${short}`;
+    return short;
+  }
+
+  const deploymentId = env("RAILWAY_DEPLOYMENT_ID");
   if (deploymentId) return deploymentId;
 
-  return trimStr(process.env.RAILWAY_SNAPSHOT_ID) || null;
+  const snapshotId = env("RAILWAY_SNAPSHOT_ID");
+  if (snapshotId) return snapshotId;
+
+  if (branch) return branch;
+
+  const replica = env("RAILWAY_REPLICA_ID");
+  if (replica) return replica;
+
+  return null;
 }
 
 export function getDeploymentTimestampRaw() {
-  const candidates = [
-    process.env.RAILWAY_DEPLOYMENT_CREATED_AT,
-    process.env.RAILWAY_DEPLOYED_AT,
-    process.env.NEXT_PUBLIC_DEPLOYED_AT,
-    process.env.NEXT_PUBLIC_BUILD_TIME,
+  const keys = [
+    "RAILWAY_DEPLOYMENT_CREATED_AT",
+    "RAILWAY_DEPLOYED_AT",
+    "NEXT_PUBLIC_DEPLOYED_AT",
+    "NEXT_PUBLIC_BUILD_TIME",
   ];
-  for (const c of candidates) {
-    const t = trimStr(c);
+  for (const k of keys) {
+    const t = env(k);
     if (t) return t;
   }
   return null;

@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
+
+/** Read Railway/runtime env on each request (avoid build-time inlining of deployment metadata). */
+export const dynamic = "force-dynamic";
 import Footer from "@/components/layout/Footer";
 import MainContentShell from "@/components/layout/MainContentShell";
 import MainAppShell from "@/components/layout/MainAppShell";
