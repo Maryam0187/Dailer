@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 
-export default function Footer({ railwayTag, deployedAt }) {
+export default function Footer({ deploymentTag, deployedAt }) {
   const year = new Date().getFullYear();
 
   const deploymentNumber =
-    railwayTag ||
+    deploymentTag ||
     process.env.NEXT_PUBLIC_DEPLOYMENT_NUMBER ||
     process.env.NEXT_PUBLIC_RELEASE ||
     "dev";
@@ -22,7 +22,7 @@ export default function Footer({ railwayTag, deployedAt }) {
       <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4">
         <p>© {year} Dialer</p>
         <div className="flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
-          <span>Railway Tag: {deploymentNumber}</span>
+          <span>Deployment tag: {deploymentNumber}</span>
           {deployedAtLabel ? <span>Deployment Time: {deployedAtLabel}</span> : null}
         </div>
       </div>

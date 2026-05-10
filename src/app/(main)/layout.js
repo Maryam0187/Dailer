@@ -4,21 +4,13 @@ import Footer from "@/components/layout/Footer";
 import MainContentShell from "@/components/layout/MainContentShell";
 import MainAppShell from "@/components/layout/MainAppShell";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 export default async function MainLayout({ children }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  const railwayTag =
-    process.env.RAILWAY_GIT_TAG ||
-    process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 8) ||
-    process.env.RAILWAY_DEPLOYMENT_ID ||
-    null;
-  const deployedAt =
-    process.env.RAILWAY_DEPLOYMENT_CREATED_AT ||
-    process.env.RAILWAY_DEPLOYED_AT ||
-    process.env.NEXT_PUBLIC_DEPLOYED_AT ||
-    process.env.NEXT_PUBLIC_BUILD_TIME ||
-    null;
+  const deploymentTag = getDeploymentTag();
+  const deployedAt = getDeploymentTimestampRaw();
 
   return (
     <MainAppShell>
@@ -27,7 +19,7 @@ export default async function MainLayout({ children }) {
         <main className="min-h-0 flex-1">
           <MainContentShell>{children}</MainContentShell>
         </main>
-        <Footer railwayTag={railwayTag} deployedAt={deployedAt} />
+        <Footer deploymentTag={deploymentTag} deployedAt={deployedAt} />
       </div>
     </MainAppShell>
   );
