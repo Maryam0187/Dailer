@@ -569,19 +569,49 @@ export function TwilioVoiceProvider({ children }) {
       destroyDevice();
     }
 
-    function onPageClose() {
+    /** Real unload only — not pagehide (pagehide pairs with pageshow for refresh, same as visibility). */
+    function onBeforeUnload() {
       destroyDevice();
     }
 
     window.addEventListener("auth:logout", onLogout);
-    window.addEventListener("beforeunload", onPageClose);
-    window.addEventListener("pagehide", onPageClose);
+    window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       window.removeEventListener("auth:logout", onLogout);
-      window.removeEventListener("beforeunload", onPageClose);
-      window.removeEventListener("pagehide", onPageClose);
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
   }, [destroyDevice]);
+
+  const isOnActiveCall = useCallback(() => {
+    return Boolean(callRef.current || sessionSyncRef.current);
+  }, [sessionSyncRef]);
+
+  // Tab: when visible again, refresh registration unless agent is on an active call (avoid tearing Twilio).
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      if (isOnActiveCall()) return;
+      ensureRegistered().catch(() => {});
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [ensureRegistered, isOnActiveCall]);
+
+  // Page lifecycle: refresh like visibility; never destroy during bfcache restore while on a call.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    function onPageShow(ev) {
+      const live = isOnActiveCall();
+      if (ev.persisted && !live) {
+        destroyDevice();
+      }
+      if (live) return;
+      ensureRegistered().catch(() => {});
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [destroyDevice, ensureRegistered, isOnActiveCall]);
 
   useEffect(() => {
     const socket = ioClient({
