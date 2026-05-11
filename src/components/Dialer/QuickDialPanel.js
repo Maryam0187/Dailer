@@ -15,6 +15,7 @@ export default function QuickDialPanel() {
     registered,
     sdkInitializing,
     voiceDisplaced,
+    isPrimaryTab,
     expectOutgoingIncomingLeg,
   } = useTwilioVoice();
   const [phone, setPhone] = useState("");
@@ -24,10 +25,10 @@ export default function QuickDialPanel() {
   const [error, setError] = useState(null);
 
   const hasActiveCall = Boolean(session);
-  // When displaced, the button stays clickable so the user can take this tab
-  // back over with a single click. ensureRegistered() below will re-register
-  // and Twilio will unregister the other tab's Device.
-  const canStartCall = (registered || voiceDisplaced) && !sdkInitializing;
+  // Only the primary tab in this browser may place calls. Secondary tabs are
+  // hard-disabled here; the takeover affordance lives in the banner.
+  const canStartCall =
+    isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -161,13 +162,15 @@ export default function QuickDialPanel() {
                 )}
                 {hasActiveCall
                   ? "In call"
-                  : voiceDisplaced
-                    ? "Use this tab"
-                    : !canStartCall
-                      ? "Voice Not Ready"
-                      : loading
-                        ? "Dialing..."
-                        : "Start Call"}
+                  : isPrimaryTab === false
+                    ? "Active in other tab"
+                    : voiceDisplaced
+                      ? "Use this tab"
+                      : !canStartCall
+                        ? "Voice Not Ready"
+                        : loading
+                          ? "Dialing..."
+                          : "Start Call"}
               </button>
             </div>
             <div className="mt-2 min-h-[1.25rem]">

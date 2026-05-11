@@ -53,10 +53,13 @@ export default function CallLogsClient({ initialScope = "all" }) {
     registered,
     sdkInitializing,
     voiceDisplaced,
+    isPrimaryTab,
     expectOutgoingIncomingLeg,
   } = useTwilioVoice();
-  // Displaced tab keeps the button enabled so a click can take voice back over.
-  const canStartCall = (registered || voiceDisplaced) && !sdkInitializing;
+  // Only the primary tab in this browser may place calls. Secondary tabs are
+  // hard-disabled here; the takeover affordance lives in the banner.
+  const canStartCall =
+    isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -456,13 +459,15 @@ export default function CallLogsClient({ initialScope = "all" }) {
                       >
                         {session
                           ? "Call in progress"
-                          : voiceDisplaced
-                            ? "Use this tab"
-                            : !canStartCall
-                              ? "Voice Not Ready"
-                              : callingId === c.id
-                                ? "Calling..."
-                                : "Call"}
+                          : isPrimaryTab === false
+                            ? "Active in other tab"
+                            : voiceDisplaced
+                              ? "Use this tab"
+                              : !canStartCall
+                                ? "Voice Not Ready"
+                                : callingId === c.id
+                                  ? "Calling..."
+                                  : "Call"}
                       </button>
                     </td>
                   </tr>

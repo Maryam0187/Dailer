@@ -7,6 +7,14 @@ import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundP
 
 const TwilioVoiceContext = createContext(undefined);
 
+// Single-active-tab lock parameters. Tuned so a crashed tab is detected by
+// siblings within ~8 s while still being cheap (one localStorage write every
+// 4 s, one read every 5 s in non-primary tabs).
+const TAB_LOCK_KEY = "dialer:tabLock";
+const TAB_LOCK_TTL_MS = 8000;
+const TAB_LOCK_HEARTBEAT_MS = 4000;
+const TAB_LOCK_STALE_CHECK_MS = 5000;
+
 function getIncomingCallSid(call) {
   try {
     const p = call?.parameters;
@@ -33,6 +41,13 @@ export function TwilioVoiceProvider({ children }) {
    * if any — keeps running; only future incoming calls would route elsewhere.
    */
   const [voiceDisplaced, setVoiceDisplaced] = useState(false);
+  /**
+   * Single-active-tab lock (localStorage-backed). Only the primary tab in a
+   * browser registers a Twilio Device and shows enabled call buttons. Secondary
+   * tabs render a disabled state with a one-click "Use this tab" takeover.
+   * `null` = lock state not yet read; render no-op until the mount effect runs.
+   */
+  const [isPrimaryTab, setIsPrimaryTab] = useState(null);
   const [incomingInvite, setIncomingInvite] = useState(null);
   const [inviteNotification, setInviteNotification] = useState(null);
   const [agentJoinedNotification, setAgentJoinedNotification] = useState(null);
@@ -53,6 +68,10 @@ export function TwilioVoiceProvider({ children }) {
   const inviteNotificationRef = useRef(null);
   /** True when user chose Leave — disconnect handler must not POST /api/calls/end. */
   const leaveWithoutEndingRef = useRef(false);
+  /** Stable ID for this tab; only generated client-side after mount. */
+  const tabIdRef = useRef(null);
+  /** Closure-stable mirror of {@link isPrimaryTab} for use inside refs/callbacks. */
+  const isPrimaryTabRef = useRef(false);
 
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
@@ -185,7 +204,12 @@ export function TwilioVoiceProvider({ children }) {
   }, [destroyDevice, stopInviteTone]);
 
   const ensureRegistered = useCallback(async () => {
-    // If already initialized, just wait until we have a registered device.
+    // Single-active-tab guard: secondary tabs in this browser must NOT register
+    // a Twilio Device. Without this, two tabs would each request a token, both
+    // would register, and Twilio's "last register wins" would still let the
+    // user start outgoing calls from either tab simultaneously.
+    if (isPrimaryTabRef.current === false) return false;
+
     if (deviceRef.current && registered) return true;
     if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
 
@@ -502,12 +526,164 @@ export function TwilioVoiceProvider({ children }) {
     }
   }, [registered, sessionSyncRef, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
 
-  // Keep browser reachable for invite legs while idle on initial page load.
+  // Single-active-tab lock (localStorage-backed).
+  //
+  // Design:
+  //   * localStorage["dialer:tabLock"] = JSON.stringify({ tabId, ts })
+  //   * The primary tab rewrites this every {@link TAB_LOCK_HEARTBEAT_MS}.
+  //   * Secondary tabs read every {@link TAB_LOCK_STALE_CHECK_MS} and claim
+  //     the lock if it's older than {@link TAB_LOCK_TTL_MS} (i.e. the primary
+  //     tab crashed or was force-killed and never released the lock).
+  //   * The `storage` event lets a secondary tab react instantly when the
+  //     primary releases the lock cleanly on beforeunload.
+  //
+  // Why localStorage instead of BroadcastChannel: localStorage survives a tab
+  // crash, so a newly opened tab can tell *whether* an older lock is fresh
+  // (someone else is alive) vs stale (claim it). BroadcastChannel only relays
+  // live messages — it can't answer "is anyone there right now?" reliably.
   useEffect(() => {
-    if (attemptedWarmRegistrationRef.current) return;
+    if (typeof window === "undefined") return undefined;
+
+    if (!tabIdRef.current) {
+      tabIdRef.current =
+        window.crypto?.randomUUID?.() ||
+        `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    }
+    const TAB = tabIdRef.current;
+
+    function readLock() {
+      try {
+        const raw = window.localStorage.getItem(TAB_LOCK_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed?.tabId || typeof parsed.ts !== "number") return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
+    function isStale(lock) {
+      return !lock || Date.now() - lock.ts >= TAB_LOCK_TTL_MS;
+    }
+    function writeLock() {
+      try {
+        window.localStorage.setItem(
+          TAB_LOCK_KEY,
+          JSON.stringify({ tabId: TAB, ts: Date.now() }),
+        );
+      } catch {
+        /* storage quota / private mode — silently fall back to permissive mode */
+      }
+    }
+    function releaseLockIfMine() {
+      try {
+        const lock = readLock();
+        if (lock?.tabId === TAB) window.localStorage.removeItem(TAB_LOCK_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    function becomePrimary() {
+      writeLock();
+      isPrimaryTabRef.current = true;
+      setIsPrimaryTab(true);
+    }
+    function becomeSecondary() {
+      isPrimaryTabRef.current = false;
+      setIsPrimaryTab(false);
+    }
+    function tryAcquire() {
+      const lock = readLock();
+      if (!lock || lock.tabId === TAB || isStale(lock)) {
+        becomePrimary();
+      } else {
+        becomeSecondary();
+      }
+    }
+
+    tryAcquire();
+
+    const heartbeatHandle = window.setInterval(() => {
+      if (isPrimaryTabRef.current) writeLock();
+    }, TAB_LOCK_HEARTBEAT_MS);
+
+    const staleCheckHandle = window.setInterval(() => {
+      if (isPrimaryTabRef.current) return;
+      const lock = readLock();
+      if (isStale(lock)) tryAcquire();
+    }, TAB_LOCK_STALE_CHECK_MS);
+
+    function onStorage(e) {
+      if (e.key !== TAB_LOCK_KEY) return;
+      if (e.newValue == null) {
+        tryAcquire();
+        return;
+      }
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (parsed?.tabId === TAB) {
+          isPrimaryTabRef.current = true;
+          setIsPrimaryTab(true);
+        } else {
+          // Another tab is now primary — stand down.
+          isPrimaryTabRef.current = false;
+          setIsPrimaryTab(false);
+        }
+      } catch {
+        tryAcquire();
+      }
+    }
+
+    function onBeforeUnload() {
+      releaseLockIfMine();
+    }
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("auth:logout", onBeforeUnload);
+
+    return () => {
+      window.clearInterval(heartbeatHandle);
+      window.clearInterval(staleCheckHandle);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("auth:logout", onBeforeUnload);
+      releaseLockIfMine();
+    };
+  }, []);
+
+  // Warm-register the Twilio Device once we're the primary tab. If this tab
+  // later loses the lock (another tab took over), destroy the Device so it
+  // can't receive or place calls.
+  useEffect(() => {
+    if (isPrimaryTab === null) return; // lock state not yet read
+    if (isPrimaryTab === false) {
+      if (deviceRef.current) destroyDevice();
+      attemptedWarmRegistrationRef.current = false;
+      return;
+    }
+    if (attemptedWarmRegistrationRef.current && registered) return;
     attemptedWarmRegistrationRef.current = true;
     ensureRegistered().catch(() => {});
-  }, [ensureRegistered]);
+  }, [isPrimaryTab, ensureRegistered, destroyDevice, registered]);
+
+  // Explicit takeover: a secondary tab can grab the lock and become primary.
+  // Wired to the "Use this tab" button in VoiceLockBanner / call buttons.
+  const takeOverDialer = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const TAB = tabIdRef.current;
+    if (!TAB) return;
+    try {
+      window.localStorage.setItem(
+        TAB_LOCK_KEY,
+        JSON.stringify({ tabId: TAB, ts: Date.now() }),
+      );
+    } catch {
+      /* ignore — fall through and update local state anyway */
+    }
+    isPrimaryTabRef.current = true;
+    setIsPrimaryTab(true);
+  }, []);
 
   useEffect(() => {
     if (session) return;
@@ -815,6 +991,8 @@ export function TwilioVoiceProvider({ children }) {
         registered,
         voiceConnected,
         voiceDisplaced,
+        isPrimaryTab,
+        takeOverDialer,
         toggleMute,
         sendDtmf,
         ensureRegistered,
