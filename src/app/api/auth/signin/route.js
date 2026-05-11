@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import db from "@/server/db";
 
 export async function POST(req) {
@@ -31,7 +32,13 @@ export async function POST(req) {
     return NextResponse.json({ error: "JWT_SECRET not configured" }, { status: 500 });
   }
 
-  const token = jwt.sign({ sub: user.id, role: user.role }, secret, { expiresIn: "7d" });
+  // Single-session enforcement: every successful login mints a fresh sid and
+  // overwrites the DB row. Any older cookie still holding the previous sid
+  // becomes stale and is rejected by getAuthedUser on its next request.
+  const sid = crypto.randomUUID();
+  await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
+
+  const token = jwt.sign({ sub: user.id, role: user.role, sid }, secret, { expiresIn: "7d" });
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set("token", token, {
@@ -43,4 +50,3 @@ export async function POST(req) {
   });
   return res;
 }
-

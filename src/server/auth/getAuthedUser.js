@@ -23,6 +23,13 @@ export async function getAuthedUser() {
   const user = await db.User.findByPk(userId);
   if (!user || user.isActive === false) return null;
 
+  // Single-session enforcement: this cookie's sid must still be the user's
+  // current active session. A newer login on another device/browser rotates
+  // the sid server-side, so any older cookie holding the previous sid is
+  // treated as unauthenticated. The `payload.sid &&` guard keeps legacy JWTs
+  // (issued before this column existed) valid until they expire naturally.
+  if (payload.sid && user.activeSessionId !== payload.sid) return null;
+
   return {
     id: user.id,
     username: user.username,

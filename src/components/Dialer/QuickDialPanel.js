@@ -10,8 +10,13 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, voiceLocked, expectOutgoingIncomingLeg } =
-    useTwilioVoice();
+  const {
+    ensureRegistered,
+    registered,
+    sdkInitializing,
+    voiceDisplaced,
+    expectOutgoingIncomingLeg,
+  } = useTwilioVoice();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
@@ -19,7 +24,10 @@ export default function QuickDialPanel() {
   const [error, setError] = useState(null);
 
   const hasActiveCall = Boolean(session);
-  const canStartCall = registered && !sdkInitializing && !voiceLocked;
+  // When displaced, the button stays clickable so the user can take this tab
+  // back over with a single click. ensureRegistered() below will re-register
+  // and Twilio will unregister the other tab's Device.
+  const canStartCall = (registered || voiceDisplaced) && !sdkInitializing;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -153,8 +161,8 @@ export default function QuickDialPanel() {
                 )}
                 {hasActiveCall
                   ? "In call"
-                  : voiceLocked
-                    ? "Active elsewhere"
+                  : voiceDisplaced
+                    ? "Use this tab"
                     : !canStartCall
                       ? "Voice Not Ready"
                       : loading
