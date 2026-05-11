@@ -5,10 +5,11 @@ import {
   getAgentClientIdentity,
   isTwilioBrowserAgentConfigured,
 } from "@/server/twilioVoiceToken";
+import { acquireOrRefreshSession } from "@/server/userSession";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,6 +22,26 @@ export async function GET() {
         hint: "Set TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET (see .env.local.example). Identities are per user (agent_{userId}).",
       },
       { status: 503 },
+    );
+  }
+
+  const url = new URL(req.url);
+  const sessionId = (url.searchParams.get("sessionId") || "").trim();
+  if (!sessionId) {
+    return NextResponse.json(
+      { error: "Missing sessionId", code: "missing_session_id" },
+      { status: 400 },
+    );
+  }
+
+  const claim = await acquireOrRefreshSession(authedUser.id, sessionId);
+  if (!claim.ok) {
+    return NextResponse.json(
+      {
+        error: "Dialer is active in another tab or device",
+        code: "session_locked",
+      },
+      { status: 409 },
     );
   }
 

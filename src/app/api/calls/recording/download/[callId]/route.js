@@ -51,12 +51,14 @@ export async function GET(_req, { params }) {
     const meta = await metaRes.json().catch(() => null);
     const mediaFromMeta = String(meta?.media_url || "").trim();
     const candidateUrls = Array.from(
-      new Set([
-        mediaFromMeta,
-        mediaFromMeta.endsWith(".json") ? mediaFromMeta.replace(/\.json$/i, ".mp3") : "",
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.wav`,
-      ].filter(Boolean)),
+      new Set(
+        [
+          mediaFromMeta,
+          mediaFromMeta.endsWith(".json") ? mediaFromMeta.replace(/\.json$/i, ".mp3") : "",
+          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
+          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.wav`,
+        ].filter(Boolean),
+      ),
     );
 
     let mediaRes = null;
@@ -107,4 +109,3 @@ export async function GET(_req, { params }) {
     );
   }
 }
-

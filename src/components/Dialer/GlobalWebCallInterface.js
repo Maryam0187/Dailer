@@ -275,7 +275,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to start recording");
       setRecordingStatus("in-progress");
-      setRecordingMessage("Recording started.");
+      setRecordingMessage(json?.resumed ? "Recording resumed." : "Recording started.");
     } catch (e) {
       setRecordingMessage(e?.message || "Failed to start recording");
     } finally {
@@ -299,8 +299,10 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to stop recording");
-      setRecordingStatus("stopped");
-      setRecordingMessage("Recording stopped. It will be downloadable from call logs.");
+      setRecordingStatus("paused");
+      setRecordingMessage(
+        "Recording paused. Press Start to resume — paused parts are skipped, and a single recording will be available in Call Logs after the call.",
+      );
     } catch (e) {
       setRecordingMessage(e?.message || "Failed to stop recording");
     } finally {
@@ -456,7 +458,11 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                     Recording
                   </p>
                   <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
-                    {recordingStatus === "in-progress" ? "REC" : "IDLE"}
+                    {recordingStatus === "in-progress"
+                      ? "REC"
+                      : recordingStatus === "paused"
+                        ? "PAUSED"
+                        : "IDLE"}
                   </span>
                 </div>
                 <div className="mt-2 flex gap-2">

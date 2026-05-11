@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Op } from "sequelize";
 import db from "@/server/db";
 
 export const runtime = "nodejs";
@@ -20,22 +21,36 @@ export async function POST(req) {
     return NextResponse.json({ error: "RecordingSid is required" }, { status: 400 });
   }
 
-  const update = {
-    recordingSid,
-    recordingStatus,
-  };
+  const update = { recordingSid };
   if (recordingDuration != null && recordingDuration !== "") {
     const parsed = Number(recordingDuration);
-    if (Number.isFinite(parsed)) {
-      update.recordingDurationSeconds = parsed;
-    }
+    if (Number.isFinite(parsed)) update.recordingDurationSeconds = parsed;
   }
 
-  if (Number.isInteger(callId) && callId > 0) {
-    await db.CallLog.update(update, { where: { id: callId } });
+  // Twilio only fires this webhook for the events we subscribed to:
+  // `in-progress`, `completed`, `absent`. We deliberately do NOT downgrade a
+  // locally-set "paused" status back to "in-progress" if a late initial
+  // event arrives after the agent already paused.
+  const where =
+    Number.isInteger(callId) && callId > 0
+      ? { id: callId, recordingSid }
+      : { recordingSid };
+
+  if (recordingStatus === "in-progress") {
+    await db.CallLog.update(update, {
+      where: { ...where, recordingStatus: { [Op.ne]: "paused" } },
+    });
+    // Always persist duration updates even if we skipped the status change.
+    if (update.recordingDurationSeconds != null) {
+      await db.CallLog.update(
+        { recordingDurationSeconds: update.recordingDurationSeconds },
+        { where },
+      );
+    }
   } else {
-    await db.CallLog.update(update, { where: { recordingSid } });
+    update.recordingStatus = recordingStatus;
+    await db.CallLog.update(update, { where });
   }
+
   return new NextResponse("OK", { status: 200 });
 }
-

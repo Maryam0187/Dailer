@@ -10,7 +10,8 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, expectOutgoingIncomingLeg } = useTwilioVoice();
+  const { ensureRegistered, registered, sdkInitializing, voiceLocked, expectOutgoingIncomingLeg } =
+    useTwilioVoice();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
@@ -18,7 +19,7 @@ export default function QuickDialPanel() {
   const [error, setError] = useState(null);
 
   const hasActiveCall = Boolean(session);
-  const canStartCall = registered && !sdkInitializing;
+  const canStartCall = registered && !sdkInitializing && !voiceLocked;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -152,11 +153,13 @@ export default function QuickDialPanel() {
                 )}
                 {hasActiveCall
                   ? "In call"
-                  : !canStartCall
-                    ? "Voice Not Ready"
-                    : loading
-                      ? "Dialing..."
-                      : "Start Call"}
+                  : voiceLocked
+                    ? "Active elsewhere"
+                    : !canStartCall
+                      ? "Voice Not Ready"
+                      : loading
+                        ? "Dialing..."
+                        : "Start Call"}
               </button>
             </div>
             <div className="mt-2 min-h-[1.25rem]">

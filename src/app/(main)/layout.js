@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
+import Footer from "@/components/layout/Footer";
+import MainAppShell from "@/components/layout/MainAppShell";
+import MainContentShell from "@/components/layout/MainContentShell";
 import Navbar from "@/components/layout/Navbar";
+import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 /** Read Railway/runtime env on each request (avoid build-time inlining of deployment metadata). */
 export const dynamic = "force-dynamic";
-import Footer from "@/components/layout/Footer";
-import MainContentShell from "@/components/layout/MainContentShell";
-import MainAppShell from "@/components/layout/MainAppShell";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 export default async function MainLayout({ children }) {
   const authedUser = await getAuthedUser();

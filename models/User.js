@@ -44,6 +44,14 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      activeSessionId: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      activeSessionLastSeenAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "Users",

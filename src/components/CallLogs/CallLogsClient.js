@@ -48,8 +48,9 @@ function normalizeListScope(scope) {
 
 export default function CallLogsClient({ initialScope = "all" }) {
   const { session, beginSession } = useActiveCall();
-  const { ensureRegistered, registered, sdkInitializing, expectOutgoingIncomingLeg } = useTwilioVoice();
-  const canStartCall = registered && !sdkInitializing;
+  const { ensureRegistered, registered, sdkInitializing, voiceLocked, expectOutgoingIncomingLeg } =
+    useTwilioVoice();
+  const canStartCall = registered && !sdkInitializing && !voiceLocked;
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -449,11 +450,13 @@ export default function CallLogsClient({ initialScope = "all" }) {
                       >
                         {session
                           ? "Call in progress"
-                          : !canStartCall
-                            ? "Voice Not Ready"
-                            : callingId === c.id
-                              ? "Calling..."
-                              : "Call"}
+                          : voiceLocked
+                            ? "Active elsewhere"
+                            : !canStartCall
+                              ? "Voice Not Ready"
+                              : callingId === c.id
+                                ? "Calling..."
+                                : "Call"}
                       </button>
                     </td>
                   </tr>

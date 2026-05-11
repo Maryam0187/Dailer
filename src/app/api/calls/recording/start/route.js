@@ -36,47 +36,83 @@ export async function POST(req) {
     attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
-  if (callLog.recordingStatus === "in-progress") {
-    return NextResponse.json({ error: "Recording already in progress" }, { status: 409 });
+
+  const callSid = String(callLog.twilioSid || "").trim();
+  if (!callSid) {
+    return NextResponse.json(
+      { error: "Call customer leg not established yet. Try again in a few seconds." },
+      { status: 409 },
+    );
   }
 
-  const fallbackBaseUrl = getRequestBaseUrl(req);
-  if (!fallbackBaseUrl) {
-    return NextResponse.json({ error: "Could not determine public app URL" }, { status: 500 });
+  const status = String(callLog.recordingStatus || "").toLowerCase();
+  if (callLog.recordingSid && status === "in-progress") {
+    return NextResponse.json({ error: "Recording already in progress" }, { status: 409 });
   }
 
   try {
     const client = getTwilioClient();
-    const callSid = String(callLog.twilioSid || "").trim();
-    if (!callSid) {
+
+    // Subsequent Start clicks just resume the same recording so the final
+    // download is one file covering the whole call (with paused gaps skipped).
+    if (callLog.recordingSid && status === "paused") {
+      const recording = await client
+        .calls(callSid)
+        .recordings(callLog.recordingSid)
+        .update({ status: "in-progress" });
+
+      const nextStatus = recording.status || "in-progress";
+      await db.CallLog.update(
+        { recordingStatus: nextStatus },
+        { where: { id: callId } },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        resumed: true,
+        recording: { sid: recording.sid, status: nextStatus },
+      });
+    }
+
+    // First Start for this call: create the one and only Twilio recording.
+    // pauseBehavior=skip means any later pauses are cut out (not silenced),
+    // so the resulting MP3 only contains the audio the agent wanted captured.
+    if (callLog.recordingSid && status && status !== "paused" && status !== "in-progress") {
       return NextResponse.json(
-        { error: "Call customer leg not established yet. Try again in a few seconds." },
+        {
+          error: `Recording for this call is already ${status} and cannot be restarted.`,
+        },
         { status: 409 },
       );
     }
 
+    const fallbackBaseUrl = getRequestBaseUrl(req);
+    if (!fallbackBaseUrl) {
+      return NextResponse.json({ error: "Could not determine public app URL" }, { status: 500 });
+    }
     const callbackUrl = `${fallbackBaseUrl}/api/twilio/recording-status?callId=${callId}`;
     const recording = await client.calls(callSid).recordings.create({
       recordingStatusCallback: callbackUrl,
       recordingStatusCallbackMethod: "POST",
       recordingStatusCallbackEvent: ["in-progress", "completed", "absent"],
+      recordingChannels: "mono",
       playBeep: true,
     });
 
+    const nextStatus = recording.status || "in-progress";
     await db.CallLog.update(
       {
         recordingSid: recording.sid,
-        recordingStatus: recording.status || "in-progress",
+        recordingStatus: nextStatus,
+        recordingDurationSeconds: null,
       },
       { where: { id: callId } },
     );
 
     return NextResponse.json({
       ok: true,
-      recording: {
-        sid: recording.sid,
-        status: recording.status || "in-progress",
-      },
+      resumed: false,
+      recording: { sid: recording.sid, status: nextStatus },
     });
   } catch (err) {
     return NextResponse.json(
@@ -85,4 +121,3 @@ export async function POST(req) {
     );
   }
 }
-

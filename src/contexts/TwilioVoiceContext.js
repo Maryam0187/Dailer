@@ -19,6 +19,24 @@ function getIncomingCallSid(call) {
   }
 }
 
+/** Stable id for THIS browser tab — survives reload (sessionStorage), unique per tab. */
+function getOrCreateTabSessionId() {
+  if (typeof window === "undefined") return null;
+  try {
+    let sid = window.sessionStorage.getItem("dialer:tabSessionId");
+    if (!sid) {
+      sid =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      window.sessionStorage.setItem("dialer:tabSessionId", sid);
+    }
+    return sid;
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
 export function TwilioVoiceProvider({ children }) {
   const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
@@ -27,6 +45,8 @@ export function TwilioVoiceProvider({ children }) {
   const [sdkError, setSdkError] = useState(null);
   const [registered, setRegistered] = useState(false);
   const [sdkInitializing, setSdkInitializing] = useState(false);
+  /** Server reported another tab/device already owns the dialer session for this user. */
+  const [voiceLocked, setVoiceLocked] = useState(false);
   const [incomingInvite, setIncomingInvite] = useState(null);
   const [inviteNotification, setInviteNotification] = useState(null);
   const [agentJoinedNotification, setAgentJoinedNotification] = useState(null);
@@ -47,6 +67,7 @@ export function TwilioVoiceProvider({ children }) {
   const inviteNotificationRef = useRef(null);
   /** True when user chose Leave — disconnect handler must not POST /api/calls/end. */
   const leaveWithoutEndingRef = useRef(false);
+  const sessionIdRef = useRef(getOrCreateTabSessionId());
 
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
@@ -188,9 +209,17 @@ export function TwilioVoiceProvider({ children }) {
     setRegistered(false);
 
     deviceInitPromiseRef.current = (async () => {
-      const res = await fetch("/api/twilio/token", { credentials: "include" });
+      const tabSessionId = sessionIdRef.current;
+      const tokenUrl = `/api/twilio/token?sessionId=${encodeURIComponent(tabSessionId || "")}`;
+      const res = await fetch(tokenUrl, { credentials: "include" });
       if (res.status === 503) {
         throw new Error("Twilio browser agent is not configured");
+      }
+      if (res.status === 409) {
+        // Another tab/device already owns this user's session — disable call UI here.
+        setVoiceLocked(true);
+        destroyDevice();
+        return false;
       }
       if (!res.ok) {
         throw new Error(`Failed to create Twilio voice token (${res.status})`);
@@ -200,6 +229,7 @@ export function TwilioVoiceProvider({ children }) {
       const token = data?.token;
       const identity = data?.identity || null;
       if (!token) throw new Error("Missing Twilio voice token");
+      setVoiceLocked(false);
       if (deviceIdentityRef.current && identity && deviceIdentityRef.current !== identity) {
         // Auth context changed (account switch): reset and rebuild with new identity.
         destroyDevice();
@@ -489,6 +519,92 @@ export function TwilioVoiceProvider({ children }) {
     attemptedWarmRegistrationRef.current = true;
     ensureRegistered().catch(() => {});
   }, [ensureRegistered]);
+
+  // Heartbeat for the active dialer session — keeps DB lock alive while this tab is the owner.
+  useEffect(() => {
+    if (voiceLocked) return undefined;
+    if (typeof window === "undefined") return undefined;
+    const sid = sessionIdRef.current;
+    if (!sid) return undefined;
+
+    let cancelled = false;
+    async function ping() {
+      try {
+        const res = await fetch("/api/session/ping", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid }),
+        });
+        if (!cancelled && res.status === 409) {
+          setVoiceLocked(true);
+          destroyDevice();
+        }
+      } catch {
+        /* network blip — next interval tick will retry */
+      }
+    }
+    ping();
+    const handle = window.setInterval(ping, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, [voiceLocked, destroyDevice]);
+
+  // When locked, periodically retry registration; the other tab may have closed.
+  useEffect(() => {
+    if (!voiceLocked) return undefined;
+    if (typeof window === "undefined") return undefined;
+    const handle = window.setInterval(() => {
+      ensureRegistered().catch(() => {});
+    }, 8000);
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        ensureRegistered().catch(() => {});
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(handle);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [voiceLocked, ensureRegistered]);
+
+  // Release the lock when navigating away so the next tab can claim immediately.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    function release() {
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+      try {
+        const blob = new Blob([JSON.stringify({ sessionId: sid })], { type: "application/json" });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/session/release", blob);
+          return;
+        }
+      } catch {
+        /* fall through to fetch keepalive */
+      }
+      try {
+        fetch("/api/session/release", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        /* best-effort */
+      }
+    }
+    window.addEventListener("beforeunload", release);
+    window.addEventListener("auth:logout", release);
+    return () => {
+      window.removeEventListener("beforeunload", release);
+      window.removeEventListener("auth:logout", release);
+    };
+  }, []);
 
   useEffect(() => {
     if (session) return;
@@ -795,6 +911,7 @@ export function TwilioVoiceProvider({ children }) {
         sdkInitializing,
         registered,
         voiceConnected,
+        voiceLocked,
         toggleMute,
         sendDtmf,
         ensureRegistered,
