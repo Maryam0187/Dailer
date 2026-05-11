@@ -41,18 +41,21 @@ export async function GET(req) {
         error: "Dialer is active in another tab or device",
         code: "session_locked",
       },
-      { status: 409 },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   try {
     const identity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const { token } = createVoiceAccessToken(identity);
-    return NextResponse.json({ token, identity });
+    return NextResponse.json(
+      { token, identity },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to create voice token" },
-      { status: 500 },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

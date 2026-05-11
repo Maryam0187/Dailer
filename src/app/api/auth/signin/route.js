@@ -3,6 +3,18 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import db from "@/server/db";
 
+/**
+ * Fresh login is the strongest "previous session is dead" signal — wipe any
+ * lingering active-session lock so the new tab/device can claim it.
+ */
+async function clearActiveSession(userId) {
+  if (!Number.isInteger(userId) || userId <= 0) return;
+  await db.User.update(
+    { activeSessionId: null, activeSessionLastSeenAt: null },
+    { where: { id: userId } },
+  );
+}
+
 export async function POST(req) {
   const body = await req.json().catch(() => null);
   const username = body?.username;
@@ -30,6 +42,8 @@ export async function POST(req) {
   if (!secret) {
     return NextResponse.json({ error: "JWT_SECRET not configured" }, { status: 500 });
   }
+
+  await clearActiveSession(user.id);
 
   const token = jwt.sign({ sub: user.id, role: user.role }, secret, { expiresIn: "7d" });
 

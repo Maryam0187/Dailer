@@ -211,7 +211,7 @@ export function TwilioVoiceProvider({ children }) {
     deviceInitPromiseRef.current = (async () => {
       const tabSessionId = sessionIdRef.current;
       const tokenUrl = `/api/twilio/token?sessionId=${encodeURIComponent(tabSessionId || "")}`;
-      const res = await fetch(tokenUrl, { credentials: "include" });
+      const res = await fetch(tokenUrl, { credentials: "include", cache: "no-store" });
       if (res.status === 503) {
         throw new Error("Twilio browser agent is not configured");
       }
