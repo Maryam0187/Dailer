@@ -27,6 +27,22 @@ function getIncomingCallSid(call) {
   }
 }
 
+function keepaliveEndCall(callId) {
+  const id = Number(callId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  try {
+    void fetch("/api/calls/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ callId: id }),
+      keepalive: true,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 export function TwilioVoiceProvider({ children }) {
   const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
@@ -68,6 +84,10 @@ export function TwilioVoiceProvider({ children }) {
   const inviteNotificationRef = useRef(null);
   /** True when user chose Leave — disconnect handler must not POST /api/calls/end. */
   const leaveWithoutEndingRef = useRef(false);
+  /** Owner left on purpose; refresh must not complete the customer leg. */
+  const leftConferenceWithoutEndingRef = useRef(false);
+  /** Owner call id for refresh/unload teardown when React session is already gone. */
+  const ownerCallIdRef = useRef(null);
   /** Stable ID for this tab; only generated client-side after mount. */
   const tabIdRef = useRef(null);
   /** Closure-stable mirror of {@link isPrimaryTab} for use inside refs/callbacks. */
@@ -76,6 +96,27 @@ export function TwilioVoiceProvider({ children }) {
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
   }, [inviteNotification]);
+
+  useEffect(() => {
+    const callId = Number(session?.callId);
+    if (session?.callOwnedByMe === false || !Number.isInteger(callId) || callId <= 0) return;
+    ownerCallIdRef.current = callId;
+    leftConferenceWithoutEndingRef.current = false;
+  }, [session?.callId, session?.callOwnedByMe]);
+
+  const endOwnedCallOnUnload = useCallback(() => {
+    if (leftConferenceWithoutEndingRef.current) return;
+    const snap = sessionSyncRef.current;
+    const callIdFromSession = Number(snap?.callId);
+    const callId =
+      snap?.callOwnedByMe !== false &&
+      Number.isInteger(callIdFromSession) &&
+      callIdFromSession > 0
+        ? callIdFromSession
+        : ownerCallIdRef.current;
+    if (!callId) return;
+    keepaliveEndCall(callId);
+  }, [sessionSyncRef]);
 
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
@@ -196,12 +237,13 @@ export function TwilioVoiceProvider({ children }) {
   // Cleanup when the provider unmounts.
   useEffect(() => {
     return () => {
+      endOwnedCallOnUnload();
       callRef.current?.disconnect();
       callRef.current = null;
       stopInviteTone();
       destroyDevice();
     };
-  }, [destroyDevice, stopInviteTone]);
+  }, [destroyDevice, endOwnedCallOnUnload, stopInviteTone]);
 
   const ensureRegistered = useCallback(async () => {
     // Single-active-tab guard: secondary tabs in this browser must NOT register
@@ -766,16 +808,23 @@ export function TwilioVoiceProvider({ children }) {
 
     /** Real unload only — not pagehide (pagehide pairs with pageshow for refresh, same as visibility). */
     function onBeforeUnload() {
+      endOwnedCallOnUnload();
       destroyDevice();
+    }
+
+    function onPageHide() {
+      endOwnedCallOnUnload();
     }
 
     window.addEventListener("auth:logout", onLogout);
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       window.removeEventListener("auth:logout", onLogout);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
     };
-  }, [destroyDevice]);
+  }, [destroyDevice, endOwnedCallOnUnload]);
 
   const isOnActiveCall = useCallback(() => {
     return Boolean(callRef.current || sessionSyncRef.current);
@@ -971,6 +1020,8 @@ export function TwilioVoiceProvider({ children }) {
 
     if (active) {
       leaveWithoutEndingRef.current = true;
+      leftConferenceWithoutEndingRef.current = true;
+      ownerCallIdRef.current = null;
       try {
         active.disconnect();
       } catch {
