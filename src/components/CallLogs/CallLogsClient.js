@@ -46,6 +46,10 @@ function normalizeListScope(scope) {
   return scope === "conference" ? "conference" : "all";
 }
 
+function isInProgressCallStatus(status) {
+  return String(status || "").trim().toLowerCase() === "in-progress";
+}
+
 export default function CallLogsClient({ initialScope = "all" }) {
   const { session, beginSession } = useActiveCall();
   const {
@@ -64,6 +68,7 @@ export default function CallLogsClient({ initialScope = "all" }) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [callingId, setCallingId] = useState(null);
+  const [endingCallId, setEndingCallId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
@@ -202,6 +207,26 @@ export default function CallLogsClient({ initialScope = "all" }) {
     const nextPage = page + 1;
     setPage(nextPage);
     await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+  }
+
+  async function endInProgressCall(callId) {
+    setError(null);
+    setEndingCallId(callId);
+    try {
+      const res = await fetch("/api/calls/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ callId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to end call");
+      await loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+    } catch (e) {
+      setError(e?.message || "Failed to end call");
+    } finally {
+      setEndingCallId(null);
+    }
   }
 
   async function downloadRecording(callId, url) {
@@ -451,24 +476,36 @@ export default function CallLogsClient({ initialScope = "all" }) {
                       )}
                     </td>
                     <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => redial(c.toNumber, c.id)}
-                        disabled={callingId === c.id || Boolean(session) || !canStartCall}
-                        className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
-                      >
-                        {session
-                          ? "Call in progress"
-                          : isPrimaryTab === false
-                            ? "Active in other tab"
-                            : voiceDisplaced
-                              ? "Use this tab"
-                              : !canStartCall
-                                ? "Voice Not Ready"
-                                : callingId === c.id
-                                  ? "Calling..."
-                                  : "Call"}
-                      </button>
+                      <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:justify-end">
+                        {isInProgressCallStatus(c.status) ? (
+                          <button
+                            type="button"
+                            onClick={() => endInProgressCall(c.id)}
+                            disabled={endingCallId === c.id || callingId === c.id || refreshing || loading}
+                            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-900 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
+                          >
+                            {endingCallId === c.id ? "Ending..." : "End"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => redial(c.toNumber, c.id)}
+                          disabled={callingId === c.id || Boolean(session) || !canStartCall}
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
+                        >
+                          {session
+                            ? "Call in progress"
+                            : isPrimaryTab === false
+                              ? "Active in other tab"
+                              : voiceDisplaced
+                                ? "Use this tab"
+                                : !canStartCall
+                                  ? "Voice Not Ready"
+                                  : callingId === c.id
+                                    ? "Calling..."
+                                    : "Call"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
