@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isRecordingDownloadable } from "@/server/callRecording";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -168,7 +169,9 @@ export async function GET(req) {
         recordingStatus: recordingVisible ? call.recordingStatus || null : null,
         recordingDurationSeconds: recordingVisible ? call.recordingDurationSeconds ?? null : null,
         recordingDownloadUrl:
-          recordingVisible && call.recordingSid
+          recordingVisible &&
+          call.recordingSid &&
+          isRecordingDownloadable(call.recordingStatus)
             ? `/api/calls/recording/download/${call.id}`
             : null,
         createdAt: call.createdAt,
