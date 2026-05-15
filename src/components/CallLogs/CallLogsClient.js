@@ -1,6 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const RECORDINGS_DOWNLOADED_KEY = "dialer-recordings-downloaded";
+
+function loadDownloadedRecordingIds() {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = sessionStorage.getItem(RECORDINGS_DOWNLOADED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => Number.isInteger(id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDownloadedRecordingIds(ids) {
+  try {
+    sessionStorage.setItem(RECORDINGS_DOWNLOADED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore quota / private mode
+  }
+}
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
@@ -50,7 +71,9 @@ function isInProgressCallStatus(status) {
   return String(status || "").trim().toLowerCase() === "in-progress";
 }
 
-export default function CallLogsClient({ initialScope = "all" }) {
+export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
+  const isAdmin = userRole === "admin";
+  const isAgent = userRole === "agent";
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -70,6 +93,8 @@ export default function CallLogsClient({ initialScope = "all" }) {
   const [callingId, setCallingId] = useState(null);
   const [endingCallId, setEndingCallId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [downloadedRecordingIds, setDownloadedRecordingIds] = useState(() => loadDownloadedRecordingIds());
+  const autoDownloadInFlightRef = useRef(false);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -229,35 +254,76 @@ export default function CallLogsClient({ initialScope = "all" }) {
     }
   }
 
-  async function downloadRecording(callId, url) {
-    if (!url) return;
-    setError(null);
-    setDownloadingId(callId);
-    try {
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json?.error || "Failed to download recording");
-      }
+  const markRecordingDownloaded = useCallback((callId) => {
+    setDownloadedRecordingIds((prev) => {
+      if (prev.has(callId)) return prev;
+      const next = new Set(prev);
+      next.add(callId);
+      persistDownloadedRecordingIds(next);
+      return next;
+    });
+  }, []);
 
-      const blob = await res.blob();
-      const disposition = res.headers.get("content-disposition") || "";
-      const match = disposition.match(/filename="([^"]+)"/i);
-      const filename = match?.[1] || `recording-call-${callId}.mp3`;
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch (e) {
-      setError(e?.message || "Failed to download recording");
-    } finally {
-      setDownloadingId(null);
-    }
-  }
+  const downloadRecording = useCallback(
+    async (callId, url, { silent = false } = {}) => {
+      if (!url) return false;
+      if (!silent) setError(null);
+      setDownloadingId(callId);
+      try {
+        const res = await fetch(url, { credentials: "include" });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json?.error || "Failed to download recording");
+        }
+
+        const blob = await res.blob();
+        const disposition = res.headers.get("content-disposition") || "";
+        const match = disposition.match(/filename="([^"]+)"/i);
+        const filename = match?.[1] || `recording-call-${callId}.mp3`;
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+        markRecordingDownloaded(callId);
+        return true;
+      } catch (e) {
+        if (!silent) setError(e?.message || "Failed to download recording");
+        return false;
+      } finally {
+        setDownloadingId(null);
+      }
+    },
+    [markRecordingDownloaded],
+  );
+
+  useEffect(() => {
+    if (!isAgent || loading || calls.length === 0 || autoDownloadInFlightRef.current) return;
+
+    const pending = calls.filter(
+      (c) => c.recordingDownloadUrl && !downloadedRecordingIds.has(c.id),
+    );
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    autoDownloadInFlightRef.current = true;
+
+    (async () => {
+      for (const call of pending) {
+        if (cancelled) break;
+        await downloadRecording(call.id, call.recordingDownloadUrl, { silent: true });
+      }
+    })().finally(() => {
+      autoDownloadInFlightRef.current = false;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAgent, loading, calls, downloadedRecordingIds, downloadRecording]);
 
   return (
     <section className="overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-white shadow-md shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:bg-zinc-900 dark:shadow-sky-950/15 dark:ring-sky-500/5">
@@ -462,7 +528,7 @@ export default function CallLogsClient({ initialScope = "all" }) {
                       {c.durationSeconds ?? "—"}s
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {c.recordingDownloadUrl ? (
+                      {isAdmin && c.recordingDownloadUrl ? (
                         <button
                           type="button"
                           onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
@@ -471,6 +537,20 @@ export default function CallLogsClient({ initialScope = "all" }) {
                         >
                           {downloadingId === c.id ? "Downloading..." : "Download"}
                         </button>
+                      ) : isAgent && c.recordingDownloadUrl ? (
+                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          {downloadingId === c.id
+                            ? "Downloading..."
+                            : downloadedRecordingIds.has(c.id)
+                              ? "Saved"
+                              : "Preparing..."}
+                        </span>
+                      ) : c.recordingDownloadUrl || c.recordingStatus ? (
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {c.recordingDurationSeconds != null
+                            ? `${c.recordingDurationSeconds}s`
+                            : c.recordingStatus || "Available"}
+                        </span>
                       ) : (
                         "—"
                       )}
