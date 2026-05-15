@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import {
+  downloadRecordingBytes,
+  finalizeCallRecording,
+  isRecordingDownloadable,
+} from "@/server/callRecording";
 
 export const runtime = "nodejs";
 
@@ -23,65 +29,23 @@ export async function GET(_req, { params }) {
 
     const callLog = await db.CallLog.findOne({
       where,
-      attributes: ["id", "recordingSid", "toNumber"],
+      attributes: ["id", "twilioSid", "recordingSid", "recordingStatus", "toNumber"],
     });
     if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
     if (!callLog.recordingSid) {
       return NextResponse.json({ error: "Recording not available" }, { status: 404 });
     }
 
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
-      return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 });
+    if (!isRecordingDownloadable(callLog.recordingStatus)) {
+      await finalizeCallRecording(callLog);
     }
 
-    const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-    const metadataUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.json`;
-    const metaRes = await fetch(metadataUrl, {
-      headers: { Authorization: `Basic ${auth}` },
-      redirect: "follow",
-    });
-    if (!metaRes.ok) {
-      return NextResponse.json(
-        { error: `Recording metadata unavailable (${metaRes.status})` },
-        { status: 404 },
-      );
-    }
-    const meta = await metaRes.json().catch(() => null);
-    const mediaFromMeta = String(meta?.media_url || "").trim();
-    const candidateUrls = Array.from(
-      new Set(
-        [
-          mediaFromMeta,
-          mediaFromMeta.endsWith(".json") ? mediaFromMeta.replace(/\.json$/i, ".mp3") : "",
-          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.mp3`,
-          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${callLog.recordingSid}.wav`,
-        ].filter(Boolean),
-      ),
+    const { buffer: fileBuffer, contentType } = await downloadRecordingBytes(callLog.recordingSid);
+
+    await db.CallLog.update(
+      { recordingStatus: "completed" },
+      { where: { id: callLog.id, recordingStatus: { [Op.ne]: "completed" } } },
     );
-
-    let mediaRes = null;
-    const attempts = [];
-    for (const url of candidateUrls) {
-      const res = await fetch(url, {
-        headers: { Authorization: `Basic ${auth}` },
-        redirect: "follow",
-      });
-      const ctype = String(res.headers.get("content-type") || "").toLowerCase();
-      if (res.ok && (ctype.startsWith("audio/") || ctype.includes("octet-stream"))) {
-        mediaRes = res;
-        break;
-      }
-      attempts.push(`${url} -> ${res.status} (${ctype || "unknown"})`);
-    }
-
-    if (!mediaRes) {
-      return NextResponse.json(
-        { error: `Recording media unavailable. Attempts: ${attempts.join("; ")}` },
-        { status: 404 },
-      );
-    }
 
     const safePhone = String(callLog.toNumber || "")
       .replace(/^\+/, "")
@@ -89,10 +53,7 @@ export async function GET(_req, { params }) {
       .slice(0, 15);
     const phonePart = safePhone || "unknown-number";
     const filename = `recording-${phonePart}-call-${callLog.id}.mp3`;
-    const contentType = mediaRes.headers.get("content-type") || "audio/mpeg";
 
-    const bytes = await mediaRes.arrayBuffer();
-    const fileBuffer = Buffer.from(bytes);
     const headers = new Headers();
     headers.set("Content-Type", contentType);
     headers.set("Content-Length", String(fileBuffer.length));
@@ -103,9 +64,11 @@ export async function GET(_req, { params }) {
       headers,
     });
   } catch (err) {
+    const message = err?.message || "Recording download failed unexpectedly";
+    const isProcessing = /processing|still processing/i.test(message);
     return NextResponse.json(
-      { error: err?.message || "Recording download failed unexpectedly" },
-      { status: 500 },
+      { error: message },
+      { status: isProcessing ? 409 : 500 },
     );
   }
 }
