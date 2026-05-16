@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { io as ioClient } from "socket.io-client";
 
 function roleLabel(role) {
@@ -156,14 +157,46 @@ const menuActivateClass = `${menuItemBase} border-emerald-200 bg-emerald-50 text
 
 function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActivate, onDeactivate }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 140;
+    const gap = 4;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
+    const top = openUpward ? rect.top - gap : rect.bottom + gap;
+
+    setMenuPosition({
+      top,
+      left: rect.right,
+      transform: openUpward ? "translate(-100%, -100%)" : "translateX(-100%)",
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    updateMenuPosition();
+    const raf = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, updateMenuPosition]);
 
   useEffect(() => {
     if (!open) return undefined;
     function onPointerDown(event) {
-      if (rootRef.current && !rootRef.current.contains(event.target)) {
-        setOpen(false);
-      }
+      const target = event.target;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event) {
       if (event.key === "Escape") setOpen(false);
@@ -178,14 +211,75 @@ function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActi
 
   function runAction(action) {
     setOpen(false);
+    setMenuPosition(null);
     action();
   }
 
+  const menuPanelClass =
+    "fixed z-[100] flex min-w-[9.5rem] flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg ring-1 ring-zinc-950/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10";
+
+  const menu =
+    open && menuPosition ? (
+      <div ref={menuRef} role="menu" className={menuPanelClass} style={menuPosition}>
+        <button type="button" role="menuitem" className={menuViewClass} onClick={() => runAction(onView)}>
+          View
+        </button>
+        <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onEdit)}>
+          Edit
+        </button>
+        {!isSelf ? (
+          active ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuDeactivateClass}
+              onClick={() => runAction(onDeactivate)}
+            >
+              {busy ? "Deactivating…" : "Deactivate"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuActivateClass}
+              onClick={() => runAction(onActivate)}
+            >
+              {busy ? "Activating…" : "Activate"}
+            </button>
+          )
+        ) : null}
+      </div>
+    ) : null;
+
   return (
-    <div className="relative inline-block text-left" ref={rootRef}>
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+            setMenuPosition(null);
+            return;
+          }
+          const trigger = triggerRef.current;
+          if (trigger) {
+            const rect = trigger.getBoundingClientRect();
+            const gap = 4;
+            const menuHeight = 140;
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
+            const top = openUpward ? rect.top - gap : rect.bottom + gap;
+            setMenuPosition({
+              top,
+              left: rect.right,
+              transform: openUpward ? "translate(-100%, -100%)" : "translateX(-100%)",
+            });
+          }
+          setOpen(true);
+        }}
         className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         aria-label={`Actions for ${user.username}`}
         aria-expanded={open}
@@ -201,53 +295,8 @@ function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActi
           <path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4z" />
         </svg>
       </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 z-30 mt-1 flex min-w-[9.5rem] flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg ring-1 ring-zinc-950/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className={menuViewClass}
-            onClick={() => runAction(onView)}
-          >
-            View
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={menuEditClass}
-            onClick={() => runAction(onEdit)}
-          >
-            Edit
-          </button>
-          {!isSelf ? (
-            active ? (
-              <button
-                type="button"
-                role="menuitem"
-                disabled={busy}
-                className={menuDeactivateClass}
-                onClick={() => runAction(onDeactivate)}
-              >
-                {busy ? "Deactivating…" : "Deactivate"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                role="menuitem"
-                disabled={busy}
-                className={menuActivateClass}
-                onClick={() => runAction(onActivate)}
-              >
-                {busy ? "Activating…" : "Activate"}
-              </button>
-            )
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+      {typeof document !== "undefined" && menu ? createPortal(menu, document.body) : null}
+    </>
   );
 }
 
