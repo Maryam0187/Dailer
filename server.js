@@ -62,6 +62,8 @@ app.prepare().then(() => {
   globalThis[HUB_KEY].io = io;
   const presence = globalThis[HUB_KEY].presence;
 
+  const AWAY_GRACE_MS = 5 * 60 * 1000;
+
   async function touchLastSeen(userId) {
     try {
       await db.User.update(
@@ -73,26 +75,85 @@ app.prepare().then(() => {
     }
   }
 
+  function derivePresenceForUser(row, now = Date.now()) {
+    const sessionId = row?.activeSessionId;
+    const lastSeenRaw = row?.activeSessionLastSeenAt ?? null;
+    const lastSeenMs = lastSeenRaw ? new Date(lastSeenRaw).getTime() : null;
+    const rowUserId = row?.id;
+
+    if (!sessionId) {
+      return { status: "offline", lastActiveAt: lastSeenRaw };
+    }
+    if (rowUserId != null && (presence.get(rowUserId) || 0) > 0) {
+      return { status: "online", lastActiveAt: lastSeenRaw };
+    }
+    if (lastSeenMs && now - lastSeenMs <= AWAY_GRACE_MS) {
+      return { status: "away", lastActiveAt: lastSeenRaw };
+    }
+    return { status: "offline", lastActiveAt: lastSeenRaw };
+  }
+
+  function presencePayloadForRow(row) {
+    const derived = derivePresenceForUser(row);
+    return {
+      userId: row.id,
+      presence: derived.status,
+      lastActiveAt: derived.lastActiveAt,
+    };
+  }
+
+  async function broadcastPresenceUpdate(userId) {
+    try {
+      const row = await db.User.findByPk(userId, {
+        attributes: ["id", "activeSessionId", "activeSessionLastSeenAt"],
+      });
+      if (!row) return;
+      io.to("presence:observers").emit("presence:update", presencePayloadForRow(row));
+    } catch {
+      /* observers fall back to polling */
+    }
+  }
+
+  async function tryJoinPresenceObserver(socket) {
+    const viewerId = Number(socket.data.userId);
+    if (!Number.isInteger(viewerId) || viewerId <= 0) return;
+    try {
+      const viewer = await db.User.findByPk(viewerId, { attributes: ["role"] });
+      if (viewer?.role !== "admin" && viewer?.role !== "manager") return;
+      socket.join("presence:observers");
+      socket.emit("presence:sync");
+      for (const [onlineUserId, count] of presence.entries()) {
+        if (count <= 0) continue;
+        const row = await db.User.findByPk(onlineUserId, {
+          attributes: ["id", "activeSessionId", "activeSessionLastSeenAt"],
+        });
+        if (!row) continue;
+        socket.emit("presence:update", presencePayloadForRow(row));
+      }
+    } catch (err) {
+      console.error("[presence] observer join failed:", err?.message || err);
+    }
+  }
+
   io.on("connection", (socket) => {
     const userId = Number(socket.data.userId);
     if (!Number.isInteger(userId) || userId <= 0) return;
 
     socket.join(`user:${userId}`);
+    void tryJoinPresenceObserver(socket);
 
     const next = (presence.get(userId) || 0) + 1;
     presence.set(userId, next);
-    // First socket for this user → they just came online. Refresh DB
-    // lastSeen so the Users page reflects it immediately.
-    if (next === 1) touchLastSeen(userId);
+    if (next === 1) {
+      void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
+    }
 
     socket.on("disconnect", () => {
       const current = presence.get(userId) || 0;
       const after = Math.max(0, current - 1);
       if (after === 0) {
         presence.delete(userId);
-        // Record "last time we saw them" so the away → offline grace window
-        // measures from socket disconnect, not from last API request.
-        touchLastSeen(userId);
+        void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
       } else {
         presence.set(userId, after);
       }

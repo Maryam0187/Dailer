@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { io as ioClient } from "socket.io-client";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -233,8 +234,8 @@ function UserDetailModal({ user, currentUserId, onClose }) {
     }
   }
 
-  const presence = normalizePresence(detail?.presence);
-  const lastActiveAt = detail?.lastActiveAt || null;
+  const presence = normalizePresence(user.presence ?? detail?.presence);
+  const lastActiveAt = detail?.lastActiveAt ?? user.lastActiveAt ?? null;
   const isSelf = user.id === currentUserId;
 
   return (
@@ -680,8 +681,19 @@ function EditUserModal({
   );
 }
 
+function normalizeUsersList(list) {
+  return (list || []).map((u) => ({
+    ...u,
+    isActive: u.isActive !== false && u.isActive !== 0,
+    presence: normalizePresence(u.presence),
+    lastActiveAt: u.lastActiveAt ?? null,
+  }));
+}
+
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
-  const [users, setUsers] = useState(initialUsers ?? []);
+  const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
+  const applyPresenceUpdateRef = useRef(null);
+  const refreshUsersPresenceRef = useRef(null);
   const [managerOptions, setManagerOptions] = useState(managers ?? []);
   const [supervisorOptions, setSupervisorOptions] = useState(supervisors ?? []);
   const [username, setUsername] = useState("");
@@ -705,31 +717,92 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     return map;
   }, [managerOptions]);
 
+  const applyUsersList = useCallback(
+    (list) => {
+      const normalizedUsers = normalizeUsersList(list);
+      setUsers(normalizedUsers);
+      if (role === "admin") {
+        const nextManagers = normalizedUsers
+          .filter((u) => u.role === "manager")
+          .map((u) => ({ id: u.id, username: u.username }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setManagerOptions(nextManagers);
+        const nextSupervisors = normalizedUsers
+          .filter((u) => u.role === "supervisor")
+          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setSupervisorOptions(nextSupervisors);
+      }
+    },
+    [role],
+  );
+
   async function loadUsers() {
     const res = await fetch("/api/users", { credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to load users");
-    const list = json.users || [];
-    const normalizedUsers = list.map((u) => ({
-      ...u,
-      isActive: u.isActive !== false && u.isActive !== 0,
-      presence: normalizePresence(u.presence),
-      lastActiveAt: u.lastActiveAt ?? null,
-    }));
-    setUsers(normalizedUsers);
-    if (role === "admin") {
-      const nextManagers = normalizedUsers
-        .filter((u) => u.role === "manager")
-        .map((u) => ({ id: u.id, username: u.username }))
-        .sort((a, b) => a.username.localeCompare(b.username));
-      setManagerOptions(nextManagers);
-      const nextSupervisors = normalizedUsers
-        .filter((u) => u.role === "supervisor")
-        .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
-        .sort((a, b) => a.username.localeCompare(b.username));
-      setSupervisorOptions(nextSupervisors);
-    }
+    applyUsersList(json.users || []);
   }
+
+  const refreshUsersPresence = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users", { credentials: "include" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      applyUsersList(json.users || []);
+    } catch {
+      /* background refresh */
+    }
+  }, [applyUsersList]);
+
+  const applyPresenceUpdate = useCallback((payload) => {
+    const userId = Number(payload?.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return;
+    const nextPresence = normalizePresence(payload?.presence);
+    const lastActiveAt = payload?.lastActiveAt ?? null;
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, presence: nextPresence, lastActiveAt } : u)),
+    );
+  }, []);
+
+  applyPresenceUpdateRef.current = applyPresenceUpdate;
+  refreshUsersPresenceRef.current = refreshUsersPresence;
+
+  useEffect(() => {
+    void refreshUsersPresence();
+
+    const socket = ioClient({
+      path: "/socket.io",
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("presence:update", (payload) => {
+      applyPresenceUpdateRef.current?.(payload);
+    });
+    socket.on("presence:sync", () => {
+      void refreshUsersPresenceRef.current?.();
+    });
+    socket.on("connect", () => {
+      void refreshUsersPresenceRef.current?.();
+    });
+
+    const interval = window.setInterval(() => {
+      void refreshUsersPresenceRef.current?.();
+    }, 10000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshUsersPresenceRef.current?.();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      socket.disconnect();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshUsersPresence]);
 
   useEffect(() => {
     if (createRole !== "agent" && createRole !== "supervisor") return;
@@ -830,7 +903,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
       {viewingUser ? (
         <UserDetailModal
-          user={viewingUser}
+          user={users.find((u) => u.id === viewingUser.id) ?? viewingUser}
           currentUserId={currentUserId}
           onClose={() => setViewingUser(null)}
         />
