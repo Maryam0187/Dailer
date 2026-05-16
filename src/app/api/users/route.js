@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
-
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -52,10 +51,19 @@ export async function GET(req) {
   }
 
   if (authedUser.role === "manager") {
-    // Manager: list their agents (not all users).
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
       where: { managerId: authedUser.id },
+      order: [["createdAt", "DESC"]],
+    });
+    const now = Date.now();
+    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+  }
+
+  if (authedUser.role === "supervisor") {
+    const rows = await db.User.findAll({
+      attributes: LIST_ATTRIBUTES,
+      where: { role: "agent", supervisorId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
@@ -89,21 +97,30 @@ export async function POST(req) {
   }
 
   if (authedUser.role === "manager") {
-    // Manager can only create agents.
-    if (role !== "agent") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (role !== "agent" && role !== "supervisor") {
+      return NextResponse.json({ error: "Managers can only create agents or supervisors" }, { status: 403 });
     }
 
-    const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
     let supervisorIdToSet = null;
-    if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
-      const supervisorUser = await db.User.findOne({
-        where: { id: parsedSupervisor, role: "supervisor", managerId: authedUser.id, isActive: true },
-      });
-      if (!supervisorUser) {
-        return NextResponse.json({ error: "supervisorId must be an active supervisor under you" }, { status: 400 });
+    if (role === "agent") {
+      const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
+      if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
+        const supervisorUser = await db.User.findOne({
+          where: {
+            id: parsedSupervisor,
+            role: "supervisor",
+            managerId: authedUser.id,
+            isActive: true,
+          },
+        });
+        if (!supervisorUser) {
+          return NextResponse.json(
+            { error: "supervisorId must be an active supervisor under you" },
+            { status: 400 },
+          );
+        }
+        supervisorIdToSet = parsedSupervisor;
       }
-      supervisorIdToSet = parsedSupervisor;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -111,9 +128,9 @@ export async function POST(req) {
       const user = await db.User.create({
         username: username.trim(),
         passwordHash,
-        role: "agent",
+        role,
         managerId: authedUser.id,
-        supervisorId: supervisorIdToSet,
+        supervisorId: role === "agent" ? supervisorIdToSet : null,
       });
       return NextResponse.json(
         {
@@ -129,7 +146,48 @@ export async function POST(req) {
         { status: 201 },
       );
     } catch (err) {
-      // Unique constraint violation for username.
+      if (String(err?.name).includes("SequelizeUniqueConstraintError")) {
+        return NextResponse.json({ error: "username already exists" }, { status: 409 });
+      }
+      throw err;
+    }
+  }
+
+  if (authedUser.role === "supervisor") {
+    if (role && role !== "agent") {
+      return NextResponse.json({ error: "Supervisors can only create agents" }, { status: 403 });
+    }
+
+    const supervisorRow = await db.User.findByPk(authedUser.id, {
+      attributes: ["id", "role", "managerId", "isActive"],
+    });
+    if (!supervisorRow || supervisorRow.role !== "supervisor" || !supervisorRow.isActive) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    try {
+      const user = await db.User.create({
+        username: username.trim(),
+        passwordHash,
+        role: "agent",
+        managerId: supervisorRow.managerId ?? null,
+        supervisorId: authedUser.id,
+      });
+      return NextResponse.json(
+        {
+          user: {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            managerId: user.managerId,
+            supervisorId: user.supervisorId,
+            isActive: user.isActive,
+          },
+        },
+        { status: 201 },
+      );
+    } catch (err) {
       if (String(err?.name).includes("SequelizeUniqueConstraintError")) {
         return NextResponse.json({ error: "username already exists" }, { status: 409 });
       }

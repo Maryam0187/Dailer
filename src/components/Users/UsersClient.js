@@ -732,6 +732,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setSupervisorOptions(nextSupervisors);
+      } else if (role === "manager") {
+        const nextSupervisors = normalizedUsers
+          .filter((u) => u.role === "supervisor")
+          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setSupervisorOptions(nextSupervisors);
       }
     },
     [role],
@@ -832,11 +838,18 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       const payload = {
         username,
         password,
-        role: createRole,
       };
-      if (createRole === "agent") payload.managerId = managerId;
-      if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
-      if (createRole === "supervisor") payload.managerId = managerId ?? null;
+      if (role === "admin") {
+        payload.role = createRole;
+        if (createRole === "agent") payload.managerId = managerId;
+        if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
+        if (createRole === "supervisor") payload.managerId = managerId ?? null;
+      } else if (role === "manager") {
+        payload.role = createRole;
+        if (createRole === "agent" && supervisorId != null) {
+          payload.supervisorId = supervisorId;
+        }
+      }
 
       const res = await fetch("/api/users", {
         method: "POST",
@@ -878,10 +891,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     }
   }
 
-  const showRoleSelector = role === "admin";
+  const isManager = role === "manager";
+  const isSupervisor = role === "supervisor";
+  const showRoleSelector = role === "admin" || isManager;
   const showManagerSelector =
     role === "admin" && (createRole === "agent" || createRole === "supervisor");
-  const showSupervisorSelector = role === "admin" && createRole === "agent";
+  const showSupervisorSelector =
+    (role === "admin" && createRole === "agent") || (isManager && createRole === "agent");
+  const listHeading =
+    role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
+  const listDescription =
+    role === "admin"
+      ? "Everyone in the system."
+      : isManager
+        ? "Agents and supervisors assigned to you."
+        : "Agents assigned to you as their supervisor.";
+  const showHierarchyColumns = !isSupervisor;
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
@@ -934,9 +959,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 </h2>
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
-                  {showRoleSelector
+                  {role === "admin"
                     ? " Choose a role and, for agents or supervisors, optionally assign a manager."
-                    : " New users are added as agents under you."}
+                    : isManager
+                      ? " Create an agent or supervisor under your team."
+                      : " New accounts are created as your agents."}
                 </p>
               </div>
             </div>
@@ -994,9 +1021,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       onChange={(e) => setCreateRole(e.target.value)}
                     >
                       <option value="agent">Agent</option>
-                      <option value="manager">Manager</option>
-                      <option value="supervisor">Supervisor</option>
-                      <option value="admin">Admin</option>
+                      {role === "admin" ? (
+                        <>
+                          <option value="manager">Manager</option>
+                          <option value="supervisor">Supervisor</option>
+                          <option value="admin">Admin</option>
+                        </>
+                      ) : (
+                        <option value="supervisor">Supervisor</option>
+                      )}
                     </select>
                   </div>
                 ) : null}
@@ -1097,13 +1130,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-200/30 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-none dark:ring-white/5">
         <div className="border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-            {role === "admin" ? "All users" : "Your agents"}
-          </h2>
+          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
           <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
-            {users.length === 0
-              ? "No accounts yet."
-              : `${users.length} ${users.length === 1 ? "person" : "people"} in this list.`}
+            {users.length === 0 ? "No accounts yet." : listDescription}
+            {users.length > 0
+              ? ` ${users.length} ${users.length === 1 ? "person" : "people"} in this list.`
+              : null}
           </p>
         </div>
 
@@ -1148,8 +1180,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
-                    <th className="px-4 py-3.5">Manager</th>
-                    <th className="px-4 py-3.5">Supervisor</th>
+                    {showHierarchyColumns ? (
+                      <>
+                        <th className="px-4 py-3.5">Manager</th>
+                        <th className="px-4 py-3.5">Supervisor</th>
+                      </>
+                    ) : null}
                     <th className="px-4 py-3.5">Created</th>
                     <th className="px-4 py-3.5 text-right">Actions</th>
                   </tr>
@@ -1184,18 +1220,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
                         </td>
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.role === "agent" || u.role === "supervisor"
-                            ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.role === "agent"
-                            ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
-                              u.supervisorId ??
-                              "—"
-                            : "—"}
-                        </td>
+                        {showHierarchyColumns ? (
+                          <>
+                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                              {u.role === "agent" || u.role === "supervisor"
+                                ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                              {u.role === "agent"
+                                ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
+                                  u.supervisorId ??
+                                  "—"
+                                : "—"}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="px-4 py-3.5 tabular-nums text-zinc-600 dark:text-zinc-300">
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                         </td>

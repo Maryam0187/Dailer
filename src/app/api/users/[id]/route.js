@@ -3,14 +3,7 @@ import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
-
-async function assertCanManageTarget(authedUser, target) {
-  if (authedUser.role === "admin") return true;
-  if (authedUser.role === "manager") {
-    return (target.role === "agent" || target.role === "supervisor") && target.managerId === authedUser.id;
-  }
-  return false;
-}
+import { assertCanManageTarget } from "@/server/auth/userAccess";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;

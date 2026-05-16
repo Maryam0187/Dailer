@@ -119,7 +119,13 @@ app.prepare().then(() => {
     if (!Number.isInteger(viewerId) || viewerId <= 0) return;
     try {
       const viewer = await db.User.findByPk(viewerId, { attributes: ["role"] });
-      if (viewer?.role !== "admin" && viewer?.role !== "manager") return;
+      if (
+        viewer?.role !== "admin" &&
+        viewer?.role !== "manager" &&
+        viewer?.role !== "supervisor"
+      ) {
+        return;
+      }
       socket.join("presence:observers");
       socket.emit("presence:sync");
       for (const [onlineUserId, count] of presence.entries()) {

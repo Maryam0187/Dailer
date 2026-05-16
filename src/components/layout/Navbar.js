@@ -29,7 +29,7 @@ export default function Navbar({ role }) {
             <DialerPhoneIcon className="h-7 w-7" />
             <span>Dialer</span>
           </Link>
-          {role === "admin" || role === "manager" ? (
+          {role === "admin" || role === "manager" || role === "supervisor" ? (
             <Link
               href="/users"
               className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${

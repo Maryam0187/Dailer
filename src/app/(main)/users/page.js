@@ -8,7 +8,13 @@ import UsersClient from "@/components/Users/UsersClient";
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  if (authedUser.role !== "admin" && authedUser.role !== "manager") redirect("/");
+  if (
+    authedUser.role !== "admin" &&
+    authedUser.role !== "manager" &&
+    authedUser.role !== "supervisor"
+  ) {
+    redirect("/");
+  }
 
   const listAttributes = [
     "id",
@@ -22,20 +28,27 @@ export default async function UsersPage() {
     "activeSessionLastSeenAt",
   ];
 
+  let usersWhere;
+  if (authedUser.role === "admin") {
+    usersWhere = undefined;
+  } else if (authedUser.role === "manager") {
+    usersWhere = {
+      role: { [Op.in]: ["agent", "supervisor"] },
+      managerId: authedUser.id,
+    };
+  } else {
+    usersWhere = {
+      role: "agent",
+      supervisorId: authedUser.id,
+    };
+  }
+
   const [usersRows, managersRows] = await Promise.all([
-    authedUser.role === "admin"
-      ? db.User.findAll({
-          attributes: listAttributes,
-          order: [["createdAt", "DESC"]],
-        })
-      : db.User.findAll({
-          attributes: listAttributes,
-          where: {
-            role: { [Op.in]: ["agent", "supervisor"] },
-            managerId: authedUser.id,
-          },
-          order: [["createdAt", "DESC"]],
-        }),
+    db.User.findAll({
+      attributes: listAttributes,
+      ...(usersWhere ? { where: usersWhere } : {}),
+      order: [["createdAt", "DESC"]],
+    }),
     authedUser.role === "admin"
       ? db.User.findAll({
           attributes: ["id", "username"],

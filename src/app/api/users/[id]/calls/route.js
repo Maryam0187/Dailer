@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { canViewTargetCalls } from "@/server/auth/userAccess";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -16,17 +17,6 @@ function parseDateOnly(value) {
   return v;
 }
 
-async function canViewTargetCalls(authedUser, target) {
-  if (authedUser.role === "admin") return true;
-  if (authedUser.role === "manager") {
-    return (
-      (target.role === "agent" || target.role === "supervisor") &&
-      target.managerId === authedUser.id
-    );
-  }
-  return authedUser.id === target.id;
-}
-
 export async function GET(req, { params }) {
   const { id: rawId } = await params;
   const id = Number(rawId);
@@ -38,7 +28,7 @@ export async function GET(req, { params }) {
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const target = await db.User.findByPk(id, {
-    attributes: ["id", "role", "managerId"],
+    attributes: ["id", "role", "managerId", "supervisorId"],
   });
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
