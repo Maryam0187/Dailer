@@ -51,6 +51,9 @@ export async function GET(req, { params }) {
   const offset = (page - 1) * pageSize;
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
+  const hasRecording =
+    searchParams.get("hasRecording") === "true" ||
+    searchParams.get("hasRecording") === "1";
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json(
@@ -70,6 +73,9 @@ export async function GET(req, { params }) {
     const after = new Date(`${fromDate}T00:00:00.000Z`);
     const before = new Date(`${toDate}T23:59:59.999Z`);
     where.createdAt = { [Op.between]: [after, before] };
+  }
+  if (hasRecording) {
+    where.recordingSid = { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: "" }] };
   }
 
   const { rows, count } = await db.CallLog.findAndCountAll({

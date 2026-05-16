@@ -122,6 +122,7 @@ function UserDetailModal({ user, currentUserId, onClose }) {
     hasPrev: false,
   });
   const [page, setPage] = useState(1);
+  const [recordingFilter, setRecordingFilter] = useState("all");
   const [downloadingId, setDownloadingId] = useState(null);
 
   const loadDetail = useCallback(async (signal) => {
@@ -144,7 +145,7 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   }, [user.id]);
 
   const loadCalls = useCallback(
-    async (signal, nextPage = page) => {
+    async (signal, nextPage = 1, filter = recordingFilter) => {
       setCallsLoading(true);
       setCallsError(null);
       try {
@@ -152,6 +153,9 @@ function UserDetailModal({ user, currentUserId, onClose }) {
           page: String(nextPage),
           pageSize: "10",
         });
+        if (filter === "recording") {
+          qs.set("hasRecording", "true");
+        }
         const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
           credentials: "include",
           signal,
@@ -171,16 +175,24 @@ function UserDetailModal({ user, currentUserId, onClose }) {
         setCallsLoading(false);
       }
     },
-    [user.id, page],
+    [user.id, recordingFilter],
   );
 
   useEffect(() => {
+    setRecordingFilter("all");
+    setPage(1);
     const controller = new AbortController();
     loadDetail(controller.signal);
-    loadCalls(controller.signal, 1);
+    return () => controller.abort();
+  }, [user.id, loadDetail]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setPage(1);
+    loadCalls(controller.signal, 1, recordingFilter);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id]);
+  }, [user.id, recordingFilter]);
 
   async function onPrev() {
     if (!pagination.hasPrev || callsLoading) return;
@@ -282,10 +294,36 @@ function UserDetailModal({ user, currentUserId, onClose }) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Recent call logs
-            </h3>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                Recent call logs
+              </h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecordingFilter("all")}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    recordingFilter === "all"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  All calls
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecordingFilter("recording")}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    recordingFilter === "recording"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  With recording
+                </button>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -319,7 +357,9 @@ function UserDetailModal({ user, currentUserId, onClose }) {
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading call logs…</p>
           ) : calls.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
-              No call logs for this user yet.
+              {recordingFilter === "recording"
+                ? "No calls with a recording for this user."
+                : "No call logs for this user yet."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
@@ -372,6 +412,7 @@ function UserDetailModal({ user, currentUserId, onClose }) {
           {!callsLoading && !callsError && calls.length > 0 ? (
             <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
               Showing {calls.length} of {pagination.total} calls
+              {recordingFilter === "recording" ? " with a recording" : ""}
             </p>
           ) : null}
         </div>
