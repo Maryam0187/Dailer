@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { derivePresence } from "@/server/auth/presence";
 
 async function assertCanManageTarget(authedUser, target) {
   if (authedUser.role === "admin") return true;
@@ -9,6 +10,57 @@ async function assertCanManageTarget(authedUser, target) {
     return (target.role === "agent" || target.role === "supervisor") && target.managerId === authedUser.id;
   }
   return false;
+}
+
+export async function GET(_req, { params }) {
+  const { id: rawId } = await params;
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id < 1) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
+  const authedUser = await getAuthedUser();
+  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const target = await db.User.findByPk(id, {
+    attributes: [
+      "id",
+      "username",
+      "role",
+      "managerId",
+      "supervisorId",
+      "createdAt",
+      "isActive",
+      "activeSessionId",
+      "activeSessionLastSeenAt",
+    ],
+  });
+  if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const allowed = await assertCanManageTarget(authedUser, target);
+  if (!allowed && authedUser.id !== target.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const presence = derivePresence({
+    id: target.id,
+    activeSessionId: target.activeSessionId,
+    activeSessionLastSeenAt: target.activeSessionLastSeenAt,
+  });
+
+  return NextResponse.json({
+    user: {
+      id: target.id,
+      username: target.username,
+      role: target.role,
+      managerId: target.managerId,
+      supervisorId: target.supervisorId,
+      createdAt: target.createdAt,
+      isActive: target.isActive !== false,
+      presence: presence.status,
+      lastActiveAt: presence.lastActiveAt,
+    },
+  });
 }
 
 export async function PATCH(req, { params }) {

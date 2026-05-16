@@ -38,21 +38,31 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  const canSeeAllCalls =
-    authedUser.role === "admin" ||
-    authedUser.role === "manager" ||
-    authedUser.role === "supervisor";
-
-  /** CallLog IDs that have at least one InviteDialLeg (conference / multi-agent). */
-  let conferenceCallIds = [];
+  // Home page lists only the signed-in user's own calls — admins/managers/supervisors
+  // are intentionally scoped to themselves here too. For conference scope, also include
+  // calls where this user was invited as an agent.
+  let where;
   if (conferenceOnly) {
-    const legGroups = await db.InviteDialLeg.findAll({
+    const ownedConfRows = await db.InviteDialLeg.findAll({
       attributes: ["callLogId"],
       group: ["callLogId"],
       raw: true,
     });
-    conferenceCallIds = legGroups.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
-    if (conferenceCallIds.length === 0) {
+    const conferenceCallIds = ownedConfRows
+      .map((r) => r.callLogId)
+      .filter((id) => Number.isInteger(id));
+
+    const invitedRows = await db.InviteDialLeg.findAll({
+      where: { invitedUserId: authedUser.id },
+      attributes: ["callLogId"],
+      group: ["callLogId"],
+      raw: true,
+    });
+    const invitedCallIds = invitedRows
+      .map((r) => r.callLogId)
+      .filter((id) => Number.isInteger(id));
+
+    if (conferenceCallIds.length === 0 && invitedCallIds.length === 0) {
       return NextResponse.json({
         calls: [],
         pagination: {
@@ -65,27 +75,12 @@ export async function GET(req) {
         },
       });
     }
-  }
 
-  let where;
-  if (canSeeAllCalls) {
-    where = {};
-    if (conferenceOnly) {
-      where.id = { [Op.in]: conferenceCallIds };
-    }
-  } else if (conferenceOnly) {
-    const invitedRows = await db.InviteDialLeg.findAll({
-      where: { invitedUserId: authedUser.id },
-      attributes: ["callLogId"],
-      group: ["callLogId"],
-      raw: true,
-    });
-    const invitedCallIds = invitedRows.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
     where = {
       [Op.or]: [
-        {
-          [Op.and]: [{ userId: authedUser.id }, { id: { [Op.in]: conferenceCallIds } }],
-        },
+        ...(conferenceCallIds.length > 0
+          ? [{ [Op.and]: [{ userId: authedUser.id }, { id: { [Op.in]: conferenceCallIds } }] }]
+          : []),
         ...(invitedCallIds.length > 0 ? [{ id: { [Op.in]: invitedCallIds } }] : []),
       ],
     };
@@ -153,9 +148,8 @@ export async function GET(req) {
 
   return NextResponse.json({
     calls: rows.map((call) => {
-      const recordingVisible = canSeeAllCalls || call.userId === authedUser.id;
-      const showInvitedNames =
-        conferenceOnly && (canSeeAllCalls || call.userId === authedUser.id);
+      const recordingVisible = call.userId === authedUser.id;
+      const showInvitedNames = conferenceOnly && call.userId === authedUser.id;
       const invitedToNames = showInvitedNames ? invitedNamesByCallId.get(call.id) || [] : null;
       return {
         id: call.id,

@@ -3,6 +3,7 @@ const { parse } = require("url");
 const next = require("next");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
+const db = require("./models");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
@@ -51,18 +52,52 @@ app.prepare().then(() => {
     }
   });
 
-  io.on("connection", (socket) => {
-    const userId = Number(socket.data.userId);
-    if (Number.isInteger(userId) && userId > 0) {
-      socket.join(`user:${userId}`);
-    }
-  });
-
   const HUB_KEY = Symbol.for("dialer.socket.hub");
   if (!globalThis[HUB_KEY]) {
-    globalThis[HUB_KEY] = { io: null };
+    globalThis[HUB_KEY] = { io: null, presence: new Map() };
+  }
+  if (!(globalThis[HUB_KEY].presence instanceof Map)) {
+    globalThis[HUB_KEY].presence = new Map();
   }
   globalThis[HUB_KEY].io = io;
+  const presence = globalThis[HUB_KEY].presence;
+
+  async function touchLastSeen(userId) {
+    try {
+      await db.User.update(
+        { activeSessionLastSeenAt: new Date() },
+        { where: { id: userId } },
+      );
+    } catch {
+      /* best-effort; presence display falls back to socket-only signal */
+    }
+  }
+
+  io.on("connection", (socket) => {
+    const userId = Number(socket.data.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return;
+
+    socket.join(`user:${userId}`);
+
+    const next = (presence.get(userId) || 0) + 1;
+    presence.set(userId, next);
+    // First socket for this user → they just came online. Refresh DB
+    // lastSeen so the Users page reflects it immediately.
+    if (next === 1) touchLastSeen(userId);
+
+    socket.on("disconnect", () => {
+      const current = presence.get(userId) || 0;
+      const after = Math.max(0, current - 1);
+      if (after === 0) {
+        presence.delete(userId);
+        // Record "last time we saw them" so the away → offline grace window
+        // measures from socket disconnect, not from last API request.
+        touchLastSeen(userId);
+      } else {
+        presence.set(userId, after);
+      }
+    });
+  });
 
   server.listen(port, () => {
     console.log(`Ready on http://${hostname}:${port}`);

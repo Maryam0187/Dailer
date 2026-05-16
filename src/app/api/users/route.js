@@ -2,27 +2,64 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { derivePresence } from "@/server/auth/presence";
+
+const LIST_ATTRIBUTES = [
+  "id",
+  "username",
+  "role",
+  "managerId",
+  "supervisorId",
+  "createdAt",
+  "isActive",
+  "activeSessionId",
+  "activeSessionLastSeenAt",
+];
+
+function serializeUserRow(row, now) {
+  const presence = derivePresence(
+    {
+      id: row.id,
+      activeSessionId: row.activeSessionId,
+      activeSessionLastSeenAt: row.activeSessionLastSeenAt,
+    },
+    now,
+  );
+  return {
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    managerId: row.managerId,
+    supervisorId: row.supervisorId,
+    createdAt: row.createdAt,
+    isActive: row.isActive !== false,
+    presence: presence.status,
+    lastActiveAt: presence.lastActiveAt,
+  };
+}
 
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (authedUser.role === "admin") {
-    const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+    const rows = await db.User.findAll({
+      attributes: LIST_ATTRIBUTES,
       order: [["createdAt", "DESC"]],
     });
-    return NextResponse.json({ users });
+    const now = Date.now();
+    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
   }
 
   if (authedUser.role === "manager") {
     // Manager: list their agents (not all users).
-    const users = await db.User.findAll({
-      attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+    const rows = await db.User.findAll({
+      attributes: LIST_ATTRIBUTES,
       where: { managerId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
-    return NextResponse.json({ users });
+    const now = Date.now();
+    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
   }
 
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });

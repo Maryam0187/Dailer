@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { derivePresence } from "@/server/auth/presence";
 import UsersClient from "@/components/Users/UsersClient";
 
 export default async function UsersPage() {
@@ -9,14 +10,26 @@ export default async function UsersPage() {
   if (!authedUser) redirect("/sign-in");
   if (authedUser.role !== "admin" && authedUser.role !== "manager") redirect("/");
 
+  const listAttributes = [
+    "id",
+    "username",
+    "role",
+    "managerId",
+    "supervisorId",
+    "createdAt",
+    "isActive",
+    "activeSessionId",
+    "activeSessionLastSeenAt",
+  ];
+
   const [usersRows, managersRows] = await Promise.all([
     authedUser.role === "admin"
       ? db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+          attributes: listAttributes,
           order: [["createdAt", "DESC"]],
         })
       : db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+          attributes: listAttributes,
           where: {
             role: { [Op.in]: ["agent", "supervisor"] },
             managerId: authedUser.id,
@@ -32,15 +45,28 @@ export default async function UsersPage() {
       : [],
   ]);
 
-  const users = usersRows.map((r) => ({
-    id: r.id,
-    username: r.username,
-    role: r.role,
-    managerId: r.managerId,
-    supervisorId: r.supervisorId,
-    createdAt: r.createdAt,
-    isActive: !(r.isActive === false || r.isActive === 0),
-  }));
+  const nowMs = Date.now();
+  const users = usersRows.map((r) => {
+    const presence = derivePresence(
+      {
+        id: r.id,
+        activeSessionId: r.activeSessionId,
+        activeSessionLastSeenAt: r.activeSessionLastSeenAt,
+      },
+      nowMs,
+    );
+    return {
+      id: r.id,
+      username: r.username,
+      role: r.role,
+      managerId: r.managerId,
+      supervisorId: r.supervisorId,
+      createdAt: r.createdAt,
+      isActive: !(r.isActive === false || r.isActive === 0),
+      presence: presence.status,
+      lastActiveAt: presence.lastActiveAt,
+    };
+  });
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users

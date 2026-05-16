@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -8,6 +8,28 @@ function roleLabel(role) {
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
   return role;
+}
+
+function normalizePresence(value) {
+  if (value === "online" || value === "away" || value === "offline") return value;
+  return "offline";
+}
+
+function formatLastActive(value) {
+  if (!value) return "Never signed in";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const diffMs = Date.now() - date.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 0) return date.toLocaleString();
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
+  return date.toLocaleString();
 }
 
 const inputClass =
@@ -42,6 +64,319 @@ function ActiveBadge({ active }) {
     <span className="inline-flex rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200">
       Inactive
     </span>
+  );
+}
+
+function PresenceBadge({ status }) {
+  const value = normalizePresence(status);
+  const styles = {
+    online: {
+      dot: "bg-emerald-500",
+      pill: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
+      label: "Online",
+    },
+    away: {
+      dot: "bg-amber-500",
+      pill: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+      label: "Away",
+    },
+    offline: {
+      dot: "bg-zinc-400",
+      pill: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
+      label: "Offline",
+    },
+  };
+  const s = styles[value];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.pill}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
+      {s.label}
+    </span>
+  );
+}
+
+function formatDuration(seconds) {
+  if (seconds == null || Number.isNaN(Number(seconds))) return "—";
+  const total = Math.max(0, Math.floor(Number(seconds)));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m === 0) return `${s}s`;
+  return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function UserDetailModal({ user, currentUserId, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [detailError, setDetailError] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [calls, setCalls] = useState([]);
+  const [callsError, setCallsError] = useState(null);
+  const [callsLoading, setCallsLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
+  const [page, setPage] = useState(1);
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const loadDetail = useCallback(async (signal) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        credentials: "include",
+        signal,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load user");
+      setDetail(json.user);
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      setDetailError(err.message || "Failed to load user");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [user.id]);
+
+  const loadCalls = useCallback(
+    async (signal, nextPage = page) => {
+      setCallsLoading(true);
+      setCallsError(null);
+      try {
+        const qs = new URLSearchParams({
+          page: String(nextPage),
+          pageSize: "10",
+        });
+        const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load call logs");
+        setCalls(json.calls || []);
+        if (json.pagination) {
+          setPagination(json.pagination);
+          setPage(json.pagination.page || nextPage);
+        }
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setCallsError(err.message || "Failed to load call logs");
+        setCalls([]);
+      } finally {
+        setCallsLoading(false);
+      }
+    },
+    [user.id, page],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadDetail(controller.signal);
+    loadCalls(controller.signal, 1);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+
+  async function onPrev() {
+    if (!pagination.hasPrev || callsLoading) return;
+    const controller = new AbortController();
+    await loadCalls(controller.signal, Math.max(1, page - 1));
+  }
+  async function onNext() {
+    if (!pagination.hasNext || callsLoading) return;
+    const controller = new AbortController();
+    await loadCalls(controller.signal, page + 1);
+  }
+
+  async function downloadRecording(callId, url) {
+    if (!url) return;
+    setDownloadingId(callId);
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Failed to download recording");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] || `recording-call-${callId}.mp3`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setCallsError(err?.message || "Failed to download recording");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  const presence = normalizePresence(detail?.presence);
+  const lastActiveAt = detail?.lastActiveAt || null;
+  const isSelf = user.id === currentUserId;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px]"
+        aria-label="Close dialog"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-detail-title"
+        className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2
+                id="user-detail-title"
+                className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
+              >
+                {user.username}
+                {isSelf ? (
+                  <span className="ml-2 text-xs font-normal text-zinc-500">(you)</span>
+                ) : null}
+              </h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <RoleBadge value={user.role} />
+                <PresenceBadge status={presence} />
+                <ActiveBadge active={user.isActive !== false} />
+              </div>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                Last active:{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {detailLoading && !detail ? "Loading…" : formatLastActive(lastActiveAt)}
+                </span>
+                {lastActiveAt ? (
+                  <span className="ml-1.5 text-xs text-zinc-500">
+                    ({new Date(lastActiveAt).toLocaleString()})
+                  </span>
+                ) : null}
+              </p>
+              {detailError ? (
+                <p className="mt-2 text-xs text-red-600">{detailError}</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Recent call logs
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onPrev}
+                disabled={!pagination.hasPrev || callsLoading}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Prev
+              </button>
+              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                Page {pagination.page} / {pagination.totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!pagination.hasNext || callsLoading}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          {callsError ? (
+            <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+              {callsError}
+            </p>
+          ) : null}
+
+          {callsLoading && calls.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading call logs…</p>
+          ) : calls.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
+              No call logs for this user yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                    <th className="px-3 py-2.5">When</th>
+                    <th className="px-3 py-2.5">To</th>
+                    <th className="px-3 py-2.5">Status</th>
+                    <th className="px-3 py-2.5">Duration</th>
+                    <th className="px-3 py-2.5">Recording</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {calls.map((c) => (
+                    <tr key={c.id}>
+                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                        {new Date(c.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                        {c.toNumber || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                        {c.status || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                        {formatDuration(c.durationSeconds)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {c.recordingDownloadUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
+                            disabled={downloadingId === c.id}
+                            className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                          >
+                            {downloadingId === c.id ? "Downloading…" : "Download"}
+                          </button>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!callsLoading && !callsError && calls.length > 0 ? (
+            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Showing {calls.length} of {pagination.total} calls
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -319,6 +654,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [error, setError] = useState(null);
 
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [rowBusyId, setRowBusyId] = useState(null);
   const [listError, setListError] = useState(null);
 
@@ -336,6 +672,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     const normalizedUsers = list.map((u) => ({
       ...u,
       isActive: u.isActive !== false && u.isActive !== 0,
+      presence: normalizePresence(u.presence),
+      lastActiveAt: u.lastActiveAt ?? null,
     }));
     setUsers(normalizedUsers);
     if (role === "admin") {
@@ -446,6 +784,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           supervisors={supervisorOptions}
           currentUserId={currentUserId}
           onSaved={loadUsers}
+        />
+      ) : null}
+
+      {viewingUser ? (
+        <UserDetailModal
+          user={viewingUser}
+          currentUserId={currentUserId}
+          onClose={() => setViewingUser(null)}
         />
       ) : null}
 
@@ -685,6 +1031,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="px-4 py-3.5">Username</th>
                     <th className="px-4 py-3.5">Role</th>
+                    <th className="px-4 py-3.5">Presence</th>
+                    <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
                     <th className="px-4 py-3.5">Manager</th>
                     <th className="px-4 py-3.5">Supervisor</th>
@@ -701,10 +1049,23 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         className={`transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 ${!active ? "opacity-70" : ""}`}
                       >
                         <td className="px-4 py-3.5 font-medium text-zinc-900 dark:text-zinc-100">
-                          {u.username}
+                          <button
+                            type="button"
+                            onClick={() => setViewingUser(u)}
+                            className="text-left font-medium text-emerald-700 hover:underline focus:underline focus:outline-none dark:text-emerald-300"
+                            title="View status and call logs"
+                          >
+                            {u.username}
+                          </button>
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge value={u.role} />
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <PresenceBadge status={u.presence} />
+                        </td>
+                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                          {formatLastActive(u.lastActiveAt)}
                         </td>
                         <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
@@ -726,6 +1087,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         </td>
                         <td className="px-4 py-3.5 text-right">
                           <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setViewingUser(u)}
+                              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60"
+                            >
+                              View
+                            </button>
                             <button
                               type="button"
                               onClick={() => setEditingUser(u)}
