@@ -17,7 +17,7 @@ function normalizePresence(value) {
 }
 
 function formatLastActive(value) {
-  if (!value) return "Never signed in";
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
   const diffMs = Date.now() - date.getTime();
@@ -101,10 +101,154 @@ function PresenceBadge({ status }) {
 function formatDuration(seconds) {
   if (seconds == null || Number.isNaN(Number(seconds))) return "—";
   const total = Math.max(0, Math.floor(Number(seconds)));
-  const m = Math.floor(total / 60);
+  const hr = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (m === 0) return `${s}s`;
-  return `${m}m ${String(s).padStart(2, "0")}s`;
+  const parts = [];
+  if (hr > 0) parts.push(`${hr}hr`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+  return parts.join(" ");
+}
+
+function formatDateInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getPresetRange(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "today") {
+    const d = formatDateInput(today);
+    return { from: d, to: d };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const d = formatDateInput(y);
+    return { from: d, to: d };
+  }
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  if (preset === "month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  return { from: "", to: "" };
+}
+
+const callsDateInputClass =
+  "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
+
+const menuItemBase =
+  "flex w-full items-center rounded-lg border px-3 py-1.5 text-left text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50";
+
+const menuViewClass = `${menuItemBase} border-sky-200 bg-sky-50 text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60`;
+const menuEditClass = `${menuItemBase} border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800`;
+const menuDeactivateClass = `${menuItemBase} border-red-200 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60`;
+const menuActivateClass = `${menuItemBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60`;
+
+function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActivate, onDeactivate }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointerDown(event) {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function runAction(action) {
+    setOpen(false);
+    action();
+  }
+
+  return (
+    <div className="relative inline-block text-left" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        aria-label={`Actions for ${user.username}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-5 w-5"
+          aria-hidden
+        >
+          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4z" />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 flex min-w-[9.5rem] flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg ring-1 ring-zinc-950/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={menuViewClass}
+            onClick={() => runAction(onView)}
+          >
+            View
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={menuEditClass}
+            onClick={() => runAction(onEdit)}
+          >
+            Edit
+          </button>
+          {!isSelf ? (
+            active ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                className={menuDeactivateClass}
+                onClick={() => runAction(onDeactivate)}
+              >
+                {busy ? "Deactivating…" : "Deactivate"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                className={menuActivateClass}
+                onClick={() => runAction(onActivate)}
+              >
+                {busy ? "Activating…" : "Activate"}
+              </button>
+            )
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function UserDetailModal({ user, currentUserId, onClose }) {
@@ -114,6 +258,7 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   const [calls, setCalls] = useState([]);
   const [callsError, setCallsError] = useState(null);
   const [callsLoading, setCallsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -123,7 +268,11 @@ function UserDetailModal({ user, currentUserId, onClose }) {
     hasPrev: false,
   });
   const [page, setPage] = useState(1);
-  const [recordingFilter, setRecordingFilter] = useState("all");
+  const [callsFilter, setCallsFilter] = useState("all");
+  const [rangePreset, setRangePreset] = useState("today");
+  const initialRange = getPresetRange("today");
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [downloadingId, setDownloadingId] = useState(null);
 
   const loadDetail = useCallback(async (signal) => {
@@ -146,16 +295,34 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   }, [user.id]);
 
   const loadCalls = useCallback(
-    async (signal, nextPage = 1, filter = recordingFilter) => {
-      setCallsLoading(true);
+    async (
+      signal,
+      nextPage = 1,
+      filter = callsFilter,
+      fromDate = rangeFrom,
+      toDate = rangeTo,
+      { silent = false } = {},
+    ) => {
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setCallsLoading(true);
+      }
       setCallsError(null);
       try {
         const qs = new URLSearchParams({
           page: String(nextPage),
           pageSize: "10",
         });
+        if (fromDate && toDate) {
+          qs.set("fromDate", fromDate);
+          qs.set("toDate", toDate);
+        }
         if (filter === "recording") {
           qs.set("hasRecording", "true");
+        }
+        if (filter === "conference") {
+          qs.set("scope", "conference");
         }
         const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
           credentials: "include",
@@ -173,14 +340,29 @@ function UserDetailModal({ user, currentUserId, onClose }) {
         setCallsError(err.message || "Failed to load call logs");
         setCalls([]);
       } finally {
-        setCallsLoading(false);
+        if (silent) {
+          setRefreshing(false);
+        } else {
+          setCallsLoading(false);
+        }
       }
     },
-    [user.id, recordingFilter],
+    [user.id, callsFilter, rangeFrom, rangeTo],
   );
 
+  async function onRefresh() {
+    const controller = new AbortController();
+    await loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo, {
+      silent: calls.length > 0,
+    });
+  }
+
   useEffect(() => {
-    setRecordingFilter("all");
+    setCallsFilter("all");
+    setRangePreset("today");
+    const next = getPresetRange("today");
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
     setPage(1);
     const controller = new AbortController();
     loadDetail(controller.signal);
@@ -189,21 +371,33 @@ function UserDetailModal({ user, currentUserId, onClose }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setPage(1);
-    loadCalls(controller.signal, 1, recordingFilter);
+    loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo);
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id, recordingFilter]);
+  }, [user.id, callsFilter, rangeFrom, rangeTo, page, loadCalls]);
+
+  function applyPreset(preset) {
+    setRangePreset(preset);
+    if (preset === "custom") return;
+    const next = getPresetRange(preset);
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setPage(1);
+  }
+
+  async function onApplyRange() {
+    setPage(1);
+    const controller = new AbortController();
+    await loadCalls(controller.signal, 1, callsFilter, rangeFrom, rangeTo);
+  }
 
   async function onPrev() {
     if (!pagination.hasPrev || callsLoading) return;
-    const controller = new AbortController();
-    await loadCalls(controller.signal, Math.max(1, page - 1));
+    const nextPage = Math.max(1, page - 1);
+    setPage(nextPage);
   }
   async function onNext() {
     if (!pagination.hasNext || callsLoading) return;
-    const controller = new AbortController();
-    await loadCalls(controller.signal, page + 1);
+    setPage(page + 1);
   }
 
   async function downloadRecording(callId, url) {
@@ -295,17 +489,20 @@ function UserDetailModal({ user, currentUserId, onClose }) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-4">
             <div>
               <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                Recent call logs
+                {callsFilter === "conference" ? "Conference call logs" : "Recent call logs"}
               </h3>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setRecordingFilter("all")}
+                  onClick={() => {
+                    setCallsFilter("all");
+                    setPage(1);
+                  }}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    recordingFilter === "all"
+                    callsFilter === "all"
                       ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
@@ -314,36 +511,140 @@ function UserDetailModal({ user, currentUserId, onClose }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRecordingFilter("recording")}
+                  onClick={() => {
+                    setCallsFilter("recording");
+                    setPage(1);
+                  }}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    recordingFilter === "recording"
+                    callsFilter === "recording"
                       ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
                 >
                   With recording
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCallsFilter("conference");
+                    setPage(1);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    callsFilter === "conference"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  Conference calls
+                </button>
+              </div>
+              {callsFilter === "conference" ? (
+                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  Calls where another agent was invited via “Add agent”, or where this user was
+                  invited to a conference.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div className="mb-3">
+              <label className={labelClass}>Range presets</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "yesterday", label: "Yesterday" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                  { id: "custom", label: "Custom" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyPreset(p.id)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      rangePreset === p.id
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label htmlFor="user-calls-from-date" className={labelClass}>
+                  From date
+                </label>
+                <input
+                  id="user-calls-from-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeFrom}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeFrom(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="user-calls-to-date" className={labelClass}>
+                  To date
+                </label>
+                <input
+                  id="user-calls-to-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeTo}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeTo(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={onApplyRange}
+                  disabled={callsLoading}
+                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Apply range
+                </button>
+              </div>
+            </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onPrev}
-                disabled={!pagination.hasPrev || callsLoading}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                disabled={!pagination.hasPrev || callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 Prev
               </button>
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
                 Page {pagination.page} / {pagination.totalPages}
               </span>
               <button
                 type="button"
                 onClick={onNext}
-                disabled={!pagination.hasNext || callsLoading}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                disabled={!pagination.hasNext || callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 Next
+              </button>
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+              >
+                {refreshing ? "Refreshing…" : "Refresh"}
               </button>
             </div>
           </div>
@@ -358,9 +659,11 @@ function UserDetailModal({ user, currentUserId, onClose }) {
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading call logs…</p>
           ) : calls.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
-              {recordingFilter === "recording"
-                ? "No calls with a recording for this user."
-                : "No call logs for this user yet."}
+              {callsFilter === "recording"
+                ? "No calls with a recording for this user in this date range."
+                : callsFilter === "conference"
+                  ? "No conference calls for this user in this date range."
+                  : "No call logs for this user in this date range."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
@@ -368,6 +671,9 @@ function UserDetailModal({ user, currentUserId, onClose }) {
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="px-3 py-2.5">When</th>
+                    {callsFilter === "conference" ? (
+                      <th className="px-3 py-2.5">Invited</th>
+                    ) : null}
                     <th className="px-3 py-2.5">To</th>
                     <th className="px-3 py-2.5">Status</th>
                     <th className="px-3 py-2.5">Duration</th>
@@ -380,6 +686,13 @@ function UserDetailModal({ user, currentUserId, onClose }) {
                       <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
                         {new Date(c.createdAt).toLocaleString()}
                       </td>
+                      {callsFilter === "conference" ? (
+                        <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                          {Array.isArray(c.invitedToNames) && c.invitedToNames.length > 0
+                            ? c.invitedToNames.join(", ")
+                            : "—"}
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
                         {c.toNumber || "—"}
                       </td>
@@ -412,8 +725,9 @@ function UserDetailModal({ user, currentUserId, onClose }) {
 
           {!callsLoading && !callsError && calls.length > 0 ? (
             <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {calls.length} of {pagination.total} calls
-              {recordingFilter === "recording" ? " with a recording" : ""}
+              Showing {calls.length} of {pagination.total}{" "}
+              {callsFilter === "conference" ? "conference calls" : "calls"}
+              {callsFilter === "recording" ? " with a recording" : ""}
             </p>
           ) : null}
         </div>
@@ -1240,43 +1554,16 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                         </td>
                         <td className="px-4 py-3.5 text-right">
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setViewingUser(u)}
-                              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60"
-                            >
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingUser(u)}
-                              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                            >
-                              Edit
-                            </button>
-                            {u.id !== currentUserId ? (
-                              active ? (
-                                <button
-                                  type="button"
-                                  disabled={rowBusyId === u.id}
-                                  onClick={() => toggleActive(u, false)}
-                                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
-                                >
-                                  {rowBusyId === u.id ? "…" : "Deactivate"}
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={rowBusyId === u.id}
-                                  onClick={() => toggleActive(u, true)}
-                                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
-                                >
-                                  {rowBusyId === u.id ? "…" : "Activate"}
-                                </button>
-                              )
-                            ) : null}
-                          </div>
+                          <UserRowActionsMenu
+                            user={u}
+                            active={active}
+                            isSelf={u.id === currentUserId}
+                            busy={rowBusyId === u.id}
+                            onView={() => setViewingUser(u)}
+                            onEdit={() => setEditingUser(u)}
+                            onDeactivate={() => toggleActive(u, false)}
+                            onActivate={() => toggleActive(u, true)}
+                          />
                         </td>
                       </tr>
                     );

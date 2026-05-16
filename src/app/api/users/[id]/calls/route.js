@@ -44,6 +44,8 @@ export async function GET(req, { params }) {
   const hasRecording =
     searchParams.get("hasRecording") === "true" ||
     searchParams.get("hasRecording") === "1";
+  const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
+  const conferenceOnly = scope === "conference";
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json(
@@ -58,7 +60,52 @@ export async function GET(req, { params }) {
     );
   }
 
-  const where = { userId: target.id };
+  let where;
+  if (conferenceOnly) {
+    const ownedConfRows = await db.InviteDialLeg.findAll({
+      attributes: ["callLogId"],
+      group: ["callLogId"],
+      raw: true,
+    });
+    const conferenceCallIds = ownedConfRows
+      .map((r) => r.callLogId)
+      .filter((cid) => Number.isInteger(cid));
+
+    const invitedRows = await db.InviteDialLeg.findAll({
+      where: { invitedUserId: target.id },
+      attributes: ["callLogId"],
+      group: ["callLogId"],
+      raw: true,
+    });
+    const invitedCallIds = invitedRows
+      .map((r) => r.callLogId)
+      .filter((cid) => Number.isInteger(cid));
+
+    if (conferenceCallIds.length === 0 && invitedCallIds.length === 0) {
+      return NextResponse.json({
+        calls: [],
+        pagination: {
+          page,
+          pageSize,
+          total: 0,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: page > 1,
+        },
+      });
+    }
+
+    where = {
+      [Op.or]: [
+        ...(conferenceCallIds.length > 0
+          ? [{ [Op.and]: [{ userId: target.id }, { id: { [Op.in]: conferenceCallIds } }] }]
+          : []),
+        ...(invitedCallIds.length > 0 ? [{ id: { [Op.in]: invitedCallIds } }] : []),
+      ],
+    };
+  } else {
+    where = { userId: target.id };
+  }
   if (fromDate && toDate) {
     const after = new Date(`${fromDate}T00:00:00.000Z`);
     const before = new Date(`${toDate}T23:59:59.999Z`);
@@ -88,22 +135,52 @@ export async function GET(req, { params }) {
     ],
   });
 
+  const callIds = rows.map((r) => r.id);
+  let invitedNamesByCallId = new Map();
+  if (conferenceOnly && callIds.length > 0) {
+    const legs = await db.InviteDialLeg.findAll({
+      where: { callLogId: callIds },
+      attributes: ["callLogId", "invitedUserId"],
+      include: [
+        {
+          model: db.User,
+          as: "invitedUser",
+          attributes: ["username"],
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+    for (const leg of legs) {
+      const cid = leg.callLogId;
+      const name = String(leg.invitedUser?.username || "").trim();
+      if (!name) continue;
+      if (!invitedNamesByCallId.has(cid)) invitedNamesByCallId.set(cid, []);
+      const list = invitedNamesByCallId.get(cid);
+      if (!list.includes(name)) list.push(name);
+    }
+  }
+
   return NextResponse.json({
-    calls: rows.map((call) => ({
-      id: call.id,
-      userId: call.userId,
-      fromNumber: call.fromNumber,
-      toNumber: call.toNumber,
-      direction: call.direction,
-      status: call.status,
-      durationSeconds: call.durationSeconds,
-      recordingStatus: call.recordingStatus || null,
-      recordingDurationSeconds: call.recordingDurationSeconds ?? null,
-      recordingDownloadUrl: call.recordingSid
-        ? `/api/calls/recording/download/${call.id}`
-        : null,
-      createdAt: call.createdAt,
-    })),
+    calls: rows.map((call) => {
+      const showInvitedNames = conferenceOnly && call.userId === target.id;
+      const invitedToNames = showInvitedNames ? invitedNamesByCallId.get(call.id) || [] : null;
+      return {
+        id: call.id,
+        userId: call.userId,
+        fromNumber: call.fromNumber,
+        toNumber: call.toNumber,
+        direction: call.direction,
+        status: call.status,
+        durationSeconds: call.durationSeconds,
+        recordingStatus: call.recordingStatus || null,
+        recordingDurationSeconds: call.recordingDurationSeconds ?? null,
+        recordingDownloadUrl: call.recordingSid
+          ? `/api/calls/recording/download/${call.id}`
+          : null,
+        createdAt: call.createdAt,
+        ...(conferenceOnly ? { invitedToNames } : {}),
+      };
+    }),
     pagination: {
       page,
       pageSize,
