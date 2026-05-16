@@ -29,6 +29,12 @@ export default function QuickDialPanel() {
   // hard-disabled here; the takeover affordance lives in the banner.
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
+  const canPlaceCall =
+    Boolean(phone.trim()) &&
+    validation.isValid &&
+    !loading &&
+    !hasActiveCall &&
+    canStartCall;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -46,6 +52,13 @@ export default function QuickDialPanel() {
     setPhone(formatted);
     setValidation(validatePhone(formatted));
     setError(null);
+  }
+
+  function onPhoneKeyDown(e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!canPlaceCall) return;
+    void onCall();
   }
 
   async function onCall() {
@@ -129,6 +142,7 @@ export default function QuickDialPanel() {
                   value={phone}
                   onChange={onPhoneChange}
                   onPaste={onPhonePaste}
+                  onKeyDown={onPhoneKeyDown}
                   placeholder="123-456-7890"
                   disabled={hasActiveCall}
                   maxLength={12}
@@ -142,7 +156,7 @@ export default function QuickDialPanel() {
               <button
                 type="button"
                 onClick={onCall}
-                disabled={!phone.trim() || !validation.isValid || loading || hasActiveCall || !canStartCall}
+                disabled={!canPlaceCall}
                 className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
               >
                 {loading ? (

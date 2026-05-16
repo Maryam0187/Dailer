@@ -29,7 +29,7 @@ export default function Navbar({ role }) {
             <DialerPhoneIcon className="h-7 w-7" />
             <span>Dialer</span>
           </Link>
-          {role === "admin" || role === "manager" ? (
+          {role === "admin" || role === "manager" || role === "supervisor" ? (
             <Link
               href="/users"
               className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
@@ -59,11 +59,6 @@ export default function Navbar({ role }) {
 
         <div className="ml-auto flex shrink-0 items-center gap-2 rounded-xl border border-zinc-200/80 bg-white/60 px-2 py-1.5 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-3 sm:px-3">
           <ThemeToggle />
-          {role !== "admin" ? (
-            <span className="hidden rounded-md border border-zinc-200/80 bg-zinc-50 px-2 py-0.5 text-sm font-semibold capitalize text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 sm:inline-flex">
-              {role}
-            </span>
-          ) : null}
           <LogoutButton />
         </div>
       </div>

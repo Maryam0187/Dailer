@@ -2,27 +2,53 @@ import { redirect } from "next/navigation";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { derivePresence } from "@/server/auth/presence";
 import UsersClient from "@/components/Users/UsersClient";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  if (authedUser.role !== "admin" && authedUser.role !== "manager") redirect("/");
+  if (
+    authedUser.role !== "admin" &&
+    authedUser.role !== "manager" &&
+    authedUser.role !== "supervisor"
+  ) {
+    redirect("/");
+  }
+
+  const listAttributes = [
+    "id",
+    "username",
+    "role",
+    "managerId",
+    "supervisorId",
+    "createdAt",
+    "isActive",
+    "activeSessionId",
+    "activeSessionLastSeenAt",
+  ];
+
+  let usersWhere;
+  if (authedUser.role === "admin") {
+    usersWhere = undefined;
+  } else if (authedUser.role === "manager") {
+    usersWhere = {
+      role: { [Op.in]: ["agent", "supervisor"] },
+      managerId: authedUser.id,
+    };
+  } else {
+    usersWhere = {
+      role: "agent",
+      supervisorId: authedUser.id,
+    };
+  }
 
   const [usersRows, managersRows] = await Promise.all([
-    authedUser.role === "admin"
-      ? db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
-          order: [["createdAt", "DESC"]],
-        })
-      : db.User.findAll({
-          attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
-          where: {
-            role: { [Op.in]: ["agent", "supervisor"] },
-            managerId: authedUser.id,
-          },
-          order: [["createdAt", "DESC"]],
-        }),
+    db.User.findAll({
+      attributes: listAttributes,
+      ...(usersWhere ? { where: usersWhere } : {}),
+      order: [["createdAt", "DESC"]],
+    }),
     authedUser.role === "admin"
       ? db.User.findAll({
           attributes: ["id", "username"],
@@ -32,15 +58,28 @@ export default async function UsersPage() {
       : [],
   ]);
 
-  const users = usersRows.map((r) => ({
-    id: r.id,
-    username: r.username,
-    role: r.role,
-    managerId: r.managerId,
-    supervisorId: r.supervisorId,
-    createdAt: r.createdAt,
-    isActive: !(r.isActive === false || r.isActive === 0),
-  }));
+  const nowMs = Date.now();
+  const users = usersRows.map((r) => {
+    const presence = derivePresence(
+      {
+        id: r.id,
+        activeSessionId: r.activeSessionId,
+        activeSessionLastSeenAt: r.activeSessionLastSeenAt,
+      },
+      nowMs,
+    );
+    return {
+      id: r.id,
+      username: r.username,
+      role: r.role,
+      managerId: r.managerId,
+      supervisorId: r.supervisorId,
+      createdAt: r.createdAt,
+      isActive: !(r.isActive === false || r.isActive === 0),
+      presence: presence.status,
+      lastActiveAt: presence.lastActiveAt,
+    };
+  });
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { io as ioClient } from "socket.io-client";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -8,6 +10,28 @@ function roleLabel(role) {
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
   return role;
+}
+
+function normalizePresence(value) {
+  if (value === "online" || value === "away" || value === "offline") return value;
+  return "offline";
+}
+
+function formatLastActive(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  const diffMs = Date.now() - date.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 0) return date.toLocaleString();
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
+  return date.toLocaleString();
 }
 
 const inputClass =
@@ -42,6 +66,722 @@ function ActiveBadge({ active }) {
     <span className="inline-flex rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200">
       Inactive
     </span>
+  );
+}
+
+function PresenceBadge({ status }) {
+  const value = normalizePresence(status);
+  const styles = {
+    online: {
+      dot: "bg-emerald-500",
+      pill: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
+      label: "Online",
+    },
+    away: {
+      dot: "bg-amber-500",
+      pill: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+      label: "Away",
+    },
+    offline: {
+      dot: "bg-zinc-400",
+      pill: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
+      label: "Offline",
+    },
+  };
+  const s = styles[value];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.pill}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
+      {s.label}
+    </span>
+  );
+}
+
+function formatDuration(seconds) {
+  if (seconds == null || Number.isNaN(Number(seconds))) return "—";
+  const total = Math.max(0, Math.floor(Number(seconds)));
+  const hr = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const parts = [];
+  if (hr > 0) parts.push(`${hr}hr`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+  return parts.join(" ");
+}
+
+function formatDateInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getPresetRange(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "today") {
+    const d = formatDateInput(today);
+    return { from: d, to: d };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const d = formatDateInput(y);
+    return { from: d, to: d };
+  }
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  if (preset === "month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  return { from: "", to: "" };
+}
+
+const callsDateInputClass =
+  "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
+
+const menuItemBase =
+  "flex w-full items-center rounded-lg border px-3 py-1.5 text-left text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50";
+
+const menuViewClass = `${menuItemBase} border-sky-200 bg-sky-50 text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60`;
+const menuEditClass = `${menuItemBase} border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800`;
+const menuDeactivateClass = `${menuItemBase} border-red-200 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60`;
+const menuActivateClass = `${menuItemBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60`;
+
+function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActivate, onDeactivate }) {
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 140;
+    const gap = 4;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
+    const top = openUpward ? rect.top - gap : rect.bottom + gap;
+
+    setMenuPosition({
+      top,
+      left: rect.right,
+      transform: openUpward ? "translate(-100%, -100%)" : "translateX(-100%)",
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    updateMenuPosition();
+    const raf = requestAnimationFrame(updateMenuPosition);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointerDown(event) {
+      const target = event.target;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function runAction(action) {
+    setOpen(false);
+    setMenuPosition(null);
+    action();
+  }
+
+  const menuPanelClass =
+    "fixed z-[100] flex min-w-[9.5rem] flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg ring-1 ring-zinc-950/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10";
+
+  const menu =
+    open && menuPosition ? (
+      <div ref={menuRef} role="menu" className={menuPanelClass} style={menuPosition}>
+        <button type="button" role="menuitem" className={menuViewClass} onClick={() => runAction(onView)}>
+          View
+        </button>
+        <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onEdit)}>
+          Edit
+        </button>
+        {!isSelf ? (
+          active ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuDeactivateClass}
+              onClick={() => runAction(onDeactivate)}
+            >
+              {busy ? "Deactivating…" : "Deactivate"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuActivateClass}
+              onClick={() => runAction(onActivate)}
+            >
+              {busy ? "Activating…" : "Activate"}
+            </button>
+          )
+        ) : null}
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+            setMenuPosition(null);
+            return;
+          }
+          const trigger = triggerRef.current;
+          if (trigger) {
+            const rect = trigger.getBoundingClientRect();
+            const gap = 4;
+            const menuHeight = 140;
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
+            const top = openUpward ? rect.top - gap : rect.bottom + gap;
+            setMenuPosition({
+              top,
+              left: rect.right,
+              transform: openUpward ? "translate(-100%, -100%)" : "translateX(-100%)",
+            });
+          }
+          setOpen(true);
+        }}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        aria-label={`Actions for ${user.username}`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          className="h-5 w-5"
+          aria-hidden
+        >
+          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4zm0 4a2 2 0 110-4 2 2 0 010 4z" />
+        </svg>
+      </button>
+      {typeof document !== "undefined" && menu ? createPortal(menu, document.body) : null}
+    </>
+  );
+}
+
+function UserDetailModal({ user, currentUserId, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [detailError, setDetailError] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [calls, setCalls] = useState([]);
+  const [callsError, setCallsError] = useState(null);
+  const [callsLoading, setCallsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
+  const [page, setPage] = useState(1);
+  const [callsFilter, setCallsFilter] = useState("all");
+  const [rangePreset, setRangePreset] = useState("today");
+  const initialRange = getPresetRange("today");
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const loadDetail = useCallback(async (signal) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        credentials: "include",
+        signal,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load user");
+      setDetail(json.user);
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      setDetailError(err.message || "Failed to load user");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [user.id]);
+
+  const loadCalls = useCallback(
+    async (
+      signal,
+      nextPage = 1,
+      filter = callsFilter,
+      fromDate = rangeFrom,
+      toDate = rangeTo,
+      { silent = false } = {},
+    ) => {
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setCallsLoading(true);
+      }
+      setCallsError(null);
+      try {
+        const qs = new URLSearchParams({
+          page: String(nextPage),
+          pageSize: "10",
+        });
+        if (fromDate && toDate) {
+          qs.set("fromDate", fromDate);
+          qs.set("toDate", toDate);
+        }
+        if (filter === "recording") {
+          qs.set("hasRecording", "true");
+        }
+        if (filter === "conference") {
+          qs.set("scope", "conference");
+        }
+        const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load call logs");
+        setCalls(json.calls || []);
+        if (json.pagination) {
+          setPagination(json.pagination);
+          setPage(json.pagination.page || nextPage);
+        }
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setCallsError(err.message || "Failed to load call logs");
+        setCalls([]);
+      } finally {
+        if (silent) {
+          setRefreshing(false);
+        } else {
+          setCallsLoading(false);
+        }
+      }
+    },
+    [user.id, callsFilter, rangeFrom, rangeTo],
+  );
+
+  async function onRefresh() {
+    const controller = new AbortController();
+    await loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo, {
+      silent: calls.length > 0,
+    });
+  }
+
+  useEffect(() => {
+    setCallsFilter("all");
+    setRangePreset("today");
+    const next = getPresetRange("today");
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setPage(1);
+    const controller = new AbortController();
+    loadDetail(controller.signal);
+    return () => controller.abort();
+  }, [user.id, loadDetail]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo);
+    return () => controller.abort();
+  }, [user.id, callsFilter, rangeFrom, rangeTo, page, loadCalls]);
+
+  function applyPreset(preset) {
+    setRangePreset(preset);
+    if (preset === "custom") return;
+    const next = getPresetRange(preset);
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setPage(1);
+  }
+
+  async function onApplyRange() {
+    setPage(1);
+    const controller = new AbortController();
+    await loadCalls(controller.signal, 1, callsFilter, rangeFrom, rangeTo);
+  }
+
+  async function onPrev() {
+    if (!pagination.hasPrev || callsLoading) return;
+    const nextPage = Math.max(1, page - 1);
+    setPage(nextPage);
+  }
+  async function onNext() {
+    if (!pagination.hasNext || callsLoading) return;
+    setPage(page + 1);
+  }
+
+  async function downloadRecording(callId, url) {
+    if (!url) return;
+    setDownloadingId(callId);
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Failed to download recording");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] || `recording-call-${callId}.mp3`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setCallsError(err?.message || "Failed to download recording");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  const presence = normalizePresence(user.presence ?? detail?.presence);
+  const lastActiveAt = detail?.lastActiveAt ?? user.lastActiveAt ?? null;
+  const isSelf = user.id === currentUserId;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px]"
+        aria-label="Close dialog"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-detail-title"
+        className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2
+                id="user-detail-title"
+                className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
+              >
+                {user.username}
+                {isSelf ? (
+                  <span className="ml-2 text-xs font-normal text-zinc-500">(you)</span>
+                ) : null}
+              </h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <RoleBadge value={user.role} />
+                <PresenceBadge status={presence} />
+                <ActiveBadge active={user.isActive !== false} />
+              </div>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                Last active:{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {detailLoading && !detail ? "Loading…" : formatLastActive(lastActiveAt)}
+                </span>
+                {lastActiveAt ? (
+                  <span className="ml-1.5 text-xs text-zinc-500">
+                    ({new Date(lastActiveAt).toLocaleString()})
+                  </span>
+                ) : null}
+              </p>
+              {detailError ? (
+                <p className="mt-2 text-xs text-red-600">{detailError}</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+          <div className="mb-4 flex flex-col gap-4">
+            <div>
+              <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                {callsFilter === "conference" ? "Conference call logs" : "Recent call logs"}
+              </h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCallsFilter("all");
+                    setPage(1);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    callsFilter === "all"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  All calls
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCallsFilter("recording");
+                    setPage(1);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    callsFilter === "recording"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  With recording
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCallsFilter("conference");
+                    setPage(1);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    callsFilter === "conference"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  Conference calls
+                </button>
+              </div>
+              {callsFilter === "conference" ? (
+                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  Calls where another agent was invited via “Add agent”, or where this user was
+                  invited to a conference.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div className="mb-3">
+              <label className={labelClass}>Range presets</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "yesterday", label: "Yesterday" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                  { id: "custom", label: "Custom" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyPreset(p.id)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      rangePreset === p.id
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label htmlFor="user-calls-from-date" className={labelClass}>
+                  From date
+                </label>
+                <input
+                  id="user-calls-from-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeFrom}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeFrom(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="user-calls-to-date" className={labelClass}>
+                  To date
+                </label>
+                <input
+                  id="user-calls-to-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeTo}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeTo(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={onApplyRange}
+                  disabled={callsLoading}
+                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Apply range
+                </button>
+              </div>
+            </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onPrev}
+                disabled={!pagination.hasPrev || callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Prev
+              </button>
+              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+                Page {pagination.page} / {pagination.totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!pagination.hasNext || callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={callsLoading || refreshing}
+                className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+              >
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {callsError ? (
+            <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+              {callsError}
+            </p>
+          ) : null}
+
+          {callsLoading && calls.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading call logs…</p>
+          ) : calls.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
+              {callsFilter === "recording"
+                ? "No calls with a recording for this user in this date range."
+                : callsFilter === "conference"
+                  ? "No conference calls for this user in this date range."
+                  : "No call logs for this user in this date range."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                    <th className="px-3 py-2.5">When</th>
+                    {callsFilter === "conference" ? (
+                      <th className="px-3 py-2.5">Invited</th>
+                    ) : null}
+                    <th className="px-3 py-2.5">To</th>
+                    <th className="px-3 py-2.5">Status</th>
+                    <th className="px-3 py-2.5">Duration</th>
+                    <th className="px-3 py-2.5">Recording</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {calls.map((c) => (
+                    <tr key={c.id}>
+                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                        {new Date(c.createdAt).toLocaleString()}
+                      </td>
+                      {callsFilter === "conference" ? (
+                        <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                          {Array.isArray(c.invitedToNames) && c.invitedToNames.length > 0
+                            ? c.invitedToNames.join(", ")
+                            : "—"}
+                        </td>
+                      ) : null}
+                      <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                        {c.toNumber || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                        {c.status || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                        {formatDuration(c.durationSeconds)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {c.recordingDownloadUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
+                            disabled={downloadingId === c.id}
+                            className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                          >
+                            {downloadingId === c.id ? "Downloading…" : "Download"}
+                          </button>
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!callsLoading && !callsError && calls.length > 0 ? (
+            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Showing {calls.length} of {pagination.total}{" "}
+              {callsFilter === "conference" ? "conference calls" : "calls"}
+              {callsFilter === "recording" ? " with a recording" : ""}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -304,8 +1044,19 @@ function EditUserModal({
   );
 }
 
+function normalizeUsersList(list) {
+  return (list || []).map((u) => ({
+    ...u,
+    isActive: u.isActive !== false && u.isActive !== 0,
+    presence: normalizePresence(u.presence),
+    lastActiveAt: u.lastActiveAt ?? null,
+  }));
+}
+
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
-  const [users, setUsers] = useState(initialUsers ?? []);
+  const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
+  const applyPresenceUpdateRef = useRef(null);
+  const refreshUsersPresenceRef = useRef(null);
   const [managerOptions, setManagerOptions] = useState(managers ?? []);
   const [supervisorOptions, setSupervisorOptions] = useState(supervisors ?? []);
   const [username, setUsername] = useState("");
@@ -319,6 +1070,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [error, setError] = useState(null);
 
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [rowBusyId, setRowBusyId] = useState(null);
   const [listError, setListError] = useState(null);
 
@@ -328,29 +1080,98 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     return map;
   }, [managerOptions]);
 
+  const applyUsersList = useCallback(
+    (list) => {
+      const normalizedUsers = normalizeUsersList(list);
+      setUsers(normalizedUsers);
+      if (role === "admin") {
+        const nextManagers = normalizedUsers
+          .filter((u) => u.role === "manager")
+          .map((u) => ({ id: u.id, username: u.username }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setManagerOptions(nextManagers);
+        const nextSupervisors = normalizedUsers
+          .filter((u) => u.role === "supervisor")
+          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setSupervisorOptions(nextSupervisors);
+      } else if (role === "manager") {
+        const nextSupervisors = normalizedUsers
+          .filter((u) => u.role === "supervisor")
+          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .sort((a, b) => a.username.localeCompare(b.username));
+        setSupervisorOptions(nextSupervisors);
+      }
+    },
+    [role],
+  );
+
   async function loadUsers() {
     const res = await fetch("/api/users", { credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to load users");
-    const list = json.users || [];
-    const normalizedUsers = list.map((u) => ({
-      ...u,
-      isActive: u.isActive !== false && u.isActive !== 0,
-    }));
-    setUsers(normalizedUsers);
-    if (role === "admin") {
-      const nextManagers = normalizedUsers
-        .filter((u) => u.role === "manager")
-        .map((u) => ({ id: u.id, username: u.username }))
-        .sort((a, b) => a.username.localeCompare(b.username));
-      setManagerOptions(nextManagers);
-      const nextSupervisors = normalizedUsers
-        .filter((u) => u.role === "supervisor")
-        .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
-        .sort((a, b) => a.username.localeCompare(b.username));
-      setSupervisorOptions(nextSupervisors);
-    }
+    applyUsersList(json.users || []);
   }
+
+  const refreshUsersPresence = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users", { credentials: "include" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      applyUsersList(json.users || []);
+    } catch {
+      /* background refresh */
+    }
+  }, [applyUsersList]);
+
+  const applyPresenceUpdate = useCallback((payload) => {
+    const userId = Number(payload?.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return;
+    const nextPresence = normalizePresence(payload?.presence);
+    const lastActiveAt = payload?.lastActiveAt ?? null;
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, presence: nextPresence, lastActiveAt } : u)),
+    );
+  }, []);
+
+  applyPresenceUpdateRef.current = applyPresenceUpdate;
+  refreshUsersPresenceRef.current = refreshUsersPresence;
+
+  useEffect(() => {
+    void refreshUsersPresence();
+
+    const socket = ioClient({
+      path: "/socket.io",
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("presence:update", (payload) => {
+      applyPresenceUpdateRef.current?.(payload);
+    });
+    socket.on("presence:sync", () => {
+      void refreshUsersPresenceRef.current?.();
+    });
+    socket.on("connect", () => {
+      void refreshUsersPresenceRef.current?.();
+    });
+
+    const interval = window.setInterval(() => {
+      void refreshUsersPresenceRef.current?.();
+    }, 10000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshUsersPresenceRef.current?.();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      socket.disconnect();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshUsersPresence]);
 
   useEffect(() => {
     if (createRole !== "agent" && createRole !== "supervisor") return;
@@ -380,11 +1201,18 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       const payload = {
         username,
         password,
-        role: createRole,
       };
-      if (createRole === "agent") payload.managerId = managerId;
-      if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
-      if (createRole === "supervisor") payload.managerId = managerId ?? null;
+      if (role === "admin") {
+        payload.role = createRole;
+        if (createRole === "agent") payload.managerId = managerId;
+        if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
+        if (createRole === "supervisor") payload.managerId = managerId ?? null;
+      } else if (role === "manager") {
+        payload.role = createRole;
+        if (createRole === "agent" && supervisorId != null) {
+          payload.supervisorId = supervisorId;
+        }
+      }
 
       const res = await fetch("/api/users", {
         method: "POST",
@@ -426,10 +1254,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     }
   }
 
-  const showRoleSelector = role === "admin";
+  const isManager = role === "manager";
+  const isSupervisor = role === "supervisor";
+  const showRoleSelector = role === "admin" || isManager;
   const showManagerSelector =
     role === "admin" && (createRole === "agent" || createRole === "supervisor");
-  const showSupervisorSelector = role === "admin" && createRole === "agent";
+  const showSupervisorSelector =
+    (role === "admin" && createRole === "agent") || (isManager && createRole === "agent");
+  const listHeading =
+    role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
+  const listDescription =
+    role === "admin"
+      ? "Everyone in the system."
+      : isManager
+        ? "Agents and supervisors assigned to you."
+        : "Agents assigned to you as their supervisor.";
+  const showHierarchyColumns = !isSupervisor;
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
@@ -446,6 +1286,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           supervisors={supervisorOptions}
           currentUserId={currentUserId}
           onSaved={loadUsers}
+        />
+      ) : null}
+
+      {viewingUser ? (
+        <UserDetailModal
+          user={users.find((u) => u.id === viewingUser.id) ?? viewingUser}
+          currentUserId={currentUserId}
+          onClose={() => setViewingUser(null)}
         />
       ) : null}
 
@@ -474,9 +1322,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 </h2>
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
-                  {showRoleSelector
+                  {role === "admin"
                     ? " Choose a role and, for agents or supervisors, optionally assign a manager."
-                    : " New users are added as agents under you."}
+                    : isManager
+                      ? " Create an agent or supervisor under your team."
+                      : " New accounts are created as your agents."}
                 </p>
               </div>
             </div>
@@ -534,9 +1384,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       onChange={(e) => setCreateRole(e.target.value)}
                     >
                       <option value="agent">Agent</option>
-                      <option value="manager">Manager</option>
-                      <option value="supervisor">Supervisor</option>
-                      <option value="admin">Admin</option>
+                      {role === "admin" ? (
+                        <>
+                          <option value="manager">Manager</option>
+                          <option value="supervisor">Supervisor</option>
+                          <option value="admin">Admin</option>
+                        </>
+                      ) : (
+                        <option value="supervisor">Supervisor</option>
+                      )}
                     </select>
                   </div>
                 ) : null}
@@ -637,13 +1493,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-200/30 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-none dark:ring-white/5">
         <div className="border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-            {role === "admin" ? "All users" : "Your agents"}
-          </h2>
+          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
           <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
-            {users.length === 0
-              ? "No accounts yet."
-              : `${users.length} ${users.length === 1 ? "person" : "people"} in this list.`}
+            {users.length === 0 ? "No accounts yet." : listDescription}
+            {users.length > 0
+              ? ` ${users.length} ${users.length === 1 ? "person" : "people"} in this list.`
+              : null}
           </p>
         </div>
 
@@ -685,9 +1540,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="px-4 py-3.5">Username</th>
                     <th className="px-4 py-3.5">Role</th>
+                    <th className="px-4 py-3.5">Presence</th>
+                    <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
-                    <th className="px-4 py-3.5">Manager</th>
-                    <th className="px-4 py-3.5">Supervisor</th>
+                    {showHierarchyColumns ? (
+                      <>
+                        <th className="px-4 py-3.5">Manager</th>
+                        <th className="px-4 py-3.5">Supervisor</th>
+                      </>
+                    ) : null}
                     <th className="px-4 py-3.5">Created</th>
                     <th className="px-4 py-3.5 text-right">Actions</th>
                   </tr>
@@ -701,60 +1562,57 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         className={`transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 ${!active ? "opacity-70" : ""}`}
                       >
                         <td className="px-4 py-3.5 font-medium text-zinc-900 dark:text-zinc-100">
-                          {u.username}
+                          <button
+                            type="button"
+                            onClick={() => setViewingUser(u)}
+                            className="text-left font-medium text-emerald-700 hover:underline focus:underline focus:outline-none dark:text-emerald-300"
+                            title="View status and call logs"
+                          >
+                            {u.username}
+                          </button>
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge value={u.role} />
                         </td>
                         <td className="px-4 py-3.5">
+                          <PresenceBadge status={u.presence} />
+                        </td>
+                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                          {formatLastActive(u.lastActiveAt)}
+                        </td>
+                        <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
                         </td>
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.role === "agent" || u.role === "supervisor"
-                            ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.role === "agent"
-                            ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
-                              u.supervisorId ??
-                              "—"
-                            : "—"}
-                        </td>
+                        {showHierarchyColumns ? (
+                          <>
+                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                              {u.role === "agent" || u.role === "supervisor"
+                                ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                              {u.role === "agent"
+                                ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
+                                  u.supervisorId ??
+                                  "—"
+                                : "—"}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="px-4 py-3.5 tabular-nums text-zinc-600 dark:text-zinc-300">
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                         </td>
                         <td className="px-4 py-3.5 text-right">
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingUser(u)}
-                              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                            >
-                              Edit
-                            </button>
-                            {u.id !== currentUserId ? (
-                              active ? (
-                                <button
-                                  type="button"
-                                  disabled={rowBusyId === u.id}
-                                  onClick={() => toggleActive(u, false)}
-                                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
-                                >
-                                  {rowBusyId === u.id ? "…" : "Deactivate"}
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={rowBusyId === u.id}
-                                  onClick={() => toggleActive(u, true)}
-                                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
-                                >
-                                  {rowBusyId === u.id ? "…" : "Activate"}
-                                </button>
-                              )
-                            ) : null}
-                          </div>
+                          <UserRowActionsMenu
+                            user={u}
+                            active={active}
+                            isSelf={u.id === currentUserId}
+                            busy={rowBusyId === u.id}
+                            onView={() => setViewingUser(u)}
+                            onEdit={() => setEditingUser(u)}
+                            onDeactivate={() => toggleActive(u, false)}
+                            onActivate={() => toggleActive(u, true)}
+                          />
                         </td>
                       </tr>
                     );
