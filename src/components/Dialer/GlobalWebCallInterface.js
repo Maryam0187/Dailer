@@ -487,7 +487,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                   <p className="mt-2 text-xs font-medium text-rose-700 dark:text-rose-300">{recordingMessage}</p>
                 ) : (
                   <p className="mt-2 text-xs text-rose-700/80 dark:text-rose-300/80">
-                    Recording saves automatically when the call ends (may take a few seconds to appear in Call Logs).
+                    Download recording from Call Logs after stop/completion.
                   </p>
                 )}
               </div>

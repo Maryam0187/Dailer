@@ -39,6 +39,14 @@ module.exports = (sequelize, DataTypes) => {
           key: "id",
         },
       },
+      createdBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "Users",
+          key: "id",
+        },
+      },
       isActive: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
@@ -66,6 +74,8 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.User, { as: "agents", foreignKey: "managerId" });
     User.belongsTo(models.User, { as: "supervisor", foreignKey: "supervisorId" });
     User.hasMany(models.User, { as: "supervisedAgents", foreignKey: "supervisorId" });
+    User.belongsTo(models.User, { as: "creator", foreignKey: "createdBy" });
+    User.hasMany(models.User, { as: "createdUsers", foreignKey: "createdBy" });
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });

@@ -3,16 +3,26 @@ import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
+import { sortUsersForDisplay } from "@/lib/sortUsers";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
   "role",
   "managerId",
   "supervisorId",
+  "createdBy",
   "createdAt",
   "isActive",
   "activeSessionId",
   "activeSessionLastSeenAt",
+];
+
+const LIST_INCLUDE = [
+  {
+    association: "creator",
+    attributes: ["id", "username"],
+    required: false,
+  },
 ];
 
 function serializeUserRow(row, now) {
@@ -30,6 +40,8 @@ function serializeUserRow(row, now) {
     role: row.role,
     managerId: row.managerId,
     supervisorId: row.supervisorId,
+    createdBy: row.createdBy ?? null,
+    createdByUsername: row.creator?.username ?? null,
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
     presence: presence.status,
@@ -44,30 +56,39 @@ export async function GET(req) {
   if (authedUser.role === "admin") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   if (authedUser.role === "manager") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       where: { managerId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   if (authedUser.role === "supervisor") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       where: { role: "agent", supervisorId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -131,6 +152,7 @@ export async function POST(req) {
         role,
         managerId: authedUser.id,
         supervisorId: role === "agent" ? supervisorIdToSet : null,
+        createdBy: authedUser.id,
       });
       return NextResponse.json(
         {
@@ -173,6 +195,7 @@ export async function POST(req) {
         role: "agent",
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
+        createdBy: authedUser.id,
       });
       return NextResponse.json(
         {
@@ -210,10 +233,12 @@ export async function POST(req) {
   if (role === "agent" || role === "supervisor") {
     const parsed = managerId ? Number(managerId) : null;
     if (parsed && !Number.isNaN(parsed)) {
-      const managerUser = await db.User.findOne({ where: { id: parsed, role: "manager" } });
+      const managerUser = await db.User.findOne({
+        where: { id: parsed, role: "manager", isActive: true },
+      });
       if (!managerUser) {
         return NextResponse.json(
-          { error: "managerId must point to a manager user" },
+          { error: "managerId must point to an active manager" },
           { status: 400 },
         );
       }
@@ -245,6 +270,7 @@ export async function POST(req) {
       role,
       managerId: managerIdToSet,
       supervisorId: supervisorIdToSet,
+      createdBy: authedUser.id,
     });
     return NextResponse.json(
       {

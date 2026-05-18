@@ -1,29 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-
-const RECORDINGS_DOWNLOADED_KEY = "dialer-recordings-downloaded";
-
-function loadDownloadedRecordingIds() {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = sessionStorage.getItem(RECORDINGS_DOWNLOADED_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((id) => Number.isInteger(id)) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function persistDownloadedRecordingIds(ids) {
-  try {
-    sessionStorage.setItem(RECORDINGS_DOWNLOADED_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore quota / private mode
-  }
-}
+import { useCallback, useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { formatDuration } from "@/lib/formatDuration";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 
 const inputClass =
@@ -71,15 +51,8 @@ function isInProgressCallStatus(status) {
   return String(status || "").trim().toLowerCase() === "in-progress";
 }
 
-function isRecordingProcessing(call) {
-  if (call.recordingDownloadUrl) return false;
-  const status = String(call.recordingStatus || "").toLowerCase();
-  return Boolean(status) && status !== "completed" && status !== "absent";
-}
-
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
   const isAdmin = userRole === "admin";
-  const isAgent = userRole === "agent";
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -99,8 +72,6 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [callingId, setCallingId] = useState(null);
   const [endingCallId, setEndingCallId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
-  const [downloadedRecordingIds, setDownloadedRecordingIds] = useState(() => loadDownloadedRecordingIds());
-  const autoDownloadInFlightRef = useRef(false);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -117,13 +88,24 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
   const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
+  /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. */
+  const [logAudience, setLogAudience] = useState("mine");
 
   const loadCalls = useCallback(
-    async ({ signal, silent = false, targetPage, fromDate, toDate, scope: scopeOverride } = {}) => {
+    async ({
+      signal,
+      silent = false,
+      targetPage,
+      fromDate,
+      toDate,
+      scope: scopeOverride,
+      audience: audienceOverride,
+    } = {}) => {
     const resolvedPage = targetPage ?? page;
     const resolvedFromDate = fromDate ?? rangeFrom;
     const resolvedToDate = toDate ?? rangeTo;
     const resolvedScope = scopeOverride ?? listScope;
+    const resolvedAudience = audienceOverride ?? logAudience;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -141,6 +123,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
       if (resolvedScope === "conference") {
         qs.set("scope", "conference");
+      }
+      if (isAdmin && resolvedAudience === "all") {
+        qs.set("view", "all");
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -166,7 +151,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, rangeFrom, rangeTo, listScope],
+    [page, rangeFrom, rangeTo, listScope, logAudience, isAdmin],
   );
 
   async function redial(toNumber, id) {
@@ -202,12 +187,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   useEffect(() => {
     const controller = new AbortController();
     loadCalls({ signal: controller.signal, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
-    const refreshOpts = { signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo };
     const onCallEnded = () => {
-      loadCalls(refreshOpts);
-      // Twilio may need a few seconds to finalize recording media after hangup.
-      window.setTimeout(() => loadCalls(refreshOpts), 4000);
-      window.setTimeout(() => loadCalls(refreshOpts), 10000);
+      loadCalls({ signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
     };
     window.addEventListener("call-ended", onCallEnded);
     return () => {
@@ -264,76 +245,35 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     }
   }
 
-  const markRecordingDownloaded = useCallback((callId) => {
-    setDownloadedRecordingIds((prev) => {
-      if (prev.has(callId)) return prev;
-      const next = new Set(prev);
-      next.add(callId);
-      persistDownloadedRecordingIds(next);
-      return next;
-    });
-  }, []);
-
-  const downloadRecording = useCallback(
-    async (callId, url, { silent = false } = {}) => {
-      if (!url) return false;
-      if (!silent) setError(null);
-      setDownloadingId(callId);
-      try {
-        const res = await fetch(url, { credentials: "include" });
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          throw new Error(json?.error || "Failed to download recording");
-        }
-
-        const blob = await res.blob();
-        const disposition = res.headers.get("content-disposition") || "";
-        const match = disposition.match(/filename="([^"]+)"/i);
-        const filename = match?.[1] || `recording-call-${callId}.mp3`;
-        const objectUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(objectUrl);
-        markRecordingDownloaded(callId);
-        return true;
-      } catch (e) {
-        if (!silent) setError(e?.message || "Failed to download recording");
-        return false;
-      } finally {
-        setDownloadingId(null);
+  async function downloadRecording(callId, url) {
+    if (!url) return;
+    setError(null);
+    setDownloadingId(callId);
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Failed to download recording");
       }
-    },
-    [markRecordingDownloaded],
-  );
 
-  useEffect(() => {
-    if (!isAgent || loading || calls.length === 0 || autoDownloadInFlightRef.current) return;
-
-    const pending = calls.filter(
-      (c) => c.recordingDownloadUrl && !downloadedRecordingIds.has(c.id),
-    );
-    if (pending.length === 0) return;
-
-    let cancelled = false;
-    autoDownloadInFlightRef.current = true;
-
-    (async () => {
-      for (const call of pending) {
-        if (cancelled) break;
-        await downloadRecording(call.id, call.recordingDownloadUrl, { silent: true });
-      }
-    })().finally(() => {
-      autoDownloadInFlightRef.current = false;
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAgent, loading, calls, downloadedRecordingIds, downloadRecording]);
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] || `recording-call-${callId}.mp3`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      setError(e?.message || "Failed to download recording");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl border-2 border-sky-200/80 bg-white shadow-md shadow-sky-500/10 ring-1 ring-sky-500/10 dark:border-sky-900/45 dark:bg-zinc-900 dark:shadow-sky-950/15 dark:ring-sky-500/5">
@@ -344,9 +284,13 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               {listScope === "conference" ? "Conference call logs" : "Call logs"}
             </h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
-              {listScope === "conference"
-                ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
-                : "Your recent outbound calls."}
+              {logAudience === "all"
+                ? listScope === "conference"
+                  ? "All users' conference calls. Filter by date below."
+                  : "All users' outbound calls. Filter by date below."
+                : listScope === "conference"
+                  ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
+                  : "Your recent outbound calls."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -383,6 +327,44 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       <div className="p-4">
         <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
           <div className="mb-3">
+            {isAdmin ? (
+              <>
+                <label className={labelClass}>Whose calls</label>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogAudience("mine");
+                      setPage(1);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                      logAudience === "mine"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    My calls
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogAudience("all");
+                      setPage(1);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                      logAudience === "all"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    All users
+                  </button>
+                </div>
+                <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  All users shows every call log in the system for the selected date range.
+                </p>
+              </>
+            ) : null}
             <label className={labelClass}>List</label>
             <div className="flex flex-wrap gap-2">
               <button
@@ -496,8 +478,12 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         ) : calls.length === 0 ? (
           <p className="text-base text-zinc-600 dark:text-zinc-300">
             {listScope === "conference"
-              ? "No conference calls in this range (no agent invites on record)."
-              : "No calls yet."}
+              ? logAudience === "all"
+                ? "No conference calls in this range."
+                : "No conference calls in this range (no agent invites on record)."
+              : logAudience === "all"
+                ? "No calls in this range."
+                : "No calls yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -535,10 +521,10 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {c.durationSeconds ?? "—"}s
+                      {formatDuration(c.durationSeconds)}
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {isAdmin && c.recordingDownloadUrl ? (
+                      {c.recordingDownloadUrl ? (
                         <button
                           type="button"
                           onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
@@ -547,28 +533,6 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         >
                           {downloadingId === c.id ? "Downloading..." : "Download"}
                         </button>
-                      ) : isAdmin && isRecordingProcessing(c) ? (
-                        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                          Processing...
-                        </span>
-                      ) : isAgent && c.recordingDownloadUrl ? (
-                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          {downloadingId === c.id
-                            ? "Downloading..."
-                            : downloadedRecordingIds.has(c.id)
-                              ? "Saved"
-                              : "Preparing..."}
-                        </span>
-                      ) : isAgent && isRecordingProcessing(c) ? (
-                        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                          Processing...
-                        </span>
-                      ) : c.recordingDownloadUrl || c.recordingStatus ? (
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                          {c.recordingDurationSeconds != null
-                            ? `${c.recordingDurationSeconds}s`
-                            : c.recordingStatus || "Available"}
-                        </span>
                       ) : (
                         "—"
                       )}

@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
+import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
 
 export default async function UsersPage() {
@@ -22,10 +23,19 @@ export default async function UsersPage() {
     "role",
     "managerId",
     "supervisorId",
+    "createdBy",
     "createdAt",
     "isActive",
     "activeSessionId",
     "activeSessionLastSeenAt",
+  ];
+
+  const listInclude = [
+    {
+      association: "creator",
+      attributes: ["id", "username"],
+      required: false,
+    },
   ];
 
   let usersWhere;
@@ -46,13 +56,14 @@ export default async function UsersPage() {
   const [usersRows, managersRows] = await Promise.all([
     db.User.findAll({
       attributes: listAttributes,
+      include: listInclude,
       ...(usersWhere ? { where: usersWhere } : {}),
       order: [["createdAt", "DESC"]],
     }),
     authedUser.role === "admin"
       ? db.User.findAll({
           attributes: ["id", "username"],
-          where: { role: "manager" },
+          where: { role: "manager", isActive: true },
           order: [["username", "ASC"]],
         })
       : [],
@@ -74,6 +85,8 @@ export default async function UsersPage() {
       role: r.role,
       managerId: r.managerId,
       supervisorId: r.supervisorId,
+      createdBy: r.createdBy ?? null,
+      createdByUsername: r.creator?.username ?? null,
       createdAt: r.createdAt,
       isActive: !(r.isActive === false || r.isActive === 0),
       presence: presence.status,
@@ -83,7 +96,7 @@ export default async function UsersPage() {
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users
-    .filter((u) => u.role === "supervisor")
+    .filter((u) => u.role === "supervisor" && u.isActive)
     .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }));
 
   return (
@@ -106,7 +119,7 @@ export default async function UsersPage() {
         role={authedUser.role}
         managers={managers}
         supervisors={supervisors}
-        initialUsers={users}
+        initialUsers={sortUsersForDisplay(users)}
         currentUserId={authedUser.id}
       />
     </>

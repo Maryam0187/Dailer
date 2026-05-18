@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { finalizeCallRecording } from "@/server/callRecording";
 
 export const runtime = "nodejs";
 
@@ -26,21 +25,6 @@ export async function POST(req) {
     const parsedDuration = Number(callDuration);
     if (Number.isFinite(parsedDuration)) {
       update.durationSeconds = parsedDuration;
-    }
-  }
-
-  const normalizedStatus = normalizeStatus(callStatus);
-  if (normalizedStatus === "completed") {
-    const callLog = await db.CallLog.findOne({
-      where: { twilioSid: callSid },
-      attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
-    });
-    if (callLog) {
-      try {
-        await finalizeCallRecording(callLog);
-      } catch {
-        // Status callback should still update call log even if recording finalize fails.
-      }
     }
   }
 
