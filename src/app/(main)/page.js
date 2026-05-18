@@ -30,7 +30,7 @@ export default async function Home({ searchParams }) {
 
       <div className="flex flex-col gap-8">
         <QuickDialPanel />
-        <CallLogsClient initialScope={initialLogsScope} />
+        <CallLogsClient initialScope={initialLogsScope} userRole={role} />
       </div>
     </>
   );

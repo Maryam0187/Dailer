@@ -51,7 +51,8 @@ function isInProgressCallStatus(status) {
   return String(status || "").trim().toLowerCase() === "in-progress";
 }
 
-export default function CallLogsClient({ initialScope = "all" }) {
+export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
+  const isAdmin = userRole === "admin";
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
