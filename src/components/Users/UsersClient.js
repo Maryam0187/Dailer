@@ -1187,7 +1187,6 @@ function normalizeUsersList(list) {
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
   const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
   const applyPresenceUpdateRef = useRef(null);
-  const refreshUsersPresenceRef = useRef(null);
   const [managerOptions, setManagerOptions] = useState(managers ?? []);
   const [supervisorOptions, setSupervisorOptions] = useState(supervisors ?? []);
   const [username, setUsername] = useState("");
@@ -1204,6 +1203,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [viewingUser, setViewingUser] = useState(null);
   const [rowBusyId, setRowBusyId] = useState(null);
   const [listError, setListError] = useState(null);
+  const [listRefreshing, setListRefreshing] = useState(false);
 
   const displayUsers = useMemo(() => sortUsersForDisplay(users), [users]);
 
@@ -1248,17 +1248,6 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     applyUsersList(json.users || []);
   }
 
-  const refreshUsersPresence = useCallback(async () => {
-    try {
-      const res = await fetch("/api/users", { credentials: "include" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) return;
-      applyUsersList(json.users || []);
-    } catch {
-      /* background refresh */
-    }
-  }, [applyUsersList]);
-
   const applyPresenceUpdate = useCallback((payload) => {
     const userId = Number(payload?.userId);
     if (!Number.isInteger(userId) || userId <= 0) return;
@@ -1270,11 +1259,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   }, []);
 
   applyPresenceUpdateRef.current = applyPresenceUpdate;
-  refreshUsersPresenceRef.current = refreshUsersPresence;
 
   useEffect(() => {
-    void refreshUsersPresence();
-
     const socket = ioClient({
       path: "/socket.io",
       withCredentials: true,
@@ -1284,29 +1270,23 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     socket.on("presence:update", (payload) => {
       applyPresenceUpdateRef.current?.(payload);
     });
-    socket.on("presence:sync", () => {
-      void refreshUsersPresenceRef.current?.();
-    });
-    socket.on("connect", () => {
-      void refreshUsersPresenceRef.current?.();
-    });
-
-    const interval = window.setInterval(() => {
-      void refreshUsersPresenceRef.current?.();
-    }, 10000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        void refreshUsersPresenceRef.current?.();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       socket.disconnect();
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshUsersPresence]);
+  }, []);
+
+  async function onRefreshUsers() {
+    setListError(null);
+    setListRefreshing(true);
+    try {
+      await loadUsers();
+    } catch (err) {
+      setListError(err.message || "Failed to refresh users");
+    } finally {
+      setListRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (createRole !== "agent" && createRole !== "supervisor") return;
@@ -1628,14 +1608,24 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-200/30 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-none dark:ring-white/5">
-        <div className="border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
-          <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
-            {users.length === 0 ? "No accounts yet." : listDescription}
-            {users.length > 0
-              ? ` ${users.length} ${users.length === 1 ? "person" : "people"} in this list.`
-              : null}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
+            <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
+              {users.length === 0 ? "No accounts yet." : listDescription}
+              {users.length > 0
+                ? ` ${users.length} ${users.length === 1 ? "person" : "people"} in this list.`
+                : null}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRefreshUsers}
+            disabled={listRefreshing}
+            className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            {listRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
 
         <div className="p-4 sm:p-6">
