@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
+import { sortUsersForDisplay } from "@/lib/sortUsers";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -1062,6 +1063,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [rowBusyId, setRowBusyId] = useState(null);
   const [listError, setListError] = useState(null);
 
+  const displayUsers = useMemo(() => sortUsersForDisplay(users), [users]);
+
   const managerMap = useMemo(() => {
     const map = new Map();
     for (const u of users) {
@@ -1544,7 +1547,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {users.map((u) => {
+                  {displayUsers.map((u) => {
                     const active = u.isActive !== false;
                     return (
                       <tr

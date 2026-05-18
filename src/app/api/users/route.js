@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
+import { sortUsersForDisplay } from "@/lib/sortUsers";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -47,7 +48,9 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   if (authedUser.role === "manager") {
@@ -57,7 +60,9 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   if (authedUser.role === "supervisor") {
@@ -67,7 +72,9 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
-    return NextResponse.json({ users: rows.map((r) => serializeUserRow(r, now)) });
+    return NextResponse.json({
+      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+    });
   }
 
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });

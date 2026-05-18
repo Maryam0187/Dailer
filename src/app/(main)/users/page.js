@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
+import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
 
 export default async function UsersPage() {
@@ -106,7 +107,7 @@ export default async function UsersPage() {
         role={authedUser.role}
         managers={managers}
         supervisors={supervisors}
-        initialUsers={users}
+        initialUsers={sortUsersForDisplay(users)}
         currentUserId={authedUser.id}
       />
     </>
