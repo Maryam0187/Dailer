@@ -289,7 +289,20 @@ function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActi
   );
 }
 
-function UserDetailModal({ user, currentUserId, onClose }) {
+function MetricStat({ label, value }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950/50">
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-950 dark:text-zinc-50">{value}</p>
+    </div>
+  );
+}
+
+function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
+  const isAdmin = viewerRole === "admin";
+  const [activeTab, setActiveTab] = useState("calls");
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -297,6 +310,10 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   const [callsError, setCallsError] = useState(null);
   const [callsLoading, setCallsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [metrics, setMetrics] = useState(null);
+  const [metricsError, setMetricsError] = useState(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsScope, setMetricsScope] = useState("all");
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -388,6 +405,32 @@ function UserDetailModal({ user, currentUserId, onClose }) {
     [user.id, callsFilter, rangeFrom, rangeTo],
   );
 
+  const loadMetrics = useCallback(
+    async (signal, fromDate = rangeFrom, toDate = rangeTo, scope = metricsScope) => {
+      if (!isAdmin) return;
+      setMetricsLoading(true);
+      setMetricsError(null);
+      try {
+        const qs = new URLSearchParams({ fromDate, toDate });
+        if (scope === "conference") qs.set("scope", "conference");
+        const res = await fetch(`/api/users/${user.id}/metrics?${qs.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load metrics");
+        setMetrics(json.metrics || null);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setMetricsError(err.message || "Failed to load metrics");
+        setMetrics(null);
+      } finally {
+        setMetricsLoading(false);
+      }
+    },
+    [user.id, isAdmin, rangeFrom, rangeTo, metricsScope],
+  );
+
   async function onRefresh() {
     const controller = new AbortController();
     await loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo, {
@@ -396,22 +439,33 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   }
 
   useEffect(() => {
+    setActiveTab("calls");
     setCallsFilter("all");
+    setMetricsScope("all");
     setRangePreset("today");
     const next = getPresetRange("today");
     setRangeFrom(next.from);
     setRangeTo(next.to);
     setPage(1);
+    setMetrics(null);
     const controller = new AbortController();
     loadDetail(controller.signal);
     return () => controller.abort();
   }, [user.id, loadDetail]);
 
   useEffect(() => {
+    if (activeTab !== "calls") return undefined;
     const controller = new AbortController();
     loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo);
     return () => controller.abort();
-  }, [user.id, callsFilter, rangeFrom, rangeTo, page, loadCalls]);
+  }, [user.id, callsFilter, rangeFrom, rangeTo, page, loadCalls, activeTab]);
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== "metrics") return undefined;
+    const controller = new AbortController();
+    loadMetrics(controller.signal, rangeFrom, rangeTo, metricsScope);
+    return () => controller.abort();
+  }, [user.id, isAdmin, activeTab, rangeFrom, rangeTo, metricsScope, loadMetrics]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -425,7 +479,11 @@ function UserDetailModal({ user, currentUserId, onClose }) {
   async function onApplyRange() {
     setPage(1);
     const controller = new AbortController();
-    await loadCalls(controller.signal, 1, callsFilter, rangeFrom, rangeTo);
+    if (activeTab === "metrics" && isAdmin) {
+      await loadMetrics(controller.signal, rangeFrom, rangeTo, metricsScope);
+    } else {
+      await loadCalls(controller.signal, 1, callsFilter, rangeFrom, rangeTo);
+    }
   }
 
   async function onPrev() {
@@ -527,6 +585,160 @@ function UserDetailModal({ user, currentUserId, onClose }) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
+          <div className="mb-4 flex border-b border-zinc-200 dark:border-zinc-700">
+            <button
+              type="button"
+              onClick={() => setActiveTab("calls")}
+              className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                activeTab === "calls"
+                  ? "border-emerald-600 text-emerald-800 dark:border-emerald-500 dark:text-emerald-200"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              }`}
+            >
+              Call logs
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab("metrics")}
+                className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                  activeTab === "metrics"
+                    ? "border-violet-600 text-violet-800 dark:border-violet-500 dark:text-violet-200"
+                    : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                Metrics
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div className="mb-3">
+              <label className={labelClass}>Range presets</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "yesterday", label: "Yesterday" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                  { id: "custom", label: "Custom" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyPreset(p.id)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      rangePreset === p.id
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label htmlFor="user-detail-from-date" className={labelClass}>
+                  From date
+                </label>
+                <input
+                  id="user-detail-from-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeFrom}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeFrom(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="user-detail-to-date" className={labelClass}>
+                  To date
+                </label>
+                <input
+                  id="user-detail-to-date"
+                  type="date"
+                  className={callsDateInputClass}
+                  value={rangeTo}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeTo(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={onApplyRange}
+                  disabled={callsLoading || metricsLoading}
+                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Apply range
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {activeTab === "metrics" && isAdmin ? (
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className={labelClass}>Call scope</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMetricsScope("all")}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      metricsScope === "all"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    All calls
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMetricsScope("conference")}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      metricsScope === "conference"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    Conference calls
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  Outbound calls placed by this user in the selected date range.
+                </p>
+              </div>
+              {metricsError ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+                  {metricsError}
+                </p>
+              ) : null}
+              {metricsLoading ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading metrics…</p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <MetricStat label="Total calls" value={metrics?.total ?? 0} />
+                  <MetricStat label="Completed" value={metrics?.completed ?? 0} />
+                  <MetricStat label="No answer" value={metrics?.noAnswer ?? 0} />
+                  <MetricStat label="Failed/Canceled" value={metrics?.failedOrCanceled ?? 0} />
+                  <MetricStat label="Busy" value={metrics?.busy ?? 0} />
+                  <MetricStat
+                    label="Total duration"
+                    value={formatDuration(metrics?.durationSeconds)}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+          <>
           <div className="mb-4 flex flex-col gap-4">
             <div>
               <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -582,78 +794,6 @@ function UserDetailModal({ user, currentUserId, onClose }) {
                   invited to a conference.
                 </p>
               ) : null}
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
-            <div className="mb-3">
-              <label className={labelClass}>Range presets</label>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { id: "today", label: "Today" },
-                  { id: "yesterday", label: "Yesterday" },
-                  { id: "week", label: "Week" },
-                  { id: "month", label: "Month" },
-                  { id: "custom", label: "Custom" },
-                ].map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => applyPreset(p.id)}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                      rangePreset === p.id
-                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <label htmlFor="user-calls-from-date" className={labelClass}>
-                  From date
-                </label>
-                <input
-                  id="user-calls-from-date"
-                  type="date"
-                  className={callsDateInputClass}
-                  value={rangeFrom}
-                  onChange={(e) => {
-                    setRangePreset("custom");
-                    setRangeFrom(e.target.value);
-                  }}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="user-calls-to-date" className={labelClass}>
-                  To date
-                </label>
-                <input
-                  id="user-calls-to-date"
-                  type="date"
-                  className={callsDateInputClass}
-                  value={rangeTo}
-                  onChange={(e) => {
-                    setRangePreset("custom");
-                    setRangeTo(e.target.value);
-                  }}
-                  required
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={onApplyRange}
-                  disabled={callsLoading}
-                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  Apply range
-                </button>
-              </div>
-            </div>
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -768,6 +908,8 @@ function UserDetailModal({ user, currentUserId, onClose }) {
               {callsFilter === "recording" ? " with a recording" : ""}
             </p>
           ) : null}
+          </>
+          )}
         </div>
       </div>
     </div>
@@ -1286,6 +1428,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         <UserDetailModal
           user={users.find((u) => u.id === viewingUser.id) ?? viewingUser}
           currentUserId={currentUserId}
+          viewerRole={role}
           onClose={() => setViewingUser(null)}
         />
       ) : null}
