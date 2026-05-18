@@ -30,6 +30,9 @@ export async function GET(req) {
   /** `conference` = CallLogs that have at least one agent invite (InviteDialLeg) → multi-agent conference. */
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const conferenceOnly = scope === "conference";
+  /** Admin-only: `view=all` returns every user's call logs on the home page. */
+  const view = String(searchParams.get("view") || "mine").trim().toLowerCase();
+  const viewAll = view === "all" && authedUser.role === "admin";
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
@@ -38,11 +41,39 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  // Home page lists only the signed-in user's own calls — admins/managers/supervisors
-  // are intentionally scoped to themselves here too. For conference scope, also include
-  // calls where this user was invited as an agent.
+  // Home page lists only the signed-in user's own calls unless admin passes view=all.
+  // For conference scope, also include calls where this user was invited as an agent.
   let where;
-  if (conferenceOnly) {
+  if (viewAll) {
+    if (conferenceOnly) {
+      const confRows = await db.InviteDialLeg.findAll({
+        attributes: ["callLogId"],
+        group: ["callLogId"],
+        raw: true,
+      });
+      const conferenceCallIds = confRows
+        .map((r) => r.callLogId)
+        .filter((id) => Number.isInteger(id));
+
+      if (conferenceCallIds.length === 0) {
+        return NextResponse.json({
+          calls: [],
+          pagination: {
+            page,
+            pageSize,
+            total: 0,
+            totalPages: 1,
+            hasNext: false,
+            hasPrev: page > 1,
+          },
+        });
+      }
+
+      where = { id: { [Op.in]: conferenceCallIds } };
+    } else {
+      where = {};
+    }
+  } else if (conferenceOnly) {
     const ownedConfRows = await db.InviteDialLeg.findAll({
       attributes: ["callLogId"],
       group: ["callLogId"],
@@ -148,8 +179,8 @@ export async function GET(req) {
 
   return NextResponse.json({
     calls: rows.map((call) => {
-      const recordingVisible = call.userId === authedUser.id;
-      const showInvitedNames = conferenceOnly && call.userId === authedUser.id;
+      const recordingVisible = call.userId === authedUser.id || viewAll;
+      const showInvitedNames = conferenceOnly && (viewAll || call.userId === authedUser.id);
       const invitedToNames = showInvitedNames ? invitedNamesByCallId.get(call.id) || [] : null;
       return {
         id: call.id,

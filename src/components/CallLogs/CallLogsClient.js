@@ -24,6 +24,7 @@ function persistDownloadedRecordingIds(ids) {
 }
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { formatDuration } from "@/lib/formatDuration";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 
 const inputClass =
@@ -117,13 +118,24 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
   const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
+  /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. */
+  const [logAudience, setLogAudience] = useState("mine");
 
   const loadCalls = useCallback(
-    async ({ signal, silent = false, targetPage, fromDate, toDate, scope: scopeOverride } = {}) => {
+    async ({
+      signal,
+      silent = false,
+      targetPage,
+      fromDate,
+      toDate,
+      scope: scopeOverride,
+      audience: audienceOverride,
+    } = {}) => {
     const resolvedPage = targetPage ?? page;
     const resolvedFromDate = fromDate ?? rangeFrom;
     const resolvedToDate = toDate ?? rangeTo;
     const resolvedScope = scopeOverride ?? listScope;
+    const resolvedAudience = audienceOverride ?? logAudience;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -141,6 +153,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
       if (resolvedScope === "conference") {
         qs.set("scope", "conference");
+      }
+      if (isAdmin && resolvedAudience === "all") {
+        qs.set("view", "all");
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -166,7 +181,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, rangeFrom, rangeTo, listScope],
+    [page, rangeFrom, rangeTo, listScope, logAudience, isAdmin],
   );
 
   async function redial(toNumber, id) {
@@ -344,9 +359,13 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               {listScope === "conference" ? "Conference call logs" : "Call logs"}
             </h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
-              {listScope === "conference"
-                ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
-                : "Your recent outbound calls."}
+              {logAudience === "all"
+                ? listScope === "conference"
+                  ? "All users' conference calls. Filter by date below."
+                  : "All users' outbound calls. Filter by date below."
+                : listScope === "conference"
+                  ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
+                  : "Your recent outbound calls."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -383,6 +402,44 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       <div className="p-4">
         <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
           <div className="mb-3">
+            {isAdmin ? (
+              <>
+                <label className={labelClass}>Whose calls</label>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogAudience("mine");
+                      setPage(1);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                      logAudience === "mine"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    My calls
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogAudience("all");
+                      setPage(1);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                      logAudience === "all"
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    All users
+                  </button>
+                </div>
+                <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  All users shows every call log in the system for the selected date range.
+                </p>
+              </>
+            ) : null}
             <label className={labelClass}>List</label>
             <div className="flex flex-wrap gap-2">
               <button
@@ -496,8 +553,12 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         ) : calls.length === 0 ? (
           <p className="text-base text-zinc-600 dark:text-zinc-300">
             {listScope === "conference"
-              ? "No conference calls in this range (no agent invites on record)."
-              : "No calls yet."}
+              ? logAudience === "all"
+                ? "No conference calls in this range."
+                : "No conference calls in this range (no agent invites on record)."
+              : logAudience === "all"
+                ? "No calls in this range."
+                : "No calls yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -535,7 +596,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {c.durationSeconds ?? "—"}s
+                      {formatDuration(c.durationSeconds)}
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {isAdmin && c.recordingDownloadUrl ? (
