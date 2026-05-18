@@ -1685,6 +1685,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <th className="px-4 py-3.5">Supervisor</th>
                       </>
                     ) : null}
+                    <th className="px-4 py-3.5">Created by</th>
                     <th className="px-4 py-3.5">Created</th>
                     <th className="px-4 py-3.5 text-right">Actions</th>
                   </tr>
@@ -1735,6 +1736,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             </td>
                           </>
                         ) : null}
+                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                          {u.createdByUsername ??
+                            (u.createdBy
+                              ? users.find((x) => x.id === u.createdBy)?.username ?? u.createdBy
+                              : "—")}
+                        </td>
                         <td className="px-4 py-3.5 tabular-nums text-zinc-600 dark:text-zinc-300">
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                         </td>

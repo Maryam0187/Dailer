@@ -23,10 +23,19 @@ export default async function UsersPage() {
     "role",
     "managerId",
     "supervisorId",
+    "createdBy",
     "createdAt",
     "isActive",
     "activeSessionId",
     "activeSessionLastSeenAt",
+  ];
+
+  const listInclude = [
+    {
+      association: "creator",
+      attributes: ["id", "username"],
+      required: false,
+    },
   ];
 
   let usersWhere;
@@ -47,6 +56,7 @@ export default async function UsersPage() {
   const [usersRows, managersRows] = await Promise.all([
     db.User.findAll({
       attributes: listAttributes,
+      include: listInclude,
       ...(usersWhere ? { where: usersWhere } : {}),
       order: [["createdAt", "DESC"]],
     }),
@@ -75,6 +85,8 @@ export default async function UsersPage() {
       role: r.role,
       managerId: r.managerId,
       supervisorId: r.supervisorId,
+      createdBy: r.createdBy ?? null,
+      createdByUsername: r.creator?.username ?? null,
       createdAt: r.createdAt,
       isActive: !(r.isActive === false || r.isActive === 0),
       presence: presence.status,

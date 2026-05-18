@@ -10,10 +10,19 @@ const LIST_ATTRIBUTES = [
   "role",
   "managerId",
   "supervisorId",
+  "createdBy",
   "createdAt",
   "isActive",
   "activeSessionId",
   "activeSessionLastSeenAt",
+];
+
+const LIST_INCLUDE = [
+  {
+    association: "creator",
+    attributes: ["id", "username"],
+    required: false,
+  },
 ];
 
 function serializeUserRow(row, now) {
@@ -31,6 +40,8 @@ function serializeUserRow(row, now) {
     role: row.role,
     managerId: row.managerId,
     supervisorId: row.supervisorId,
+    createdBy: row.createdBy ?? null,
+    createdByUsername: row.creator?.username ?? null,
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
     presence: presence.status,
@@ -45,6 +56,7 @@ export async function GET(req) {
   if (authedUser.role === "admin") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
@@ -56,6 +68,7 @@ export async function GET(req) {
   if (authedUser.role === "manager") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       where: { managerId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
@@ -68,6 +81,7 @@ export async function GET(req) {
   if (authedUser.role === "supervisor") {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
       where: { role: "agent", supervisorId: authedUser.id },
       order: [["createdAt", "DESC"]],
     });
@@ -138,6 +152,7 @@ export async function POST(req) {
         role,
         managerId: authedUser.id,
         supervisorId: role === "agent" ? supervisorIdToSet : null,
+        createdBy: authedUser.id,
       });
       return NextResponse.json(
         {
@@ -180,6 +195,7 @@ export async function POST(req) {
         role: "agent",
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
+        createdBy: authedUser.id,
       });
       return NextResponse.json(
         {
@@ -254,6 +270,7 @@ export async function POST(req) {
       role,
       managerId: managerIdToSet,
       supervisorId: supervisorIdToSet,
+      createdBy: authedUser.id,
     });
     return NextResponse.json(
       {
