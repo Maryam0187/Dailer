@@ -1207,14 +1207,6 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
   const displayUsers = useMemo(() => sortUsersForDisplay(users), [users]);
 
-  const managerMap = useMemo(() => {
-    const map = new Map();
-    for (const u of users) {
-      if (u.role === "manager") map.set(u.id, u.username);
-    }
-    return map;
-  }, [users]);
-
   const applyUsersList = useCallback(
     (list) => {
       const normalizedUsers = normalizeUsersList(list);
@@ -1670,10 +1662,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
                     {showHierarchyColumns ? (
-                      <>
-                        <th className="px-4 py-3.5">Manager</th>
-                        <th className="px-4 py-3.5">Supervisor</th>
-                      </>
+                      <th className="px-4 py-3.5">Supervisor</th>
                     ) : null}
                     <th className="px-4 py-3.5">Created by</th>
                     <th className="px-4 py-3.5">Created</th>
@@ -1711,20 +1700,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           <ActiveBadge active={active} />
                         </td>
                         {showHierarchyColumns ? (
-                          <>
-                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                              {u.role === "agent" || u.role === "supervisor"
-                                ? managerMap.get(u.managerId) ?? u.managerId ?? "—"
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                              {u.role === "agent"
-                                ? users.find((x) => x.id === u.supervisorId)?.username ??
-                                  u.supervisorId ??
-                                  "—"
-                                : "—"}
-                            </td>
-                          </>
+                          <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                            {u.role === "agent"
+                              ? users.find((x) => x.id === u.supervisorId)?.username ??
+                                u.supervisorId ??
+                                "—"
+                              : "—"}
+                          </td>
                         ) : null}
                         <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
                           {u.createdByUsername ??
