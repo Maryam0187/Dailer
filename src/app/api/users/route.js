@@ -210,10 +210,12 @@ export async function POST(req) {
   if (role === "agent" || role === "supervisor") {
     const parsed = managerId ? Number(managerId) : null;
     if (parsed && !Number.isNaN(parsed)) {
-      const managerUser = await db.User.findOne({ where: { id: parsed, role: "manager" } });
+      const managerUser = await db.User.findOne({
+        where: { id: parsed, role: "manager", isActive: true },
+      });
       if (!managerUser) {
         return NextResponse.json(
-          { error: "managerId must point to a manager user" },
+          { error: "managerId must point to an active manager" },
           { status: 400 },
         );
       }

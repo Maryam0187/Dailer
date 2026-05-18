@@ -1064,9 +1064,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
   const managerMap = useMemo(() => {
     const map = new Map();
-    for (const m of managerOptions) map.set(m.id, m.username);
+    for (const u of users) {
+      if (u.role === "manager") map.set(u.id, u.username);
+    }
     return map;
-  }, [managerOptions]);
+  }, [users]);
 
   const applyUsersList = useCallback(
     (list) => {
@@ -1074,18 +1076,18 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       setUsers(normalizedUsers);
       if (role === "admin") {
         const nextManagers = normalizedUsers
-          .filter((u) => u.role === "manager")
+          .filter((u) => u.role === "manager" && u.isActive)
           .map((u) => ({ id: u.id, username: u.username }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setManagerOptions(nextManagers);
         const nextSupervisors = normalizedUsers
-          .filter((u) => u.role === "supervisor")
+          .filter((u) => u.role === "supervisor" && u.isActive)
           .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setSupervisorOptions(nextSupervisors);
       } else if (role === "manager") {
         const nextSupervisors = normalizedUsers
-          .filter((u) => u.role === "supervisor")
+          .filter((u) => u.role === "supervisor" && u.isActive)
           .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setSupervisorOptions(nextSupervisors);
@@ -1580,7 +1582,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             </td>
                             <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
                               {u.role === "agent"
-                                ? supervisorOptions.find((s) => s.id === u.supervisorId)?.username ??
+                                ? users.find((x) => x.id === u.supervisorId)?.username ??
                                   u.supervisorId ??
                                   "—"
                                 : "—"}

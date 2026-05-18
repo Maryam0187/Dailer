@@ -52,7 +52,7 @@ export default async function UsersPage() {
     authedUser.role === "admin"
       ? db.User.findAll({
           attributes: ["id", "username"],
-          where: { role: "manager" },
+          where: { role: "manager", isActive: true },
           order: [["username", "ASC"]],
         })
       : [],
@@ -83,7 +83,7 @@ export default async function UsersPage() {
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users
-    .filter((u) => u.role === "supervisor")
+    .filter((u) => u.role === "supervisor" && u.isActive)
     .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }));
 
   return (
