@@ -6,7 +6,7 @@ function requireVar(name) {
   return value;
 }
 
-export function getTwilioCredentials() {
+export function getTwilioClient() {
   const isTestMode =
     process.env.NODE_ENV === "development" || process.env.TWILIO_TEST_MODE === "true";
 
@@ -22,11 +22,6 @@ export function getTwilioCredentials() {
       "Twilio credentials not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.",
     );
   }
-  return { accountSid, authToken };
-}
-
-export function getTwilioClient() {
-  const { accountSid, authToken } = getTwilioCredentials();
   return twilio(accountSid, authToken);
 }
 

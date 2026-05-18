@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { finalizeCallRecording } from "@/server/callRecording";
 import { getTwilioClient } from "@/server/twilio";
 
 export async function POST(req) {
@@ -16,7 +15,7 @@ export async function POST(req) {
 
   const call = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "userId", "twilioSid", "status", "recordingSid", "recordingStatus"],
+    attributes: ["id", "userId", "twilioSid", "status"],
   });
   if (!call) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -40,8 +39,6 @@ export async function POST(req) {
   }
 
   try {
-    await finalizeCallRecording(call);
-
     const client = getTwilioClient();
     await client.calls(call.twilioSid).update({ status: "completed" });
   } catch (err) {

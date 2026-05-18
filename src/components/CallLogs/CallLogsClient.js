@@ -72,12 +72,6 @@ function isInProgressCallStatus(status) {
   return String(status || "").trim().toLowerCase() === "in-progress";
 }
 
-function isRecordingProcessing(call) {
-  if (call.recordingDownloadUrl) return false;
-  const status = String(call.recordingStatus || "").toLowerCase();
-  return Boolean(status) && status !== "completed" && status !== "absent";
-}
-
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
   const isAdmin = userRole === "admin";
   const isAgent = userRole === "agent";
@@ -217,12 +211,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   useEffect(() => {
     const controller = new AbortController();
     loadCalls({ signal: controller.signal, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
-    const refreshOpts = { signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo };
     const onCallEnded = () => {
-      loadCalls(refreshOpts);
-      // Twilio may need a few seconds to finalize recording media after hangup.
-      window.setTimeout(() => loadCalls(refreshOpts), 4000);
-      window.setTimeout(() => loadCalls(refreshOpts), 10000);
+      loadCalls({ signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
     };
     window.addEventListener("call-ended", onCallEnded);
     return () => {
@@ -608,10 +598,6 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         >
                           {downloadingId === c.id ? "Downloading..." : "Download"}
                         </button>
-                      ) : isAdmin && isRecordingProcessing(c) ? (
-                        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                          Processing...
-                        </span>
                       ) : isAgent && c.recordingDownloadUrl ? (
                         <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                           {downloadingId === c.id
@@ -619,10 +605,6 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                             : downloadedRecordingIds.has(c.id)
                               ? "Saved"
                               : "Preparing..."}
-                        </span>
-                      ) : isAgent && isRecordingProcessing(c) ? (
-                        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                          Processing...
                         </span>
                       ) : c.recordingDownloadUrl || c.recordingStatus ? (
                         <span className="text-xs text-zinc-500 dark:text-zinc-400">
