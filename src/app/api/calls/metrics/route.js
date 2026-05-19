@@ -34,6 +34,7 @@ export async function GET(req) {
     toDate,
     conferenceOnly,
     includeAllUsers,
+    excludeAdmin: true,
   });
 
   return NextResponse.json({ fromDate, toDate, scope, metrics, totals });
