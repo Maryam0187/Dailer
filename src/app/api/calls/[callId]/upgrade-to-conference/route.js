@@ -15,7 +15,8 @@ export async function POST(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const callId = Number(params?.callId);
+  const { callId: rawCallId } = await params;
+  const callId = Number(rawCallId);
   if (!Number.isInteger(callId) || callId <= 0) {
     return NextResponse.json({ error: "Invalid call id" }, { status: 400 });
   }
