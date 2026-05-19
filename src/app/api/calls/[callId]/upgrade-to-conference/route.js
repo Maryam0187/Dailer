@@ -261,6 +261,7 @@ export async function POST(req, { params }) {
     const callerIdForConference =
       String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
 
+    const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
     const conferenceStatusCb = fallbackBaseUrl
       ? buildConferenceStatusCallbackUrl(fallbackBaseUrl)
       : "";
@@ -272,7 +273,6 @@ export async function POST(req, { params }) {
       statusCallbackUrl: conferenceStatusCb || undefined,
     });
 
-    const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
     const customerVoiceUrl =
       fallbackBaseUrl && buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
 
