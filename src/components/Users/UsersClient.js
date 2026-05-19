@@ -540,7 +540,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-detail-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative z-10 flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -845,10 +845,10 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
-              <table className="w-full min-w-[560px] text-left text-sm">
+              <table className="w-full min-w-[52rem] text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
-                    <th className="px-3 py-2.5">When</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">When</th>
                     {callsFilter === "conference" ? (
                       <th className="px-3 py-2.5">Invited</th>
                     ) : null}
@@ -856,20 +856,20 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     <th className="px-3 py-2.5">Status</th>
                     {isAdmin ? (
                       <>
-                        <th className="px-3 py-2.5">Agent leg</th>
-                        <th className="px-3 py-2.5">Customer leg</th>
-                        <th className="px-3 py-2.5">Total</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Agent leg</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Customer leg</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Total</th>
                       </>
                     ) : (
-                      <th className="px-3 py-2.5">Duration</th>
+                      <th className="whitespace-nowrap px-3 py-2.5">Duration</th>
                     )}
-                    <th className="px-3 py-2.5">Recording</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Recording</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {calls.map((c) => (
                     <tr key={c.id}>
-                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
                         {new Date(c.createdAt).toLocaleString()}
                       </td>
                       {callsFilter === "conference" ? (
@@ -887,22 +887,22 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                       </td>
                       {isAdmin ? (
                         <>
-                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.agentDurationSeconds)}
                           </td>
-                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.customerDurationSeconds)}
                           </td>
-                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.durationSeconds)}
                           </td>
                         </>
                       ) : (
-                        <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                        <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                           {formatDuration(c.durationSeconds)}
                         </td>
                       )}
-                      <td className="px-3 py-2.5">
+                      <td className="whitespace-nowrap px-3 py-2.5">
                         {c.recordingDownloadUrl ? (
                           <button
                             type="button"
