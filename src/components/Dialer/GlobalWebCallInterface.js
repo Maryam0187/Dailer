@@ -19,9 +19,11 @@ function hasResolvedNumericCallId(sess) {
   return Number.isInteger(n) && n > 0;
 }
 
-function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
+function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError, leaveConference } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
+  const isDirectCall =
+    isCallOwner && session.callMode !== "conference" && !session.conferenceName;
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -42,7 +44,37 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   const [recordingStatus, setRecordingStatus] = useState("idle");
   const [recordingMessage, setRecordingMessage] = useState(null);
   const [emptyParticipantHits, setEmptyParticipantHits] = useState(0);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
+
+  async function upgradeToConference() {
+    const callId = Number(session?.callId);
+    if (!Number.isInteger(callId) || callId <= 0) {
+      setUpgradeError("Call is not ready yet.");
+      return false;
+    }
+    setUpgradeLoading(true);
+    setUpgradeError(null);
+    try {
+      const res = await fetch(`/api/calls/${callId}/upgrade-to-conference`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to enable conference mode");
+      patchSession({
+        conferenceName: json.conferenceName,
+        callMode: "conference",
+      });
+      return true;
+    } catch (e) {
+      setUpgradeError(e?.message || "Failed to enable conference mode");
+      return false;
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (session.phase !== "in_progress") return undefined;
@@ -182,6 +214,10 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   }, [recentJoinedAgent]);
 
   async function openAddAgentDialog() {
+    if (isDirectCall) {
+      const ok = await upgradeToConference();
+      if (!ok) return;
+    }
     setShowAddAgentDialog(true);
     setAddAgentError(null);
     setSelectedAgentId("");
@@ -394,6 +430,25 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
             ) : null}
 
             <div className="mt-2 space-y-3">
+              {isDirectCall ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/30">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                    Multi-agent
+                  </p>
+                  <button
+                    type="button"
+                    onClick={upgradeToConference}
+                    disabled={upgradeLoading || session.phase !== "in_progress"}
+                    className="mt-2 h-9 rounded-lg bg-violet-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                  >
+                    {upgradeLoading ? "Enabling…" : "Enable conference mode"}
+                  </button>
+                  {upgradeError ? (
+                    <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{upgradeError}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {!isDirectCall ? (
               <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-950/30">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
@@ -450,6 +505,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                   <p className="mt-2 text-xs font-medium text-cyan-700 dark:text-cyan-300">{addAgentStatus}</p>
                 ) : null}
               </div>
+              ) : null}
 
               <div className="flex flex-col gap-2">
               <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
@@ -559,25 +615,27 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
               >
                 {isMuted ? "Unmute" : "Mute"}
               </button>
-              <button
-                type="button"
-                onClick={leaveConference}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                  />
-                </svg>
-                Leave conference
-              </button>
+              {!isDirectCall ? (
+                <button
+                  type="button"
+                  onClick={leaveConference}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    />
+                  </svg>
+                  Leave conference
+                </button>
+              ) : null}
               {isCallOwner ? (
                 <button
                   type="button"
-                  onClick={endCall}
+                  onClick={isDirectCall ? leaveConference : endCall}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg transition-colors hover:bg-red-700"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -588,7 +646,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                       d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"
                     />
                   </svg>
-                  End call for everyone
+                  {isDirectCall ? "End call" : "End call for everyone"}
                 </button>
               ) : null}
               </div>
@@ -652,7 +710,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall } = useActiveCall();
+  const { session, endCall, patchSession } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
@@ -860,6 +918,7 @@ export default function GlobalWebCallInterface() {
           key={session.callId || "active-call"}
           session={session}
           endCall={endCall}
+          patchSession={patchSession}
           recentJoinedAgent={recentJoinedAgentForSession}
         />
         {inviteToast}

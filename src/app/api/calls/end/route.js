@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getTwilioClient } from "@/server/twilio";
+import { syncAllLegDurationsFromTwilio } from "@/server/calls/callLegs";
+import { endCallLegs } from "@/server/twilioEndCall";
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -15,7 +16,16 @@ export async function POST(req) {
 
   const call = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "userId", "twilioSid", "status"],
+    attributes: [
+      "id",
+      "userId",
+      "twilioSid",
+      "customerCallSid",
+      "agentDurationSeconds",
+      "customerDurationSeconds",
+      "durationSeconds",
+      "status",
+    ],
   });
   if (!call) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -39,8 +49,14 @@ export async function POST(req) {
   }
 
   try {
-    const client = getTwilioClient();
-    await client.calls(call.twilioSid).update({ status: "completed" });
+    await endCallLegs(
+      call,
+      await db.InviteDialLeg.findAll({
+        where: { callLogId: callId },
+        attributes: ["callSid"],
+      }),
+    );
+    await syncAllLegDurationsFromTwilio(call);
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to end Twilio call" },
@@ -48,7 +64,20 @@ export async function POST(req) {
     );
   }
 
-  await call.update({ status: "completed" });
-  return NextResponse.json({ ok: true, ended: true }, { status: 200 });
-}
+  const refreshed = await call.reload();
+  await refreshed.update({ status: "completed" });
 
+  return NextResponse.json({
+    ok: true,
+    ended: true,
+    call: {
+      id: refreshed.id,
+      twilioSid: refreshed.twilioSid,
+      customerCallSid: refreshed.customerCallSid,
+      agentDurationSeconds: refreshed.agentDurationSeconds,
+      customerDurationSeconds: refreshed.customerDurationSeconds,
+      durationSeconds: refreshed.durationSeconds,
+      status: refreshed.status,
+    },
+  });
+}

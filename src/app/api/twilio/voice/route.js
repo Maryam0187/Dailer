@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  buildConferenceStatusCallbackUrl,
+  buildConferenceTwiMl,
+  getRequestBaseUrlFromRequest,
+} from "@/server/calls/conferenceVoice";
 
 export const runtime = "nodejs";
 
@@ -9,14 +14,10 @@ function twimlResponse(xml) {
   });
 }
 
-function escapeXmlAttr(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
+/**
+ * Conference TwiML — used for add-agent invites, transfers, and legacy multi-party calls.
+ * Outbound 1:1 uses /api/twilio/voice/bridge (<Dial>) instead.
+ */
 export async function POST(req) {
   const form = await req.formData();
   const twilioFrom = String(form.get("From") || "").trim();
@@ -37,21 +38,16 @@ export async function POST(req) {
     return twimlResponse(missingConferenceXml);
   }
 
-  const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
-  const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
-  const endConferenceOnExit = participant === "customer" ? "true" : "false";
-  const muted = muteOnEntry ? "true" : "false";
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Dial answerOnBridge="true"${callerIdAttr}>
-    <Conference
-      startConferenceOnEnter="${startConferenceOnEnter}"
-      endConferenceOnExit="${endConferenceOnExit}"
-      muted="${muted}"
-      beep="false"
-    >${escapeXmlAttr(conferenceName)}</Conference>
-  </Dial>
-</Response>`;
+  const origin = getRequestBaseUrlFromRequest(req);
+  const statusCbUrl = origin ? buildConferenceStatusCallbackUrl(origin) : "";
+
+  const xml = buildConferenceTwiMl({
+    conferenceName,
+    participant: participant || "agent",
+    muteOnEntry,
+    callerId,
+    statusCallbackUrl: statusCbUrl || undefined,
+  });
   return twimlResponse(xml);
 }
 

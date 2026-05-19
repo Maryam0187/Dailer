@@ -170,6 +170,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       beginSession({
         callId: result.call.id,
         callOwnedByMe: true,
+        callMode: result.callMode || "direct",
         toNumber: result.call.toNumber,
         phoneLabel: toNumber,
         customerName: undefined,
@@ -497,7 +498,15 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   ) : null}
                   <th className="py-2 pr-3">To</th>
                   <th className="py-2 pr-3">Status</th>
-                  <th className="py-2 pr-3">Duration</th>
+                  {isAdmin ? (
+                    <>
+                      <th className="py-2 pr-3">Agent leg</th>
+                      <th className="py-2 pr-3">Customer leg</th>
+                      <th className="py-2 pr-3">Total</th>
+                    </>
+                  ) : (
+                    <th className="py-2 pr-3">Duration</th>
+                  )}
                   <th className="py-2 pr-3">Recording</th>
                   <th className="py-2 text-right">Action</th>
                 </tr>
@@ -520,9 +529,23 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                     ) : null}
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
-                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {formatDuration(c.durationSeconds)}
-                    </td>
+                    {isAdmin ? (
+                      <>
+                        <td className="py-2 pr-3 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          {formatDuration(c.agentDurationSeconds)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          {formatDuration(c.customerDurationSeconds)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          {formatDuration(c.durationSeconds)}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="py-2 pr-3 tabular-nums text-zinc-700 dark:text-zinc-200">
+                        {formatDuration(c.durationSeconds)}
+                      </td>
+                    )}
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.recordingDownloadUrl ? (
                         <button

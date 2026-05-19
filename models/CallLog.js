@@ -35,8 +35,31 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "queued",
       },
+      /** Agent (parent) Twilio Call SID — Outgoing API to client:identity. */
       twilioSid: {
         type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      /** Customer PSTN leg SID — child Outgoing Dial under twilioSid. */
+      customerCallSid: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      agentDurationSeconds: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      customerDurationSeconds: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      conferenceName: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      /** During direct-dial upgrade: customer redirects first; Dial action redirects agent leg. */
+      pendingConferenceName: {
+        type: DataTypes.STRING(128),
         allowNull: true,
       },
       durationSeconds: {
@@ -59,7 +82,12 @@ module.exports = (sequelize, DataTypes) => {
     {
       tableName: "CallLogs",
       timestamps: true,
-      indexes: [{ fields: ["userId"] }, { fields: ["twilioSid"] }, { fields: ["recordingSid"] }],
+      indexes: [
+        { fields: ["userId"] },
+        { fields: ["twilioSid"] },
+        { fields: ["customerCallSid"] },
+        { fields: ["recordingSid"] },
+      ],
     },
   );
 

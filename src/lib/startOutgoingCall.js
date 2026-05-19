@@ -1,7 +1,7 @@
 /**
  * POST /api/calls/start — shared by the dialing panel.
  * @param {string} toNumber E.164 or digits; stored as provided after trim.
- * @returns {Promise<{ ok: true, call: object, conferenceName?: string } | { ok: false, error: string }>}
+ * @returns {Promise<{ ok: true, call: object, callMode?: string, conferenceName?: string } | { ok: false, error: string }>}
  */
 export async function startOutgoingCall(toNumber) {
   const trimmed = String(toNumber || "").trim();
@@ -13,5 +13,10 @@ export async function startOutgoingCall(toNumber) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) return { ok: false, error: json?.error || "Dial failed" };
-  return { ok: true, call: json.call, conferenceName: json.conferenceName };
+  return {
+    ok: true,
+    call: json.call,
+    callMode: json.callMode || "direct",
+    conferenceName: json.conferenceName,
+  };
 }

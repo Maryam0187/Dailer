@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import db from "@/server/db";
-
+import {
+  applyCallLegUpdate,
+  findCallLogByAnyLegSid,
+  parseDurationSeconds,
+  syncCustomerLegFromTwilio,
+} from "@/server/calls/callLegs";
 export const runtime = "nodejs";
 
 function normalizeStatus(status) {
@@ -10,24 +14,35 @@ function normalizeStatus(status) {
 
 export async function POST(req) {
   const form = await req.formData();
-  const callSid = form.get("CallSid");
+  const callSid = String(form.get("CallSid") || "").trim();
   const callStatus = form.get("CallStatus");
   const callDuration = form.get("CallDuration");
+  const normalizedStatus = normalizeStatus(callStatus);
 
-  if (!callSid || typeof callSid !== "string") {
+  if (!callSid) {
     return NextResponse.json({ error: "CallSid is required" }, { status: 400 });
   }
 
-  const update = {
-    status: normalizeStatus(callStatus),
-  };
-  if (callDuration != null && callDuration !== "") {
-    const parsedDuration = Number(callDuration);
-    if (Number.isFinite(parsedDuration)) {
-      update.durationSeconds = parsedDuration;
-    }
+  const call = await findCallLogByAnyLegSid(callSid);
+  if (!call) {
+    return new NextResponse("OK", { status: 200 });
   }
 
-  await db.CallLog.update(update, { where: { twilioSid: callSid } });
+  const agentSid = String(call.twilioSid || "").trim();
+  const isCustomer = callSid !== agentSid;
+
+  await applyCallLegUpdate(call, {
+    source: "twilio-status",
+    leg: isCustomer ? "customer" : "agent",
+    callSid: isCustomer ? callSid : undefined,
+    status: normalizedStatus,
+    durationSeconds: parseDurationSeconds(callDuration),
+  });
+
+  if (!isCustomer && normalizedStatus === "completed") {
+    const refreshed = await findCallLogByAnyLegSid(callSid);
+    if (refreshed) await syncCustomerLegFromTwilio(refreshed);
+  }
+
   return new NextResponse("OK", { status: 200 });
 }

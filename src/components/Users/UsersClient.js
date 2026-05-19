@@ -854,7 +854,15 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     ) : null}
                     <th className="px-3 py-2.5">To</th>
                     <th className="px-3 py-2.5">Status</th>
-                    <th className="px-3 py-2.5">Duration</th>
+                    {isAdmin ? (
+                      <>
+                        <th className="px-3 py-2.5">Agent leg</th>
+                        <th className="px-3 py-2.5">Customer leg</th>
+                        <th className="px-3 py-2.5">Total</th>
+                      </>
+                    ) : (
+                      <th className="px-3 py-2.5">Duration</th>
+                    )}
                     <th className="px-3 py-2.5">Recording</th>
                   </tr>
                 </thead>
@@ -877,9 +885,23 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                       <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
                         {c.status || "—"}
                       </td>
-                      <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
-                        {formatDuration(c.durationSeconds)}
-                      </td>
+                      {isAdmin ? (
+                        <>
+                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                            {formatDuration(c.agentDurationSeconds)}
+                          </td>
+                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                            {formatDuration(c.customerDurationSeconds)}
+                          </td>
+                          <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                            {formatDuration(c.durationSeconds)}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          {formatDuration(c.durationSeconds)}
+                        </td>
+                      )}
                       <td className="px-3 py-2.5">
                         {c.recordingDownloadUrl ? (
                           <button

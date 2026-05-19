@@ -195,6 +195,9 @@ export function TwilioVoiceProvider({ children }) {
   const bindActiveCallEvents = useCallback(
     (call) => {
       callRef.current = call;
+      const snap = sessionSyncRef.current;
+      const callId = Number(snap?.callId);
+      const callSid = getIncomingCallSid(call);
 
       // Invited agents join without TwiML conference mute (bridge mute cannot be cleared
       // with SDK unmute). Force mic muted here so they start muted until they choose Unmute.
@@ -1003,9 +1006,13 @@ export function TwilioVoiceProvider({ children }) {
     const active = callRef.current;
     const isInvitee = snap?.callOwnedByMe === false;
 
-    // Owner "Leave" only drops this browser leg — the conference/customer call may continue.
-    // Invited agents leaving last must end the CallLog + Twilio parent call or it stays open.
-    if (isInvitee) {
+    const isDirectCall =
+      snap?.callOwnedByMe !== false &&
+      snap?.callMode !== "conference" &&
+      !snap?.conferenceName;
+
+    // Direct 1:1 (Dial bridge): always end the full call, not a partial leave.
+    if (!isInvitee && isDirectCall) {
       await endCall();
       if (callRef.current) {
         leaveWithoutEndingRef.current = false;
@@ -1014,6 +1021,22 @@ export function TwilioVoiceProvider({ children }) {
         } catch {
           /* ignore */
         }
+      }
+      return;
+    }
+
+    // Invited agent leaves: disconnect only their browser leg.
+    // Calling `/api/calls/end` here would tear down owner + customer while other agents may still be in the room.
+    // `/api/twilio/conference-status` ends PSTN/parent when no Voice (`client:`) agents remain — same model as owner leave.
+    if (isInvitee) {
+      if (active) {
+        try {
+          active.disconnect();
+        } catch {
+          clearLocalSession();
+        }
+      } else {
+        clearLocalSession();
       }
       return;
     }

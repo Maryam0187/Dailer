@@ -83,6 +83,7 @@ export default function QuickDialPanel() {
       beginSession({
         callId: result.call.id,
         callOwnedByMe: true,
+        callMode: result.callMode || "direct",
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,
