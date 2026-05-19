@@ -113,6 +113,25 @@ async function waitForRedirectableLegs(client, parentSid, customerSid, opts = {}
   };
 }
 
+/** Dial action webhook persists `conferenceName` once the agent leg executes conference TwiML. */
+async function waitForConferenceCommitted(callRecord, conferenceNameExpected, opts = {}) {
+  const deadlineMs = opts.deadlineMs ?? 14500;
+  const delayMs = opts.delayMs ?? 350;
+
+  const expected = String(conferenceNameExpected || "").trim();
+  const deadline = Date.now() + deadlineMs;
+
+  while (Date.now() < deadline) {
+    await callRecord.reload({
+      attributes: ["conferenceName", "pendingConferenceName"],
+    });
+    if (String(callRecord.conferenceName || "").trim() === expected) return true;
+    await sleep(delayMs);
+  }
+
+  return false;
+}
+
 export async function POST(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -131,6 +150,7 @@ export async function POST(req, { params }) {
       "twilioSid",
       "customerCallSid",
       "conferenceName",
+      "pendingConferenceName",
       "direction",
       "status",
       "fromNumber",
@@ -162,6 +182,16 @@ export async function POST(req, { params }) {
       conferenceName: existingName,
       callMode: "conference",
     });
+  }
+
+  if (String(call.pendingConferenceName || "").trim()) {
+    return NextResponse.json(
+      {
+        error:
+          "Conference upgrade is already running. Wait a few seconds or try once the room connects.",
+      },
+      { status: 409 },
+    );
   }
 
   try {
@@ -230,11 +260,6 @@ export async function POST(req, { params }) {
     const callerIdForConference =
       String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
 
-    const agentTwiml = buildConferenceTwiMl({
-      conferenceName,
-      participant: "agent",
-      callerId: callerIdForConference,
-    });
     const customerTwiml = buildConferenceTwiMl({
       conferenceName,
       participant: "customer",
@@ -242,19 +267,16 @@ export async function POST(req, { params }) {
     });
 
     const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
-    const agentVoiceUrl =
-      fallbackBaseUrl && buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
     const customerVoiceUrl =
       fallbackBaseUrl && buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
 
-    // Agent (starts conference via startConferenceOnEnter) first, then customer joins.
-    await redirectLegTwimlOrUrl(
-      client,
-      parentSid,
-      agentTwiml,
-      agentVoiceUrl || null,
-      "agent-leg",
-    );
+    /**
+     * Do NOT REST-redirect the agent (parent Dial) before the PSTN leg — it tears down &lt;Dial&gt;
+     * and disconnects the customer. Set pendingConferenceName, redirect the customer first, then the
+     * Dial `action` webhook returns conference TwiML for the agent leg.
+     */
+    await call.update({ pendingConferenceName: conferenceName });
+
     await redirectLegTwimlOrUrl(
       client,
       resolvedCustomerSid,
@@ -263,7 +285,29 @@ export async function POST(req, { params }) {
       "customer-leg",
     );
 
-    await call.update({ conferenceName });
+    const committed = await waitForConferenceCommitted(call, conferenceName);
+    if (!committed) {
+      await db.CallLog.update(
+        { pendingConferenceName: null },
+        { where: { id: callId } },
+      );
+      await call.reload({
+        attributes: ["conferenceName", "pendingConferenceName"],
+      });
+      let message =
+        "Conference upgrade did not confirm before the deadline — hang up both sides if you lost audio, then try again. If Dial webhooks failed, check your Twilio status callback URLs.";
+      const currentName = String(call.conferenceName || "").trim();
+      if (currentName === conferenceName) {
+        /** Dial action won the race near the timeout; treat as OK. */
+        return NextResponse.json({
+          ok: true,
+          alreadyUpgraded: false,
+          conferenceName: currentName,
+          callMode: "conference",
+        });
+      }
+      return NextResponse.json({ error: message }, { status: 504 });
+    }
 
     return NextResponse.json({
       ok: true,
@@ -278,6 +322,10 @@ export async function POST(req, { params }) {
       message =
         "Conference upgrade failed: Twilio could not reroute both legs yet. Hang up and start a conference-style call instead, or try again shortly after talking for a few seconds.";
     }
+    await db.CallLog.update(
+      { pendingConferenceName: null },
+      { where: { id: callId } },
+    );
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

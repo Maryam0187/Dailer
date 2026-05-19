@@ -57,6 +57,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(128),
         allowNull: true,
       },
+      /** During direct-dial upgrade: customer redirects first; Dial action redirects agent leg. */
+      pendingConferenceName: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
       durationSeconds: {
         type: DataTypes.INTEGER,
         allowNull: true,
