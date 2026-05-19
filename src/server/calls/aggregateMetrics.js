@@ -16,6 +16,16 @@ export function dateRangeWhere(fromDate, toDate) {
   return { createdAt: { [Op.between]: [after, before] } };
 }
 
+const NON_ADMIN_USER_WHERE = { role: { [Op.ne]: "admin" } };
+
+function isAdminRole(role) {
+  return String(role || "").trim().toLowerCase() === "admin";
+}
+
+function filterOutAdminMetrics(metrics) {
+  return metrics.filter((m) => !isAdminRole(m.role));
+}
+
 export async function aggregateCallMetrics(where) {
   const { fn, col, literal } = db.sequelize;
   const statusSum = (status) =>
@@ -46,6 +56,7 @@ export async function aggregateMetricsByUser({
   toDate,
   conferenceOnly,
   includeAllUsers = false,
+  excludeAdmin = false,
 }) {
   const where = {
     ...dateRangeWhere(fromDate, toDate),
@@ -59,15 +70,17 @@ export async function aggregateMetricsByUser({
       }
       const allUsers = await db.User.findAll({
         attributes: ["id", "username", "role"],
+        where: excludeAdmin ? NON_ADMIN_USER_WHERE : undefined,
         order: [["username", "ASC"]],
         raw: true,
       });
-      const metrics = allUsers.map((u) => ({
+      let metrics = allUsers.map((u) => ({
         userId: u.id,
         username: u.username,
         role: u.role,
         ...emptyTotals(),
       }));
+      if (excludeAdmin) metrics = filterOutAdminMetrics(metrics);
       return { metrics, totals: emptyTotals() };
     }
     where.id = { [Op.in]: ids };
@@ -108,24 +121,28 @@ export async function aggregateMetricsByUser({
   const userById = new Map(users.map((u) => [u.id, u]));
 
   const metricsByUserId = new Map(
-    aggregated.map((row) => {
-      const u = userById.get(row.userId);
-      return [
-        row.userId,
-        {
-          userId: row.userId,
-          username: u?.username || "—",
-          role: u?.role || null,
-          ...mapMetricsRow(row),
-        },
-      ];
-    }),
+    aggregated
+      .map((row) => {
+        const u = userById.get(row.userId);
+        if (excludeAdmin && isAdminRole(u?.role)) return null;
+        return [
+          row.userId,
+          {
+            userId: row.userId,
+            username: u?.username || "—",
+            role: u?.role || null,
+            ...mapMetricsRow(row),
+          },
+        ];
+      })
+      .filter(Boolean),
   );
 
   let metrics;
   if (includeAllUsers) {
     const allUsers = await db.User.findAll({
       attributes: ["id", "username", "role"],
+      where: excludeAdmin ? NON_ADMIN_USER_WHERE : undefined,
       order: [["username", "ASC"]],
       raw: true,
     });
@@ -148,6 +165,10 @@ export async function aggregateMetricsByUser({
       if (b.total !== a.total) return b.total - a.total;
       return (a.username || "").localeCompare(b.username || "");
     });
+  }
+
+  if (excludeAdmin) {
+    metrics = filterOutAdminMetrics(metrics);
   }
 
   const totals = metrics.reduce(
