@@ -1049,17 +1049,18 @@ export function TwilioVoiceProvider({ children }) {
       return;
     }
 
-    // Conference owner "Leave" only drops this browser leg — the customer call may continue.
-    // Invited agents leaving last must end the CallLog + Twilio parent call or it stays open.
+    // Invited agent leaves: disconnect only their browser leg.
+    // Calling `/api/calls/end` here would tear down owner + customer while other agents may still be in the room.
+    // `/api/twilio/conference-status` ends PSTN/parent when no Voice (`client:`) agents remain — same model as owner leave.
     if (isInvitee) {
-      await endCall();
-      if (callRef.current) {
-        leaveWithoutEndingRef.current = false;
+      if (active) {
         try {
-          callRef.current.disconnect();
+          active.disconnect();
         } catch {
-          /* ignore */
+          clearLocalSession();
         }
+      } else {
+        clearLocalSession();
       }
       return;
     }
