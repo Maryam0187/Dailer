@@ -24,6 +24,7 @@ export async function completeTwilioCallSid(callSid) {
  */
 export async function endCallLegs(call, inviteLegs = []) {
   await completeTwilioCallSid(call?.twilioSid);
+  await completeTwilioCallSid(call?.customerCallSid);
   for (const leg of inviteLegs) {
     await completeTwilioCallSid(leg?.callSid);
   }

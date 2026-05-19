@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
+import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 
 export const runtime = "nodejs";
 
@@ -65,10 +66,18 @@ export async function POST(req) {
     "";
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
 
+  const baseUrl = getRequestBaseUrlFromRequest(req);
+  const dialActionAttr = baseUrl
+    ? ` action="${escapeXmlAttr(`${baseUrl}/api/twilio/dial-action?callId=${callId}`)}" method="POST"`
+    : "";
+  const numberStatusAttr = baseUrl
+    ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
+    : "";
+
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}>
-    <Number>${escapeXmlAttr(customerNumber)}</Number>
+  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}${dialActionAttr}>
+    <Number${numberStatusAttr ? ` ${numberStatusAttr}` : ""}>${escapeXmlAttr(customerNumber)}</Number>
   </Dial>
 </Response>`;
   return twimlResponse(xml);

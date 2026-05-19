@@ -19,11 +19,11 @@ function hasResolvedNumericCallId(sess) {
   return Number.isInteger(n) && n > 0;
 }
 
-function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
+function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError, leaveConference } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
   const isDirectCall =
-    session.callMode === "direct" || (isCallOwner && !session.conferenceName);
+    isCallOwner && session.callMode !== "conference" && !session.conferenceName;
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -44,7 +44,37 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   const [recordingStatus, setRecordingStatus] = useState("idle");
   const [recordingMessage, setRecordingMessage] = useState(null);
   const [emptyParticipantHits, setEmptyParticipantHits] = useState(0);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState(null);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
+
+  async function upgradeToConference() {
+    const callId = Number(session?.callId);
+    if (!Number.isInteger(callId) || callId <= 0) {
+      setUpgradeError("Call is not ready yet.");
+      return false;
+    }
+    setUpgradeLoading(true);
+    setUpgradeError(null);
+    try {
+      const res = await fetch(`/api/calls/${callId}/upgrade-to-conference`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to enable conference mode");
+      patchSession({
+        conferenceName: json.conferenceName,
+        callMode: "conference",
+      });
+      return true;
+    } catch (e) {
+      setUpgradeError(e?.message || "Failed to enable conference mode");
+      return false;
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (session.phase !== "in_progress") return undefined;
@@ -184,6 +214,10 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   }, [recentJoinedAgent]);
 
   async function openAddAgentDialog() {
+    if (isDirectCall) {
+      const ok = await upgradeToConference();
+      if (!ok) return;
+    }
     setShowAddAgentDialog(true);
     setAddAgentError(null);
     setSelectedAgentId("");
@@ -396,6 +430,28 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
             ) : null}
 
             <div className="mt-2 space-y-3">
+              {isDirectCall ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/30">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                    Multi-agent
+                  </p>
+                  <p className="mt-1 text-xs text-violet-800/90 dark:text-violet-200/90">
+                    Switch this call to conference mode to invite another agent. You may hear a brief
+                    audio pause while lines reconnect.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={upgradeToConference}
+                    disabled={upgradeLoading || session.phase !== "in_progress"}
+                    className="mt-2 h-9 rounded-lg bg-violet-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
+                  >
+                    {upgradeLoading ? "Enabling…" : "Enable conference mode"}
+                  </button>
+                  {upgradeError ? (
+                    <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{upgradeError}</p>
+                  ) : null}
+                </div>
+              ) : null}
               {!isDirectCall ? (
               <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-950/30">
                 <div className="mb-2 flex items-center justify-between">
@@ -658,7 +714,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
 }
 
 export default function GlobalWebCallInterface() {
-  const { session, endCall } = useActiveCall();
+  const { session, endCall, patchSession } = useActiveCall();
   const {
     incomingInvite,
     inviteNotification,
@@ -866,6 +922,7 @@ export default function GlobalWebCallInterface() {
           key={session.callId || "active-call"}
           session={session}
           endCall={endCall}
+          patchSession={patchSession}
           recentJoinedAgent={recentJoinedAgentForSession}
         />
         {inviteToast}

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { syncAllLegDurationsFromTwilio } from "@/server/calls/callLegs";
+import { logCallStatus } from "@/server/calls/callStatusLog";
 import { endCallLegs } from "@/server/twilioEndCall";
 
 export async function POST(req) {
@@ -15,7 +17,16 @@ export async function POST(req) {
 
   const call = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "userId", "twilioSid", "status"],
+    attributes: [
+      "id",
+      "userId",
+      "twilioSid",
+      "customerCallSid",
+      "agentDurationSeconds",
+      "customerDurationSeconds",
+      "durationSeconds",
+      "status",
+    ],
   });
   if (!call) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -30,10 +41,6 @@ export async function POST(req) {
     where: { callLogId: callId, invitedUserId: authedUser.id },
     attributes: ["callSid"],
   }));
-  const inviteLegs = await db.InviteDialLeg.findAll({
-    where: { callLogId: callId },
-    attributes: ["callSid"],
-  });
   if (!privileged && !isOwner && !isInvitee) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -43,7 +50,14 @@ export async function POST(req) {
   }
 
   try {
-    await endCallLegs(call, inviteLegs);
+    await endCallLegs(
+      call,
+      await db.InviteDialLeg.findAll({
+        where: { callLogId: callId },
+        attributes: ["callSid"],
+      }),
+    );
+    await syncAllLegDurationsFromTwilio(call);
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to end Twilio call" },
@@ -51,6 +65,33 @@ export async function POST(req) {
     );
   }
 
-  await call.update({ status: "completed" });
-  return NextResponse.json({ ok: true, ended: true }, { status: 200 });
+  const refreshed = await call.reload();
+  await refreshed.update({ status: "completed" });
+
+  logCallStatus({
+    source: "calls-end",
+    callId: refreshed.id,
+    status: "completed",
+    extra: {
+      agentDurationSeconds: refreshed.agentDurationSeconds,
+      customerDurationSeconds: refreshed.customerDurationSeconds,
+      durationSeconds: refreshed.durationSeconds,
+      twilioSid: refreshed.twilioSid,
+      customerCallSid: refreshed.customerCallSid,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    ended: true,
+    call: {
+      id: refreshed.id,
+      twilioSid: refreshed.twilioSid,
+      customerCallSid: refreshed.customerCallSid,
+      agentDurationSeconds: refreshed.agentDurationSeconds,
+      customerDurationSeconds: refreshed.customerDurationSeconds,
+      durationSeconds: refreshed.durationSeconds,
+      status: refreshed.status,
+    },
+  });
 }

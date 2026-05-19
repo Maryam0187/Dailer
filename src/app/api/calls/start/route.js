@@ -8,6 +8,7 @@ import {
   getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
+import { logCallStatus } from "@/server/calls/callStatusLog";
 
 function getRequestBaseUrl(req) {
   const xfProto = req.headers.get("x-forwarded-proto");
@@ -79,9 +80,17 @@ export async function POST(req) {
       ...callbackParams,
     });
 
+    const agentStatus = String(agentLeg.status || "queued").toLowerCase();
     await call.update({
       twilioSid: agentLeg.sid || null,
-      status: agentLeg.status || "queued",
+      status: agentStatus,
+    });
+    logCallStatus({
+      source: "calls-start",
+      callId: call.id,
+      leg: "agent",
+      status: agentStatus,
+      callSid: agentLeg.sid || undefined,
     });
   } catch (err) {
     await call.update({ status: "failed" }).catch(() => {});
