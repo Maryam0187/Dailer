@@ -60,6 +60,7 @@ async function redirectLegTwimlOrUrl(client, sid, twiml, fallbackUrl, label) {
     try {
       await client.calls(sid).update({ url: fallbackUrl, method: "POST" });
     } catch (e2) {
+      const hint = label ? `${label}: ` : "";
       throw new Error(
         `${hint}twiml failed (${String(e1?.message || e1)}); url fallback failed (${String(e2?.message || e2)})`,
       );
