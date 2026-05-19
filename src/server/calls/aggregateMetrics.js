@@ -41,7 +41,12 @@ export async function aggregateCallMetrics(where) {
   return mapMetricsRow(row);
 }
 
-export async function aggregateMetricsByUser({ fromDate, toDate, conferenceOnly }) {
+export async function aggregateMetricsByUser({
+  fromDate,
+  toDate,
+  conferenceOnly,
+  includeAllUsers = false,
+}) {
   const where = {
     ...dateRangeWhere(fromDate, toDate),
   };
@@ -49,7 +54,21 @@ export async function aggregateMetricsByUser({ fromDate, toDate, conferenceOnly 
   if (conferenceOnly) {
     const ids = await conferenceCallIds();
     if (ids.length === 0) {
-      return { metrics: [], totals: emptyTotals() };
+      if (!includeAllUsers) {
+        return { metrics: [], totals: emptyTotals() };
+      }
+      const allUsers = await db.User.findAll({
+        attributes: ["id", "username", "role"],
+        order: [["username", "ASC"]],
+        raw: true,
+      });
+      const metrics = allUsers.map((u) => ({
+        userId: u.id,
+        username: u.username,
+        role: u.role,
+        ...emptyTotals(),
+      }));
+      return { metrics, totals: emptyTotals() };
     }
     where.id = { [Op.in]: ids };
   }
@@ -88,20 +107,48 @@ export async function aggregateMetricsByUser({ fromDate, toDate, conferenceOnly 
       : [];
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  const metrics = aggregated
-    .map((row) => {
+  const metricsByUserId = new Map(
+    aggregated.map((row) => {
       const u = userById.get(row.userId);
+      return [
+        row.userId,
+        {
+          userId: row.userId,
+          username: u?.username || "—",
+          role: u?.role || null,
+          ...mapMetricsRow(row),
+        },
+      ];
+    }),
+  );
+
+  let metrics;
+  if (includeAllUsers) {
+    const allUsers = await db.User.findAll({
+      attributes: ["id", "username", "role"],
+      order: [["username", "ASC"]],
+      raw: true,
+    });
+    metrics = allUsers.map((u) => {
+      const existing = metricsByUserId.get(u.id);
+      if (existing) return existing;
       return {
-        userId: row.userId,
-        username: u?.username || "—",
-        role: u?.role || null,
-        ...mapMetricsRow(row),
+        userId: u.id,
+        username: u.username,
+        role: u.role,
+        ...emptyTotals(),
       };
-    })
-    .sort((a, b) => {
+    });
+    metrics.sort((a, b) => {
       if (b.total !== a.total) return b.total - a.total;
       return (a.username || "").localeCompare(b.username || "");
     });
+  } else {
+    metrics = [...metricsByUserId.values()].sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      return (a.username || "").localeCompare(b.username || "");
+    });
+  }
 
   const totals = metrics.reduce(
     (acc, m) => ({

@@ -11,6 +11,7 @@ export default function Navbar({ role }) {
   const onDialerPage = pathname === "/";
   const onUsersPage = pathname === "/users";
   const onBillingPage = pathname === "/billing";
+  const onReportsPage = pathname === "/reports";
 
   return (
     <header className="sticky top-0 z-30 border-b-2 border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 backdrop-blur-md dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
@@ -43,17 +44,30 @@ export default function Navbar({ role }) {
             </Link>
           ) : null}
           {role === "admin" ? (
-            <Link
-              href="/billing"
-              className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
-                onBillingPage
-                  ? "border-violet-500/70 bg-violet-100 text-violet-950 shadow-md shadow-violet-500/20 dark:border-violet-500/55 dark:bg-violet-950/45 dark:text-violet-50 dark:shadow-violet-950/30"
-                  : "border-transparent text-violet-700 hover:border-violet-200/90 hover:bg-violet-50/90 hover:text-violet-950 dark:text-violet-400 dark:hover:border-violet-800/80 dark:hover:bg-violet-950/35 dark:hover:text-violet-100"
-              }`}
-              aria-current={onBillingPage ? "page" : undefined}
-            >
-              Billing
-            </Link>
+            <>
+              <Link
+                href="/reports"
+                className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
+                  onReportsPage
+                    ? "border-amber-500/70 bg-amber-100 text-amber-950 shadow-md shadow-amber-500/20 dark:border-amber-500/55 dark:bg-amber-950/45 dark:text-amber-50 dark:shadow-amber-950/30"
+                    : "border-transparent text-amber-700 hover:border-amber-200/90 hover:bg-amber-50/90 hover:text-amber-950 dark:text-amber-400 dark:hover:border-amber-800/80 dark:hover:bg-amber-950/35 dark:hover:text-amber-100"
+                }`}
+                aria-current={onReportsPage ? "page" : undefined}
+              >
+                Reports
+              </Link>
+              <Link
+                href="/billing"
+                className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
+                  onBillingPage
+                    ? "border-violet-500/70 bg-violet-100 text-violet-950 shadow-md shadow-violet-500/20 dark:border-violet-500/55 dark:bg-violet-950/45 dark:text-violet-50 dark:shadow-violet-950/30"
+                    : "border-transparent text-violet-700 hover:border-violet-200/90 hover:bg-violet-50/90 hover:text-violet-950 dark:text-violet-400 dark:hover:border-violet-800/80 dark:hover:bg-violet-950/35 dark:hover:text-violet-100"
+                }`}
+                aria-current={onBillingPage ? "page" : undefined}
+              >
+                Billing
+              </Link>
+            </>
           ) : null}
         </div>
 
