@@ -11,6 +11,67 @@ import { getTwilioClient } from "@/server/twilio";
 
 export const runtime = "nodejs";
 
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "canceled",
+  "cancelled",
+  "failed",
+  "busy",
+  "no-answer",
+]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Twilio only allows REST `calls.update({ url })` while the Call leg status is **in-progress**.
+ * The Dial child stays **ringing** until the callee answers — then redirect succeeds.
+ *
+ * Poll briefly so UX can tap "Enable conference" slightly before Twilio finishes the handshake.
+ */
+async function waitForRedirectableLegs(client, parentSid, customerSid, opts = {}) {
+  const attempts = opts.attempts ?? 14;
+  const delayMs = opts.delayMs ?? 400;
+
+  let lastAgent = "?";
+  let lastCustomer = "?";
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const [agentCall, custCall] = await Promise.all([
+        client.calls(parentSid).fetch(),
+        client.calls(customerSid).fetch(),
+      ]);
+      lastAgent = String(agentCall.status || "").toLowerCase();
+      lastCustomer = String(custCall.status || "").toLowerCase();
+
+      if (TERMINAL_STATUSES.has(lastAgent) || TERMINAL_STATUSES.has(lastCustomer)) {
+        return {
+          ok: false,
+          agentStatus: lastAgent,
+          customerStatus: lastCustomer,
+          reason: "terminal",
+        };
+      }
+
+      if (lastAgent === "in-progress" && lastCustomer === "in-progress") {
+        return { ok: true, agentStatus: lastAgent, customerStatus: lastCustomer };
+      }
+    } catch {
+      /* continue polling */
+    }
+    await sleep(delayMs);
+  }
+
+  return {
+    ok: false,
+    agentStatus: lastAgent,
+    customerStatus: lastCustomer,
+    reason: "not_ready",
+  };
+}
+
 export async function POST(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -93,6 +154,40 @@ export async function POST(req, { params }) {
       );
     }
 
+    const ready = await waitForRedirectableLegs(client, parentSid, customerSid);
+    if (!ready.ok) {
+      if (ready.reason === "terminal") {
+        return NextResponse.json(
+          {
+            error:
+              "This call has already ended or cannot be moved to conference anymore. Place a new call first.",
+          },
+          { status: 409 },
+        );
+      }
+
+      let msg =
+        "Both lines must be live (in-progress). Wait until you and the customer are connected, then try again.";
+      if (ready.customerStatus === "ringing" && ready.agentStatus === "in-progress") {
+        msg =
+          "Customer phone is still ringing. Wait until they answer, then enable conference mode.";
+      } else if (ready.agentStatus !== "in-progress") {
+        msg =
+          "Agent line is not in-progress yet. Accept the incoming browser call fully, then enable conference.";
+      } else if (ready.customerStatus === "queued") {
+        msg =
+          "Customer line is still connecting. Wait a few seconds after they answer and try again.";
+      }
+
+      return NextResponse.json(
+        {
+          error: msg,
+          twilioHint: `agent=${ready.agentStatus} customer=${ready.customerStatus}`,
+        },
+        { status: 409 },
+      );
+    }
+
     const conferenceName = createConferenceName({ userId: authedUser.id });
     const agentVoiceUrl = buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
     const customerVoiceUrl = buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
@@ -109,9 +204,13 @@ export async function POST(req, { params }) {
       callMode: "conference",
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err?.message || "Failed to upgrade call to conference" },
-      { status: 502 },
-    );
+    const raw = String(err?.message || err || "").toLowerCase();
+    let message =
+      err?.message || "Failed to upgrade call to conference";
+    if (raw.includes("not in-progress") || raw.includes("cannot redirect")) {
+      message =
+        "Twilio could not redirect this call yet. Wait until both you and the customer are fully connected (not ringing), then try again.";
+    }
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

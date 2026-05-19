@@ -436,8 +436,9 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
                     Multi-agent
                   </p>
                   <p className="mt-1 text-xs text-violet-800/90 dark:text-violet-200/90">
-                    Switch this call to conference mode to invite another agent. You may hear a brief
-                    audio pause while lines reconnect.
+                    Switch this call to conference mode to invite another agent. The customer must
+                    have answered (not just ringing)—Twilio cannot redirect ringing legs. You may
+                    hear a brief audio pause while lines reconnect.
                   </p>
                   <button
                     type="button"
