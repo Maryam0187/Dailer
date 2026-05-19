@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import {
+  buildConferenceStatusCallbackUrl,
   buildConferenceTwiMl,
   buildConferenceVoiceUrl,
   createConferenceName,
@@ -260,10 +261,15 @@ export async function POST(req, { params }) {
     const callerIdForConference =
       String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
 
+    const conferenceStatusCb = fallbackBaseUrl
+      ? buildConferenceStatusCallbackUrl(fallbackBaseUrl)
+      : "";
+
     const customerTwiml = buildConferenceTwiMl({
       conferenceName,
       participant: "customer",
       callerId: callerIdForConference,
+      statusCallbackUrl: conferenceStatusCb || undefined,
     });
 
     const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);

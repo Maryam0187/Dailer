@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { applyCallLegUpdate, parseDurationSeconds } from "@/server/calls/callLegs";
-import { buildConferenceTwiMl, getDefaultTwilioCallerId } from "@/server/calls/conferenceVoice";
+import {
+  buildConferenceStatusCallbackUrl,
+  buildConferenceTwiMl,
+  getDefaultTwilioCallerId,
+  getRequestBaseUrlFromRequest,
+} from "@/server/calls/conferenceVoice";
 
 export const runtime = "nodejs";
 
@@ -50,10 +55,14 @@ export async function POST(req) {
   if (pendingConferenceName) {
     const callerId =
       String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
+    const origin = getRequestBaseUrlFromRequest(req);
+    const statusCbUrl = origin ? buildConferenceStatusCallbackUrl(origin) : "";
+
     const agentConferenceTwiml = buildConferenceTwiMl({
       conferenceName: pendingConferenceName,
       participant: "agent",
       callerId,
+      statusCallbackUrl: statusCbUrl || undefined,
     });
 
     const [affected] = await db.CallLog.update(

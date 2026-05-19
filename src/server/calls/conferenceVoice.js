@@ -64,6 +64,12 @@ export function buildConferenceTwiMl(opts) {
   const endConferenceOnExit = participant === "customer" ? "true" : "false";
   const muted = muteOnEntry ? "true" : "false";
 
+  const statusCallbackAbsoluteUrl = String(opts?.statusCallbackUrl || "").trim();
+  /** First participant locks these values on Twilio; keep URLs identical on every leg. */
+  const statusAttrs = statusCallbackAbsoluteUrl
+    ? ` statusCallback="${escapeXmlAttr(statusCallbackAbsoluteUrl)}" statusCallbackEvent="start end join leave" statusCallbackMethod="POST"`
+    : "";
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial answerOnBridge="true"${callerIdAttr}>
@@ -71,10 +77,21 @@ export function buildConferenceTwiMl(opts) {
       startConferenceOnEnter="${startConferenceOnEnter}"
       endConferenceOnExit="${endConferenceOnExit}"
       muted="${muted}"
-      beep="false"
+      beep="false"${statusAttrs}
     >${escapeXmlText(conferenceName)}</Conference>
   </Dial>
 </Response>`;
+}
+
+/** Public webhook path for `<Conference statusCallback>` (append to app origin). */
+export function buildConferenceStatusCallbackPath() {
+  return "/api/twilio/conference-status";
+}
+
+export function buildConferenceStatusCallbackUrl(baseUrl) {
+  const origin = String(baseUrl || "").replace(/\/$/, "");
+  if (!origin) return "";
+  return `${origin}${buildConferenceStatusCallbackPath()}`;
 }
 
 export function getDefaultTwilioCallerId() {
