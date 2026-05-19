@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { syncAllLegDurationsFromTwilio } from "@/server/calls/callLegs";
-import { logCallStatus } from "@/server/calls/callStatusLog";
 import { endCallLegs } from "@/server/twilioEndCall";
 
 export async function POST(req) {
@@ -67,19 +66,6 @@ export async function POST(req) {
 
   const refreshed = await call.reload();
   await refreshed.update({ status: "completed" });
-
-  logCallStatus({
-    source: "calls-end",
-    callId: refreshed.id,
-    status: "completed",
-    extra: {
-      agentDurationSeconds: refreshed.agentDurationSeconds,
-      customerDurationSeconds: refreshed.customerDurationSeconds,
-      durationSeconds: refreshed.durationSeconds,
-      twilioSid: refreshed.twilioSid,
-      customerCallSid: refreshed.customerCallSid,
-    },
-  });
 
   return NextResponse.json({
     ok: true,

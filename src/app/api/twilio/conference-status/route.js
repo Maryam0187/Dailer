@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getTwilioClient } from "@/server/twilio";
 import { syncAllLegDurationsFromTwilio } from "@/server/calls/callLegs";
-import { logCallStatus } from "@/server/calls/callStatusLog";
 import { endCallLegs } from "@/server/twilioEndCall";
 
 export const runtime = "nodejs";
@@ -101,27 +100,8 @@ export async function POST(req) {
       ],
     });
     await call.update({ status: "completed" }).catch(() => {});
-
-    logCallStatus({
-      source: "twilio-conference-status",
-      callId: call.id,
-      status: "completed",
-      extra: {
-        reason: "last_agent_left_conference",
-        conferenceName: friendlyName,
-        participantLeaveCallSid: leavingCallSid || null,
-      },
-    });
-  } catch (err) {
-    logCallStatus({
-      source: "twilio-conference-status",
-      callId: null,
-      status: "error",
-      extra: {
-        conferenceName: friendlyName || null,
-        message: String(err?.message || err || ""),
-      },
-    });
+  } catch {
+    /* ignore */
   }
 
   return new NextResponse("OK", { status: 200 });

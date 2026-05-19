@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
-import { logClientCallStatus } from "@/lib/callStatusLog";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -200,18 +199,6 @@ export function TwilioVoiceProvider({ children }) {
       const callId = Number(snap?.callId);
       const callSid = getIncomingCallSid(call);
 
-      let sdkStatus = null;
-      try {
-        sdkStatus = typeof call?.status === "function" ? call.status() : null;
-      } catch {
-        /* ignore */
-      }
-      logClientCallStatus("sdk:call-bound", {
-        callId: Number.isInteger(callId) && callId > 0 ? callId : null,
-        callSid: callSid || null,
-        status: sdkStatus,
-      });
-
       // Invited agents join without TwiML conference mute (bridge mute cannot be cleared
       // with SDK unmute). Force mic muted here so they start muted until they choose Unmute.
       const applyInvitedDefaultMute = () => {
@@ -229,19 +216,8 @@ export function TwilioVoiceProvider({ children }) {
       setVoiceConnected(true);
       markInProgress();
 
-      const logSdk = (event, extra = {}) => {
-        logClientCallStatus(`sdk:${event}`, {
-          callId: Number.isInteger(callId) && callId > 0 ? callId : null,
-          callSid: callSid || getIncomingCallSid(call) || null,
-          ...extra,
-        });
-      };
-
-      call.on("ringing", () => logSdk("ringing", { status: "ringing" }));
-      call.on("accept", () => logSdk("accept", { status: "in-progress" }));
       call.on("mute", (isMuted) => setMuted(isMuted));
       call.on("disconnect", () => {
-        logSdk("disconnect", { status: "completed" });
         callRef.current = null;
         setVoiceConnected(false);
         setMuted(false);

@@ -1,8 +1,6 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getTwilioClient } from "@/server/twilio";
-import { logCallStatus } from "@/server/calls/callStatusLog";
-
 const ACTIVE_CHILD_STATUSES = new Set([
   "queued",
   "ringing",
@@ -66,7 +64,6 @@ export async function findCallLogByAnyLegSid(callSid) {
 export async function applyCallLegUpdate(call, patch) {
   if (!call?.id) return call;
 
-  const previousStatus = call.status;
   const update = {};
   if (patch.callSid && patch.leg === "customer") {
     update.customerCallSid = String(patch.callSid).trim();
@@ -102,32 +99,7 @@ export async function applyCallLegUpdate(call, patch) {
   if (Object.keys(update).length === 0) return call;
 
   await call.update(update);
-  const refreshed = await call.reload();
-
-  if (patch.status && patch.status !== previousStatus) {
-    logCallStatus({
-      source: patch.source || "call-leg-update",
-      callId: refreshed.id,
-      leg: patch.leg,
-      status: patch.status,
-      callSid: patch.leg === "customer" ? refreshed.customerCallSid : refreshed.twilioSid,
-      durationSeconds:
-        patch.leg === "customer"
-          ? refreshed.customerDurationSeconds
-          : refreshed.agentDurationSeconds,
-    });
-  } else if (patch.callSid && patch.leg === "customer") {
-    logCallStatus({
-      source: patch.source || "call-leg-update",
-      callId: refreshed.id,
-      leg: "customer",
-      status: refreshed.status,
-      callSid: refreshed.customerCallSid,
-      extra: { event: "customer_sid_linked" },
-    });
-  }
-
-  return refreshed;
+  return call.reload();
 }
 
 /**

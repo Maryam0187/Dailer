@@ -5,8 +5,6 @@ import {
   parseDurationSeconds,
   syncCustomerLegFromTwilio,
 } from "@/server/calls/callLegs";
-import { logCallStatus } from "@/server/calls/callStatusLog";
-
 export const runtime = "nodejs";
 
 function normalizeStatus(status) {
@@ -27,13 +25,6 @@ export async function POST(req) {
 
   const call = await findCallLogByAnyLegSid(callSid);
   if (!call) {
-    logCallStatus({
-      source: "twilio-status",
-      callSid,
-      status: normalizedStatus,
-      durationSeconds: parseDurationSeconds(callDuration),
-      extra: { note: "no_matching_call_log" },
-    });
     return new NextResponse("OK", { status: 200 });
   }
 
