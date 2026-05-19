@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { downloadCsv } from "@/lib/exportCsv";
 import { formatDuration } from "@/lib/formatDuration";
 
@@ -66,6 +66,46 @@ function metricsToCsvRow(row) {
   ];
 }
 
+const DEFAULT_SORT_KEY = "total";
+const DEFAULT_SORT_DIR = "desc";
+
+function compareReportRows(a, b, key, dir) {
+  const mult = dir === "asc" ? 1 : -1;
+  if (key === "username" || key === "role") {
+    const av = String(a[key] ?? "").toLowerCase();
+    const bv = String(b[key] ?? "").toLowerCase();
+    return mult * av.localeCompare(bv);
+  }
+  const av = Number(a[key]) || 0;
+  const bv = Number(b[key]) || 0;
+  return mult * (av - bv);
+}
+
+function sortReportRows(rows, sortKey, sortDir) {
+  return [...rows].sort((a, b) => compareReportRows(a, b, sortKey, sortDir));
+}
+
+function SortableHeader({ label, columnKey, align, sortKey, sortDir, onSort }) {
+  const active = sortKey === columnKey;
+  const thAlign = align === "right" ? "text-right" : "text-left";
+  const btnJustify = align === "right" ? "justify-end" : "justify-start";
+
+  return (
+    <th className={`px-4 py-3 ${thAlign}`} scope="col" aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={`inline-flex w-full items-center gap-1 uppercase tracking-wide hover:text-zinc-900 dark:hover:text-zinc-200 ${btnJustify}`}
+      >
+        <span>{label}</span>
+        <span className="text-[10px] leading-none opacity-70" aria-hidden>
+          {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export default function ReportsClient() {
   const [rangePreset, setRangePreset] = useState("today");
   const initialRange = getPresetRange("today");
@@ -78,11 +118,29 @@ export default function ReportsClient() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState(null);
   const [loadedRange, setLoadedRange] = useState(null);
+  const [sortKey, setSortKey] = useState(DEFAULT_SORT_KEY);
+  const [sortDir, setSortDir] = useState(DEFAULT_SORT_DIR);
+
+  const sortedRows = useMemo(
+    () => (rows.length ? sortReportRows(rows, sortKey, sortDir) : []),
+    [rows, sortKey, sortDir],
+  );
+
+  function onSortColumn(columnKey) {
+    if (sortKey === columnKey) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(columnKey);
+    setSortDir(columnKey === "username" || columnKey === "role" ? "asc" : "desc");
+  }
 
   function clearReport() {
     setLoadedRange(null);
     setRows([]);
     setTotals(null);
+    setSortKey(DEFAULT_SORT_KEY);
+    setSortDir(DEFAULT_SORT_DIR);
   }
 
   const loadReport = useCallback(async (fromDate, toDate, scope) => {
@@ -144,7 +202,7 @@ export default function ReportsClient() {
 
     setExporting(true);
     try {
-      const csvRows = rows.map(metricsToCsvRow);
+      const csvRows = sortedRows.map(metricsToCsvRow);
       if (totals) {
         csvRows.push([
           "TOTAL",
@@ -318,16 +376,70 @@ export default function ReportsClient() {
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
+            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
               <tr>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Completed</th>
-                <th className="px-4 py-3 text-right">No answer</th>
-                <th className="px-4 py-3 text-right">Failed</th>
-                <th className="px-4 py-3 text-right">Busy</th>
-                <th className="px-4 py-3 text-right">Duration</th>
+                <SortableHeader
+                  label="User"
+                  columnKey="username"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Role"
+                  columnKey="role"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Total"
+                  columnKey="total"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Completed"
+                  columnKey="completed"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="No answer"
+                  columnKey="noAnswer"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Failed"
+                  columnKey="failedOrCanceled"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Busy"
+                  columnKey="busy"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Duration"
+                  columnKey="durationSeconds"
+                  align="right"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -350,7 +462,7 @@ export default function ReportsClient() {
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                sortedRows.map((row) => (
                   <tr key={row.userId} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
                     <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                       {row.username}
