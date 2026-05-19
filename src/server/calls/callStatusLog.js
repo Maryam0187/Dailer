@@ -1,9 +1,25 @@
 /** Server-side Twilio / CallLog status logging (terminal where Next.js runs). */
 
+function isStagingDeploy() {
+  const railwayEnv = String(
+    process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_ENVIRONMENT_NAME || "",
+  ).toLowerCase();
+  if (railwayEnv === "staging") return true;
+  const domain = String(
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+      process.env.RAILWAY_STATIC_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      "",
+  ).toLowerCase();
+  return domain.includes("staging");
+}
+
 export function shouldLogCallStatus() {
   if (process.env.CALL_STATUS_LOG === "false") return false;
   if (process.env.CALL_STATUS_LOG === "true") return true;
-  return process.env.NODE_ENV === "development";
+  if (process.env.NODE_ENV === "development") return true;
+  if (isStagingDeploy()) return true;
+  return false;
 }
 
 /**
