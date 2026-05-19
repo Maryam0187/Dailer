@@ -32,3 +32,55 @@ export function getRequestBaseUrlFromRequest(req) {
 
   return req?.nextUrl?.origin || null;
 }
+
+function escapeXmlAttr(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeXmlText(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+/**
+ * Inline TwiML for redirecting live legs into Conference (upgrade from direct &lt;Dial&gt;).
+ * Prefer `calls.update({ twiml })` over `url`; URL redirects frequently fail mid-&lt;Dial&gt;.
+ *
+ * Mirrors `/api/twilio/voice` (Dial + Conference noun attributes).
+ */
+export function buildConferenceTwiMl(opts) {
+  const conferenceName = String(opts?.conferenceName || "").trim();
+  const participant = String(opts?.participant || "agent").trim().toLowerCase();
+  const muteOnEntry = Boolean(opts?.muteOnEntry);
+  const callerId = String(opts?.callerId || "").trim();
+
+  if (!conferenceName) throw new Error("conferenceName is required");
+
+  const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
+  const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
+  const endConferenceOnExit = participant === "customer" ? "true" : "false";
+  const muted = muteOnEntry ? "true" : "false";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial answerOnBridge="true"${callerIdAttr}>
+    <Conference
+      startConferenceOnEnter="${startConferenceOnEnter}"
+      endConferenceOnExit="${endConferenceOnExit}"
+      muted="${muted}"
+      beep="false"
+    >${escapeXmlText(conferenceName)}</Conference>
+  </Dial>
+</Response>`;
+}
+
+export function getDefaultTwilioCallerId() {
+  return (
+    String(process.env.TWILIO_PHONE_NUMBER || "").trim() ||
+    String(process.env.TWILIO_FROM_NUMBER || "").trim() ||
+    ""
+  );
+}

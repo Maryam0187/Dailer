@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { findCustomerDialChild, syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
+import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import {
+  buildConferenceTwiMl,
   buildConferenceVoiceUrl,
   createConferenceName,
+  getDefaultTwilioCallerId,
   getRequestBaseUrlFromRequest,
 } from "@/server/calls/conferenceVoice";
 import { getTwilioClient } from "@/server/twilio";
@@ -24,15 +26,53 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Best-effort outbound PSTN child under Client parent (handles stale stored customerCallSid). */
+function pickBestPstnChild(children) {
+  let best = null;
+  let bestScore = Infinity;
+  let bestTs = -1;
+
+  for (const c of children || []) {
+    const to = String(c?.to || "").trim().toLowerCase();
+    if (!to || to.startsWith("client:")) continue;
+    const st = String(c?.status || "").toLowerCase();
+    if (TERMINAL_STATUSES.has(st)) continue;
+
+    const score =
+      st === "in-progress" ? 0 : st === "ringing" ? 1 : st === "queued" ? 2 : st === "initiated" ? 3 : 8;
+    const tsRaw = c?.dateCreated || c?.startTime;
+    const ts = tsRaw ? new Date(tsRaw).getTime() : 0;
+
+    if (score < bestScore || (score === bestScore && ts >= bestTs)) {
+      bestScore = score;
+      bestTs = ts;
+      best = c;
+    }
+  }
+  return best;
+}
+
+async function redirectLegTwimlOrUrl(client, sid, twiml, fallbackUrl, label) {
+  try {
+    await client.calls(sid).update({ twiml });
+  } catch (e1) {
+    if (!fallbackUrl) throw e1;
+    try {
+      await client.calls(sid).update({ url: fallbackUrl, method: "POST" });
+    } catch (e2) {
+      throw new Error(
+        `${hint}twiml failed (${String(e1?.message || e1)}); url fallback failed (${String(e2?.message || e2)})`,
+      );
+    }
+  }
+}
+
 /**
- * Twilio only allows REST `calls.update({ url })` while the Call leg status is **in-progress**.
- * The Dial child stays **ringing** until the callee answers — then redirect succeeds.
- *
- * Poll briefly so UX can tap "Enable conference" slightly before Twilio finishes the handshake.
+ * Twilio only allows REST redirects while legs are usable; Dial child stays ringing until pickup.
  */
 async function waitForRedirectableLegs(client, parentSid, customerSid, opts = {}) {
-  const attempts = opts.attempts ?? 14;
-  const delayMs = opts.delayMs ?? 400;
+  const attempts = opts.attempts ?? 18;
+  const delayMs = opts.delayMs ?? 450;
 
   let lastAgent = "?";
   let lastCustomer = "?";
@@ -92,6 +132,7 @@ export async function POST(req, { params }) {
       "conferenceName",
       "direction",
       "status",
+      "fromNumber",
     ],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -122,29 +163,25 @@ export async function POST(req, { params }) {
     });
   }
 
-  const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
-  if (!fallbackBaseUrl) {
-    return NextResponse.json(
-      { error: "Could not determine public app URL for Twilio voice webhook" },
-      { status: 500 },
-    );
-  }
-
   try {
     const client = getTwilioClient();
-    let customerSid = String(call.customerCallSid || "").trim();
-    if (!customerSid) {
-      const synced = await syncCustomerLegFromTwilio(call);
-      customerSid = String(synced?.customerCallSid || "").trim();
-    }
-    if (!customerSid) {
-      const customerChild = await findCustomerDialChild(client, parentSid);
-      customerSid = String(customerChild?.sid || "").trim();
-      if (customerSid) {
-        await call.update({ customerCallSid: customerSid });
+
+    await syncCustomerLegFromTwilio(call).catch(() => {});
+
+    const childrenList = await client.calls.list({ parentCallSid: parentSid, limit: 35 });
+    const pickedChild = pickBestPstnChild(childrenList);
+    let resolvedCustomerSid = String(call.customerCallSid || "").trim();
+    if (pickedChild?.sid) {
+      resolvedCustomerSid = String(pickedChild.sid || "").trim();
+      if (
+        resolvedCustomerSid &&
+        resolvedCustomerSid !== String(call.customerCallSid || "").trim()
+      ) {
+        await call.update({ customerCallSid: resolvedCustomerSid }).catch(() => {});
       }
     }
-    if (!customerSid) {
+
+    if (!resolvedCustomerSid) {
       return NextResponse.json(
         {
           error:
@@ -154,7 +191,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    const ready = await waitForRedirectableLegs(client, parentSid, customerSid);
+    const ready = await waitForRedirectableLegs(client, parentSid, resolvedCustomerSid);
     if (!ready.ok) {
       if (ready.reason === "terminal") {
         return NextResponse.json(
@@ -189,11 +226,41 @@ export async function POST(req, { params }) {
     }
 
     const conferenceName = createConferenceName({ userId: authedUser.id });
-    const agentVoiceUrl = buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
-    const customerVoiceUrl = buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
+    const callerIdForConference =
+      String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
 
-    await client.calls(parentSid).update({ url: agentVoiceUrl, method: "POST" });
-    await client.calls(customerSid).update({ url: customerVoiceUrl, method: "POST" });
+    const agentTwiml = buildConferenceTwiMl({
+      conferenceName,
+      participant: "agent",
+      callerId: callerIdForConference,
+    });
+    const customerTwiml = buildConferenceTwiMl({
+      conferenceName,
+      participant: "customer",
+      callerId: callerIdForConference,
+    });
+
+    const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
+    const agentVoiceUrl =
+      fallbackBaseUrl && buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
+    const customerVoiceUrl =
+      fallbackBaseUrl && buildConferenceVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
+
+    // Agent (starts conference via startConferenceOnEnter) first, then customer joins.
+    await redirectLegTwimlOrUrl(
+      client,
+      parentSid,
+      agentTwiml,
+      agentVoiceUrl || null,
+      "agent-leg",
+    );
+    await redirectLegTwimlOrUrl(
+      client,
+      resolvedCustomerSid,
+      customerTwiml,
+      customerVoiceUrl || null,
+      "customer-leg",
+    );
 
     await call.update({ conferenceName });
 
@@ -205,11 +272,10 @@ export async function POST(req, { params }) {
     });
   } catch (err) {
     const raw = String(err?.message || err || "").toLowerCase();
-    let message =
-      err?.message || "Failed to upgrade call to conference";
+    let message = err?.message || "Failed to upgrade call to conference";
     if (raw.includes("not in-progress") || raw.includes("cannot redirect")) {
       message =
-        "Twilio could not redirect this call yet. Wait until both you and the customer are fully connected (not ringing), then try again.";
+        "Conference upgrade failed: Twilio could not reroute both legs yet. Hang up and start a conference-style call instead, or try again shortly after talking for a few seconds.";
     }
     return NextResponse.json({ error: message }, { status: 502 });
   }
