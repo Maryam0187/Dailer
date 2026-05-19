@@ -18,6 +18,9 @@ export async function GET(req) {
   const toDate = parseDateOnly(searchParams.get("toDate"));
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const conferenceOnly = scope === "conference";
+  const includeAllUsers =
+    String(searchParams.get("includeAllUsers") || "").trim() === "1" ||
+    String(searchParams.get("includeAllUsers") || "").trim().toLowerCase() === "true";
 
   if (!fromDate || !toDate) {
     return NextResponse.json({ error: "fromDate and toDate are required" }, { status: 400 });
@@ -30,7 +33,8 @@ export async function GET(req) {
     fromDate,
     toDate,
     conferenceOnly,
+    includeAllUsers,
   });
 
-  return NextResponse.json({ metrics, totals });
+  return NextResponse.json({ fromDate, toDate, scope, metrics, totals });
 }
