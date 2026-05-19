@@ -170,6 +170,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       beginSession({
         callId: result.call.id,
         callOwnedByMe: true,
+        callMode: result.callMode || "direct",
         toNumber: result.call.toNumber,
         phoneLabel: toNumber,
         customerName: undefined,

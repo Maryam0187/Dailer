@@ -40,7 +40,7 @@ export async function POST(req) {
   const callSid = String(callLog.twilioSid || "").trim();
   if (!callSid) {
     return NextResponse.json(
-      { error: "Call customer leg not established yet. Try again in a few seconds." },
+      { error: "Call not connected yet. Try again in a few seconds." },
       { status: 409 },
     );
   }
@@ -116,7 +116,7 @@ export async function POST(req) {
     });
   } catch (err) {
     return NextResponse.json(
-      { error: err?.message || "Failed to start conference recording" },
+      { error: err?.message || "Failed to start call recording" },
       { status: 502 },
     );
   }

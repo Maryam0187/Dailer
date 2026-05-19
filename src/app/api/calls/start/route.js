@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import {
   getTwilioClient,
   getTwilioFromNumber,
@@ -24,33 +25,9 @@ function getRequestBaseUrl(req) {
   return req?.nextUrl?.origin || null;
 }
 
-function normalizeToE164(rawNumber) {
-  const input = String(rawNumber || "").trim();
-  if (!input) return null;
-
-  if (input.startsWith("+")) {
-    const normalized = `+${input.slice(1).replace(/\D/g, "")}`;
-    return normalized.length >= 8 ? normalized : null;
-  }
-
-  const digits = input.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return null;
-}
-
-function buildVoiceUrl(baseUrl, conferenceName, participant) {
-  const qs = new URLSearchParams({
-    conferenceName,
-    participant,
-  });
-  return `${baseUrl}/api/twilio/voice?${qs.toString()}`;
-}
-
-function createConferenceName({ userId }) {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `dialer-${userId}-${ts}-${rand}`;
+function buildBridgeVoiceUrl(baseUrl, callId) {
+  const qs = new URLSearchParams({ callId: String(callId) });
+  return `${baseUrl}/api/twilio/voice/bridge?${qs.toString()}`;
 }
 
 export async function POST(req) {
@@ -77,30 +54,37 @@ export async function POST(req) {
     );
   }
 
-  const conferenceName = createConferenceName({ userId: authedUser.id });
-  let customerLeg = null;
+  const call = await db.CallLog.create({
+    userId: authedUser.id,
+    fromNumber,
+    toNumber: normalizedToNumber,
+    direction: "outbound",
+    status: "initiated",
+    twilioSid: null,
+    durationSeconds: null,
+  });
+
+  let agentLeg = null;
   try {
     const client = getTwilioClient();
     const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
-    const agentVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "agent");
-    const customerVoiceUrl = buildVoiceUrl(fallbackBaseUrl, conferenceName, "customer");
+    const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
 
-    // Start agent leg first so the browser can join before customer is answered.
-    await client.calls.create({
+    // Option B: dial agent only; when they answer, bridge TwiML <Dial>s the customer (no Conference).
+    agentLeg = await client.calls.create({
       to: `client:${clientIdentity}`,
       from: fromNumber,
-      url: agentVoiceUrl,
+      url: bridgeVoiceUrl,
       ...callbackParams,
     });
 
-    customerLeg = await client.calls.create({
-      to: normalizedToNumber,
-      from: fromNumber,
-      url: customerVoiceUrl,
-      ...callbackParams,
+    await call.update({
+      twilioSid: agentLeg.sid || null,
+      status: agentLeg.status || "queued",
     });
   } catch (err) {
+    await call.update({ status: "failed" }).catch(() => {});
     return NextResponse.json(
       {
         error: err?.message || "Failed to place call with Twilio",
@@ -109,16 +93,13 @@ export async function POST(req) {
     );
   }
 
-  const call = await db.CallLog.create({
-    userId: authedUser.id,
-    fromNumber,
-    toNumber: normalizedToNumber,
-    direction: "outbound",
-    status: customerLeg?.status || "queued",
-    twilioSid: customerLeg?.sid || null,
-    durationSeconds: null,
-  });
-
-  return NextResponse.json({ ok: true, call, conferenceName }, { status: 201 });
+  const refreshed = await call.reload();
+  return NextResponse.json(
+    {
+      ok: true,
+      call: refreshed,
+      callMode: "direct",
+    },
+    { status: 201 },
+  );
 }
-

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getTwilioClient } from "@/server/twilio";
+import { endCallLegs } from "@/server/twilioEndCall";
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -30,6 +30,10 @@ export async function POST(req) {
     where: { callLogId: callId, invitedUserId: authedUser.id },
     attributes: ["callSid"],
   }));
+  const inviteLegs = await db.InviteDialLeg.findAll({
+    where: { callLogId: callId },
+    attributes: ["callSid"],
+  });
   if (!privileged && !isOwner && !isInvitee) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -39,8 +43,7 @@ export async function POST(req) {
   }
 
   try {
-    const client = getTwilioClient();
-    await client.calls(call.twilioSid).update({ status: "completed" });
+    await endCallLegs(call, inviteLegs);
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to end Twilio call" },
@@ -51,4 +54,3 @@ export async function POST(req) {
   await call.update({ status: "completed" });
   return NextResponse.json({ ok: true, ended: true }, { status: 200 });
 }
-

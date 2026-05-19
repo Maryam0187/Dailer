@@ -17,6 +17,10 @@ function escapeXmlAttr(value) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Conference TwiML — used for add-agent invites, transfers, and legacy multi-party calls.
+ * Outbound 1:1 uses /api/twilio/voice/bridge (<Dial>) instead.
+ */
 export async function POST(req) {
   const form = await req.formData();
   const twilioFrom = String(form.get("From") || "").trim();

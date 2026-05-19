@@ -1003,7 +1003,24 @@ export function TwilioVoiceProvider({ children }) {
     const active = callRef.current;
     const isInvitee = snap?.callOwnedByMe === false;
 
-    // Owner "Leave" only drops this browser leg — the conference/customer call may continue.
+    const isDirectCall =
+      snap?.callMode === "direct" || (!snap?.conferenceName && snap?.callOwnedByMe !== false);
+
+    // Direct 1:1 (Dial bridge): always end the full call, not a partial leave.
+    if (!isInvitee && isDirectCall) {
+      await endCall();
+      if (callRef.current) {
+        leaveWithoutEndingRef.current = false;
+        try {
+          callRef.current.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
+    // Conference owner "Leave" only drops this browser leg — the customer call may continue.
     // Invited agents leaving last must end the CallLog + Twilio parent call or it stays open.
     if (isInvitee) {
       await endCall();

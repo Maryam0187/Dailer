@@ -22,6 +22,8 @@ function hasResolvedNumericCallId(sess) {
 function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
   const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError, leaveConference } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
+  const isDirectCall =
+    session.callMode === "direct" || (isCallOwner && !session.conferenceName);
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -394,6 +396,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
             ) : null}
 
             <div className="mt-2 space-y-3">
+              {!isDirectCall ? (
               <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-950/30">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
@@ -450,6 +453,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                   <p className="mt-2 text-xs font-medium text-cyan-700 dark:text-cyan-300">{addAgentStatus}</p>
                 ) : null}
               </div>
+              ) : null}
 
               <div className="flex flex-col gap-2">
               <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
@@ -559,25 +563,27 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
               >
                 {isMuted ? "Unmute" : "Mute"}
               </button>
-              <button
-                type="button"
-                onClick={leaveConference}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                  />
-                </svg>
-                Leave conference
-              </button>
+              {!isDirectCall ? (
+                <button
+                  type="button"
+                  onClick={leaveConference}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    />
+                  </svg>
+                  Leave conference
+                </button>
+              ) : null}
               {isCallOwner ? (
                 <button
                   type="button"
-                  onClick={endCall}
+                  onClick={isDirectCall ? leaveConference : endCall}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg transition-colors hover:bg-red-700"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -588,7 +594,7 @@ function ActiveCallPanel({ session, endCall, recentJoinedAgent }) {
                       d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"
                     />
                   </svg>
-                  End call for everyone
+                  {isDirectCall ? "End call" : "End call for everyone"}
                 </button>
               ) : null}
               </div>
