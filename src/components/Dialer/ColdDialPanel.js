@@ -168,6 +168,18 @@ export default function ColdDialPanel() {
     setSavingDisposition(true);
     setError(null);
     try {
+      const callId = Number(pendingDisposition.callId);
+      if (Number.isInteger(callId) && callId > 0) {
+        const dispRes = await fetch(`/api/calls/${callId}/disposition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ disposition: "interested" }),
+        });
+        const dispJson = await dispRes.json().catch(() => ({}));
+        if (!dispRes.ok) throw new Error(dispJson?.error || "Failed to save call disposition");
+      }
+
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,7 +295,7 @@ export default function ColdDialPanel() {
                 <button
                   type="button"
                   disabled={savingDisposition}
-                  onClick={() => void saveDisposition("interested")}
+                  onClick={() => setShowCreateLead(true)}
                   className="rounded-lg border border-emerald-500 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-200"
                 >
                   Create lead

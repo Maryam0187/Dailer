@@ -20,7 +20,8 @@ export async function PATCH(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const id = Number(params?.id);
+  const { id: rawId } = await params;
+  const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) {
     return NextResponse.json({ error: "Invalid lead id" }, { status: 400 });
   }
