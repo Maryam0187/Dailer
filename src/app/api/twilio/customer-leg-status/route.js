@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { applyCallLegUpdate, parseDurationSeconds } from "@/server/calls/callLegs";
+import { emitCustomerCallStatus } from "@/server/calls/emitCustomerStatus";
 
 export const runtime = "nodejs";
 
@@ -22,13 +23,24 @@ export async function POST(req) {
   const call = await db.CallLog.findByPk(callId);
   if (!call) return new NextResponse("OK", { status: 200 });
 
+  const normalizedStatus = String(callStatus || "").trim().toLowerCase();
+
   await applyCallLegUpdate(call, {
     source: "customer-leg-status",
     leg: "customer",
     callSid,
-    status: callStatus || undefined,
+    status: normalizedStatus || undefined,
     durationSeconds: parseDurationSeconds(callDuration),
   });
+
+  if (normalizedStatus) {
+    emitCustomerCallStatus(call, {
+      status: normalizedStatus,
+      callSid,
+      durationSeconds: parseDurationSeconds(callDuration),
+      source: "customer-leg-status",
+    });
+  }
 
   return new NextResponse("OK", { status: 200 });
 }
