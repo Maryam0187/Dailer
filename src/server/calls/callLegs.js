@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
+import { emitCustomerCallStatus } from "@/server/calls/emitCustomerStatus";
 import { getTwilioClient } from "@/server/twilio";
 const ACTIVE_CHILD_STATUSES = new Set([
   "queued",
@@ -122,7 +123,22 @@ export async function applyCallLegUpdate(call, patch) {
   if (Object.keys(update).length === 0) return call;
 
   await call.update(update);
-  return call.reload();
+  const reloaded = await call.reload();
+
+  if (patch.leg === "customer" && patch.status) {
+    const customerSid =
+      patch.callSid ||
+      reloaded.customerCallSid ||
+      (isCustomerFirstDial(reloaded) ? reloaded.twilioSid : null);
+    emitCustomerCallStatus(reloaded, {
+      status: String(patch.status).toLowerCase(),
+      callSid: customerSid,
+      durationSeconds: patch.durationSeconds ?? reloaded.customerDurationSeconds,
+      source: patch.source || "call-leg-update",
+    });
+  }
+
+  return reloaded;
 }
 
 /**

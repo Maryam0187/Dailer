@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
+import { applyCallLegUpdate } from "@/server/calls/callLegs";
 import {
   getTwilioClient,
   getTwilioFromNumber,
@@ -73,8 +74,11 @@ export async function POST(req) {
     });
 
     const customerStatus = String(customerLeg.status || "queued").toLowerCase();
-    await call.update({
-      twilioSid: customerLeg.sid || null,
+    await call.update({ twilioSid: customerLeg.sid || null });
+    await applyCallLegUpdate(call, {
+      source: "start-cold",
+      leg: "customer",
+      callSid: customerLeg.sid || null,
       status: customerStatus,
     });
   } catch (err) {

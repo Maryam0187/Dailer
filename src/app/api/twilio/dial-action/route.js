@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { applyCallLegUpdate, parseDurationSeconds } from "@/server/calls/callLegs";
-import { emitCustomerCallStatus } from "@/server/calls/emitCustomerStatus";
 import {
   buildConferenceStatusCallbackUrl,
   buildConferenceTwiMl,
@@ -52,14 +51,6 @@ export async function POST(req) {
       status: normalizedDialStatus || undefined,
       durationSeconds: parseDurationSeconds(dialCallDuration),
     });
-    if (normalizedDialStatus) {
-      emitCustomerCallStatus(call, {
-        status: normalizedDialStatus,
-        callSid: dialCallSid,
-        durationSeconds: parseDurationSeconds(dialCallDuration),
-        source: "dial-action",
-      });
-    }
   }
 
   if (pendingConferenceName) {
