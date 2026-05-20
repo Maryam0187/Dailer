@@ -292,8 +292,9 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
   }
 
   async function startRecording() {
-    if (!session?.callId || !session?.conferenceName) {
-      setRecordingMessage("Recording unavailable for this session.");
+    const callId = Number(session?.callId);
+    if (!Number.isInteger(callId) || callId <= 0) {
+      setRecordingMessage("Recording unavailable — call is not ready yet.");
       return;
     }
     setRecordingLoading(true);
@@ -303,10 +304,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          callId: Number(session.callId),
-          conferenceName: session.conferenceName,
-        }),
+        body: JSON.stringify({ callId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to start recording");
@@ -320,8 +318,9 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
   }
 
   async function stopRecording() {
-    if (!session?.callId) {
-      setRecordingMessage("Recording unavailable for this session.");
+    const callId = Number(session?.callId);
+    if (!Number.isInteger(callId) || callId <= 0) {
+      setRecordingMessage("Recording unavailable — call is not ready yet.");
       return;
     }
     setRecordingLoading(true);
@@ -331,7 +330,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ callId: Number(session.callId) }),
+        body: JSON.stringify({ callId }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to stop recording");
