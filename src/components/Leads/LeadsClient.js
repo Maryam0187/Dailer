@@ -131,6 +131,7 @@ export default function LeadsClient() {
         callMode: result.callMode || "direct",
         callKind: "lead",
         dialMode: "agent_first",
+        customerStatus: "queued",
         toNumber: result.call.toNumber,
         phoneLabel: formatLandline(digitsOnly(lead.phone)) || lead.phone,
         customerName: formatLeadName(lead),

@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import {
+  customerStatusBadgeClass,
+  customerStatusLabel,
+  isCustomerCallLive,
+} from "@/lib/customerCallStatus";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -76,17 +81,20 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
     }
   }
 
+  const customerStatus = String(session.customerStatus || "queued").trim().toLowerCase();
+  const customerLive = isCustomerCallLive(customerStatus);
+
   useEffect(() => {
-    if (session.phase !== "in_progress") return undefined;
-    const start = session.startedAt;
+    if (!customerLive) return undefined;
+    const start = session.customerConnectedAt || session.startedAt;
     const id = window.setInterval(() => {
       setElapsedSec(Math.max(0, Math.floor((Date.now() - start) / 1000)));
     }, 1000);
     return () => window.clearInterval(id);
-  }, [session.phase, session.startedAt]);
+  }, [customerLive, session.customerConnectedAt, session.startedAt]);
 
-  const displayCallStatus = session.phase === "connecting" ? "queued" : "in-progress";
-  const elapsed = session.phase === "in_progress" ? elapsedSec : 0;
+  const statusLabel = customerStatusLabel(customerStatus);
+  const elapsed = customerLive ? elapsedSec : 0;
 
   const customerName = session.customerName?.trim() || "Customer";
   const title = customerName;
@@ -355,8 +363,10 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
         <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="flex-shrink-0">
-              {displayCallStatus === "in-progress" ? (
+              {customerLive ? (
                 <div className="h-3 w-3 animate-pulse rounded-full bg-green-400" />
+              ) : customerStatus === "ringing" ? (
+                <div className="h-3 w-3 animate-pulse rounded-full bg-amber-400" />
               ) : (
                 <div className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
               )}
@@ -368,15 +378,11 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
                   <div className="truncate text-xs text-blue-100">{subtitle}</div>
                 ) : null}
                 <div
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                    displayCallStatus === "in-progress"
-                      ? "bg-green-500/30 text-green-100"
-                      : "bg-gray-500/30 text-gray-100"
-                  }`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${customerStatusBadgeClass(customerStatus)}`}
                 >
-                  {displayCallStatus === "in-progress" ? "In progress" : "Queued"}
+                  {statusLabel}
                 </div>
-                {displayCallStatus === "in-progress" ? <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div> : null}
+                {customerLive ? <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div> : null}
               </div>
             </div>
           </div>
@@ -400,21 +406,49 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
 
         {!isMinimized && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {session.phase === "connecting" && (
-              <div className="mb-3 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/40">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent dark:border-blue-400" />
+            {!customerLive && customerStatus !== "completed" && (
+              <div
+                className={`mb-3 flex items-center gap-3 rounded-lg border px-4 py-3 ${
+                  customerStatus === "ringing"
+                    ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+                    : "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40"
+                }`}
+              >
+                <div
+                  className={`h-5 w-5 animate-spin rounded-full border-2 border-t-transparent ${
+                    customerStatus === "ringing"
+                      ? "border-amber-600 dark:border-amber-400"
+                      : "border-blue-600 dark:border-blue-400"
+                  }`}
+                />
                 <div>
-                  <div className="font-semibold text-blue-700 dark:text-blue-300">Connecting…</div>
-                  <div className="text-xs text-blue-600 dark:text-blue-400">Call logged — stay on this screen</div>
+                  <div
+                    className={`font-semibold ${
+                      customerStatus === "ringing"
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-blue-700 dark:text-blue-300"
+                    }`}
+                  >
+                    {customerStatus === "ringing" ? "Customer ringing…" : "Connecting to customer…"}
+                  </div>
+                  <div
+                    className={`text-xs ${
+                      customerStatus === "ringing"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-blue-600 dark:text-blue-400"
+                    }`}
+                  >
+                    Status: {statusLabel}
+                  </div>
                 </div>
               </div>
             )}
 
-            {session.phase === "in_progress" && (
+            {customerLive && (
               <div className="mb-3 flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
                 <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
                 <div className="text-sm font-semibold text-green-700 dark:text-green-300">
-                  Call connected
+                  Customer connected
                 </div>
               </div>
             )}
@@ -437,7 +471,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
                   <button
                     type="button"
                     onClick={upgradeToConference}
-                    disabled={upgradeLoading || session.phase !== "in_progress"}
+                    disabled={upgradeLoading || !customerLive}
                     className="mt-2 h-9 rounded-lg bg-violet-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:disabled:bg-zinc-700"
                   >
                     {upgradeLoading ? "Enabling…" : "Enable conference mode"}
@@ -936,6 +970,8 @@ export default function GlobalWebCallInterface() {
     phoneLabel: "(555) 010-1234",
     toNumber: "+15550101234",
     phase: "in_progress",
+    customerStatus: "in-progress",
+    customerConnectedAt: devPreviewStartedAt,
     startedAt: devPreviewStartedAt,
     callOwnedByMe: true,
   };
