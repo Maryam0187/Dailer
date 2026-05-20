@@ -34,7 +34,7 @@ export function getTwilioFromNumber(fallback) {
   );
 }
 
-function getWebhookBaseUrl(fallbackBaseUrl) {
+export function getWebhookBaseUrl(fallbackBaseUrl) {
   const baseUrl =
     process.env.TWILIO_WEBHOOK_BASE_URL ||
     process.env.RAILWAY_STATIC_URL ||

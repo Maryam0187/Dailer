@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { getWebhookBaseUrl } from "@/server/twilio";
 
 export const runtime = "nodejs";
 
@@ -60,7 +61,7 @@ export async function POST(req) {
     "";
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
 
-  const baseUrl = getRequestBaseUrlFromRequest(req);
+  const baseUrl = getWebhookBaseUrl() || getRequestBaseUrlFromRequest(req);
   const agentStatusAttr = baseUrl
     ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/agent-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : "";

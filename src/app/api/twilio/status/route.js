@@ -5,7 +5,6 @@ import {
   parseDurationSeconds,
   syncCustomerLegFromTwilio,
 } from "@/server/calls/callLegs";
-import { emitCustomerCallStatus } from "@/server/calls/emitCustomerStatus";
 export const runtime = "nodejs";
 
 function normalizeStatus(status) {
@@ -36,19 +35,10 @@ export async function POST(req) {
   await applyCallLegUpdate(call, {
     source: "twilio-status",
     leg: isCustomer ? "customer" : "agent",
-    callSid: isCustomer ? undefined : callSid,
-    status: normalizedStatus,
+    callSid: isCustomer ? callSid : undefined,
+    status: normalizedStatus !== "unknown" ? normalizedStatus : undefined,
     durationSeconds: parseDurationSeconds(callDuration),
   });
-
-  if (isCustomer && normalizedStatus !== "unknown") {
-    emitCustomerCallStatus(call, {
-      status: normalizedStatus,
-      callSid,
-      durationSeconds: parseDurationSeconds(callDuration),
-      source: "twilio-status",
-    });
-  }
 
   if (normalizedStatus === "completed") {
     const refreshed = await findCallLogByAnyLegSid(callSid);

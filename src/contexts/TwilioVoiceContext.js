@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
-import { isCustomerCallLive } from "@/lib/customerCallStatus";
+import { buildCustomerSessionPatch } from "@/lib/customerCallStatus";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -895,15 +895,8 @@ export function TwilioVoiceProvider({ children }) {
 
       patchSession((current) => {
         if (!current || Number(current.callId) !== callId) return current;
-
-        const patch = { customerStatus: status };
-        if (isCustomerCallLive(status)) {
-          patch.phase = "in_progress";
-          if (!current.customerConnectedAt) {
-            patch.customerConnectedAt = Date.now();
-          }
-        }
-        return patch;
+        const patch = buildCustomerSessionPatch(status, current);
+        return patch ? { ...current, ...patch } : current;
       });
     });
 

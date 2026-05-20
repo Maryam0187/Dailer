@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { getWebhookBaseUrl } from "@/server/twilio";
 
 export const runtime = "nodejs";
 
@@ -66,17 +67,24 @@ export async function POST(req) {
     "";
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
 
-  const baseUrl = getRequestBaseUrlFromRequest(req);
+  const baseUrl = getWebhookBaseUrl() || getRequestBaseUrlFromRequest(req);
+  const customerStatusUrl = baseUrl
+    ? `${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`
+    : "";
+  const statusEvents = "initiated ringing answered completed";
   const dialActionAttr = baseUrl
     ? ` action="${escapeXmlAttr(`${baseUrl}/api/twilio/dial-action?callId=${callId}`)}" method="POST"`
     : "";
-  const numberStatusAttr = baseUrl
-    ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
+  const dialStatusAttr = customerStatusUrl
+    ? ` statusCallback="${escapeXmlAttr(customerStatusUrl)}" statusCallbackMethod="POST" statusCallbackEvent="${statusEvents}"`
+    : "";
+  const numberStatusAttr = customerStatusUrl
+    ? ` statusCallback="${escapeXmlAttr(customerStatusUrl)}" statusCallbackMethod="POST" statusCallbackEvent="${statusEvents}"`
     : "";
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}${dialActionAttr}>
+  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}${dialActionAttr}${dialStatusAttr}>
     <Number${numberStatusAttr ? ` ${numberStatusAttr}` : ""}>${escapeXmlAttr(customerNumber)}</Number>
   </Dial>
 </Response>`;

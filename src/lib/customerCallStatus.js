@@ -43,6 +43,21 @@ export function customerStatusLabel(status) {
   }
 }
 
+/** Session fields to merge when a customer-status socket event arrives. */
+export function buildCustomerSessionPatch(status, current) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) return null;
+
+  const patch = { customerStatus: normalized };
+  if (isCustomerCallLive(normalized)) {
+    patch.phase = "in_progress";
+    if (!current?.customerConnectedAt) {
+      patch.customerConnectedAt = Date.now();
+    }
+  }
+  return patch;
+}
+
 export function customerStatusBadgeClass(status) {
   const s = String(status || "").trim().toLowerCase();
   if (isCustomerCallLive(s)) {
