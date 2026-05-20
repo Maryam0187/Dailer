@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { applyCallKindToWhere, parseCallScope } from "@/server/calls/callKindFilter";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -26,9 +27,9 @@ export async function GET(req) {
   const offset = (page - 1) * pageSize;
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
-  /** `conference` = CallLogs that have at least one agent invite (InviteDialLeg) → multi-agent conference. */
+  /** `all` | `cold` | `lead` | `conference` */
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
-  const conferenceOnly = scope === "conference";
+  const { kind: callKindFilter, conferenceOnly } = parseCallScope(scope);
   /** Admin-only: `view=all` returns every user's call logs on the home page. */
   const view = String(searchParams.get("view") || "mine").trim().toLowerCase();
   const viewAll = view === "all" && authedUser.role === "admin";
@@ -123,6 +124,8 @@ export async function GET(req) {
     where.createdAt = { [Op.between]: [after, before] };
   }
 
+  where = applyCallKindToWhere(where, callKindFilter);
+
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,
     order: [["createdAt", "DESC"]],
@@ -143,6 +146,14 @@ export async function GET(req) {
       "recordingSid",
       "recordingStatus",
       "recordingDurationSeconds",
+      "callKind",
+      "dialMode",
+      "leadId",
+      "disposition",
+      "contactName",
+      "city",
+      "state",
+      "zipCode",
       "createdAt",
     ],
     include: [
@@ -150,6 +161,12 @@ export async function GET(req) {
         model: db.User,
         as: "user",
         attributes: ["id", "username"],
+      },
+      {
+        model: db.Lead,
+        as: "lead",
+        attributes: ["id", "firstName", "lastName"],
+        required: false,
       },
     ],
   });
@@ -205,6 +222,17 @@ export async function GET(req) {
             ? `/api/calls/recording/download/${call.id}`
             : null,
         createdAt: call.createdAt,
+        callKind: call.callKind || null,
+        dialMode: call.dialMode || null,
+        leadId: call.leadId || null,
+        leadName: call.lead
+          ? [call.lead.firstName, call.lead.lastName].filter(Boolean).join(" ").trim() || null
+          : null,
+        disposition: call.disposition || null,
+        contactName: call.contactName || null,
+        city: call.city || null,
+        state: call.state || null,
+        zipCode: call.zipCode || null,
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),

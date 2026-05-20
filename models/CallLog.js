@@ -78,6 +78,48 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
       },
+      callKind: {
+        type: DataTypes.STRING(16),
+        allowNull: true,
+      },
+      dialMode: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+      },
+      leadId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Leads", key: "id" },
+      },
+      disposition: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      dispositionAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      contactName: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      city: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      state: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      zipCode: {
+        type: DataTypes.STRING(16),
+        allowNull: true,
+      },
+      /** Browser/client leg SID when dialMode is customer_first (parent twilioSid is PSTN). */
+      agentCallSid: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
     },
     {
       tableName: "CallLogs",
@@ -87,12 +129,15 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["twilioSid"] },
         { fields: ["customerCallSid"] },
         { fields: ["recordingSid"] },
+        { fields: ["callKind"] },
+        { fields: ["leadId"] },
       ],
     },
   );
 
   CallLog.associate = (models) => {
     CallLog.belongsTo(models.User, { as: "user", foreignKey: "userId" });
+    CallLog.belongsTo(models.Lead, { as: "lead", foreignKey: "leadId" });
     CallLog.hasMany(models.InviteDialLeg, { foreignKey: "callLogId", as: "inviteDialLegs" });
   };
 

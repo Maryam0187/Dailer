@@ -152,8 +152,8 @@ export default function ReportsClient() {
         toDate,
         includeAllUsers: "1",
       });
-      if (scope === "conference") {
-        qs.set("scope", "conference");
+      if (scope === "conference" || scope === "cold" || scope === "lead") {
+        qs.set("scope", scope);
       }
       const res = await fetch(`/api/calls/metrics?${qs.toString()}`, {
         credentials: "include",
@@ -216,7 +216,14 @@ export default function ReportsClient() {
           totals.durationSeconds,
         ]);
       }
-      const scopeLabel = loadedRange.scope === "conference" ? "conference" : "all-calls";
+      const scopeLabel =
+        loadedRange.scope === "conference"
+          ? "conference"
+          : loadedRange.scope === "cold"
+            ? "cold-dial"
+            : loadedRange.scope === "lead"
+              ? "lead-calls"
+              : "all-calls";
       const rangeLabel = `${loadedRange.from}_to_${loadedRange.to}`;
       downloadCsv(`user-report_${scopeLabel}_${rangeLabel}.csv`, CSV_HEADERS, csvRows);
     } finally {
@@ -335,6 +342,34 @@ export default function ReportsClient() {
                 type="button"
                 onClick={() => {
                   clearReport();
+                  setMetricsScope("cold");
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  metricsScope === "cold"
+                    ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                Cold dial
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearReport();
+                  setMetricsScope("lead");
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  metricsScope === "lead"
+                    ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                Lead calls
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearReport();
                   setMetricsScope("conference");
                 }}
                 className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
@@ -359,7 +394,11 @@ export default function ReportsClient() {
               {loadedRange
                 ? loadedRange.scope === "conference"
                   ? " · conference calls"
-                  : " · all calls"
+                  : loadedRange.scope === "cold"
+                    ? " · cold dial"
+                    : loadedRange.scope === "lead"
+                      ? " · lead calls"
+                      : " · all calls"
                 : null}
               {rows.length ? ` · ${rows.length} users` : null}
             </p>

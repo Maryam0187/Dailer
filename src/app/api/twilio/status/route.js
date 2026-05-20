@@ -28,18 +28,19 @@ export async function POST(req) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  const agentSid = String(call.twilioSid || "").trim();
-  const isCustomer = callSid !== agentSid;
+  const parentSid = String(call.twilioSid || "").trim();
+  const customerFirst = String(call.dialMode || "").trim().toLowerCase() === "customer_first";
+  const isCustomer = customerFirst ? callSid === parentSid : callSid !== parentSid;
 
   await applyCallLegUpdate(call, {
     source: "twilio-status",
     leg: isCustomer ? "customer" : "agent",
-    callSid: isCustomer ? callSid : undefined,
+    callSid: isCustomer ? undefined : callSid,
     status: normalizedStatus,
     durationSeconds: parseDurationSeconds(callDuration),
   });
 
-  if (!isCustomer && normalizedStatus === "completed") {
+  if (normalizedStatus === "completed") {
     const refreshed = await findCallLogByAnyLegSid(callSid);
     if (refreshed) await syncCustomerLegFromTwilio(refreshed);
   }

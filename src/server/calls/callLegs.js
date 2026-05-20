@@ -52,9 +52,29 @@ export async function findCallLogByAnyLegSid(callSid) {
   if (!sid) return null;
   return db.CallLog.findOne({
     where: {
-      [Op.or]: [{ twilioSid: sid }, { customerCallSid: sid }],
+      [Op.or]: [{ twilioSid: sid }, { customerCallSid: sid }, { agentCallSid: sid }],
     },
   });
+}
+
+export function isCustomerFirstDial(call) {
+  return String(call?.dialMode || "").trim().toLowerCase() === "customer_first";
+}
+
+/**
+ * Agent &lt;Client&gt; child under customer-first parent (PSTN) call.
+ */
+export async function findAgentDialChild(client, parentCallSid) {
+  const parentSid = String(parentCallSid || "").trim();
+  if (!parentSid) return null;
+  const children = await client.calls.list({ parentCallSid: parentSid, limit: 20 });
+  return (
+    children.find((c) => {
+      const status = String(c.status || "").toLowerCase();
+      if (!ACTIVE_CHILD_STATUSES.has(status)) return false;
+      return isClientEndpoint(c.to);
+    }) || null
+  );
 }
 
 /**
@@ -67,6 +87,9 @@ export async function applyCallLegUpdate(call, patch) {
   const update = {};
   if (patch.callSid && patch.leg === "customer") {
     update.customerCallSid = String(patch.callSid).trim();
+  }
+  if (patch.callSid && patch.leg === "agent" && isCustomerFirstDial(call)) {
+    update.agentCallSid = String(patch.callSid).trim();
   }
   if (patch.status) {
     update.status = String(patch.status).toLowerCase();
@@ -110,12 +133,15 @@ export async function syncCustomerLegFromTwilio(call) {
   if (!parentSid) return call;
 
   const client = getTwilioClient();
-  const child = await findCustomerDialChild(client, parentSid);
+  const child = isCustomerFirstDial(call)
+    ? await findAgentDialChild(client, parentSid)
+    : await findCustomerDialChild(client, parentSid);
   if (!child?.sid) return call;
 
   const childDuration = parseDurationSeconds(child.duration);
+  const leg = isCustomerFirstDial(call) ? "agent" : "customer";
   return applyCallLegUpdate(call, {
-    leg: "customer",
+    leg,
     callSid: child.sid,
     status: String(child.status || "").toLowerCase() || undefined,
     durationSeconds: childDuration,
@@ -132,10 +158,12 @@ export async function syncAllLegDurationsFromTwilio(call) {
   const client = getTwilioClient();
   let next = call;
 
+  const customerFirst = isCustomerFirstDial(next);
+
   try {
     const parent = await client.calls(parentSid).fetch();
     next = await applyCallLegUpdate(next, {
-      leg: "agent",
+      leg: customerFirst ? "customer" : "agent",
       status: String(parent.status || "").toLowerCase() || undefined,
       durationSeconds: parseDurationSeconds(parent.duration),
     });
@@ -143,14 +171,18 @@ export async function syncAllLegDurationsFromTwilio(call) {
     /* ignore */
   }
 
-  const customerSid = String(next.customerCallSid || "").trim();
-  if (customerSid) {
+  const otherSid = customerFirst
+    ? String(next.agentCallSid || "").trim()
+    : String(next.customerCallSid || "").trim();
+
+  if (otherSid) {
     try {
-      const customer = await client.calls(customerSid).fetch();
+      const other = await client.calls(otherSid).fetch();
       next = await applyCallLegUpdate(next, {
-        leg: "customer",
-        status: String(customer.status || "").toLowerCase() || undefined,
-        durationSeconds: parseDurationSeconds(customer.duration),
+        leg: customerFirst ? "agent" : "customer",
+        callSid: otherSid,
+        status: String(other.status || "").toLowerCase() || undefined,
+        durationSeconds: parseDurationSeconds(other.duration),
       });
     } catch {
       /* ignore */

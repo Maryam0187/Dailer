@@ -21,6 +21,8 @@ export async function POST(req) {
       "userId",
       "twilioSid",
       "customerCallSid",
+      "agentCallSid",
+      "dialMode",
       "agentDurationSeconds",
       "customerDurationSeconds",
       "durationSeconds",

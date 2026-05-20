@@ -55,12 +55,17 @@ export async function aggregateMetricsByUser({
   fromDate,
   toDate,
   conferenceOnly,
+  callKind = null,
   includeAllUsers = false,
   excludeAdmin = false,
 }) {
   const where = {
     ...dateRangeWhere(fromDate, toDate),
   };
+
+  if (callKind) {
+    where.callKind = callKind;
+  }
 
   if (conferenceOnly) {
     const ids = await conferenceCallIds();

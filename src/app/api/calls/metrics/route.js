@@ -18,6 +18,7 @@ export async function GET(req) {
   const toDate = parseDateOnly(searchParams.get("toDate"));
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const conferenceOnly = scope === "conference";
+  const callKind = scope === "cold" ? "cold" : scope === "lead" ? "lead" : null;
   const includeAllUsers =
     String(searchParams.get("includeAllUsers") || "").trim() === "1" ||
     String(searchParams.get("includeAllUsers") || "").trim().toLowerCase() === "true";
@@ -33,6 +34,7 @@ export async function GET(req) {
     fromDate,
     toDate,
     conferenceOnly,
+    callKind,
     includeAllUsers,
     excludeAdmin: true,
   });

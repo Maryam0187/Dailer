@@ -37,7 +37,20 @@ export function ActiveCallProvider({ children }) {
     sessionSyncRef.current = null;
     setSession(null);
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("call-ended", { detail: { callId: current?.callId || null } }));
+      window.dispatchEvent(
+        new CustomEvent("call-ended", {
+          detail: {
+            callId: current?.callId || null,
+            callKind: current?.callKind || null,
+            toNumber: current?.toNumber || null,
+            phoneLabel: current?.phoneLabel || null,
+            customerName: current?.customerName || null,
+            city: current?.city || null,
+            state: current?.state || null,
+            zipCode: current?.zipCode || null,
+          },
+        }),
+      );
     }
   }, [session]);
 

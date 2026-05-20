@@ -9,6 +9,7 @@ import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
 export default function Navbar({ role }) {
   const pathname = usePathname();
   const onDialerPage = pathname === "/";
+  const onLeadsPage = pathname === "/leads";
   const onUsersPage = pathname === "/users";
   const onBillingPage = pathname === "/billing";
   const onReportsPage = pathname === "/reports";
@@ -28,7 +29,18 @@ export default function Navbar({ role }) {
             aria-current={onDialerPage ? "page" : undefined}
           >
             <DialerPhoneIcon className="h-7 w-7" />
-            <span>Dialer</span>
+            <span>Cold dial</span>
+          </Link>
+          <Link
+            href="/leads"
+            className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
+              onLeadsPage
+                ? "border-emerald-500/70 bg-emerald-100 text-emerald-950 shadow-md shadow-emerald-500/20 dark:border-emerald-500/55 dark:bg-emerald-950/45 dark:text-emerald-50 dark:shadow-emerald-950/30"
+                : "border-transparent text-emerald-700 hover:border-emerald-200/90 hover:bg-emerald-50/90 hover:text-emerald-950 dark:text-emerald-400 dark:hover:border-emerald-800/80 dark:hover:bg-emerald-950/35 dark:hover:text-emerald-100"
+            }`}
+            aria-current={onLeadsPage ? "page" : undefined}
+          >
+            Leads
           </Link>
           {role === "admin" || role === "manager" || role === "supervisor" ? (
             <Link
