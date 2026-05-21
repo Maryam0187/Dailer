@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
-import { buildCustomerSessionPatch } from "@/lib/customerCallStatus";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -45,7 +44,7 @@ function keepaliveEndCall(callId) {
 }
 
 export function TwilioVoiceProvider({ children }) {
-  const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession } =
+  const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
@@ -215,6 +214,7 @@ export function TwilioVoiceProvider({ children }) {
 
       setMuted(call.isMuted());
       setVoiceConnected(true);
+      markInProgress();
 
       call.on("mute", (isMuted) => setMuted(isMuted));
       call.on("disconnect", () => {
@@ -234,7 +234,7 @@ export function TwilioVoiceProvider({ children }) {
         endCall();
       });
     },
-    [clearLocalSession, endCall, sessionSyncRef],
+    [clearLocalSession, endCall, markInProgress, sessionSyncRef],
   );
 
   // Cleanup when the provider unmounts.
@@ -889,21 +889,13 @@ export function TwilioVoiceProvider({ children }) {
     });
 
     socket.on("call:customer-status", (payload) => {
-      const callId = Number(payload?.callId);
-      const status = String(payload?.status || "").trim().toLowerCase();
-      if (!Number.isInteger(callId) || callId <= 0 || !status) return;
-
-      patchSession((current) => {
-        if (!current || Number(current.callId) !== callId) return current;
-        const patch = buildCustomerSessionPatch(status, current);
-        return patch ? { ...current, ...patch } : current;
-      });
+      console.log("[customer-status]", payload);
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [patchSession]);
+  }, []);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;

@@ -84,7 +84,6 @@ export default function QuickDialPanel() {
         callId: result.call.id,
         callOwnedByMe: true,
         callMode: result.callMode || "direct",
-        customerStatus: String(result.call?.status || "queued").toLowerCase(),
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,

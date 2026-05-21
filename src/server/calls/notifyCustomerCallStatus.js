@@ -7,11 +7,10 @@ function normalizeStatus(status) {
 }
 
 /**
- * Push real Twilio PSTN (customer) leg status to the call owner over Socket.IO.
- * @param {{ id: number, userId: number }} call
- * @param {{ status: string, callSid?: string, durationSeconds?: number | null, source?: string }} detail
+ * Log customer leg status on the server and push to the browser console via Socket.IO.
+ * Does not change call UI state — console listener only.
  */
-export function emitCustomerCallStatus(call, detail) {
+export function notifyCustomerCallStatus(call, detail) {
   const status = normalizeStatus(detail?.status);
   const callId = Number(call?.id);
   const userId = Number(call?.userId);
@@ -30,11 +29,11 @@ export function emitCustomerCallStatus(call, detail) {
     at: new Date().toISOString(),
   };
 
-  const emitted = emitToUser(userId, "call:customer-status", payload);
-  logCustomerStatus(emitted ? "socket.emit" : "socket.skip", {
+  logCustomerStatus(detail?.source || "customer", {
     ...payload,
     userId,
-    reason: emitted ? undefined : "Socket.IO not available (use npm run dev / server.js)",
+    callStatus: status,
   });
-  return emitted;
+
+  return emitToUser(userId, "call:customer-status", payload);
 }

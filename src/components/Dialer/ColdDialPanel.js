@@ -113,7 +113,6 @@ export default function ColdDialPanel() {
         callMode: result.callMode || "cold",
         callKind: "cold",
         dialMode: "customer_first",
-        customerStatus: String(result.call?.status || "queued").toLowerCase(),
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,

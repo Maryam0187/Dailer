@@ -3,12 +3,11 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
-import { applyCallLegUpdate } from "@/server/calls/callLegs";
+import { notifyCustomerCallStatus } from "@/server/calls/notifyCustomerCallStatus";
 import {
   getTwilioClient,
   getTwilioFromNumber,
   getTwilioStatusCallbackParamsWithFallback,
-  getWebhookBaseUrl,
 } from "@/server/twilio";
 
 function buildColdCustomerVoiceUrl(baseUrl, callId) {
@@ -38,13 +37,10 @@ export async function POST(req) {
   }
 
   const fromNumber = getTwilioFromNumber(body?.fromNumber);
-  const fallbackBaseUrl = getWebhookBaseUrl(getRequestBaseUrl(req));
+  const fallbackBaseUrl = getRequestBaseUrl(req);
   if (!fallbackBaseUrl) {
     return NextResponse.json(
-      {
-        error:
-          "Could not determine public app URL. Set TWILIO_WEBHOOK_BASE_URL (e.g. your ngrok HTTPS URL).",
-      },
+      { error: "Could not determine public app URL for Twilio voice webhook" },
       { status: 500 },
     );
   }
@@ -78,17 +74,22 @@ export async function POST(req) {
     });
 
     const customerStatus = String(customerLeg.status || "queued").toLowerCase();
-    await call.update({ twilioSid: customerLeg.sid || null });
-    await applyCallLegUpdate(call, {
-      source: "start-cold",
-      leg: "customer",
-      callSid: customerLeg.sid || null,
+    await call.update({
+      twilioSid: customerLeg.sid || null,
       status: customerStatus,
+    });
+
+    notifyCustomerCallStatus(call, {
+      status: customerStatus,
+      callSid: customerLeg.sid || null,
+      source: "start-cold",
     });
   } catch (err) {
     await call.update({ status: "failed" }).catch(() => {});
     return NextResponse.json(
-      { error: err?.message || "Failed to place cold call with Twilio" },
+      {
+        error: err?.message || "Failed to place cold call with Twilio",
+      },
       { status: 502 },
     );
   }

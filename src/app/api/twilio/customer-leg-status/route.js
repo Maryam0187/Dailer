@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { applyCallLegUpdate, parseDurationSeconds } from "@/server/calls/callLegs";
-import { logCustomerStatus } from "@/server/calls/customerStatusLog";
-
 export const runtime = "nodejs";
 
 /**
@@ -24,13 +22,6 @@ export async function POST(req) {
   if (!call) return new NextResponse("OK", { status: 200 });
 
   const normalizedStatus = String(callStatus || "").trim().toLowerCase();
-
-  logCustomerStatus("webhook.customer-leg-status", {
-    callId,
-    callSid,
-    callStatus: normalizedStatus,
-    userId: call.userId,
-  });
 
   await applyCallLegUpdate(call, {
     source: "customer-leg-status",

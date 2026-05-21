@@ -189,9 +189,6 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         callMode: result.callMode || "direct",
         callKind: isCold ? "cold" : call.callKind || "lead",
         dialMode: isCold ? "customer_first" : result.dialMode || "agent_first",
-        customerStatus: isCold
-          ? String(result.call?.status || "queued").toLowerCase()
-          : "queued",
         toNumber: result.call.toNumber,
         phoneLabel: toNumber,
         customerName: call.leadName || call.contactName || undefined,

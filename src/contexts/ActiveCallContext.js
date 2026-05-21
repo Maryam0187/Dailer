@@ -1,7 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
-import { isCustomerCallLive } from "@/lib/customerCallStatus";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 const ActiveCallContext = createContext(undefined);
 
@@ -11,13 +10,10 @@ export function ActiveCallProvider({ children }) {
   const sessionSyncRef = useRef(null);
 
   const beginSession = useCallback((payload) => {
-    const customerStatus = String(payload?.customerStatus || "queued").trim().toLowerCase();
     const next = {
       ...payload,
-      customerStatus,
       startedAt: Date.now(),
-      phase: isCustomerCallLive(customerStatus) ? "in_progress" : "connecting",
-      customerConnectedAt: isCustomerCallLive(customerStatus) ? Date.now() : null,
+      phase: "connecting",
     };
     sessionSyncRef.current = next;
     setSession(next);
@@ -69,6 +65,15 @@ export function ActiveCallProvider({ children }) {
     }
   }, []);
 
+  const markInProgress = useCallback(() => {
+    setSession((s) => {
+      if (!s) return s;
+      const next = { ...s, phase: "in_progress" };
+      sessionSyncRef.current = next;
+      return next;
+    });
+  }, []);
+
   const patchSession = useCallback((patch) => {
     setSession((current) => {
       if (!current) return current;
@@ -80,6 +85,19 @@ export function ActiveCallProvider({ children }) {
     });
   }, []);
 
+  useEffect(() => {
+    if (!session?.callId || session.phase !== "connecting") return;
+    const t = setTimeout(() => {
+      setSession((s) => {
+        if (!s || s.callId !== session.callId) return s;
+        const next = { ...s, phase: "in_progress" };
+        sessionSyncRef.current = next;
+        return next;
+      });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [session?.callId, session?.phase]);
+
   return (
     <ActiveCallContext.Provider
       value={{
@@ -89,6 +107,7 @@ export function ActiveCallProvider({ children }) {
         patchSession,
         endCall,
         clearLocalSession,
+        markInProgress,
       }}
     >
       {children}
