@@ -1,3 +1,4 @@
+import { logCustomerStatus } from "@/server/calls/customerStatusLog";
 import { emitToUser } from "@/server/socketHub";
 
 function normalizeStatus(status) {
@@ -17,7 +18,7 @@ export function emitCustomerCallStatus(call, detail) {
   if (!status || !Number.isInteger(callId) || callId <= 0) return false;
   if (!Number.isInteger(userId) || userId <= 0) return false;
 
-  return emitToUser(userId, "call:customer-status", {
+  const payload = {
     callId,
     status,
     callSid: detail?.callSid ? String(detail.callSid).trim() : null,
@@ -27,5 +28,13 @@ export function emitCustomerCallStatus(call, detail) {
         : null,
     source: detail?.source ? String(detail.source) : null,
     at: new Date().toISOString(),
+  };
+
+  const emitted = emitToUser(userId, "call:customer-status", payload);
+  logCustomerStatus(emitted ? "socket.emit" : "socket.skip", {
+    ...payload,
+    userId,
+    reason: emitted ? undefined : "Socket.IO not available (use npm run dev / server.js)",
   });
+  return emitted;
 }

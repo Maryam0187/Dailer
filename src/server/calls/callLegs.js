@@ -130,6 +130,7 @@ export async function applyCallLegUpdate(call, patch) {
       patch.callSid ||
       reloaded.customerCallSid ||
       (isCustomerFirstDial(reloaded) ? reloaded.twilioSid : null);
+    // Socket emit — only for customer leg; see emitCustomerCallStatus.js
     emitCustomerCallStatus(reloaded, {
       status: String(patch.status).toLowerCase(),
       callSid: customerSid,

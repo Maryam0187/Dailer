@@ -5,6 +5,7 @@ import {
   parseDurationSeconds,
   syncCustomerLegFromTwilio,
 } from "@/server/calls/callLegs";
+import { logCustomerStatus } from "@/server/calls/customerStatusLog";
 export const runtime = "nodejs";
 
 function normalizeStatus(status) {
@@ -32,6 +33,15 @@ export async function POST(req) {
   const customerFirst = String(call.dialMode || "").trim().toLowerCase() === "customer_first";
   const isCustomer = customerFirst ? callSid === parentSid : callSid !== parentSid;
 
+  logCustomerStatus("webhook.twilio-status", {
+    callId: call.id,
+    callSid,
+    callStatus: normalizedStatus,
+    dialMode: call.dialMode,
+    leg: isCustomer ? "customer" : "agent",
+    userId: call.userId,
+  });
+
   await applyCallLegUpdate(call, {
     source: "twilio-status",
     leg: isCustomer ? "customer" : "agent",
@@ -39,6 +49,19 @@ export async function POST(req) {
     status: normalizedStatus !== "unknown" ? normalizedStatus : undefined,
     durationSeconds: parseDurationSeconds(callDuration),
   });
+
+  // Lead dial: agent parent callbacks — discover PSTN child and emit customer status.
+  if (
+    !customerFirst &&
+    !isCustomer &&
+    ["ringing", "in-progress", "answered"].includes(normalizedStatus)
+  ) {
+    const refreshed = await findCallLogByAnyLegSid(callSid);
+    if (refreshed) await syncCustomerLegFromTwilio(refreshed);
+  }
+
+  // Cold dial: agent child may hit status URL before agentCallSid is stored — still OK.
+  // Parent customer callbacks use isCustomer=true above; no extra sync needed here.
 
   if (normalizedStatus === "completed") {
     const refreshed = await findCallLogByAnyLegSid(callSid);

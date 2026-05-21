@@ -8,6 +8,7 @@ import {
   getTwilioClient,
   getTwilioFromNumber,
   getTwilioStatusCallbackParamsWithFallback,
+  getWebhookBaseUrl,
 } from "@/server/twilio";
 
 function buildColdCustomerVoiceUrl(baseUrl, callId) {
@@ -37,10 +38,13 @@ export async function POST(req) {
   }
 
   const fromNumber = getTwilioFromNumber(body?.fromNumber);
-  const fallbackBaseUrl = getRequestBaseUrl(req);
+  const fallbackBaseUrl = getWebhookBaseUrl(getRequestBaseUrl(req));
   if (!fallbackBaseUrl) {
     return NextResponse.json(
-      { error: "Could not determine public app URL for Twilio voice webhook" },
+      {
+        error:
+          "Could not determine public app URL. Set TWILIO_WEBHOOK_BASE_URL (e.g. your ngrok HTTPS URL).",
+      },
       { status: 500 },
     );
   }
