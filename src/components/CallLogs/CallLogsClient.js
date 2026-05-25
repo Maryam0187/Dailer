@@ -45,7 +45,9 @@ function getPresetRange(preset) {
 }
 
 function normalizeListScope(scope) {
-  if (scope === "conference" || scope === "cold" || scope === "lead") return scope;
+  if (scope === "conference" || scope === "cold" || scope === "lead" || scope === "recording") {
+    return scope;
+  }
   return "all";
 }
 
@@ -125,6 +127,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
       if (resolvedScope === "conference" || resolvedScope === "cold" || resolvedScope === "lead") {
         qs.set("scope", resolvedScope);
+      }
+      if (resolvedScope === "recording") {
+        qs.set("hasRecording", "true");
       }
       if (isAdmin && resolvedAudience === "all") {
         qs.set("view", "all");
@@ -304,16 +309,24 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-sky-950 dark:text-sky-100">
-              {listScope === "conference" ? "Conference call logs" : "Call logs"}
+              {listScope === "conference"
+                ? "Conference call logs"
+                : listScope === "recording"
+                  ? "Calls with recording"
+                  : "Call logs"}
             </h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
               {logAudience === "all"
                 ? listScope === "conference"
                   ? "All users' conference calls. Filter by date below."
-                  : "All users' outbound calls. Filter by date below."
+                  : listScope === "recording"
+                    ? "All users' calls that have a downloadable recording. Filter by date below."
+                    : "All users' outbound calls. Filter by date below."
                 : listScope === "conference"
                   ? "Calls where another agent was invited (multi-agent conference). Filter by date below."
-                  : "Your recent outbound calls."}
+                  : listScope === "recording"
+                    ? "Your calls that have a downloadable recording. Filter by date below."
+                    : "Your recent outbound calls."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -435,6 +448,20 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               <button
                 type="button"
                 onClick={() => {
+                  setListScope("recording");
+                  setPage(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  listScope === "recording"
+                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                With recording
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setListScope("conference");
                   setPage(1);
                 }}
@@ -448,7 +475,15 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               </button>
             </div>
             <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Cold = customer-first outreach. Lead = agent-first from Leads. Conference = multi-agent invites.
+              {listScope === "recording"
+                ? "Only calls with a saved recording appear here. Download from the Recording column."
+                : listScope === "cold"
+                  ? "Cold = customer-first outreach from this page."
+                  : listScope === "lead"
+                    ? "Lead = agent-first follow-ups placed from Leads."
+                    : listScope === "conference"
+                      ? "Conference list includes calls where another agent was invited via “Add agent”."
+                      : "Filter by call type or date range."}
             </p>
           </div>
           <div className="mb-3">
@@ -528,13 +563,15 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
           <p className="text-base font-medium text-red-600">{error}</p>
         ) : calls.length === 0 ? (
           <p className="text-base text-zinc-600 dark:text-zinc-300">
-            {listScope === "conference"
-              ? logAudience === "all"
-                ? "No conference calls in this range."
-                : "No conference calls in this range (no agent invites on record)."
-              : logAudience === "all"
-                ? "No calls in this range."
-                : "No calls yet."}
+            {listScope === "recording"
+              ? "No calls with a recording in this range."
+              : listScope === "conference"
+                ? logAudience === "all"
+                  ? "No conference calls in this range."
+                  : "No conference calls in this range (no agent invites on record)."
+                : logAudience === "all"
+                  ? "No calls in this range."
+                  : "No calls yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
