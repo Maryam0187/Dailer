@@ -29,6 +29,9 @@ export async function GET(req) {
   /** `conference` = CallLogs that have at least one agent invite (InviteDialLeg) → multi-agent conference. */
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const conferenceOnly = scope === "conference";
+  const hasRecording =
+    searchParams.get("hasRecording") === "true" ||
+    searchParams.get("hasRecording") === "1";
   /** Admin-only: `view=all` returns every user's call logs on the home page. */
   const view = String(searchParams.get("view") || "mine").trim().toLowerCase();
   const viewAll = view === "all" && authedUser.role === "admin";
@@ -121,6 +124,9 @@ export async function GET(req) {
     const after = new Date(`${fromDate}T00:00:00.000Z`);
     const before = new Date(`${toDate}T23:59:59.999Z`);
     where.createdAt = { [Op.between]: [after, before] };
+  }
+  if (hasRecording) {
+    where.recordingSid = { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: "" }] };
   }
 
   const { rows, count } = await db.CallLog.findAndCountAll({
