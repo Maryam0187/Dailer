@@ -4,6 +4,17 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 
 export const runtime = "nodejs";
 
+function safeFilenamePart(value, fallback, maxLen = 50) {
+  const s = String(value || "")
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, maxLen);
+  return s || fallback;
+}
+
 export async function GET(_req, { params }) {
   try {
     const { callId: rawCallId } = await params;
@@ -24,6 +35,7 @@ export async function GET(_req, { params }) {
     const callLog = await db.CallLog.findOne({
       where,
       attributes: ["id", "recordingSid", "toNumber"],
+      include: [{ model: db.User, as: "user", attributes: ["username"] }],
     });
     if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
     if (!callLog.recordingSid) {
@@ -83,12 +95,13 @@ export async function GET(_req, { params }) {
       );
     }
 
-    const safePhone = String(callLog.toNumber || "")
-      .replace(/^\+/, "")
-      .replace(/[^0-9]/g, "")
-      .slice(0, 15);
-    const phonePart = safePhone || "unknown-number";
-    const filename = `recording-${phonePart}-call-${callLog.id}.mp3`;
+    const agentPart = safeFilenamePart(callLog.user?.username, "unknown-agent");
+    const phonePart =
+      String(callLog.toNumber || "")
+        .replace(/^\+/, "")
+        .replace(/[^0-9]/g, "")
+        .slice(0, 15) || "unknown-number";
+    const filename = `${agentPart}-${phonePart}.mp3`;
     const contentType = mediaRes.headers.get("content-type") || "audio/mpeg";
 
     const bytes = await mediaRes.arrayBuffer();
