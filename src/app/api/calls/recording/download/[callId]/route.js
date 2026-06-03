@@ -15,6 +15,17 @@ function safeFilenamePart(value, fallback, maxLen = 50) {
   return s || fallback;
 }
 
+/** Last 7 digits of the callee number, formatted as XXX-XXXX for filenames. */
+function phoneFilenamePart(toNumber) {
+  const digits = String(toNumber || "")
+    .replace(/^\+/, "")
+    .replace(/[^0-9]/g, "");
+  const last7 = digits.slice(-7);
+  if (!last7) return "unknown-number";
+  const d = last7.padStart(7, "0");
+  return `${d.slice(0, 3)}-${d.slice(3)}`;
+}
+
 export async function GET(_req, { params }) {
   try {
     const { callId: rawCallId } = await params;
@@ -96,11 +107,7 @@ export async function GET(_req, { params }) {
     }
 
     const agentPart = safeFilenamePart(callLog.user?.username, "unknown-agent");
-    const phonePart =
-      String(callLog.toNumber || "")
-        .replace(/^\+/, "")
-        .replace(/[^0-9]/g, "")
-        .slice(0, 15) || "unknown-number";
+    const phonePart = phoneFilenamePart(callLog.toNumber);
     const filename = `${agentPart}-${phonePart}.mp3`;
     const contentType = mediaRes.headers.get("content-type") || "audio/mpeg";
 
