@@ -8,6 +8,7 @@ import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 const inputClass =
@@ -60,14 +61,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [notes, setNotes] = useState("");
-  const [assignedUserId, setAssignedUserId] = useState("");
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
+  const [activeView, setActiveView] = useState("list");
 
-  const showAssignee = userRole === "admin" || userRole === "supervisor";
   const showLeadFilters = userRole === "admin" || userRole === "manager" || userRole === "supervisor";
   const showSupervisorFilter = userRole === "admin" || userRole === "manager";
   const colSpan = showLeadFilters ? 8 : 7;
@@ -116,12 +116,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         const agents = json.agents || [];
         setAssignableAgents(agents);
         setFilterSupervisors(json.supervisors || []);
-        if (showAssignee && agents.length > 0) setAssignedUserId(String(agents[0].id));
       } catch (e) {
         setError(e.message || "Failed to load agents");
       }
     })();
-  }, [showLeadFilters, showAssignee]);
+  }, [showLeadFilters]);
 
   useEffect(() => {
     if (agentFilter === "all") return;
@@ -129,13 +128,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       setAgentFilter("all");
     }
   }, [agentFilter, filteredAgents]);
-
-  useEffect(() => {
-    if (!showAssignee || filteredAgents.length === 0) return;
-    if (!filteredAgents.some((a) => String(a.id) === assignedUserId)) {
-      setAssignedUserId(String(filteredAgents[0].id));
-    }
-  }, [showAssignee, filteredAgents, assignedUserId]);
 
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
@@ -151,9 +143,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setZipCode("");
     setNotes("");
     setPhoneValidation({ isValid: true, message: "" });
-    if (showAssignee && filteredAgents.length > 0) {
-      setAssignedUserId(String(filteredAgents[0].id));
-    }
   }
 
   function handleLeadUpdated(updated) {
@@ -166,10 +155,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setPhoneValidation(v);
     if (!v.isValid || !firstName.trim()) {
       if (!firstName.trim()) setError("First name is required");
-      return;
-    }
-    if (showAssignee && !assignedUserId) {
-      setError("Select an agent to assign this lead");
       return;
     }
     setSaving(true);
@@ -185,7 +170,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         notes: notes.trim() || undefined,
         source: "manual",
       };
-      if (showAssignee) payload.assignedUserId = Number(assignedUserId);
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -236,6 +220,35 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveView("list")}
+          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+            activeView === "list"
+              ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          }`}
+        >
+          Leads list
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView("stats")}
+          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+            activeView === "stats"
+              ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          }`}
+        >
+          Lead stats
+        </button>
+      </div>
+
+      {activeView === "stats" ? <LeadsStatsPanel /> : null}
+
+      {activeView === "list" ? (
+        <>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Your leads</h2>
@@ -328,28 +341,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <label className={labelClass}>Last name</label>
               <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
             </div>
-            {showAssignee ? (
-              <div>
-                <label className={labelClass}>Assign to agent *</label>
-                <select
-                  value={assignedUserId}
-                  onChange={(e) => setAssignedUserId(e.target.value)}
-                  className={inputClass}
-                  required
-                  disabled={saving || filteredAgents.length === 0}
-                >
-                  {filteredAgents.length === 0 ? (
-                    <option value="">No agents available</option>
-                  ) : (
-                    filteredAgents.map((a) => (
-                      <option key={a.id} value={String(a.id)}>
-                        {a.username}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            ) : null}
             <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
               <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
               <div>
@@ -492,6 +483,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}
         />
+      ) : null}
+        </>
       ) : null}
     </div>
   );

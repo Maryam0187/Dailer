@@ -4,7 +4,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
-import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisedAgentUserIds } from "@/server/leads/leadAccess";
+import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisorTeamUserIds } from "@/server/leads/leadAccess";
 import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
@@ -36,11 +36,11 @@ export async function GET(req) {
     if (!(await canFilterLeadsBySupervisor(authedUser, supervisorId))) {
       return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
     }
-    const supervisedAgentIds = await getSupervisedAgentUserIds(supervisorId);
-    if (supervisedAgentIds.length === 0) {
+    const teamUserIds = await getSupervisorTeamUserIds(supervisorId);
+    if (teamUserIds.length === 0) {
       where.assignedUserId = -1;
     } else if (agentId) {
-      if (!supervisedAgentIds.includes(agentId)) {
+      if (!teamUserIds.includes(agentId)) {
         return NextResponse.json({ error: "Invalid agentId for supervisor" }, { status: 403 });
       }
       if (!(await canAssignLeadToAgent(authedUser, agentId))) {
@@ -48,7 +48,7 @@ export async function GET(req) {
       }
       where.assignedUserId = agentId;
     } else {
-      where.assignedUserId = { [Op.in]: supervisedAgentIds };
+      where.assignedUserId = { [Op.in]: teamUserIds };
     }
   } else if (agentId) {
     if (!(await canAssignLeadToAgent(authedUser, agentId))) {
@@ -125,8 +125,6 @@ export async function POST(req) {
         return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
       }
       assignedUserId = requested;
-    } else {
-      return NextResponse.json({ error: "assignedUserId is required" }, { status: 400 });
     }
   }
 
