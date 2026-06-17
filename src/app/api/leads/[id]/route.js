@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
-import { canAccessLead } from "@/server/leads/leadAccess";
+import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
+import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -25,7 +26,7 @@ export async function PATCH(req, { params }) {
 
   const lead = await db.Lead.findByPk(id);
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
-  if (!canAccessLead(lead, authedUser)) {
+  if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -90,6 +91,19 @@ export async function PATCH(req, { params }) {
     }
   }
 
+  if (body?.assignedUserId != null && (authedUser.role === "admin" || authedUser.role === "supervisor")) {
+    const nextAssignee = Number(body.assignedUserId);
+    if (!Number.isInteger(nextAssignee) || nextAssignee <= 0) {
+      return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
+    }
+    if (!(await canAssignLeadToAgent(authedUser, nextAssignee))) {
+      return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
+    }
+    if (nextAssignee !== lead.assignedUserId) {
+      update.assignedUserId = nextAssignee;
+    }
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
@@ -107,6 +121,11 @@ export async function PATCH(req, { params }) {
     });
   }
 
-  await lead.reload();
-  return NextResponse.json({ ok: true, lead });
+  await lead.reload({
+    include: [leadAssignedUserInclude],
+  });
+  return NextResponse.json({
+    ok: true,
+    lead: serializeLead(lead),
+  });
 }

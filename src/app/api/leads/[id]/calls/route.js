@@ -21,7 +21,7 @@ export async function GET(req, { params }) {
 
   const lead = await db.Lead.findByPk(leadId);
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
-  if (!canAccessLead(lead, authedUser)) {
+  if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

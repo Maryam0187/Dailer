@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
@@ -34,7 +34,7 @@ function StatusPill({ status }) {
   );
 }
 
-export default function LeadsClient({ initialShowForm = false }) {
+export default function LeadsClient({ initialShowForm = false, userRole = "agent" }) {
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -60,7 +60,22 @@ export default function LeadsClient({ initialShowForm = false }) {
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [notes, setNotes] = useState("");
+  const [assignedUserId, setAssignedUserId] = useState("");
+  const [supervisorFilter, setSupervisorFilter] = useState("all");
+  const [agentFilter, setAgentFilter] = useState("all");
+  const [assignableAgents, setAssignableAgents] = useState([]);
+  const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
+
+  const showAssignee = userRole === "admin" || userRole === "supervisor";
+  const showLeadFilters = userRole === "admin" || userRole === "manager" || userRole === "supervisor";
+  const showSupervisorFilter = userRole === "admin" || userRole === "manager";
+  const colSpan = showLeadFilters ? 8 : 7;
+
+  const filteredAgents = useMemo(() => {
+    if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
+    return assignableAgents.filter((a) => String(a.supervisorId ?? "") === supervisorFilter);
+  }, [assignableAgents, showSupervisorFilter, supervisorFilter]);
 
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
@@ -71,7 +86,11 @@ export default function LeadsClient({ initialShowForm = false }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/leads", { credentials: "include", cache: "no-store" });
+      const params = new URLSearchParams();
+      if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+      else if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/leads${qs}`, { credentials: "include", cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load leads");
       setLeads(json.leads || []);
@@ -81,11 +100,47 @@ export default function LeadsClient({ initialShowForm = false }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [agentFilter, supervisorFilter]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  useEffect(() => {
+    if (!showLeadFilters) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/leads/assignable-agents", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load agents");
+        const agents = json.agents || [];
+        setAssignableAgents(agents);
+        setFilterSupervisors(json.supervisors || []);
+        if (showAssignee && agents.length > 0) setAssignedUserId(String(agents[0].id));
+      } catch (e) {
+        setError(e.message || "Failed to load agents");
+      }
+    })();
+  }, [showLeadFilters, showAssignee]);
+
+  useEffect(() => {
+    if (agentFilter === "all") return;
+    if (!filteredAgents.some((a) => String(a.id) === agentFilter)) {
+      setAgentFilter("all");
+    }
+  }, [agentFilter, filteredAgents]);
+
+  useEffect(() => {
+    if (!showAssignee || filteredAgents.length === 0) return;
+    if (!filteredAgents.some((a) => String(a.id) === assignedUserId)) {
+      setAssignedUserId(String(filteredAgents[0].id));
+    }
+  }, [showAssignee, filteredAgents, assignedUserId]);
+
+  function onSupervisorFilterChange(nextSupervisorId) {
+    setSupervisorFilter(nextSupervisorId);
+    setAgentFilter("all");
+  }
 
   function resetForm() {
     setPhone("");
@@ -96,6 +151,9 @@ export default function LeadsClient({ initialShowForm = false }) {
     setZipCode("");
     setNotes("");
     setPhoneValidation({ isValid: true, message: "" });
+    if (showAssignee && filteredAgents.length > 0) {
+      setAssignedUserId(String(filteredAgents[0].id));
+    }
   }
 
   function handleLeadUpdated(updated) {
@@ -110,23 +168,29 @@ export default function LeadsClient({ initialShowForm = false }) {
       if (!firstName.trim()) setError("First name is required");
       return;
     }
+    if (showAssignee && !assignedUserId) {
+      setError("Select an agent to assign this lead");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
+      const payload = {
+        phone: digitsOnly(phone),
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || undefined,
+        city: city.trim() || undefined,
+        state: state.trim() || undefined,
+        zipCode: zipCode.trim() || undefined,
+        notes: notes.trim() || undefined,
+        source: "manual",
+      };
+      if (showAssignee) payload.assignedUserId = Number(assignedUserId);
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          phone: digitsOnly(phone),
-          firstName: firstName.trim(),
-          lastName: lastName.trim() || undefined,
-          city: city.trim() || undefined,
-          state: state.trim() || undefined,
-          zipCode: zipCode.trim() || undefined,
-          notes: notes.trim() || undefined,
-          source: "manual",
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to add lead");
@@ -172,23 +236,61 @@ export default function LeadsClient({ initialShowForm = false }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Your leads</h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Click a lead to view notes, update status, and add comments.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setShowForm((v) => !v);
-            setError(null);
-          }}
-          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-        >
-          {showForm ? "Cancel" : "+ Add lead"}
-        </button>
+        <div className="flex flex-wrap items-end gap-3">
+          {showLeadFilters ? (
+            <>
+              {showSupervisorFilter ? (
+                <div className="min-w-[180px]">
+                  <label className={labelClass}>Filter by supervisor</label>
+                  <select
+                    value={supervisorFilter}
+                    onChange={(e) => onSupervisorFilterChange(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="all">All supervisors</option>
+                    {filterSupervisors.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.username}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              <div className="min-w-[180px]">
+                <label className={labelClass}>Filter by agent</label>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="all">All agents</option>
+                  {filteredAgents.map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setShowForm((v) => !v);
+              setError(null);
+            }}
+            className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            {showForm ? "Cancel" : "+ Add lead"}
+          </button>
+        </div>
       </div>
 
       {showForm ? (
@@ -226,6 +328,28 @@ export default function LeadsClient({ initialShowForm = false }) {
               <label className={labelClass}>Last name</label>
               <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
             </div>
+            {showAssignee ? (
+              <div>
+                <label className={labelClass}>Assign to agent *</label>
+                <select
+                  value={assignedUserId}
+                  onChange={(e) => setAssignedUserId(e.target.value)}
+                  className={inputClass}
+                  required
+                  disabled={saving || filteredAgents.length === 0}
+                >
+                  {filteredAgents.length === 0 ? (
+                    <option value="">No agents available</option>
+                  ) : (
+                    filteredAgents.map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {a.username}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
               <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
               <div>
@@ -279,6 +403,7 @@ export default function LeadsClient({ initialShowForm = false }) {
               <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Notes</th>
+              {showLeadFilters ? <th className="px-4 py-3">Agent</th> : null}
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Last call</th>
               <th className="px-4 py-3 text-right">Actions</th>
@@ -287,14 +412,16 @@ export default function LeadsClient({ initialShowForm = false }) {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
                   Loading…
                 </td>
               </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
-                  No leads yet. Add your first lead above.
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
+                  {supervisorFilter !== "all" || agentFilter !== "all"
+                    ? "No leads match the selected filters."
+                    : "No leads yet. Add your first lead above."}
                 </td>
               </tr>
             ) : (
@@ -313,6 +440,11 @@ export default function LeadsClient({ initialShowForm = false }) {
                   <td className="max-w-[180px] px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400" title={lead.notes || undefined}>
                     {notePreview(lead.notes)}
                   </td>
+                  {showLeadFilters ? (
+                    <td className="px-4 py-3 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      {lead.assignedUsername || "—"}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3">
                     <StatusPill status={lead.status} />
                   </td>

@@ -18,7 +18,7 @@ export default async function LeadsPage({ searchParams }) {
           they answer.
         </p>
       </div>
-      <LeadsClient initialShowForm={initialShowForm} />
+      <LeadsClient initialShowForm={initialShowForm} userRole={authedUser.role} />
     </>
   );
 }

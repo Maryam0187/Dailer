@@ -4,6 +4,8 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
+import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisedAgentUserIds } from "@/server/leads/leadAccess";
+import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -11,40 +13,48 @@ function trimField(value, maxLen) {
   return s.slice(0, maxLen);
 }
 
-function serializeLead(lead, lastCallAt = null) {
-  return {
-    id: lead.id,
-    phone: lead.phone,
-    firstName: lead.firstName,
-    lastName: lead.lastName,
-    company: lead.company,
-    email: lead.email,
-    city: lead.city,
-    state: lead.state,
-    zipCode: lead.zipCode,
-    notes: lead.notes,
-    status: lead.status,
-    source: lead.source,
-    nextCallbackAt: lead.nextCallbackAt,
-    assignedUserId: lead.assignedUserId,
-    createdByUserId: lead.createdByUserId,
-    createdFromCallLogId: lead.createdFromCallLogId,
-    createdAt: lead.createdAt,
-    updatedAt: lead.updatedAt,
-    lastCallAt,
-  };
-}
-
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const role = authedUser.role;
-  let where = {};
-  if (role === "agent") {
-    where = {
-      [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
-    };
+  const where = await buildLeadsListWhere(authedUser);
+
+  const { searchParams } = new URL(req.url);
+  const agentIdRaw = searchParams.get("agentId");
+  const supervisorIdRaw = searchParams.get("supervisorId");
+  const agentId = agentIdRaw ? Number(agentIdRaw) : null;
+  const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
+
+  if (agentIdRaw && (!Number.isInteger(agentId) || agentId <= 0)) {
+    return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });
+  }
+  if (supervisorIdRaw && (!Number.isInteger(supervisorId) || supervisorId <= 0)) {
+    return NextResponse.json({ error: "Invalid supervisorId" }, { status: 400 });
+  }
+
+  if (supervisorId) {
+    if (!(await canFilterLeadsBySupervisor(authedUser, supervisorId))) {
+      return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
+    }
+    const supervisedAgentIds = await getSupervisedAgentUserIds(supervisorId);
+    if (supervisedAgentIds.length === 0) {
+      where.assignedUserId = -1;
+    } else if (agentId) {
+      if (!supervisedAgentIds.includes(agentId)) {
+        return NextResponse.json({ error: "Invalid agentId for supervisor" }, { status: 403 });
+      }
+      if (!(await canAssignLeadToAgent(authedUser, agentId))) {
+        return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
+      }
+      where.assignedUserId = agentId;
+    } else {
+      where.assignedUserId = { [Op.in]: supervisedAgentIds };
+    }
+  } else if (agentId) {
+    if (!(await canAssignLeadToAgent(authedUser, agentId))) {
+      return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
+    }
+    where.assignedUserId = agentId;
   }
 
   const leads = await db.Lead.findAll({
@@ -53,9 +63,7 @@ export async function GET(req) {
       ["nextCallbackAt", "ASC"],
       ["updatedAt", "DESC"],
     ],
-    include: [
-      { model: db.User, as: "assignedUser", attributes: ["id", "username"], required: false },
-    ],
+    include: [leadAssignedUserInclude],
   });
 
   const leadIds = leads.map((l) => l.id);
@@ -109,6 +117,19 @@ export async function POST(req) {
     if (!Number.isNaN(d.getTime())) nextCallbackAt = d;
   }
 
+  let assignedUserId = authedUser.id;
+  if (authedUser.role === "admin" || authedUser.role === "supervisor") {
+    const requested = Number(body?.assignedUserId);
+    if (Number.isInteger(requested) && requested > 0) {
+      if (!(await canAssignLeadToAgent(authedUser, requested))) {
+        return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
+      }
+      assignedUserId = requested;
+    } else {
+      return NextResponse.json({ error: "assignedUserId is required" }, { status: 400 });
+    }
+  }
+
   const lead = await db.Lead.create({
     phone,
     firstName,
@@ -122,9 +143,13 @@ export async function POST(req) {
     status: "new",
     source,
     nextCallbackAt,
-    assignedUserId: authedUser.id,
+    assignedUserId,
     createdByUserId: authedUser.id,
     createdFromCallLogId,
+  });
+
+  const withUser = await db.Lead.findByPk(lead.id, {
+    include: [leadAssignedUserInclude],
   });
 
   if (createdFromCallLogId) {
@@ -138,5 +163,5 @@ export async function POST(req) {
     body: trimField(body?.notes, 65535) ? `Initial notes: ${trimField(body?.notes, 65535)}` : "Lead created",
   });
 
-  return NextResponse.json({ ok: true, lead: serializeLead(lead) }, { status: 201 });
+  return NextResponse.json({ ok: true, lead: serializeLead(withUser) }, { status: 201 });
 }

@@ -290,6 +290,16 @@ export default function LeadDetailPanel({
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "No location"}
               </p>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Agent:</span>{" "}
+                  {lead.assignedUsername || "—"}
+                </p>
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Supervisor:</span>{" "}
+                  {lead.supervisorUsername || "—"}
+                </p>
+              </div>
             </div>
             <button
               type="button"
