@@ -68,6 +68,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
   const [activeView, setActiveView] = useState("list");
 
+  const showLeadStats = userRole === "admin";
   const showLeadFilters = userRole === "admin" || userRole === "manager" || userRole === "supervisor";
   const showSupervisorFilter = userRole === "admin" || userRole === "manager";
   const colSpan = showLeadFilters ? 8 : 7;
@@ -220,34 +221,36 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setActiveView("list")}
-          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
-            activeView === "list"
-              ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          }`}
-        >
-          Leads list
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveView("stats")}
-          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
-            activeView === "stats"
-              ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          }`}
-        >
-          Lead stats
-        </button>
-      </div>
+      {showLeadStats ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveView("list")}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              activeView === "list"
+                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Leads list
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("stats")}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              activeView === "stats"
+                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Lead stats
+          </button>
+        </div>
+      ) : null}
 
-      {activeView === "stats" ? <LeadsStatsPanel /> : null}
+      {showLeadStats && activeView === "stats" ? <LeadsStatsPanel /> : null}
 
-      {activeView === "list" ? (
+      {(showLeadStats ? activeView === "list" : true) ? (
         <>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>

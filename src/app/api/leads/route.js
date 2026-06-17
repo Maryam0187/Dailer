@@ -118,7 +118,17 @@ export async function POST(req) {
   }
 
   let assignedUserId = authedUser.id;
-  if (authedUser.role === "admin" || authedUser.role === "supervisor") {
+  if (authedUser.role === "agent") {
+    const agent = await db.User.findByPk(authedUser.id, { attributes: ["id", "supervisorId"] });
+    const supervisorId = agent?.supervisorId;
+    if (Number.isInteger(supervisorId) && supervisorId > 0) {
+      const supervisor = await db.User.findOne({
+        where: { id: supervisorId, role: "supervisor", isActive: true },
+        attributes: ["id"],
+      });
+      if (supervisor) assignedUserId = supervisor.id;
+    }
+  } else if (authedUser.role === "admin" || authedUser.role === "supervisor") {
     const requested = Number(body?.assignedUserId);
     if (Number.isInteger(requested) && requested > 0) {
       if (!(await canAssignLeadToAgent(authedUser, requested))) {

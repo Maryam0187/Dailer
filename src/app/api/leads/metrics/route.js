@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { requireAdmin } from "@/server/auth/requireAdmin";
 import { aggregateLeadMetrics } from "@/server/leads/aggregateLeadMetrics";
 
 function parseDateOnly(value) {
@@ -10,8 +10,8 @@ function parseDateOnly(value) {
 }
 
 export async function GET(req) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await requireAdmin();
+  if (errorResponse) return errorResponse;
 
   const { searchParams } = new URL(req.url);
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
