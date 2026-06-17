@@ -4,6 +4,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
+import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
 import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisorTeamUserIds } from "@/server/leads/leadAccess";
 import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
 
@@ -11,6 +12,13 @@ function trimField(value, maxLen) {
   const s = String(value || "").trim();
   if (!s) return null;
   return s.slice(0, maxLen);
+}
+
+function parseDateOnly(value) {
+  if (!value || typeof value !== "string") return null;
+  const v = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  return v;
 }
 
 export async function GET(req) {
@@ -22,8 +30,20 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const agentIdRaw = searchParams.get("agentId");
   const supervisorIdRaw = searchParams.get("supervisorId");
+  const fromDate = parseDateOnly(searchParams.get("fromDate"));
+  const toDate = parseDateOnly(searchParams.get("toDate"));
   const agentId = agentIdRaw ? Number(agentIdRaw) : null;
   const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
+
+  if ((fromDate && !toDate) || (!fromDate && toDate)) {
+    return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
+  }
+  if (fromDate && toDate && fromDate > toDate) {
+    return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
+  }
+  if (fromDate && toDate) {
+    Object.assign(where, dateRangeWhere(fromDate, toDate));
+  }
 
   if (agentIdRaw && (!Number.isInteger(agentId) || agentId <= 0)) {
     return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });

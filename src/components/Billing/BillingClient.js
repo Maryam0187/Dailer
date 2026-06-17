@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -50,6 +50,8 @@ export default function BillingClient() {
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
+  const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -81,6 +83,33 @@ export default function BillingClient() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const previewBill = useCallback(async (fromDate, toDate) => {
+    if (!fromDate || !toDate) return;
+    setError(null);
+    setPreviewing(true);
+    setBillResult(null);
+    setBillPreview(null);
+    try {
+      const res = await fetch("/api/billing/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ fromDate, toDate }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to preview bill");
+      setBillPreview(json.preview);
+    } catch (err) {
+      setError(err.message || "Failed to preview bill");
+    } finally {
+      setPreviewing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void previewBill(initialRange.from, initialRange.to);
+  }, [previewBill]);
 
   async function onSaveSettings(e) {
     e.preventDefault();
@@ -114,31 +143,27 @@ export default function BillingClient() {
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
     setBillPreview(null);
     setBillResult(null);
+    void previewBill(next.from, next.to);
   }
 
   async function onPreviewBill(e) {
     e.preventDefault();
-    setError(null);
-    setPreviewing(true);
-    setBillResult(null);
-    setBillPreview(null);
-    try {
-      const res = await fetch("/api/billing/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ fromDate: rangeFrom, toDate: rangeTo }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to preview bill");
-      setBillPreview(json.preview);
-    } catch (err) {
-      setError(err.message || "Failed to preview bill");
-    } finally {
-      setPreviewing(false);
+    if (rangePreset !== "custom") return;
+    if (!rangeFrom || !rangeTo) {
+      setError("From date and to date are required");
+      return;
     }
+    if (rangeFrom > rangeTo) {
+      setError("From date must be on or before to date");
+      return;
+    }
+    setAppliedFrom(rangeFrom);
+    setAppliedTo(rangeTo);
+    await previewBill(rangeFrom, rangeTo);
   }
 
   async function onGenerateBill() {
@@ -150,7 +175,7 @@ export default function BillingClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ fromDate: rangeFrom, toDate: rangeTo }),
+        body: JSON.stringify({ fromDate: appliedFrom, toDate: appliedTo }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to generate bill");
@@ -245,7 +270,11 @@ export default function BillingClient() {
               type="date"
               className={inputClass}
               value={rangeFrom}
-              onChange={(e) => setRangeFrom(e.target.value)}
+              disabled={rangePreset !== "custom"}
+              onChange={(e) => {
+                setRangePreset("custom");
+                setRangeFrom(e.target.value);
+              }}
               required
             />
           </div>
@@ -258,14 +287,18 @@ export default function BillingClient() {
               type="date"
               className={inputClass}
               value={rangeTo}
-              onChange={(e) => setRangeTo(e.target.value)}
+              disabled={rangePreset !== "custom"}
+              onChange={(e) => {
+                setRangePreset("custom");
+                setRangeTo(e.target.value);
+              }}
               required
             />
           </div>
           <div className="flex items-end">
             <button
               type="submit"
-              disabled={previewing || generating}
+              disabled={previewing || generating || rangePreset !== "custom"}
               className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               {previewing ? "Previewing..." : "Preview bill"}

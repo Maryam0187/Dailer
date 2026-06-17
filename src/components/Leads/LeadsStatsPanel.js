@@ -168,25 +168,19 @@ export default function LeadsStatsPanel() {
     void loadStats(today.from, today.to);
   }, [loadStats]);
 
-  function clearStats() {
-    setLoadedRange(null);
-    setAgentRows([]);
-    setAgentTotals(null);
-    setSupervisorRows([]);
-    setSupervisorTotals(null);
-  }
-
   function applyPreset(preset) {
+    setError(null);
     setRangePreset(preset);
-    clearStats();
     if (preset === "custom") return;
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    void loadStats(next.from, next.to);
   }
 
   async function onApplyRange(e) {
     e.preventDefault();
+    if (rangePreset !== "custom") return;
     if (!rangeFrom || !rangeTo) {
       setError("From date and to date are required");
       return;
@@ -249,9 +243,9 @@ export default function LeadsStatsPanel() {
                 type="date"
                 className={inputClass}
                 value={rangeFrom}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
-                  clearStats();
                   setRangeFrom(e.target.value);
                 }}
                 required
@@ -266,9 +260,9 @@ export default function LeadsStatsPanel() {
                 type="date"
                 className={inputClass}
                 value={rangeTo}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
-                  clearStats();
                   setRangeTo(e.target.value);
                 }}
                 required
@@ -277,7 +271,7 @@ export default function LeadsStatsPanel() {
             <div className="flex items-end">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || rangePreset !== "custom"}
                 className="h-11 w-full rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {loading ? "Loading…" : "Apply"}

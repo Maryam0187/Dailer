@@ -89,6 +89,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
+  const [appliedTo, setAppliedTo] = useState(initialRange.to);
   /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
   const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
   /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. */
@@ -105,8 +107,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       audience: audienceOverride,
     } = {}) => {
     const resolvedPage = targetPage ?? page;
-    const resolvedFromDate = fromDate ?? rangeFrom;
-    const resolvedToDate = toDate ?? rangeTo;
+    const resolvedFromDate = fromDate ?? appliedFrom;
+    const resolvedToDate = toDate ?? appliedTo;
     const resolvedScope = scopeOverride ?? listScope;
     const resolvedAudience = audienceOverride ?? logAudience;
     if (silent) {
@@ -157,7 +159,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, rangeFrom, rangeTo, listScope, logAudience, isAdmin],
+    [page, appliedFrom, appliedTo, listScope, logAudience, isAdmin],
   );
 
   async function redial(call) {
@@ -194,7 +196,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         conferenceName: result.conferenceName || undefined,
       });
 
-      await loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+      await loadCalls({ silent: true, targetPage: page, fromDate: appliedFrom, toDate: appliedTo });
     } catch (e) {
       setError(e.message || "Failed to place call");
     } finally {
@@ -204,16 +206,16 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
 
   useEffect(() => {
     const controller = new AbortController();
-    loadCalls({ signal: controller.signal, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+    loadCalls({ signal: controller.signal, targetPage: page, fromDate: appliedFrom, toDate: appliedTo });
     const onCallEnded = () => {
-      loadCalls({ signal: controller.signal, silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+      loadCalls({ signal: controller.signal, silent: true, targetPage: page, fromDate: appliedFrom, toDate: appliedTo });
     };
     window.addEventListener("call-ended", onCallEnded);
     return () => {
       window.removeEventListener("call-ended", onCallEnded);
       controller.abort();
     };
-  }, [loadCalls, page, rangeFrom, rangeTo]);
+  }, [loadCalls, page, appliedFrom, appliedTo]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -221,26 +223,39 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
     setPage(1);
   }
 
   async function onApplyRange() {
+    if (rangePreset !== "custom") return;
+    if (!rangeFrom || !rangeTo) {
+      setError("From date and to date are required");
+      return;
+    }
+    if (rangeFrom > rangeTo) {
+      setError("From date must be on or before to date");
+      return;
+    }
+    setError(null);
+    setAppliedFrom(rangeFrom);
+    setAppliedTo(rangeTo);
     setPage(1);
-    await loadCalls({ targetPage: 1, fromDate: rangeFrom, toDate: rangeTo });
   }
 
   async function onPrevPage() {
     if (!pagination.hasPrev || loading || refreshing) return;
     const nextPage = Math.max(1, page - 1);
     setPage(nextPage);
-    await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+    await loadCalls({ silent: true, targetPage: nextPage, fromDate: appliedFrom, toDate: appliedTo });
   }
 
   async function onNextPage() {
     if (!pagination.hasNext || loading || refreshing) return;
     const nextPage = page + 1;
     setPage(nextPage);
-    await loadCalls({ silent: true, targetPage: nextPage, fromDate: rangeFrom, toDate: rangeTo });
+    await loadCalls({ silent: true, targetPage: nextPage, fromDate: appliedFrom, toDate: appliedTo });
   }
 
   async function endInProgressCall(callId) {
@@ -255,7 +270,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to end call");
-      await loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo });
+      await loadCalls({ silent: true, targetPage: page, fromDate: appliedFrom, toDate: appliedTo });
     } catch (e) {
       setError(e?.message || "Failed to end call");
     } finally {
@@ -341,7 +356,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
             </button>
             <button
               type="button"
-              onClick={() => loadCalls({ silent: true, targetPage: page, fromDate: rangeFrom, toDate: rangeTo })}
+              onClick={() => loadCalls({ silent: true, targetPage: page, fromDate: appliedFrom, toDate: appliedTo })}
               disabled={refreshing || loading}
               className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm font-semibold text-sky-900 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-700 dark:bg-zinc-900 dark:text-sky-200 dark:hover:bg-zinc-800"
             >
@@ -495,6 +510,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 type="date"
                 className={inputClass}
                 value={rangeFrom}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
                   setRangeFrom(e.target.value);
@@ -511,6 +527,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 type="date"
                 className={inputClass}
                 value={rangeTo}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
                   setRangeTo(e.target.value);
@@ -522,7 +539,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               <button
                 type="button"
                 onClick={onApplyRange}
-                disabled={loading || refreshing}
+                disabled={loading || refreshing || rangePreset !== "custom"}
                 className="h-10 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
               >
                 Apply range

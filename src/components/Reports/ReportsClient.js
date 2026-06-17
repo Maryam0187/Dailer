@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadCsv } from "@/lib/exportCsv";
 import { formatDuration } from "@/lib/formatDuration";
 
@@ -111,6 +111,8 @@ export default function ReportsClient() {
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
+  const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [metricsScope, setMetricsScope] = useState("all");
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState(null);
@@ -133,14 +135,6 @@ export default function ReportsClient() {
     }
     setSortKey(columnKey);
     setSortDir(columnKey === "username" || columnKey === "role" ? "asc" : "desc");
-  }
-
-  function clearReport() {
-    setLoadedRange(null);
-    setRows([]);
-    setTotals(null);
-    setSortKey(DEFAULT_SORT_KEY);
-    setSortDir(DEFAULT_SORT_DIR);
   }
 
   const loadReport = useCallback(async (fromDate, toDate, scope) => {
@@ -173,17 +167,24 @@ export default function ReportsClient() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!appliedFrom || !appliedTo) return;
+    void loadReport(appliedFrom, appliedTo, metricsScope);
+  }, [appliedFrom, appliedTo, metricsScope, loadReport]);
+
   function applyPreset(preset) {
     setRangePreset(preset);
-    clearReport();
     if (preset === "custom") return;
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
   }
 
   async function onApplyRange(e) {
     e.preventDefault();
+    if (rangePreset !== "custom") return;
     if (!rangeFrom || !rangeTo) {
       setError("From date and to date are required");
       return;
@@ -192,7 +193,9 @@ export default function ReportsClient() {
       setError("From date must be on or before to date");
       return;
     }
-    await loadReport(rangeFrom, rangeTo, metricsScope);
+    setError(null);
+    setAppliedFrom(rangeFrom);
+    setAppliedTo(rangeTo);
   }
 
   function onExportCsv(e) {
@@ -278,9 +281,9 @@ export default function ReportsClient() {
                 type="date"
                 className={inputClass}
                 value={rangeFrom}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
-                  clearReport();
                   setRangeFrom(e.target.value);
                 }}
                 required
@@ -295,9 +298,9 @@ export default function ReportsClient() {
                 type="date"
                 className={inputClass}
                 value={rangeTo}
+                disabled={rangePreset !== "custom"}
                 onChange={(e) => {
                   setRangePreset("custom");
-                  clearReport();
                   setRangeTo(e.target.value);
                 }}
                 required
@@ -306,7 +309,7 @@ export default function ReportsClient() {
             <div className="flex items-end gap-2">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || rangePreset !== "custom"}
                 className="h-11 flex-1 rounded-xl bg-amber-600 px-5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
               >
                 {loading ? "Loading…" : "Apply"}
@@ -319,10 +322,7 @@ export default function ReportsClient() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  clearReport();
-                  setMetricsScope("all");
-                }}
+                onClick={() => setMetricsScope("all")}
                 className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
                   metricsScope === "all"
                     ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
@@ -333,10 +333,7 @@ export default function ReportsClient() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  clearReport();
-                  setMetricsScope("conference");
-                }}
+                onClick={() => setMetricsScope("conference")}
                 className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
                   metricsScope === "conference"
                     ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"

@@ -34,6 +34,60 @@ function StatusBadge({ status }) {
   );
 }
 
+function CopyPhoneButton({ phone, className = "" }) {
+  const [copied, setCopied] = useState(false);
+
+  async function onCopy() {
+    const text = digitsOnly(phone) || phone || "";
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onCopy()}
+      aria-label={copied ? "Phone number copied" : "Copy phone number"}
+      title={copied ? "Copied!" : "Copy phone number"}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${className}`}
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+          <path
+            fillRule="evenodd"
+            d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+          <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+          <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function ActivityIcon({ type }) {
   const base = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold";
   if (type === "comment") {
@@ -284,8 +338,9 @@ export default function LeadDetailPanel({
               <h2 className="mt-1 truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                 {formatLeadName(lead)}
               </h2>
-              <p className="mt-1 font-mono text-sm text-zinc-600 dark:text-zinc-400">
-                {formatLandline(digitsOnly(lead.phone)) || lead.phone}
+              <p className="mt-1 flex items-center gap-1.5 font-mono text-sm text-zinc-600 dark:text-zinc-400">
+                <CopyPhoneButton phone={lead.phone} />
+                <span>{formatLandline(digitsOnly(lead.phone)) || lead.phone}</span>
               </p>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "No location"}

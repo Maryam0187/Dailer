@@ -10,9 +10,42 @@ import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelect
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 
-const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+
+function formatDateInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getPresetRange(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "today") {
+    const d = formatDateInput(today);
+    return { from: d, to: d };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const d = formatDateInput(y);
+    return { from: d, to: d };
+  }
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  if (preset === "month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  return { from: "", to: "" };
+}
+
+const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 function formatLeadName(lead) {
   return [lead.firstName, lead.lastName].filter(Boolean).join(" ").trim() || "—";
@@ -67,6 +100,12 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
   const [activeView, setActiveView] = useState("list");
+  const initialRange = getPresetRange("today");
+  const [rangePreset, setRangePreset] = useState("today");
+  const [rangeFrom, setRangeFrom] = useState(initialRange.from);
+  const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
+  const [appliedTo, setAppliedTo] = useState(initialRange.to);
 
   const showLeadStats = userRole === "admin";
   const showLeadFilters = userRole === "admin" || userRole === "manager" || userRole === "supervisor";
@@ -90,6 +129,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       const params = new URLSearchParams();
       if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
       else if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
+      if (appliedFrom && appliedTo) {
+        params.set("fromDate", appliedFrom);
+        params.set("toDate", appliedTo);
+      }
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/leads${qs}`, { credentials: "include", cache: "no-store" });
       const json = await res.json().catch(() => ({}));
@@ -101,7 +144,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     } finally {
       setLoading(false);
     }
-  }, [agentFilter, supervisorFilter]);
+  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo]);
 
   useEffect(() => {
     void loadLeads();
@@ -133,6 +176,33 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
     setAgentFilter("all");
+  }
+
+  function applyRangePreset(preset) {
+    setError(null);
+    setRangePreset(preset);
+    if (preset === "custom") return;
+    const next = getPresetRange(preset);
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
+  }
+
+  async function onApplyRange(e) {
+    e?.preventDefault?.();
+    if (rangePreset !== "custom") return;
+    if (!rangeFrom || !rangeTo) {
+      setError("From date and to date are required");
+      return;
+    }
+    if (rangeFrom > rangeTo) {
+      setError("From date must be on or before to date");
+      return;
+    }
+    setError(null);
+    setAppliedFrom(rangeFrom);
+    setAppliedTo(rangeTo);
   }
 
   function resetForm() {
@@ -309,6 +379,88 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       </div>
 
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            void onApplyRange(e);
+          }}
+        >
+          <div>
+            <label className={labelClass}>Created date range</label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "today", label: "Today" },
+                { id: "yesterday", label: "Yesterday" },
+                { id: "week", label: "Last 7 days" },
+                { id: "month", label: "This month" },
+                { id: "custom", label: "Custom" },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyRangePreset(p.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    rangePreset === p.id
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="leads-from-date" className={labelClass}>
+                From date
+              </label>
+              <input
+                id="leads-from-date"
+                type="date"
+                className={inputClass}
+                value={rangeFrom}
+                disabled={rangePreset !== "custom"}
+                onChange={(e) => {
+                  setRangePreset("custom");
+                  setRangeFrom(e.target.value);
+                }}
+              />
+            </div>
+            <div>
+              <label htmlFor="leads-to-date" className={labelClass}>
+                To date
+              </label>
+              <input
+                id="leads-to-date"
+                type="date"
+                className={inputClass}
+                value={rangeTo}
+                disabled={rangePreset !== "custom"}
+                onChange={(e) => {
+                  setRangePreset("custom");
+                  setRangeTo(e.target.value);
+                }}
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="submit"
+                disabled={loading || rangePreset !== "custom"}
+                className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Apply range
+              </button>
+            </div>
+          </div>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Showing leads created <span className="font-medium">{appliedFrom}</span> —{" "}
+            <span className="font-medium">{appliedTo}</span>
+          </p>
+        </form>
+      </section>
+
       {showForm ? (
         <form
           onSubmit={onAddLead}
@@ -413,7 +565,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             ) : leads.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
-                  {supervisorFilter !== "all" || agentFilter !== "all"
+                  {supervisorFilter !== "all" || agentFilter !== "all" || rangePreset !== "today"
                     ? "No leads match the selected filters."
                     : "No leads yet. Add your first lead above."}
                 </td>
