@@ -84,6 +84,7 @@ export default function QuickDialPanel() {
         callId: result.call.id,
         callOwnedByMe: true,
         callMode: result.callMode || "direct",
+        dialMode: "agent_first",
         toNumber: result.call.toNumber,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,

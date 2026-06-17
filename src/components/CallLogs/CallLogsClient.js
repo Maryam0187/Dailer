@@ -44,8 +44,9 @@ function getPresetRange(preset) {
 }
 
 function normalizeListScope(scope) {
-  if (scope === "conference") return "conference";
-  if (scope === "recording") return "recording";
+  if (scope === "conference" || scope === "lead" || scope === "recording") {
+    return scope;
+  }
   return "all";
 }
 
@@ -123,8 +124,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         qs.set("fromDate", resolvedFromDate);
         qs.set("toDate", resolvedToDate);
       }
-      if (resolvedScope === "conference") {
-        qs.set("scope", "conference");
+      if (resolvedScope === "conference" || resolvedScope === "lead") {
+        qs.set("scope", resolvedScope);
       }
       if (resolvedScope === "recording") {
         qs.set("hasRecording", "true");
@@ -159,8 +160,10 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     [page, rangeFrom, rangeTo, listScope, logAudience, isAdmin],
   );
 
-  async function redial(toNumber, id) {
+  async function redial(call) {
     if (session) return;
+    const id = call.id;
+    const toNumber = call.toNumber;
     setError(null);
     setCallingId(id);
     try {
@@ -169,16 +172,25 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         await ensureRegistered();
       }
 
-      const result = await startOutgoingCall(toNumber);
+      const result = call.leadId
+        ? await startOutgoingCall({ leadId: call.leadId })
+        : await startOutgoingCall({ toNumber });
+
       if (!result.ok) throw new Error(result.error);
 
       beginSession({
         callId: result.call.id,
         callOwnedByMe: true,
         callMode: result.callMode || "direct",
+        callKind: call.callKind || (call.leadId ? "lead" : null),
+        dialMode: "agent_first",
         toNumber: result.call.toNumber,
         phoneLabel: toNumber,
-        customerName: undefined,
+        customerName: call.leadName || call.contactName || undefined,
+        city: call.city || undefined,
+        state: call.state || undefined,
+        zipCode: call.zipCode || undefined,
+        leadId: call.leadId || undefined,
         conferenceName: result.conferenceName || undefined,
       });
 
@@ -398,6 +410,20 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               <button
                 type="button"
                 onClick={() => {
+                  setListScope("lead");
+                  setPage(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  listScope === "lead"
+                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                Lead calls
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setListScope("recording");
                   setPage(1);
                 }}
@@ -427,7 +453,11 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
             <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
               {listScope === "recording"
                 ? "Only calls with a saved recording appear here. Download from the Recording column."
-                : "Conference list includes calls where another agent was invited via “Add agent”."}
+                : listScope === "lead"
+                  ? "Lead = agent-first follow-ups placed from Leads."
+                  : listScope === "conference"
+                      ? "Conference list includes calls where another agent was invited via “Add agent”."
+                      : "Filter by call type or date range."}
             </p>
           </div>
           <div className="mb-3">
@@ -605,7 +635,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => redial(c.toNumber, c.id)}
+                          onClick={() => redial(c)}
                           disabled={callingId === c.id || Boolean(session) || !canStartCall}
                           className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
                         >
