@@ -24,7 +24,7 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  const { agents, agentTotals } = await aggregateLeadMetrics({
+  const { agents, agentTotals, supervisors, supervisorTotals } = await aggregateLeadMetrics({
     authedUser,
     fromDate,
     toDate,
@@ -35,5 +35,7 @@ export async function GET(req) {
     toDate,
     agents,
     agentTotals,
+    supervisors,
+    supervisorTotals,
   });
 }

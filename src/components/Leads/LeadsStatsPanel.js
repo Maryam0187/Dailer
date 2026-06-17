@@ -44,7 +44,9 @@ function formatRole(role) {
   return role || "—";
 }
 
-function MetricsTable({ title, description, rows, totals, loading }) {
+function MetricsTable({ title, description, rows, totals, loading, showRole = true, nameHeader = "Name" }) {
+  const colSpan = showRole ? 10 : 9;
+
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950/60">
@@ -55,8 +57,8 @@ function MetricsTable({ title, description, rows, totals, loading }) {
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
             <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">{nameHeader}</th>
+              {showRole ? <th className="px-4 py-3">Role</th> : null}
               <th className="px-4 py-3 text-right">Total</th>
               <th className="px-4 py-3 text-right">Closed</th>
               <th className="px-4 py-3 text-right">DNC</th>
@@ -70,13 +72,13 @@ function MetricsTable({ title, description, rows, totals, loading }) {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {loading ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
                   No leads in this date range.
                 </td>
               </tr>
@@ -84,9 +86,11 @@ function MetricsTable({ title, description, rows, totals, loading }) {
               rows.map((row) => (
                 <tr key={row.userId ?? row.username} className="text-zinc-800 dark:text-zinc-200">
                   <td className="px-4 py-3 font-medium">{row.username}</td>
-                  <td className="px-4 py-3 text-xs capitalize text-zinc-600 dark:text-zinc-400">
-                    {formatRole(row.role)}
-                  </td>
+                  {showRole ? (
+                    <td className="px-4 py-3 text-xs capitalize text-zinc-600 dark:text-zinc-400">
+                      {formatRole(row.role)}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3 text-right tabular-nums">{row.total}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-300">
                     {row.closed}
@@ -103,7 +107,7 @@ function MetricsTable({ title, description, rows, totals, loading }) {
             {totals && rows.length > 0 ? (
               <tr className="bg-zinc-50 font-semibold text-zinc-900 dark:bg-zinc-950/60 dark:text-zinc-100">
                 <td className="px-4 py-3">Total</td>
-                <td className="px-4 py-3" />
+                {showRole ? <td className="px-4 py-3" /> : null}
                 <td className="px-4 py-3 text-right tabular-nums">{totals.total}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{totals.closed}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{totals.dnc}</td>
@@ -128,6 +132,8 @@ export default function LeadsStatsPanel() {
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [agentRows, setAgentRows] = useState([]);
   const [agentTotals, setAgentTotals] = useState(null);
+  const [supervisorRows, setSupervisorRows] = useState([]);
+  const [supervisorTotals, setSupervisorTotals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [loadedRange, setLoadedRange] = useState(null);
@@ -142,11 +148,15 @@ export default function LeadsStatsPanel() {
       if (!res.ok) throw new Error(json?.error || "Failed to load lead stats");
       setAgentRows(json.agents || []);
       setAgentTotals(json.agentTotals || null);
+      setSupervisorRows(json.supervisors || []);
+      setSupervisorTotals(json.supervisorTotals || null);
       setLoadedRange({ from: fromDate, to: toDate });
     } catch (e) {
       setError(e.message || "Failed to load lead stats");
       setAgentRows([]);
       setAgentTotals(null);
+      setSupervisorRows([]);
+      setSupervisorTotals(null);
       setLoadedRange(null);
     } finally {
       setLoading(false);
@@ -162,6 +172,8 @@ export default function LeadsStatsPanel() {
     setLoadedRange(null);
     setAgentRows([]);
     setAgentTotals(null);
+    setSupervisorRows([]);
+    setSupervisorTotals(null);
   }
 
   function applyPreset(preset) {
@@ -288,6 +300,16 @@ export default function LeadsStatsPanel() {
         rows={agentRows}
         totals={agentTotals}
         loading={loading}
+      />
+
+      <MetricsTable
+        title="By supervisor (from agents)"
+        description="Leads assigned to each supervisor that were created by their agents. Does not include leads the supervisor created themselves."
+        rows={supervisorRows}
+        totals={supervisorTotals}
+        loading={loading}
+        showRole={false}
+        nameHeader="Supervisor"
       />
     </div>
   );

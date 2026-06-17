@@ -1,6 +1,6 @@
 import db from "@/server/db";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
-import { buildLeadsListWhere, getLeadStatsCreators } from "@/server/leads/leadAccess";
+import { buildLeadsListWhere, getFilterSupervisors, getLeadStatsCreators } from "@/server/leads/leadAccess";
 
 const STATUS_KEYS = ["new", "contacted", "callback", "qualified", "closed", "dnc"];
 
@@ -64,7 +64,7 @@ export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
       ...accessWhere,
       ...dateRangeWhere(fromDate, toDate),
     },
-    attributes: ["id", "createdByUserId", "status"],
+    attributes: ["id", "assignedUserId", "createdByUserId", "status"],
   });
 
   const creators = await getLeadStatsCreators(authedUser);
@@ -73,10 +73,37 @@ export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
     creatorBuckets.set(user.id, emptyStatusCounts());
   }
 
+  const supervisors = await getFilterSupervisors(authedUser);
+  const supervisorBuckets = new Map();
+  for (const sup of supervisors) {
+    supervisorBuckets.set(sup.id, emptyStatusCounts());
+  }
+
+  const agentRows = await db.User.findAll({
+    where: { role: "agent", isActive: true },
+    attributes: ["id", "supervisorId"],
+    raw: true,
+  });
+  const agentSupervisorMap = new Map(
+    agentRows.filter((a) => a.supervisorId).map((a) => [a.id, a.supervisorId]),
+  );
+
   for (const lead of leads) {
     const creatorId = lead.createdByUserId;
+    const assignedId = lead.assignedUserId;
+
     if (creatorId && creatorBuckets.has(creatorId)) {
       addLeadToCounts(creatorBuckets.get(creatorId), lead.status);
+    }
+
+    if (
+      assignedId &&
+      creatorId &&
+      creatorId !== assignedId &&
+      supervisorBuckets.has(assignedId) &&
+      agentSupervisorMap.get(creatorId) === assignedId
+    ) {
+      addLeadToCounts(supervisorBuckets.get(assignedId), lead.status);
     }
   }
 
@@ -87,8 +114,17 @@ export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
     ),
   );
 
+  const supervisorAssignments = supervisors.map((sup) =>
+    mapCountsRow(
+      { userId: sup.id, username: sup.username },
+      supervisorBuckets.get(sup.id) || emptyStatusCounts(),
+    ),
+  );
+
   return {
     agents,
     agentTotals: sumTotals(agents),
+    supervisors: supervisorAssignments,
+    supervisorTotals: sumTotals(supervisorAssignments),
   };
 }
