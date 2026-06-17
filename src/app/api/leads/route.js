@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
+import { createLeadUpdate } from "@/server/leads/leadUpdates";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -129,6 +130,13 @@ export async function POST(req) {
   if (createdFromCallLogId) {
     await db.CallLog.update({ leadId: lead.id }, { where: { id: createdFromCallLogId } });
   }
+
+  await createLeadUpdate({
+    leadId: lead.id,
+    userId: authedUser.id,
+    type: "created",
+    body: trimField(body?.notes, 65535) ? `Initial notes: ${trimField(body?.notes, 65535)}` : "Lead created",
+  });
 
   return NextResponse.json({ ok: true, lead: serializeLead(lead) }, { status: 201 });
 }

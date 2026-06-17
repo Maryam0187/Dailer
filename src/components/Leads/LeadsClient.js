@@ -5,7 +5,9 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 const inputClass =
@@ -13,6 +15,23 @@ const inputClass =
 
 function formatLeadName(lead) {
   return [lead.firstName, lead.lastName].filter(Boolean).join(" ").trim() || "—";
+}
+
+function notePreview(notes) {
+  const text = String(notes || "").trim();
+  if (!text) return "—";
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+function StatusPill({ status }) {
+  const meta = getLeadStatusMeta(status);
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE_CLASS[meta.tone]}`}
+    >
+      {meta.label}
+    </span>
+  );
 }
 
 export default function LeadsClient({ initialShowForm = false }) {
@@ -32,6 +51,7 @@ export default function LeadsClient({ initialShowForm = false }) {
   const [callingId, setCallingId] = useState(null);
   const [showForm, setShowForm] = useState(initialShowForm);
   const [saving, setSaving] = useState(false);
+  const [selectedLeadId, setSelectedLeadId] = useState(null);
 
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -44,6 +64,8 @@ export default function LeadsClient({ initialShowForm = false }) {
 
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
+
+  const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -74,6 +96,10 @@ export default function LeadsClient({ initialShowForm = false }) {
     setZipCode("");
     setNotes("");
     setPhoneValidation({ isValid: true, message: "" });
+  }
+
+  function handleLeadUpdated(updated) {
+    setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
   }
 
   async function onAddLead(e) {
@@ -107,6 +133,7 @@ export default function LeadsClient({ initialShowForm = false }) {
       resetForm();
       setShowForm(false);
       await loadLeads();
+      if (json.lead?.id) setSelectedLeadId(json.lead.id);
     } catch (err) {
       setError(err.message || "Failed to add lead");
     } finally {
@@ -149,7 +176,7 @@ export default function LeadsClient({ initialShowForm = false }) {
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Your leads</h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Add a lead first, then call from the table (agent connects first).
+            Click a lead to view notes, update status, and add comments.
           </p>
         </div>
         <button
@@ -200,12 +227,7 @@ export default function LeadsClient({ initialShowForm = false }) {
               <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
-              <StateSelectField
-                value={state}
-                onChange={setState}
-                disabled={saving}
-                showLocalTime={false}
-              />
+              <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
               <div>
                 <label className={labelClass}>City</label>
                 <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
@@ -256,50 +278,70 @@ export default function LeadsClient({ initialShowForm = false }) {
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Location</th>
+              <th className="px-4 py-3">Notes</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Last call</th>
-              <th className="px-4 py-3 text-right">Action</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                   Loading…
                 </td>
               </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                   No leads yet. Add your first lead above.
                 </td>
               </tr>
             ) : (
               leads.map((lead) => (
-                <tr key={lead.id} className="text-zinc-800 dark:text-zinc-200">
+                <tr
+                  key={lead.id}
+                  className={`text-zinc-800 dark:text-zinc-200 ${
+                    selectedLeadId === lead.id ? "bg-emerald-50/60 dark:bg-emerald-950/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                  }`}
+                >
                   <td className="px-4 py-3 font-medium">{formatLeadName(lead)}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{lead.phone}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{formatLandline(digitsOnly(lead.phone)) || lead.phone}</td>
                   <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">
                     {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—"}
                   </td>
-                  <td className="px-4 py-3 capitalize">{lead.status}</td>
+                  <td className="max-w-[180px] px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400" title={lead.notes || undefined}>
+                    {notePreview(lead.notes)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusPill status={lead.status} />
+                  </td>
                   <td className="px-4 py-3 text-xs">
                     {lead.lastCallAt ? new Date(lead.lastCallAt).toLocaleString() : "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      disabled={
-                        Boolean(session) ||
-                        callingId === lead.id ||
-                        !canStartCall ||
-                        lead.status === "dnc"
-                      }
-                      onClick={() => void onCallLead(lead)}
-                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {callingId === lead.id ? "Calling…" : "Call"}
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLeadId(lead.id)}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          Boolean(session) ||
+                          callingId === lead.id ||
+                          !canStartCall ||
+                          lead.status === "dnc"
+                        }
+                        onClick={() => void onCallLead(lead)}
+                        className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {callingId === lead.id ? "Calling…" : "Call"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -307,6 +349,18 @@ export default function LeadsClient({ initialShowForm = false }) {
           </tbody>
         </table>
       </div>
+
+      {selectedLead ? (
+        <LeadDetailPanel
+          lead={selectedLead}
+          onClose={() => setSelectedLeadId(null)}
+          onLeadUpdated={handleLeadUpdated}
+          onCallLead={onCallLead}
+          calling={callingId === selectedLead.id}
+          canCall={canStartCall}
+          hasActiveCall={Boolean(session)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
+import { canAccessLead } from "@/server/leads/leadAccess";
+import { createLeadUpdate } from "@/server/leads/leadUpdates";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -9,12 +11,7 @@ function trimField(value, maxLen) {
   return s.slice(0, maxLen);
 }
 
-function canAccessLead(lead, authedUser) {
-  if (authedUser.role === "admin" || authedUser.role === "manager" || authedUser.role === "supervisor") {
-    return true;
-  }
-  return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
-}
+const ALLOWED_STATUSES = new Set(["new", "contacted", "callback", "qualified", "closed", "dnc"]);
 
 export async function PATCH(req, { params }) {
   const authedUser = await getAuthedUser();
@@ -34,6 +31,7 @@ export async function PATCH(req, { params }) {
 
   const body = await req.json().catch(() => null);
   const update = {};
+  const activity = [];
 
   if (body?.phone != null) {
     const phone = normalizeToE164(body.phone);
@@ -51,15 +49,33 @@ export async function PATCH(req, { params }) {
   if (body?.city !== undefined) update.city = trimField(body.city, 128);
   if (body?.state !== undefined) update.state = trimField(body.state, 32);
   if (body?.zipCode !== undefined) update.zipCode = trimField(body.zipCode, 16);
-  if (body?.notes !== undefined) update.notes = trimField(body.notes, 65535);
 
-  const allowedStatuses = new Set(["new", "contacted", "callback", "qualified", "closed", "dnc"]);
+  if (body?.notes !== undefined) {
+    const nextNotes = trimField(body.notes, 65535);
+    const prevNotes = lead.notes || "";
+    if ((nextNotes || "") !== (prevNotes || "")) {
+      update.notes = nextNotes;
+      activity.push({
+        type: "note_edit",
+        body: nextNotes || "(cleared notes)",
+      });
+    }
+  }
+
   if (body?.status != null) {
     const status = String(body.status).trim().toLowerCase();
-    if (!allowedStatuses.has(status)) {
+    if (!ALLOWED_STATUSES.has(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
-    update.status = status;
+    if (status !== lead.status) {
+      activity.push({
+        type: "status_change",
+        previousStatus: lead.status,
+        newStatus: status,
+        body: null,
+      });
+      update.status = status;
+    }
   }
 
   if (body?.nextCallbackAt !== undefined) {
@@ -79,5 +95,18 @@ export async function PATCH(req, { params }) {
   }
 
   await lead.update(update);
+
+  for (const entry of activity) {
+    await createLeadUpdate({
+      leadId: lead.id,
+      userId: authedUser.id,
+      type: entry.type,
+      body: entry.body,
+      previousStatus: entry.previousStatus,
+      newStatus: entry.newStatus,
+    });
+  }
+
+  await lead.reload();
   return NextResponse.json({ ok: true, lead });
 }
