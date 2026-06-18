@@ -4,6 +4,8 @@ const { Sequelize } = require("sequelize");
 const config = require("../config/config.json");
 const userModelFactory = require("./User");
 const callLogModelFactory = require("./CallLog");
+const leadModelFactory = require("./Lead");
+const leadUpdateModelFactory = require("./LeadUpdate");
 const inviteDialLegModelFactory = require("./InviteDialLeg");
 const billingSettingModelFactory = require("./BillingSetting");
 const billModelFactory = require("./Bill");
@@ -58,6 +60,8 @@ if (process.env.DATABASE_URL) {
 const db = { sequelize };
 db.User = userModelFactory(sequelize, Sequelize.DataTypes);
 db.CallLog = callLogModelFactory(sequelize, Sequelize.DataTypes);
+db.Lead = leadModelFactory(sequelize, Sequelize.DataTypes);
+db.LeadUpdate = leadUpdateModelFactory(sequelize, Sequelize.DataTypes);
 db.InviteDialLeg = inviteDialLegModelFactory(sequelize, Sequelize.DataTypes);
 db.BillingSetting = billingSettingModelFactory(sequelize, Sequelize.DataTypes);
 db.Bill = billModelFactory(sequelize, Sequelize.DataTypes);

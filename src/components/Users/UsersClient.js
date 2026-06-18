@@ -328,6 +328,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
+  const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
+  const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [downloadingId, setDownloadingId] = useState(null);
 
   const loadDetail = useCallback(async (signal) => {
@@ -354,8 +356,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
       signal,
       nextPage = 1,
       filter = callsFilter,
-      fromDate = rangeFrom,
-      toDate = rangeTo,
+      fromDate = appliedFrom,
+      toDate = appliedTo,
       { silent = false } = {},
     ) => {
       if (silent) {
@@ -402,11 +404,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         }
       }
     },
-    [user.id, callsFilter, rangeFrom, rangeTo],
+    [user.id, callsFilter, appliedFrom, appliedTo],
   );
 
   const loadMetrics = useCallback(
-    async (signal, fromDate = rangeFrom, toDate = rangeTo, scope = metricsScope) => {
+    async (signal, fromDate = appliedFrom, toDate = appliedTo, scope = metricsScope) => {
       if (!isAdmin) return;
       setMetricsLoading(true);
       setMetricsError(null);
@@ -428,12 +430,12 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         setMetricsLoading(false);
       }
     },
-    [user.id, isAdmin, rangeFrom, rangeTo, metricsScope],
+    [user.id, isAdmin, appliedFrom, appliedTo, metricsScope],
   );
 
   async function onRefresh() {
     const controller = new AbortController();
-    await loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo, {
+    await loadCalls(controller.signal, page, callsFilter, appliedFrom, appliedTo, {
       silent: calls.length > 0,
     });
   }
@@ -446,6 +448,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     const next = getPresetRange("today");
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
     setPage(1);
     setMetrics(null);
     const controller = new AbortController();
@@ -456,16 +460,16 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   useEffect(() => {
     if (activeTab !== "calls") return undefined;
     const controller = new AbortController();
-    loadCalls(controller.signal, page, callsFilter, rangeFrom, rangeTo);
+    loadCalls(controller.signal, page, callsFilter, appliedFrom, appliedTo);
     return () => controller.abort();
-  }, [user.id, callsFilter, rangeFrom, rangeTo, page, loadCalls, activeTab]);
+  }, [user.id, callsFilter, appliedFrom, appliedTo, page, loadCalls, activeTab]);
 
   useEffect(() => {
     if (!isAdmin || activeTab !== "metrics") return undefined;
     const controller = new AbortController();
-    loadMetrics(controller.signal, rangeFrom, rangeTo, metricsScope);
+    loadMetrics(controller.signal, appliedFrom, appliedTo, metricsScope);
     return () => controller.abort();
-  }, [user.id, isAdmin, activeTab, rangeFrom, rangeTo, metricsScope, loadMetrics]);
+  }, [user.id, isAdmin, activeTab, appliedFrom, appliedTo, metricsScope, loadMetrics]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -473,17 +477,25 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
     setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
     setPage(1);
   }
 
   async function onApplyRange() {
-    setPage(1);
-    const controller = new AbortController();
-    if (activeTab === "metrics" && isAdmin) {
-      await loadMetrics(controller.signal, rangeFrom, rangeTo, metricsScope);
-    } else {
-      await loadCalls(controller.signal, 1, callsFilter, rangeFrom, rangeTo);
+    if (rangePreset !== "custom") return;
+    if (!rangeFrom || !rangeTo) {
+      setCallsError("From date and to date are required");
+      return;
     }
+    if (rangeFrom > rangeTo) {
+      setCallsError("From date must be on or before to date");
+      return;
+    }
+    setCallsError(null);
+    setAppliedFrom(rangeFrom);
+    setAppliedTo(rangeTo);
+    setPage(1);
   }
 
   async function onPrev() {
@@ -648,6 +660,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   type="date"
                   className={callsDateInputClass}
                   value={rangeFrom}
+                  disabled={rangePreset !== "custom"}
                   onChange={(e) => {
                     setRangePreset("custom");
                     setRangeFrom(e.target.value);
@@ -664,6 +677,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   type="date"
                   className={callsDateInputClass}
                   value={rangeTo}
+                  disabled={rangePreset !== "custom"}
                   onChange={(e) => {
                     setRangePreset("custom");
                     setRangeTo(e.target.value);
@@ -675,7 +689,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 <button
                   type="button"
                   onClick={onApplyRange}
-                  disabled={callsLoading || metricsLoading}
+                  disabled={callsLoading || metricsLoading || rangePreset !== "custom"}
                   className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   Apply range
