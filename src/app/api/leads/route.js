@@ -107,22 +107,8 @@ export async function GET(req) {
     distinct: true,
   });
 
-  const leadIds = leads.map((l) => l.id);
-  const lastCalls = new Map();
-  if (leadIds.length > 0) {
-    const rows = await db.CallLog.findAll({
-      where: { leadId: leadIds },
-      attributes: ["leadId", "createdAt"],
-      order: [["createdAt", "DESC"]],
-      raw: true,
-    });
-    for (const row of rows) {
-      if (!lastCalls.has(row.leadId)) lastCalls.set(row.leadId, row.createdAt);
-    }
-  }
-
   return NextResponse.json({
-    leads: leads.map((l) => serializeLead(l, lastCalls.get(l.id) || null, authedUser.role)),
+    leads: leads.map((l) => serializeLead(l, null, authedUser.role)),
     pagination: {
       page,
       pageSize,

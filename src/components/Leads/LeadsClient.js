@@ -64,7 +64,7 @@ function StatusPill({ status }) {
   const meta = getLeadStatusMeta(status);
   return (
     <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE_CLASS[meta.tone]}`}
+      className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE_CLASS[meta.tone]}`}
     >
       {meta.label}
     </span>
@@ -125,7 +125,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
   const phonesRedacted = shouldRedactLeadPhones(userRole);
-  const colSpan = showLeadFilters ? 8 : 7;
+  const colSpan = showLeadFilters ? 7 : 6;
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
@@ -666,12 +666,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Phone</th>
+              <th className="whitespace-nowrap px-4 py-3">Phone</th>
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Notes</th>
               {showLeadFilters ? <th className="px-4 py-3">Agent</th> : null}
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Last call</th>
+              <th className="whitespace-nowrap px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -699,7 +698,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   }`}
                 >
                   <td className="px-4 py-3 font-medium">{formatLeadName(lead)}</td>
-                  <td className="px-4 py-3 font-mono text-xs">
+                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                     {formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted)}
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">
@@ -713,11 +712,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                       {lead.assignedUsername || "—"}
                     </td>
                   ) : null}
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <StatusPill status={lead.status} />
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {lead.lastCallAt ? new Date(lead.lastCallAt).toLocaleString() : "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
