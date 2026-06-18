@@ -48,6 +48,7 @@ function getPresetRange(preset) {
 }
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+const LEADS_PAGE_SIZE = 25;
 
 function formatLeadName(lead) {
   return lead.fullName?.trim() || "—";
@@ -110,6 +111,15 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [sortBy, setSortBy] = useState("createdAt");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: LEADS_PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
 
   const showLeadStats = canViewLeadStats(userRole);
   const showLeadFilters = canUseLeadFilters(userRole);
@@ -127,7 +137,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
 
-  const loadLeads = useCallback(async () => {
+  const loadLeads = useCallback(async (targetPage) => {
+    const resolvedPage = targetPage ?? page;
     setLoading(true);
     setError(null);
     try {
@@ -140,22 +151,46 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       }
       params.set("sortBy", sortBy);
       params.set("sortDir", "desc");
+      params.set("page", String(resolvedPage));
+      params.set("pageSize", String(LEADS_PAGE_SIZE));
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/leads${qs}`, { credentials: "include", cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load leads");
       setLeads(json.leads || []);
+      if (json.pagination) {
+        setPagination(json.pagination);
+        setPage(json.pagination.page || resolvedPage);
+      }
     } catch (e) {
       setError(e.message || "Failed to load leads");
       setLeads([]);
+      setPagination({
+        page: 1,
+        pageSize: LEADS_PAGE_SIZE,
+        total: 0,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      });
     } finally {
       setLoading(false);
     }
-  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo, sortBy]);
+  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo, sortBy, page]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  function onPrevPage() {
+    if (!pagination.hasPrev || loading) return;
+    setPage((p) => Math.max(1, p - 1));
+  }
+
+  function onNextPage() {
+    if (!pagination.hasNext || loading) return;
+    setPage((p) => p + 1);
+  }
 
   useEffect(() => {
     if (!showLeadFilters) return;
@@ -183,11 +218,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
     setAgentFilter("all");
+    setPage(1);
   }
 
   function applyRangePreset(preset) {
     setError(null);
     setRangePreset(preset);
+    setPage(1);
     if (preset === "custom") return;
     const next = getPresetRange(preset);
     setRangeFrom(next.from);
@@ -210,6 +247,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setError(null);
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
+    setPage(1);
   }
 
   function resetForm() {
@@ -261,7 +299,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (!res.ok) throw new Error(json?.error || "Failed to add lead");
       resetForm();
       setShowForm(false);
-      await loadLeads();
+      setPage(1);
+      await loadLeads(1);
       if (json.lead?.id) setSelectedLeadId(json.lead.id);
     } catch (err) {
       setError(err.message || "Failed to add lead");
@@ -540,7 +579,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 <label className={labelClass}>Filter by agent</label>
                 <select
                   value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
+                  onChange={(e) => {
+                    setAgentFilter(e.target.value);
+                    setPage(1);
+                  }}
                   className={inputClass}
                 >
                   <option value="all">All agents</option>
@@ -562,7 +604,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => setSortBy(option.id)}
+                    onClick={() => {
+                      setSortBy(option.id);
+                      setPage(1);
+                    }}
                     className={`h-11 rounded-xl border px-4 text-sm font-semibold ${
                       sortBy === option.id
                         ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
@@ -584,6 +629,37 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           {error}
         </p>
       ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          {loading
+            ? "Loading leads…"
+            : pagination.total > 0
+              ? `Showing ${leads.length} of ${pagination.total} leads`
+              : "No leads to show"}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPrevPage}
+            disabled={!pagination.hasPrev || loading}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+            Page {pagination.page} / {pagination.totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={onNextPage}
+            disabled={!pagination.hasNext || loading}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Next
+          </button>
+        </div>
+      </div>
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <table className="min-w-full text-left text-sm">

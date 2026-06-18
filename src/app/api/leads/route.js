@@ -32,6 +32,12 @@ function parseLeadsOrder(searchParams) {
   ];
 }
 
+function parsePositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return fallback;
+  return n;
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -88,10 +94,17 @@ export async function GET(req) {
     where.assignedUserId = agentId;
   }
 
-  const leads = await db.Lead.findAll({
+  const page = parsePositiveInt(searchParams.get("page"), 1);
+  const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 25), 100);
+  const offset = (page - 1) * pageSize;
+
+  const { rows: leads, count } = await db.Lead.findAndCountAll({
     where,
     order: parseLeadsOrder(searchParams),
+    offset,
+    limit: pageSize,
     include: [leadAssignedUserInclude],
+    distinct: true,
   });
 
   const leadIds = leads.map((l) => l.id);
@@ -110,6 +123,14 @@ export async function GET(req) {
 
   return NextResponse.json({
     leads: leads.map((l) => serializeLead(l, lastCalls.get(l.id) || null, authedUser.role)),
+    pagination: {
+      page,
+      pageSize,
+      total: count,
+      totalPages: Math.max(1, Math.ceil(count / pageSize)),
+      hasNext: offset + leads.length < count,
+      hasPrev: page > 1,
+    },
   });
 }
 
