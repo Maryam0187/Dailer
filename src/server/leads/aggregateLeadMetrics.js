@@ -57,6 +57,11 @@ function sumTotals(rows) {
   return totals;
 }
 
+function normalizeUserId(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
   const accessWhere = await buildLeadsListWhere(authedUser);
   const leads = await db.Lead.findAll({
@@ -84,22 +89,38 @@ export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
     attributes: ["id", "supervisorId"],
     raw: true,
   });
+  const agentIds = new Set(agentRows.map((a) => a.id));
   const agentSupervisorMap = new Map(
     agentRows.filter((a) => a.supervisorId).map((a) => [a.id, a.supervisorId]),
   );
 
+  const creatorIds = [
+    ...new Set(leads.map((l) => normalizeUserId(l.createdByUserId)).filter(Boolean)),
+  ];
+  const creatorRoleRows =
+    creatorIds.length > 0
+      ? await db.User.findAll({
+          where: { id: creatorIds },
+          attributes: ["id", "role"],
+          raw: true,
+        })
+      : [];
+  const creatorRoles = new Map(creatorRoleRows.map((r) => [r.id, r.role]));
+
   for (const lead of leads) {
-    const creatorId = lead.createdByUserId;
-    const assignedId = lead.assignedUserId;
+    const creatorId = normalizeUserId(lead.createdByUserId);
+    const assignedId = normalizeUserId(lead.assignedUserId);
 
     if (creatorId && creatorBuckets.has(creatorId)) {
       addLeadToCounts(creatorBuckets.get(creatorId), lead.status);
     }
 
+    // Team inbox: agent-created leads assigned to their supervisor (not supervisor's own leads).
     if (
-      assignedId &&
       creatorId &&
-      creatorId !== assignedId &&
+      assignedId &&
+      creatorRoles.get(creatorId) === "agent" &&
+      agentIds.has(creatorId) &&
       supervisorBuckets.has(assignedId) &&
       agentSupervisorMap.get(creatorId) === assignedId
     ) {
