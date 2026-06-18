@@ -7,7 +7,7 @@ import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisorTeamUserIds } from "@/server/leads/leadAccess";
-import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
+import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -103,26 +103,12 @@ export async function GET(req) {
     order: parseLeadsOrder(searchParams),
     offset,
     limit: pageSize,
-    include: [leadAssignedUserInclude],
+    include: leadListIncludes,
     distinct: true,
   });
 
-  const leadIds = leads.map((l) => l.id);
-  const lastCalls = new Map();
-  if (leadIds.length > 0) {
-    const rows = await db.CallLog.findAll({
-      where: { leadId: leadIds },
-      attributes: ["leadId", "createdAt"],
-      order: [["createdAt", "DESC"]],
-      raw: true,
-    });
-    for (const row of rows) {
-      if (!lastCalls.has(row.leadId)) lastCalls.set(row.leadId, row.createdAt);
-    }
-  }
-
   return NextResponse.json({
-    leads: leads.map((l) => serializeLead(l, lastCalls.get(l.id) || null, authedUser.role)),
+    leads: leads.map((l) => serializeLead(l, null, authedUser.role)),
     pagination: {
       page,
       pageSize,
@@ -211,7 +197,7 @@ export async function POST(req) {
   });
 
   const withUser = await db.Lead.findByPk(lead.id, {
-    include: [leadAssignedUserInclude],
+    include: leadListIncludes,
   });
 
   if (createdFromCallLogId) {

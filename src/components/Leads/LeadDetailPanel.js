@@ -356,12 +356,12 @@ export default function LeadDetailPanel({
               </p>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
                 <p className="text-zinc-600 dark:text-zinc-400">
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Assigned to:</span>{" "}
-                  {lead.assignedUsername || "—"}
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Agent:</span>{" "}
+                  {lead.createdByUsername || "—"}
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Supervisor:</span>{" "}
-                  {lead.supervisorUsername || "—"}
+                  {lead.assignedUsername || "—"}
                 </p>
               </div>
             </div>
