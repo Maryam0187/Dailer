@@ -22,6 +22,16 @@ function parseDateOnly(value) {
   return v;
 }
 
+function parseLeadsOrder(searchParams) {
+  const sortBy = searchParams.get("sortBy") === "updatedAt" ? "updatedAt" : "createdAt";
+  const sortDir = searchParams.get("sortDir") === "asc" ? "ASC" : "DESC";
+  const tieBreaker = sortBy === "createdAt" ? "updatedAt" : "createdAt";
+  return [
+    [sortBy, sortDir],
+    [tieBreaker, "DESC"],
+  ];
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -80,10 +90,7 @@ export async function GET(req) {
 
   const leads = await db.Lead.findAll({
     where,
-    order: [
-      ["nextCallbackAt", "ASC"],
-      ["updatedAt", "DESC"],
-    ],
+    order: parseLeadsOrder(searchParams),
     include: [leadAssignedUserInclude],
   });
 
