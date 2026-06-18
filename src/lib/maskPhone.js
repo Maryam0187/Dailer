@@ -1,4 +1,4 @@
-import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
+import { formatLandline } from "@/lib/phoneFormat";
 
 /** Lead monitors see only the last seven digits of phone and cell numbers. */
 export function shouldRedactLeadPhones(role) {
@@ -17,5 +17,5 @@ export function maskPhoneLastFour(value) {
 export function formatLeadPhoneDisplay(phone, redacted) {
   if (!phone) return "—";
   if (redacted) return phone;
-  return formatLandline(digitsOnly(phone)) || phone;
+  return formatLandline(phone) || phone;
 }
