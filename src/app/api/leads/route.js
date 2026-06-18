@@ -5,6 +5,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
+import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisorTeamUserIds } from "@/server/leads/leadAccess";
 import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
 
@@ -101,7 +102,7 @@ export async function GET(req) {
   }
 
   return NextResponse.json({
-    leads: leads.map((l) => serializeLead(l, lastCalls.get(l.id) || null)),
+    leads: leads.map((l) => serializeLead(l, lastCalls.get(l.id) || null, authedUser.role)),
   });
 }
 
@@ -129,7 +130,7 @@ export async function POST(req) {
   let createdFromCallLogId = null;
   if (Number.isInteger(callLogId) && callLogId > 0) {
     const call = await db.CallLog.findByPk(callLogId);
-    if (call && (call.userId === authedUser.id || authedUser.role === "admin")) {
+    if (call && (call.userId === authedUser.id || hasLeadMonitorAccess(authedUser.role))) {
       createdFromCallLogId = call.id;
     }
   }
@@ -153,7 +154,7 @@ export async function POST(req) {
       });
       if (supervisor) assignedUserId = supervisor.id;
     }
-  } else if (authedUser.role === "admin" || authedUser.role === "supervisor") {
+  } else if (hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor") {
     const requested = Number(body?.assignedUserId);
     if (Number.isInteger(requested) && requested > 0) {
       if (!(await canAssignLeadToAgent(authedUser, requested))) {
@@ -196,5 +197,5 @@ export async function POST(req) {
     body: trimField(body?.notes, 65535) ? `Initial notes: ${trimField(body?.notes, 65535)}` : "Lead created",
   });
 
-  return NextResponse.json({ ok: true, lead: serializeLead(withUser) }, { status: 201 });
+  return NextResponse.json({ ok: true, lead: serializeLead(withUser, null, authedUser.role) }, { status: 201 });
 }

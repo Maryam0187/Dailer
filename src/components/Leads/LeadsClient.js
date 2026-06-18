@@ -6,6 +6,8 @@ import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
+import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
+import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
@@ -108,9 +110,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
 
-  const showLeadStats = userRole === "admin";
-  const showLeadFilters = userRole === "admin" || userRole === "manager" || userRole === "supervisor";
-  const showSupervisorFilter = userRole === "admin" || userRole === "manager";
+  const showLeadStats = canViewLeadStats(userRole);
+  const showLeadFilters = canUseLeadFilters(userRole);
+  const showSupervisorFilter = hasFullLeadAccess(userRole);
+  const phonesRedacted = shouldRedactLeadPhones(userRole);
   const colSpan = showLeadFilters ? 8 : 7;
 
   const filteredAgents = useMemo(() => {
@@ -265,7 +268,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }
 
   async function onCallLead(lead) {
-    if (session || lead.status === "dnc") return;
+    if (phonesRedacted || session || lead.status === "dnc") return;
     setCallingId(lead.id);
     setError(null);
     try {
@@ -282,7 +285,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         callKind: "lead",
         dialMode: "agent_first",
         toNumber: result.call.toNumber,
-        phoneLabel: formatLandline(digitsOnly(lead.phone)) || lead.phone,
+        phoneLabel: formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted),
         customerName: formatLeadName(lead),
         leadId: lead.id,
       });
@@ -593,7 +596,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   }`}
                 >
                   <td className="px-4 py-3 font-medium">{formatLeadName(lead)}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{formatLandline(digitsOnly(lead.phone)) || lead.phone}</td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted)}
+                  </td>
                   <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">
                     {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—"}
                   </td>
@@ -620,19 +625,21 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                       >
                         View
                       </button>
-                      <button
-                        type="button"
-                        disabled={
-                          Boolean(session) ||
-                          callingId === lead.id ||
-                          !canStartCall ||
-                          lead.status === "dnc"
-                        }
-                        onClick={() => void onCallLead(lead)}
-                        className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {callingId === lead.id ? "Calling…" : "Call"}
-                      </button>
+                      {!phonesRedacted ? (
+                        <button
+                          type="button"
+                          disabled={
+                            Boolean(session) ||
+                            callingId === lead.id ||
+                            !canStartCall ||
+                            lead.status === "dnc"
+                          }
+                          onClick={() => void onCallLead(lead)}
+                          className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {callingId === lead.id ? "Calling…" : "Call"}
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -647,7 +654,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           lead={selectedLead}
           onClose={() => setSelectedLeadId(null)}
           onLeadUpdated={handleLeadUpdated}
-          onCallLead={onCallLead}
+          onCallLead={phonesRedacted ? undefined : onCallLead}
+          phonesRedacted={phonesRedacted || selectedLead.phonesRedacted}
           calling={callingId === selectedLead.id}
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}

@@ -1,4 +1,5 @@
 import db from "@/server/db";
+import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
 
 export const leadAssignedUserInclude = {
   model: db.User,
@@ -15,12 +16,18 @@ export const leadAssignedUserInclude = {
   ],
 };
 
-export function serializeLead(lead, lastCallAt = null) {
+export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
+  const phonesRedacted = shouldRedactLeadPhones(viewerRole);
   return {
     id: lead.id,
-    phone: lead.phone,
+    phone: phonesRedacted ? maskPhoneLastFour(lead.phone) : lead.phone,
     fullName: lead.fullName,
-    cellNumber: lead.cellNumber,
+    cellNumber: phonesRedacted
+      ? lead.cellNumber
+        ? maskPhoneLastFour(lead.cellNumber)
+        : null
+      : lead.cellNumber,
+    phonesRedacted,
     company: lead.company,
     email: lead.email,
     city: lead.city,

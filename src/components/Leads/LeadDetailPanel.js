@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
+import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
+import { digitsOnly } from "@/lib/phoneFormat";
 import { formatDuration } from "@/lib/formatDuration";
 import { getLeadStatusMeta, LEAD_STATUSES, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 
@@ -160,6 +161,7 @@ export default function LeadDetailPanel({
   calling,
   canCall,
   hasActiveCall,
+  phonesRedacted = false,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -339,14 +341,14 @@ export default function LeadDetailPanel({
                 {formatLeadName(lead)}
               </h2>
               <p className="mt-1 flex items-center gap-1.5 font-mono text-sm text-zinc-600 dark:text-zinc-400">
-                <CopyPhoneButton phone={lead.phone} />
-                <span>{formatLandline(digitsOnly(lead.phone)) || lead.phone}</span>
+                {!phonesRedacted ? <CopyPhoneButton phone={lead.phone} /> : null}
+                <span>{formatLeadPhoneDisplay(lead.phone, phonesRedacted)}</span>
               </p>
               {lead.cellNumber ? (
                 <p className="mt-1 flex items-center gap-1.5 font-mono text-sm text-zinc-600 dark:text-zinc-400">
-                  <CopyPhoneButton phone={lead.cellNumber} />
+                  {!phonesRedacted ? <CopyPhoneButton phone={lead.cellNumber} /> : null}
                   <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Cell</span>
-                  <span>{formatLandline(digitsOnly(lead.cellNumber)) || lead.cellNumber}</span>
+                  <span>{formatLeadPhoneDisplay(lead.cellNumber, phonesRedacted)}</span>
                 </p>
               ) : null}
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
@@ -373,17 +375,19 @@ export default function LeadDetailPanel({
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusBadge status={lead.status} />
-            <button
-              type="button"
-              disabled={calling || !canCall || hasActiveCall || lead.status === "dnc"}
-              onClick={async () => {
-                await onCallLead?.(lead);
-                await loadCalls();
-              }}
-              className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {calling ? "Calling…" : "Call lead"}
-            </button>
+            {!phonesRedacted && onCallLead ? (
+              <button
+                type="button"
+                disabled={calling || !canCall || hasActiveCall || lead.status === "dnc"}
+                onClick={async () => {
+                  await onCallLead?.(lead);
+                  await loadCalls();
+                }}
+                className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {calling ? "Calling…" : "Call lead"}
+              </button>
+            ) : null}
           </div>
         </div>
 

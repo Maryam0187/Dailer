@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
+import { shouldRedactLeadPhones } from "@/lib/maskPhone";
+import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
@@ -33,6 +35,10 @@ export async function PATCH(req, { params }) {
   const body = await req.json().catch(() => null);
   const update = {};
   const activity = [];
+
+  if (shouldRedactLeadPhones(authedUser.role) && (body?.phone != null || body?.cellNumber !== undefined)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   if (body?.phone != null) {
     const phone = normalizeToE164(body.phone);
@@ -100,7 +106,7 @@ export async function PATCH(req, { params }) {
     }
   }
 
-  if (body?.assignedUserId != null && (authedUser.role === "admin" || authedUser.role === "supervisor")) {
+  if (body?.assignedUserId != null && (hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor")) {
     const nextAssignee = Number(body.assignedUserId);
     if (!Number.isInteger(nextAssignee) || nextAssignee <= 0) {
       return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
@@ -135,6 +141,6 @@ export async function PATCH(req, { params }) {
   });
   return NextResponse.json({
     ok: true,
-    lead: serializeLead(lead),
+    lead: serializeLead(lead, null, authedUser.role),
   });
 }

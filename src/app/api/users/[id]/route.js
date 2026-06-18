@@ -104,7 +104,7 @@ export async function PATCH(req, { params }) {
   }
 
   if (isAdmin && body.role !== undefined) {
-    const allowedRoles = ["agent", "manager", "supervisor", "admin"];
+    const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_monitor"];
     if (!allowedRoles.includes(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
