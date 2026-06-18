@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
 import {
@@ -25,6 +26,9 @@ export async function POST(req) {
   let lead = null;
 
   if (Number.isInteger(leadId) && leadId > 0) {
+    if (shouldRedactLeadPhones(authedUser.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     lead = await db.Lead.findByPk(leadId);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });

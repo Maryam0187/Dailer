@@ -11,6 +11,7 @@ function roleLabel(role) {
   if (role === "manager") return "Manager";
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
+  if (role === "lead_monitor") return "Lead Monitor";
   return role;
 }
 
@@ -44,12 +45,17 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 function RoleBadge({ value }) {
   const styles = {
     admin: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
+    lead_monitor: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
     manager: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
     supervisor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
     agent: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
   };
   const palette =
-    value === "admin" || value === "manager" || value === "supervisor" || value === "agent"
+    value === "admin" ||
+    value === "lead_monitor" ||
+    value === "manager" ||
+    value === "supervisor" ||
+    value === "agent"
       ? styles[value]
       : "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200";
   return (
@@ -1111,6 +1117,7 @@ function EditUserModal({
                   <option value="agent">Agent</option>
                   <option value="manager">Manager</option>
                   <option value="supervisor">Supervisor</option>
+                  <option value="lead_monitor">Lead Monitor</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
@@ -1532,6 +1539,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <>
                           <option value="manager">Manager</option>
                           <option value="supervisor">Supervisor</option>
+                          <option value="lead_monitor">Lead Monitor</option>
                           <option value="admin">Admin</option>
                         </>
                       ) : (

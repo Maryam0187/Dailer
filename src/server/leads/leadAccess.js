@@ -1,9 +1,10 @@
 import { Op } from "sequelize";
+import { hasFullLeadAccess } from "@/lib/leadRoles";
 import db from "@/server/db";
 
 /** Active agents a user may assign leads to. */
 export async function getAssignableAgents(authedUser) {
-  if (authedUser.role === "admin" || authedUser.role === "manager") {
+  if (hasFullLeadAccess(authedUser.role)) {
     return db.User.findAll({
       where: { role: "agent", isActive: true },
       attributes: ["id", "username", "supervisorId"],
@@ -22,7 +23,7 @@ export async function getAssignableAgents(authedUser) {
 
 /** Supervisors available in leads list filters (admin/manager). */
 export async function getFilterSupervisors(authedUser) {
-  if (authedUser.role === "admin" || authedUser.role === "manager") {
+  if (hasFullLeadAccess(authedUser.role)) {
     return db.User.findAll({
       where: { role: "supervisor", isActive: true },
       attributes: ["id", "username"],
@@ -34,7 +35,7 @@ export async function getFilterSupervisors(authedUser) {
 
 /** Agents and supervisors shown in lead stats (created-by rows). */
 export async function getLeadStatsCreators(authedUser) {
-  if (authedUser.role === "admin" || authedUser.role === "manager") {
+  if (hasFullLeadAccess(authedUser.role)) {
     return db.User.findAll({
       where: { role: { [Op.in]: ["agent", "supervisor"] }, isActive: true },
       attributes: ["id", "username", "role"],
@@ -68,7 +69,7 @@ export async function getLeadStatsCreators(authedUser) {
 
 export async function canFilterLeadsBySupervisor(authedUser, supervisorId) {
   if (!Number.isInteger(supervisorId) || supervisorId <= 0) return false;
-  if (authedUser.role !== "admin" && authedUser.role !== "manager") return false;
+  if (!hasFullLeadAccess(authedUser.role)) return false;
   const sup = await db.User.findOne({
     where: { id: supervisorId, role: "supervisor", isActive: true },
     attributes: ["id"],
@@ -136,12 +137,12 @@ export async function buildLeadsListWhere(authedUser) {
     return { [Op.or]: supervisorLeadOrConditions(authedUser.id, agentIds) };
   }
 
-  // admin, manager — all leads
+  // admin, manager, lead_monitor — all leads
   return {};
 }
 
 export async function canAccessLead(lead, authedUser) {
-  if (authedUser.role === "admin" || authedUser.role === "manager") {
+  if (hasFullLeadAccess(authedUser.role)) {
     return true;
   }
 
