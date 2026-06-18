@@ -48,7 +48,7 @@ function getPresetRange(preset) {
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 function formatLeadName(lead) {
-  return [lead.firstName, lead.lastName].filter(Boolean).join(" ").trim() || "—";
+  return lead.fullName?.trim() || "—";
 }
 
 function notePreview(notes) {
@@ -88,8 +88,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [selectedLeadId, setSelectedLeadId] = useState(null);
 
   const [phone, setPhone] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [cellNumber, setCellNumber] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
@@ -99,6 +99,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
+  const [cellValidation, setCellValidation] = useState({ isValid: true, message: "" });
   const [activeView, setActiveView] = useState("list");
   const initialRange = getPresetRange("today");
   const [rangePreset, setRangePreset] = useState("today");
@@ -207,13 +208,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   function resetForm() {
     setPhone("");
-    setFirstName("");
-    setLastName("");
+    setFullName("");
+    setCellNumber("");
     setCity("");
     setState("");
     setZipCode("");
     setNotes("");
     setPhoneValidation({ isValid: true, message: "" });
+    setCellValidation({ isValid: true, message: "" });
   }
 
   function handleLeadUpdated(updated) {
@@ -222,10 +224,12 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   async function onAddLead(e) {
     e.preventDefault();
-    const v = validatePhone(phone);
-    setPhoneValidation(v);
-    if (!v.isValid || !firstName.trim()) {
-      if (!firstName.trim()) setError("First name is required");
+    const phoneV = validatePhone(phone);
+    const cellV = cellNumber.trim() ? validatePhone(cellNumber) : { isValid: true, message: "" };
+    setPhoneValidation(phoneV);
+    setCellValidation(cellV);
+    if (!phoneV.isValid || !cellV.isValid || !fullName.trim()) {
+      if (!fullName.trim()) setError("Full name is required");
       return;
     }
     setSaving(true);
@@ -233,8 +237,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     try {
       const payload = {
         phone: digitsOnly(phone),
-        firstName: firstName.trim(),
-        lastName: lastName.trim() || undefined,
+        fullName: fullName.trim(),
+        cellNumber: cellNumber.trim() ? digitsOnly(cellNumber) : undefined,
         city: city.trim() || undefined,
         state: state.trim() || undefined,
         zipCode: zipCode.trim() || undefined,
@@ -379,6 +383,90 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       </div>
 
+      {showForm ? (
+        <form
+          onSubmit={onAddLead}
+          className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+        >
+          <h3 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">New lead</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Phone *</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => {
+                  const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
+                  setPhone(formatted);
+                  setPhoneValidation(validatePhone(formatted));
+                }}
+                className={inputClass}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Full name *</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className={inputClass}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Cell number</label>
+              <input
+                type="tel"
+                value={cellNumber}
+                onChange={(e) => {
+                  const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
+                  setCellNumber(formatted);
+                  if (formatted.trim()) setCellValidation(validatePhone(formatted));
+                  else setCellValidation({ isValid: true, message: "" });
+                }}
+                className={inputClass}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
+              <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
+              <div>
+                <label className={labelClass}>City</label>
+                <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Zip code</label>
+                <input
+                  type="text"
+                  value={zipCode}
+                  onChange={(e) => setZipCode(e.target.value)}
+                  className={inputClass}
+                  maxLength={16}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="mt-1">
+            <StateLocalTime stateCode={state} />
+          </div>
+          <div className="mt-4">
+            <label className={labelClass}>Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className={`${inputClass} min-h-[80px]`}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save lead"}
+          </button>
+        </form>
+      ) : null}
+
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <form
           className="grid gap-4"
@@ -460,80 +548,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           </p>
         </form>
       </section>
-
-      {showForm ? (
-        <form
-          onSubmit={onAddLead}
-          className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"
-        >
-          <h3 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">New lead</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Phone *</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => {
-                  const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
-                  setPhone(formatted);
-                  setPhoneValidation(validatePhone(formatted));
-                }}
-                className={inputClass}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass}>First name *</label>
-              <input
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className={inputClass}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Last name</label>
-              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
-              <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
-              <div>
-                <label className={labelClass}>City</label>
-                <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <label className={labelClass}>Zip code</label>
-                <input
-                  type="text"
-                  value={zipCode}
-                  onChange={(e) => setZipCode(e.target.value)}
-                  className={inputClass}
-                  maxLength={16}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="mt-1">
-            <StateLocalTime stateCode={state} />
-          </div>
-          <div className="mt-4">
-            <label className={labelClass}>Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className={`${inputClass} min-h-[80px]`}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save lead"}
-          </button>
-        </form>
-      ) : null}
 
       {error ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">

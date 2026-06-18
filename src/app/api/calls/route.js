@@ -171,7 +171,7 @@ export async function GET(req) {
       {
         model: db.Lead,
         as: "lead",
-        attributes: ["id", "firstName", "lastName"],
+        attributes: ["id", "fullName", "cellNumber"],
         required: false,
       },
     ],
@@ -231,9 +231,7 @@ export async function GET(req) {
         callKind: call.callKind || null,
         dialMode: call.dialMode || "agent_first",
         leadId: call.leadId || null,
-        leadName: call.lead
-          ? [call.lead.firstName, call.lead.lastName].filter(Boolean).join(" ").trim() || null
-          : null,
+        leadName: call.lead?.fullName?.trim() || null,
         disposition: call.disposition || null,
         contactName: call.contactName || null,
         city: call.city || null,

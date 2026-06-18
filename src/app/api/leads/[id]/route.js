@@ -39,12 +39,21 @@ export async function PATCH(req, { params }) {
     if (!phone) return NextResponse.json({ error: "Invalid phone" }, { status: 400 });
     update.phone = phone;
   }
-  if (body?.firstName != null) {
-    const firstName = trimField(body.firstName, 128);
-    if (!firstName) return NextResponse.json({ error: "First name is required" }, { status: 400 });
-    update.firstName = firstName;
+  if (body?.fullName != null) {
+    const fullName = trimField(body.fullName, 128);
+    if (!fullName) return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+    update.fullName = fullName;
   }
-  if (body?.lastName !== undefined) update.lastName = trimField(body.lastName, 128);
+  if (body?.cellNumber !== undefined) {
+    const cellRaw = trimField(body.cellNumber, 32);
+    if (!cellRaw) {
+      update.cellNumber = null;
+    } else {
+      const cellNumber = normalizeToE164(cellRaw);
+      if (!cellNumber) return NextResponse.json({ error: "Invalid cell number" }, { status: 400 });
+      update.cellNumber = cellNumber;
+    }
+  }
   if (body?.company !== undefined) update.company = trimField(body.company, 255);
   if (body?.email !== undefined) update.email = trimField(body.email, 255);
   if (body?.city !== undefined) update.city = trimField(body.city, 128);

@@ -111,13 +111,18 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const phone = normalizeToE164(body?.phone);
-  const firstName = trimField(body?.firstName, 128);
+  const fullName = trimField(body?.fullName, 128);
+  const cellRaw = trimField(body?.cellNumber, 32);
+  const cellNumber = cellRaw ? normalizeToE164(cellRaw) : null;
 
   if (!phone) {
     return NextResponse.json({ error: "Valid phone is required" }, { status: 400 });
   }
-  if (!firstName) {
-    return NextResponse.json({ error: "First name is required" }, { status: 400 });
+  if (!fullName) {
+    return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+  }
+  if (cellRaw && !cellNumber) {
+    return NextResponse.json({ error: "Valid cell number is required" }, { status: 400 });
   }
 
   const callLogId = Number(body?.createdFromCallLogId);
@@ -160,8 +165,8 @@ export async function POST(req) {
 
   const lead = await db.Lead.create({
     phone,
-    firstName,
-    lastName: trimField(body?.lastName, 128),
+    fullName,
+    cellNumber,
     company: trimField(body?.company, 255),
     email: trimField(body?.email, 255),
     city: trimField(body?.city, 128),

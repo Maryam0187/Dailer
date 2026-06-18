@@ -10,7 +10,7 @@ const inputClass =
   "w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
 
 function formatLeadName(lead) {
-  return [lead?.firstName, lead?.lastName].filter(Boolean).join(" ").trim() || "—";
+  return lead?.fullName?.trim() || "—";
 }
 
 function formatWhen(iso) {
@@ -342,6 +342,13 @@ export default function LeadDetailPanel({
                 <CopyPhoneButton phone={lead.phone} />
                 <span>{formatLandline(digitsOnly(lead.phone)) || lead.phone}</span>
               </p>
+              {lead.cellNumber ? (
+                <p className="mt-1 flex items-center gap-1.5 font-mono text-sm text-zinc-600 dark:text-zinc-400">
+                  <CopyPhoneButton phone={lead.cellNumber} />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Cell</span>
+                  <span>{formatLandline(digitsOnly(lead.cellNumber)) || lead.cellNumber}</span>
+                </p>
+              ) : null}
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "No location"}
               </p>
