@@ -109,6 +109,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
+  const [sortBy, setSortBy] = useState("createdAt");
 
   const showLeadStats = canViewLeadStats(userRole);
   const showLeadFilters = canUseLeadFilters(userRole);
@@ -137,6 +138,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
       }
+      params.set("sortBy", sortBy);
+      params.set("sortDir", "desc");
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/leads${qs}`, { credentials: "include", cache: "no-store" });
       const json = await res.json().catch(() => ({}));
@@ -148,7 +151,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     } finally {
       setLoading(false);
     }
-  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo]);
+  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo, sortBy]);
 
   useEffect(() => {
     void loadLeads();
@@ -336,54 +339,16 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             Click a lead to view notes, update status, and add comments.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          {showLeadFilters ? (
-            <>
-              {showSupervisorFilter ? (
-                <div className="min-w-[180px]">
-                  <label className={labelClass}>Filter by supervisor</label>
-                  <select
-                    value={supervisorFilter}
-                    onChange={(e) => onSupervisorFilterChange(e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="all">All supervisors</option>
-                    {filterSupervisors.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.username}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-              <div className="min-w-[180px]">
-                <label className={labelClass}>Filter by agent</label>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="all">All agents</option>
-                  {filteredAgents.map((a) => (
-                    <option key={a.id} value={String(a.id)}>
-                      {a.username}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setShowForm((v) => !v);
-              setError(null);
-            }}
-            className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-          >
-            {showForm ? "Cancel" : "+ Add lead"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setShowForm((v) => !v);
+            setError(null);
+          }}
+          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+        >
+          {showForm ? "Cancel" : "+ Add lead"}
+        </button>
       </div>
 
       {showForm ? (
@@ -550,6 +515,68 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             <span className="font-medium">{appliedTo}</span>
           </p>
         </form>
+
+        <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {showLeadFilters && showSupervisorFilter ? (
+              <div>
+                <label className={labelClass}>Filter by supervisor</label>
+                <select
+                  value={supervisorFilter}
+                  onChange={(e) => onSupervisorFilterChange(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="all">All supervisors</option>
+                  {filterSupervisors.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {showLeadFilters ? (
+              <div>
+                <label className={labelClass}>Filter by agent</label>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="all">All agents</option>
+                  {filteredAgents.map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div>
+              <span className={labelClass}>Sort by</span>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Sort leads">
+                {[
+                  { id: "createdAt", label: "Created" },
+                  { id: "updatedAt", label: "Updated" },
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSortBy(option.id)}
+                    className={`h-11 rounded-xl border px-4 text-sm font-semibold ${
+                      sortBy === option.id
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                    aria-pressed={sortBy === option.id}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       {error ? (
