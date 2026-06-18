@@ -62,9 +62,7 @@ export async function POST(req) {
     status: "initiated",
     callKind: lead ? "lead" : null,
     dialMode: "agent_first",
-    contactName: lead
-      ? [lead.firstName, lead.lastName].filter(Boolean).join(" ").trim() || null
-      : null,
+    contactName: lead?.fullName?.trim() || null,
     city: lead?.city || null,
     state: lead?.state || null,
     zipCode: lead?.zipCode || null,
@@ -115,8 +113,8 @@ export async function POST(req) {
       lead: lead
         ? {
             id: lead.id,
-            firstName: lead.firstName,
-            lastName: lead.lastName,
+            fullName: lead.fullName,
+            cellNumber: lead.cellNumber,
             phone: lead.phone,
           }
         : null,

@@ -13,12 +13,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(32),
         allowNull: false,
       },
-      firstName: {
+      fullName: {
         type: DataTypes.STRING(128),
         allowNull: false,
       },
-      lastName: {
-        type: DataTypes.STRING(128),
+      cellNumber: {
+        type: DataTypes.STRING(32),
         allowNull: true,
       },
       company: {

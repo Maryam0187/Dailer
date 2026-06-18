@@ -19,8 +19,8 @@ export function serializeLead(lead, lastCallAt = null) {
   return {
     id: lead.id,
     phone: lead.phone,
-    firstName: lead.firstName,
-    lastName: lead.lastName,
+    fullName: lead.fullName,
+    cellNumber: lead.cellNumber,
     company: lead.company,
     email: lead.email,
     city: lead.city,
