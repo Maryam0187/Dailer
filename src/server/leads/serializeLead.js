@@ -4,7 +4,7 @@ import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
 export const leadAssignedUserInclude = {
   model: db.User,
   as: "assignedUser",
-  attributes: ["id", "username"],
+  attributes: ["id", "username", "role"],
   required: false,
   include: [
     {
@@ -15,6 +15,15 @@ export const leadAssignedUserInclude = {
     },
   ],
 };
+
+export const leadCreatedByInclude = {
+  model: db.User,
+  as: "createdBy",
+  attributes: ["id", "username", "role"],
+  required: false,
+};
+
+export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude];
 
 export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
@@ -39,8 +48,11 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     nextCallbackAt: lead.nextCallbackAt,
     assignedUserId: lead.assignedUserId,
     assignedUsername: lead.assignedUser?.username ?? null,
+    assignedUserRole: lead.assignedUser?.role ?? null,
     supervisorUsername: lead.assignedUser?.supervisor?.username ?? null,
     createdByUserId: lead.createdByUserId,
+    createdByUsername: lead.createdBy?.username ?? null,
+    createdByUserRole: lead.createdBy?.role ?? null,
     createdFromCallLogId: lead.createdFromCallLogId,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,

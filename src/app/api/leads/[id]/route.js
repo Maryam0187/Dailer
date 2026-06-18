@@ -6,7 +6,7 @@ import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
-import { leadAssignedUserInclude, serializeLead } from "@/server/leads/serializeLead";
+import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -137,7 +137,7 @@ export async function PATCH(req, { params }) {
   }
 
   await lead.reload({
-    include: [leadAssignedUserInclude],
+    include: leadListIncludes,
   });
   return NextResponse.json({
     ok: true,

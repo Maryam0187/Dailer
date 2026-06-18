@@ -695,7 +695,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className="whitespace-nowrap px-4 py-3">Phone</th>
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Notes</th>
-              {showLeadFilters ? <th className="px-4 py-3">Agent</th> : null}
+              {showLeadFilters ? <th className="px-4 py-3">Created by</th> : null}
               <th className="whitespace-nowrap px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -735,7 +735,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   </td>
                   {showLeadFilters ? (
                     <td className="px-4 py-3 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                      {lead.assignedUsername || "—"}
+                      {lead.createdByUsername || "—"}
                     </td>
                   ) : null}
                   <td className="whitespace-nowrap px-4 py-3">
