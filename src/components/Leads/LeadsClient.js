@@ -84,6 +84,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [callingId, setCallingId] = useState(null);
   const [showForm, setShowForm] = useState(initialShowForm);
@@ -137,9 +138,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
 
-  const loadLeads = useCallback(async (targetPage) => {
+  const loadLeads = useCallback(async (targetPage, { silent = false } = {}) => {
     const resolvedPage = targetPage ?? page;
-    setLoading(true);
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const params = new URLSearchParams();
@@ -164,17 +169,23 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       }
     } catch (e) {
       setError(e.message || "Failed to load leads");
-      setLeads([]);
-      setPagination({
-        page: 1,
-        pageSize: LEADS_PAGE_SIZE,
-        total: 0,
-        totalPages: 1,
-        hasNext: false,
-        hasPrev: false,
-      });
+      if (!silent) {
+        setLeads([]);
+        setPagination({
+          page: 1,
+          pageSize: LEADS_PAGE_SIZE,
+          total: 0,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
+        });
+      }
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [agentFilter, supervisorFilter, appliedFrom, appliedTo, sortBy, page]);
 
@@ -190,6 +201,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   function onNextPage() {
     if (!pagination.hasNext || loading) return;
     setPage((p) => p + 1);
+  }
+
+  function onRefresh() {
+    if (loading || refreshing) return;
+    void loadLeads(page, { silent: true });
   }
 
   useEffect(() => {
@@ -634,15 +650,25 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           {loading
             ? "Loading leads…"
-            : pagination.total > 0
-              ? `Showing ${leads.length} of ${pagination.total} leads`
-              : "No leads to show"}
+            : refreshing
+              ? "Refreshing…"
+              : pagination.total > 0
+                ? `Showing ${leads.length} of ${pagination.total} leads`
+                : "No leads to show"}
         </p>
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={onRefresh}
+            disabled={loading || refreshing}
+            className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-zinc-800"
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+          <button
+            type="button"
             onClick={onPrevPage}
-            disabled={!pagination.hasPrev || loading}
+            disabled={!pagination.hasPrev || loading || refreshing}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             Prev
@@ -653,7 +679,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           <button
             type="button"
             onClick={onNextPage}
-            disabled={!pagination.hasNext || loading}
+            disabled={!pagination.hasNext || loading || refreshing}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             Next
