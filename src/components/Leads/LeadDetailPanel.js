@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
-import { digitsOnly } from "@/lib/phoneFormat";
+import { formatLeadService } from "@/lib/leadService";
+import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
+import IconTooltipButton, { CallIcon, CloseIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
+import RichTextField from "@/components/Leads/RichTextField";
+import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
+import { isEmptyRichText } from "@/lib/richText";
 import { formatDuration } from "@/lib/formatDuration";
 import { getLeadStatusMeta, LEAD_STATUSES, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 
@@ -35,60 +40,6 @@ function StatusBadge({ status }) {
   );
 }
 
-function CopyPhoneButton({ phone, className = "" }) {
-  const [copied, setCopied] = useState(false);
-
-  async function onCopy() {
-    const text = digitsOnly(phone) || phone || "";
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "absolute";
-      textarea.style.left = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.select();
-      try {
-        document.execCommand("copy");
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      } finally {
-        document.body.removeChild(textarea);
-      }
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => void onCopy()}
-      aria-label={copied ? "Phone number copied" : "Copy phone number"}
-      title={copied ? "Copied!" : "Copy phone number"}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${className}`}
-    >
-      {copied ? (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
-          <path
-            fillRule="evenodd"
-            d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ) : (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
-          <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
-          <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
 function ActivityIcon({ type }) {
   const base = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold";
   if (type === "comment") {
@@ -112,6 +63,20 @@ function ActivityIcon({ type }) {
       </div>
     );
   }
+  if (type === "breakdown_edit") {
+    return (
+      <div className={`${base} bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-200`}>
+        📋
+      </div>
+    );
+  }
+  if (type === "lead_edit") {
+    return (
+      <div className={`${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200`}>
+        ✎
+      </div>
+    );
+  }
   return (
     <div className={`${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200`}>
       +
@@ -127,6 +92,8 @@ function activityTitle(update) {
     return `Status: ${from} → ${to}`;
   }
   if (update.type === "note_edit") return "Notes updated";
+  if (update.type === "breakdown_edit") return "Breakdown updated";
+  if (update.type === "lead_edit") return "Lead updated";
   if (update.type === "created") return "Lead created";
   return "Update";
 }
@@ -144,9 +111,15 @@ function ActivityItem({ update }) {
           {update.username || "Unknown user"}
         </p>
         {update.body ? (
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            {update.body}
-          </p>
+          update.type === "note_edit" || update.type === "breakdown_edit" ? (
+            <div className="mt-2">
+              <RichHtmlContent html={update.body} />
+            </div>
+          ) : (
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+              {update.body}
+            </p>
+          )
         ) : null}
       </div>
     </li>
@@ -157,6 +130,7 @@ export default function LeadDetailPanel({
   lead,
   onClose,
   onLeadUpdated,
+  onEdit,
   onCallLead,
   calling,
   canCall,
@@ -172,7 +146,9 @@ export default function LeadDetailPanel({
   const [comment, setComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const [notesDraft, setNotesDraft] = useState(lead?.notes || "");
+  const [breakdownDraft, setBreakdownDraft] = useState(lead?.breakdown || "");
   const [savingNotes, setSavingNotes] = useState(false);
+  const [savingBreakdown, setSavingBreakdown] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [activeTab, setActiveTab] = useState("activity");
 
@@ -210,11 +186,12 @@ export default function LeadDetailPanel({
 
   useEffect(() => {
     setNotesDraft(lead?.notes || "");
+    setBreakdownDraft(lead?.breakdown || "");
     setError(null);
     setActiveTab("activity");
     void loadUpdates();
     void loadCalls();
-  }, [lead?.id, lead?.notes, loadUpdates, loadCalls]);
+  }, [lead?.id, lead?.notes, lead?.breakdown, lead?.updatedAt, loadUpdates, loadCalls]);
 
   useEffect(() => {
     const onCallEnded = () => {
@@ -275,6 +252,19 @@ export default function LeadDetailPanel({
     }
   }
 
+  async function onSaveBreakdown() {
+    setSavingBreakdown(true);
+    setError(null);
+    try {
+      await patchLead({ breakdown: breakdownDraft });
+      await loadUpdates();
+    } catch (e) {
+      setError(e.message || "Failed to save breakdown");
+    } finally {
+      setSavingBreakdown(false);
+    }
+  }
+
   async function onStatusChange(nextStatus) {
     if (nextStatus === lead.status || statusBusy) return;
     setStatusBusy(true);
@@ -321,6 +311,7 @@ export default function LeadDetailPanel({
   if (!lead) return null;
 
   const notesDirty = (notesDraft || "") !== (lead.notes || "");
+  const breakdownDirty = (breakdownDraft || "") !== (lead.breakdown || "");
 
   return (
     <>
@@ -354,6 +345,10 @@ export default function LeadDetailPanel({
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "No location"}
               </p>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">Service:</span>{" "}
+                <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatLeadService(lead)}</span>
+              </p>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Agent:</span>{" "}
@@ -365,28 +360,31 @@ export default function LeadDetailPanel({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              Close
-            </button>
+            <div className="flex shrink-0 items-start gap-1.5">
+              {onEdit ? (
+                <IconTooltipButton title="Edit" variant="accent" onClick={onEdit}>
+                  <EditIcon />
+                </IconTooltipButton>
+              ) : null}
+              <IconTooltipButton title="Close" onClick={onClose}>
+                <CloseIcon />
+              </IconTooltipButton>
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusBadge status={lead.status} />
             {!phonesRedacted && onCallLead ? (
-              <button
-                type="button"
+              <IconTooltipButton
+                title={calling ? "Calling…" : "Call lead"}
+                variant="primary"
                 disabled={calling || !canCall || hasActiveCall || lead.status === "dnc"}
                 onClick={async () => {
                   await onCallLead?.(lead);
                   await loadCalls();
                 }}
-                className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {calling ? "Calling…" : "Call lead"}
-              </button>
+                <CallIcon />
+              </IconTooltipButton>
             ) : null}
           </div>
         </div>
@@ -416,28 +414,54 @@ export default function LeadDetailPanel({
             </div>
           </section>
 
-          <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <label className={labelClass}>Lead notes</label>
-              {notesDirty ? (
-                <button
-                  type="button"
-                  disabled={savingNotes}
-                  onClick={() => void onSaveNotes()}
-                  className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                >
-                  {savingNotes ? "Saving…" : "Save notes"}
-                </button>
-              ) : null}
-            </div>
-            <textarea
-              value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              rows={4}
-              placeholder="Add context about this lead…"
-              className={`${inputClass} min-h-[96px] resize-y`}
+          <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
+            <RichTextField
+              label="Breakdown"
+              labelClass={labelClass}
+              value={breakdownDraft}
+              onChange={setBreakdownDraft}
+              disabled={savingBreakdown}
+              placeholder="Add breakdown details…"
+              actions={
+                breakdownDirty ? (
+                  <button
+                    type="button"
+                    disabled={savingBreakdown}
+                    onClick={() => void onSaveBreakdown()}
+                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {savingBreakdown ? "Saving…" : "Save breakdown"}
+                  </button>
+                ) : null
+              }
             />
-            {!lead.notes && !notesDraft ? (
+            {isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
+            ) : null}
+          </section>
+
+          <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+            <RichTextField
+              label="Lead notes"
+              labelClass={labelClass}
+              value={notesDraft}
+              onChange={setNotesDraft}
+              disabled={savingNotes}
+              placeholder="Add context about this lead…"
+              actions={
+                notesDirty ? (
+                  <button
+                    type="button"
+                    disabled={savingNotes}
+                    onClick={() => void onSaveNotes()}
+                    className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {savingNotes ? "Saving…" : "Save notes"}
+                  </button>
+                ) : null
+              }
+            />
+            {isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
             ) : null}
           </section>

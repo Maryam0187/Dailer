@@ -8,8 +8,13 @@ import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
+import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
+import IconTooltipButton, { CallIcon, EditIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import LeadEditModal from "@/components/Leads/LeadEditModal";
+import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 
 const inputClass =
@@ -54,10 +59,19 @@ function formatLeadName(lead) {
   return lead.fullName?.trim() || "—";
 }
 
-function notePreview(notes) {
-  const text = String(notes || "").trim();
-  if (!text) return "—";
-  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+import { richTextPreview } from "@/lib/richText";
+
+function formatLeadLocation(lead) {
+  return [lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—";
+}
+
+const tableHeadClass = "whitespace-nowrap px-2.5 py-2.5 text-[11px] font-semibold uppercase tracking-wide";
+const tableCellClass = "px-2.5 py-2.5 text-xs";
+const fieldErrorClass = "mt-1 text-xs font-medium text-red-600 dark:text-red-400";
+
+function inputClassForValidation(baseClass, isValid) {
+  if (isValid) return baseClass;
+  return `${baseClass} border-red-400 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/70`;
 }
 
 function StatusPill({ status }) {
@@ -90,6 +104,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [showForm, setShowForm] = useState(initialShowForm);
   const [saving, setSaving] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
+  const [editingLeadId, setEditingLeadId] = useState(null);
 
   const [phone, setPhone] = useState("");
   const [fullName, setFullName] = useState("");
@@ -97,13 +112,16 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
+  const [serviceType, setServiceType] = useState("");
+  const [cableName, setCableName] = useState("");
+  const [streamName, setStreamName] = useState("");
+  const [breakdown, setBreakdown] = useState("");
   const [notes, setNotes] = useState("");
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
-  const [phoneValidation, setPhoneValidation] = useState({ isValid: true, message: "" });
-  const [cellValidation, setCellValidation] = useState({ isValid: true, message: "" });
+  const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
   const initialRange = getPresetRange("today");
   const [rangePreset, setRangePreset] = useState("today");
@@ -126,7 +144,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
   const phonesRedacted = shouldRedactLeadPhones(userRole);
-  const colSpan = showLeadFilters ? 7 : 6;
+  const colSpan = showLeadFilters ? 8 : 7;
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
@@ -136,7 +154,18 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
 
+  const addLeadValidation = useMemo(() => {
+    const phoneCheck = validatePhone(phone);
+    const cellCheck = cellNumber.trim() ? validatePhone(cellNumber) : { isValid: true, message: "" };
+    return {
+      phoneCheck,
+      cellCheck,
+      canSave: phoneCheck.isValid && cellCheck.isValid && Boolean(fullName.trim()),
+    };
+  }, [phone, cellNumber, fullName]);
+
   const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
+  const editingLead = leads.find((l) => l.id === editingLeadId) || null;
 
   const loadLeads = useCallback(async (targetPage, { silent = false } = {}) => {
     const resolvedPage = targetPage ?? page;
@@ -273,9 +302,12 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setCity("");
     setState("");
     setZipCode("");
+    setServiceType("");
+    setCableName("");
+    setStreamName("");
+    setBreakdown("");
     setNotes("");
-    setPhoneValidation({ isValid: true, message: "" });
-    setCellValidation({ isValid: true, message: "" });
+    setSaveError(null);
   }
 
   function handleLeadUpdated(updated) {
@@ -284,16 +316,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   async function onAddLead(e) {
     e.preventDefault();
-    const phoneV = validatePhone(phone);
-    const cellV = cellNumber.trim() ? validatePhone(cellNumber) : { isValid: true, message: "" };
-    setPhoneValidation(phoneV);
-    setCellValidation(cellV);
-    if (!phoneV.isValid || !cellV.isValid || !fullName.trim()) {
-      if (!fullName.trim()) setError("Full name is required");
-      return;
-    }
+    if (!addLeadValidation.canSave) return;
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const payload = {
         phone: digitsOnly(phone),
@@ -302,6 +327,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         city: city.trim() || undefined,
         state: state.trim() || undefined,
         zipCode: zipCode.trim() || undefined,
+        serviceType: serviceType || undefined,
+        cableName: serviceType === "cable" ? cableName.trim() || undefined : undefined,
+        streamName: serviceType === "streams" ? streamName.trim() || undefined : undefined,
+        breakdown: breakdown.trim() || undefined,
         notes: notes.trim() || undefined,
         source: "manual",
       };
@@ -319,7 +348,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       await loadLeads(1);
       if (json.lead?.id) setSelectedLeadId(json.lead.id);
     } catch (err) {
-      setError(err.message || "Failed to add lead");
+      setSaveError(err.message || "Failed to add lead");
     } finally {
       setSaving(false);
     }
@@ -399,6 +428,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           onClick={() => {
             setShowForm((v) => !v);
             setError(null);
+            setSaveError(null);
           }}
           className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
         >
@@ -412,46 +442,108 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"
         >
           <h3 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">New lead</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Phone *</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => {
-                  const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
-                  setPhone(formatted);
-                  setPhoneValidation(validatePhone(formatted));
-                }}
-                className={inputClass}
-                required
-              />
+          <div className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Service</label>
+                <select
+                  value={serviceType}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setServiceType(next);
+                    if (next !== "cable") setCableName("");
+                    if (next !== "streams") setStreamName("");
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">Select service</option>
+                  {SERVICE_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {serviceType === "cable" ? (
+                <div>
+                  <label className={labelClass}>Cable name</label>
+                  <input
+                    type="text"
+                    value={cableName}
+                    onChange={(e) => setCableName(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              ) : null}
+              {serviceType === "streams" ? (
+                <div>
+                  <label className={labelClass}>Stream name</label>
+                  <input
+                    type="text"
+                    value={streamName}
+                    onChange={(e) => setStreamName(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              ) : null}
             </div>
-            <div>
-              <label className={labelClass}>Full name *</label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className={inputClass}
-                required
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Phone *</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => {
+                    const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
+                    setPhone(formatted);
+                    setSaveError(null);
+                  }}
+                  className={inputClassForValidation(
+                    inputClass,
+                    !phone.trim() || addLeadValidation.phoneCheck.isValid,
+                  )}
+                  aria-invalid={Boolean(phone.trim()) && !addLeadValidation.phoneCheck.isValid}
+                />
+                {phone.trim() && !addLeadValidation.phoneCheck.isValid ? (
+                  <p className={fieldErrorClass}>{addLeadValidation.phoneCheck.message}</p>
+                ) : null}
+              </div>
+              <div>
+                <label className={labelClass}>Full name *</label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    setSaveError(null);
+                  }}
+                  className={inputClass}
+                />
+              </div>
             </div>
-            <div>
-              <label className={labelClass}>Cell number</label>
-              <input
-                type="tel"
-                value={cellNumber}
-                onChange={(e) => {
-                  const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
-                  setCellNumber(formatted);
-                  if (formatted.trim()) setCellValidation(validatePhone(formatted));
-                  else setCellValidation({ isValid: true, message: "" });
-                }}
-                className={inputClass}
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Cell number</label>
+                <input
+                  type="tel"
+                  value={cellNumber}
+                  onChange={(e) => {
+                    const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
+                    setCellNumber(formatted);
+                    setSaveError(null);
+                  }}
+                  className={inputClassForValidation(
+                    inputClass,
+                    !cellNumber.trim() || addLeadValidation.cellCheck.isValid,
+                  )}
+                  aria-invalid={Boolean(cellNumber.trim()) && !addLeadValidation.cellCheck.isValid}
+                />
+                {cellNumber.trim() && !addLeadValidation.cellCheck.isValid ? (
+                  <p className={fieldErrorClass}>{addLeadValidation.cellCheck.message}</p>
+                ) : null}
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-3">
               <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
               <div>
                 <label className={labelClass}>City</label>
@@ -468,22 +560,33 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 />
               </div>
             </div>
+            <div className="mt-1">
+              <StateLocalTime stateCode={state} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RichTextField
+                label="Breakdown"
+                labelClass={labelClass}
+                value={breakdown}
+                onChange={setBreakdown}
+                disabled={saving}
+                placeholder="Add breakdown details…"
+              />
+              <RichTextField
+                label="Note"
+                labelClass={labelClass}
+                value={notes}
+                onChange={setNotes}
+                disabled={saving}
+                placeholder="Add a note…"
+              />
+            </div>
           </div>
-          <div className="mt-1">
-            <StateLocalTime stateCode={state} />
-          </div>
-          <div className="mt-4">
-            <label className={labelClass}>Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className={`${inputClass} min-h-[80px]`}
-            />
-          </div>
+          {saveError ? <p className={`mt-4 ${fieldErrorClass}`}>{saveError}</p> : null}
           <button
             type="submit"
-            disabled={saving}
-            className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            disabled={saving || !addLeadValidation.canSave}
+            className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save lead"}
           </button>
@@ -688,16 +791,17 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
+        <table className="w-full min-w-[760px] table-fixed text-left text-sm">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
             <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="whitespace-nowrap px-4 py-3">Phone</th>
-              <th className="px-4 py-3">Location</th>
-              <th className="px-4 py-3">Notes</th>
-              {showLeadFilters ? <th className="px-4 py-3">Created by</th> : null}
-              <th className="whitespace-nowrap px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className={`${tableHeadClass} min-w-[120px] max-w-[140px] px-3`}>Name</th>
+              <th className={tableHeadClass}>Phone</th>
+              <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
+              <th className={tableHeadClass}>Status</th>
+              <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
+              <th className={`${tableHeadClass} max-w-[90px]`}>Notes</th>
+              {showLeadFilters ? <th className={`${tableHeadClass} max-w-[100px]`}>Created by</th> : null}
+              <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -716,43 +820,72 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </td>
               </tr>
             ) : (
-              leads.map((lead) => (
+              leads.map((lead) => {
+                const serviceLabel = formatLeadService(lead);
+                const locationLabel = formatLeadLocation(lead);
+                const notesLabel = richTextPreview(lead.notes);
+                return (
                 <tr
                   key={lead.id}
                   className={`text-zinc-800 dark:text-zinc-200 ${
                     selectedLeadId === lead.id ? "bg-emerald-50/60 dark:bg-emerald-950/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                   }`}
                 >
-                  <td className="px-4 py-3 font-medium">{formatLeadName(lead)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
-                    {formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted)}
+                  <td
+                    className={`${tableCellClass} max-w-[140px] truncate font-medium`}
+                    title={formatLeadName(lead) !== "—" ? formatLeadName(lead) : undefined}
+                  >
+                    {formatLeadName(lead)}
                   </td>
-                  <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">
-                    {[lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—"}
+                  <td className={`${tableCellClass} whitespace-nowrap font-mono`}>
+                    <span className="inline-flex items-center gap-1">
+                      {!phonesRedacted && !lead.phonesRedacted ? (
+                        <CopyPhoneButton phone={lead.phone} className="h-6 w-6" />
+                      ) : null}
+                      <span>{formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted)}</span>
+                    </span>
                   </td>
-                  <td className="max-w-[180px] px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400" title={lead.notes || undefined}>
-                    {notePreview(lead.notes)}
+                  <td
+                    className={`${tableCellClass} max-w-[110px] truncate font-bold text-zinc-800 dark:text-zinc-100`}
+                    title={serviceLabel !== "—" ? serviceLabel : undefined}
+                  >
+                    {serviceLabel}
+                  </td>
+                  <td className={`${tableCellClass} whitespace-nowrap`}>
+                    <StatusPill status={lead.status} />
+                  </td>
+                  <td
+                    className={`${tableCellClass} max-w-[100px] truncate text-zinc-600 dark:text-zinc-400`}
+                    title={locationLabel !== "—" ? locationLabel : undefined}
+                  >
+                    {locationLabel}
+                  </td>
+                  <td
+                    className={`${tableCellClass} max-w-[90px] truncate text-zinc-600 dark:text-zinc-400`}
+                    title={lead.notes || undefined}
+                  >
+                    {notesLabel}
                   </td>
                   {showLeadFilters ? (
-                    <td className="px-4 py-3 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    <td
+                      className={`${tableCellClass} max-w-[100px] truncate font-medium text-zinc-700 dark:text-zinc-300`}
+                      title={lead.createdByUsername || undefined}
+                    >
                       {lead.createdByUsername || "—"}
                     </td>
                   ) : null}
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <StatusPill status={lead.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLeadId(lead.id)}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                      >
-                        View
-                      </button>
+                  <td className={`${tableCellClass} whitespace-nowrap text-right`}>
+                    <div className="flex justify-end gap-1">
+                      <IconTooltipButton title="Edit" onClick={() => setEditingLeadId(lead.id)}>
+                        <EditIcon />
+                      </IconTooltipButton>
+                      <IconTooltipButton title="View" onClick={() => setSelectedLeadId(lead.id)}>
+                        <ViewIcon />
+                      </IconTooltipButton>
                       {!phonesRedacted ? (
-                        <button
-                          type="button"
+                        <IconTooltipButton
+                          title={callingId === lead.id ? "Calling…" : "Call"}
+                          variant="primary"
                           disabled={
                             Boolean(session) ||
                             callingId === lead.id ||
@@ -760,15 +893,15 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                             lead.status === "dnc"
                           }
                           onClick={() => void onCallLead(lead)}
-                          className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {callingId === lead.id ? "Calling…" : "Call"}
-                        </button>
+                          <CallIcon />
+                        </IconTooltipButton>
                       ) : null}
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -779,11 +912,24 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           lead={selectedLead}
           onClose={() => setSelectedLeadId(null)}
           onLeadUpdated={handleLeadUpdated}
+          onEdit={() => setEditingLeadId(selectedLead.id)}
           onCallLead={phonesRedacted ? undefined : onCallLead}
           phonesRedacted={phonesRedacted || selectedLead.phonesRedacted}
           calling={callingId === selectedLead.id}
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}
+        />
+      ) : null}
+
+      {editingLead ? (
+        <LeadEditModal
+          lead={editingLead}
+          phonesRedacted={phonesRedacted || editingLead.phonesRedacted}
+          onClose={() => setEditingLeadId(null)}
+          onSaved={(updated) => {
+            handleLeadUpdated(updated);
+            setEditingLeadId(null);
+          }}
         />
       ) : null}
         </>

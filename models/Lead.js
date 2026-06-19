@@ -41,6 +41,22 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(16),
         allowNull: true,
       },
+      serviceType: {
+        type: DataTypes.ENUM("dish", "direct", "cable", "streams"),
+        allowNull: true,
+      },
+      cableName: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      streamName: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      breakdown: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
       notes: {
         type: DataTypes.TEXT,
         allowNull: true,

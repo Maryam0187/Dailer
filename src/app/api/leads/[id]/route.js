@@ -6,6 +6,7 @@ import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
+import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
@@ -15,6 +16,7 @@ function trimField(value, maxLen) {
 }
 
 const ALLOWED_STATUSES = new Set(["new", "contacted", "callback", "qualified", "closed", "dnc"]);
+const ALLOWED_SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
 
 export async function PATCH(req, { params }) {
   const authedUser = await getAuthedUser();
@@ -66,6 +68,30 @@ export async function PATCH(req, { params }) {
   if (body?.state !== undefined) update.state = trimField(body.state, 32);
   if (body?.zipCode !== undefined) update.zipCode = trimField(body.zipCode, 16);
 
+  if (body?.serviceType !== undefined) {
+    if (body.serviceType === null || body.serviceType === "") {
+      update.serviceType = null;
+    } else {
+      const serviceType = String(body.serviceType).trim().toLowerCase();
+      if (!ALLOWED_SERVICE_TYPES.has(serviceType)) {
+        return NextResponse.json({ error: "Invalid service type" }, { status: 400 });
+      }
+      update.serviceType = serviceType;
+    }
+  }
+
+  const effectiveServiceType =
+    update.serviceType !== undefined ? update.serviceType : lead.serviceType;
+
+  if (body?.cableName !== undefined || (update.serviceType !== undefined && effectiveServiceType !== "cable")) {
+    update.cableName =
+      effectiveServiceType === "cable" ? trimField(body?.cableName ?? lead.cableName, 128) : null;
+  }
+  if (body?.streamName !== undefined || (update.serviceType !== undefined && effectiveServiceType !== "streams")) {
+    update.streamName =
+      effectiveServiceType === "streams" ? trimField(body?.streamName ?? lead.streamName, 128) : null;
+  }
+
   if (body?.notes !== undefined) {
     const nextNotes = trimField(body.notes, 65535);
     const prevNotes = lead.notes || "";
@@ -74,6 +100,18 @@ export async function PATCH(req, { params }) {
       activity.push({
         type: "note_edit",
         body: nextNotes || "(cleared notes)",
+      });
+    }
+  }
+
+  if (body?.breakdown !== undefined) {
+    const nextBreakdown = trimField(body.breakdown, 65535);
+    const prevBreakdown = lead.breakdown || "";
+    if ((nextBreakdown || "") !== (prevBreakdown || "")) {
+      update.breakdown = nextBreakdown;
+      activity.push({
+        type: "breakdown_edit",
+        body: nextBreakdown || "(cleared breakdown)",
       });
     }
   }
@@ -121,6 +159,14 @@ export async function PATCH(req, { params }) {
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+  }
+
+  const leadEditBody = buildLeadEditActivityBody(lead, update);
+  if (leadEditBody) {
+    activity.push({
+      type: "lead_edit",
+      body: leadEditBody,
+    });
   }
 
   await lead.update(update);
