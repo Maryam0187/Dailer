@@ -78,6 +78,18 @@ export async function PATCH(req, { params }) {
     }
   }
 
+  if (body?.breakdown !== undefined) {
+    const nextBreakdown = trimField(body.breakdown, 65535);
+    const prevBreakdown = lead.breakdown || "";
+    if ((nextBreakdown || "") !== (prevBreakdown || "")) {
+      update.breakdown = nextBreakdown;
+      activity.push({
+        type: "breakdown_edit",
+        body: nextBreakdown || "(cleared breakdown)",
+      });
+    }
+  }
+
   if (body?.status != null) {
     const status = String(body.status).trim().toLowerCase();
     if (!ALLOWED_STATUSES.has(status)) {

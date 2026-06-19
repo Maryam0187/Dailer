@@ -15,6 +15,15 @@ function trimField(value, maxLen) {
   return s.slice(0, maxLen);
 }
 
+const SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
+
+function parseServiceType(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!SERVICE_TYPES.has(normalized)) return undefined;
+  return normalized;
+}
+
 function parseDateOnly(value) {
   if (!value || typeof value !== "string") return null;
   const v = value.trim();
@@ -140,6 +149,13 @@ export async function POST(req) {
     return NextResponse.json({ error: "Valid cell number is required" }, { status: 400 });
   }
 
+  const serviceType = parseServiceType(body?.serviceType);
+  if (serviceType === undefined) {
+    return NextResponse.json({ error: "Invalid service type" }, { status: 400 });
+  }
+  const cableName = serviceType === "cable" ? trimField(body?.cableName, 128) : null;
+  const streamName = serviceType === "streams" ? trimField(body?.streamName, 128) : null;
+
   const callLogId = Number(body?.createdFromCallLogId);
   let createdFromCallLogId = null;
   if (Number.isInteger(callLogId) && callLogId > 0) {
@@ -187,6 +203,10 @@ export async function POST(req) {
     city: trimField(body?.city, 128),
     state: trimField(body?.state, 32),
     zipCode: trimField(body?.zipCode, 16),
+    serviceType,
+    cableName,
+    streamName,
+    breakdown: trimField(body?.breakdown, 65535),
     notes: trimField(body?.notes, 65535),
     status: "new",
     source,
