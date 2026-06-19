@@ -10,6 +10,7 @@ const inviteDialLegModelFactory = require("./InviteDialLeg");
 const billingSettingModelFactory = require("./BillingSetting");
 const billModelFactory = require("./Bill");
 const billItemModelFactory = require("./BillItem");
+const userFileModelFactory = require("./UserFile");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -66,6 +67,7 @@ db.InviteDialLeg = inviteDialLegModelFactory(sequelize, Sequelize.DataTypes);
 db.BillingSetting = billingSettingModelFactory(sequelize, Sequelize.DataTypes);
 db.Bill = billModelFactory(sequelize, Sequelize.DataTypes);
 db.BillItem = billItemModelFactory(sequelize, Sequelize.DataTypes);
+db.UserFile = userFileModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

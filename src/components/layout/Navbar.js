@@ -10,6 +10,7 @@ export default function Navbar({ role }) {
   const pathname = usePathname();
   const onDialerPage = pathname === "/";
   const onLeadsPage = pathname === "/leads";
+  const onFilesPage = pathname === "/files";
   const onUsersPage = pathname === "/users";
   const onBillingPage = pathname === "/billing";
   const onReportsPage = pathname === "/reports";
@@ -41,6 +42,17 @@ export default function Navbar({ role }) {
             aria-current={onLeadsPage ? "page" : undefined}
           >
             Leads
+          </Link>
+          <Link
+            href="/files"
+            className={`inline-flex rounded-xl border px-3 py-2 text-base font-semibold transition-colors ${
+              onFilesPage
+                ? "border-indigo-500/70 bg-indigo-100 text-indigo-950 shadow-md shadow-indigo-500/20 dark:border-indigo-500/55 dark:bg-indigo-950/45 dark:text-indigo-50 dark:shadow-indigo-950/30"
+                : "border-transparent text-indigo-700 hover:border-indigo-200/90 hover:bg-indigo-50/90 hover:text-indigo-950 dark:text-indigo-400 dark:hover:border-indigo-800/80 dark:hover:bg-indigo-950/35 dark:hover:text-indigo-100"
+            }`}
+            aria-current={onFilesPage ? "page" : undefined}
+          >
+            Files
           </Link>
           {role === "admin" || role === "manager" || role === "supervisor" ? (
             <Link
