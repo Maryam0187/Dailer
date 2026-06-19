@@ -12,6 +12,7 @@ import { formatLeadService } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 
 const inputClass =
@@ -62,11 +63,7 @@ function formatLeadName(lead) {
   return lead.fullName?.trim() || "—";
 }
 
-function notePreview(notes, maxLen = 28) {
-  const text = String(notes || "").trim();
-  if (!text) return "—";
-  return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
-}
+import { richTextPreview } from "@/lib/richText";
 
 function formatLeadLocation(lead) {
   return [lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—";
@@ -569,22 +566,22 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <StateLocalTime stateCode={state} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Breakdown</label>
-                <textarea
-                  value={breakdown}
-                  onChange={(e) => setBreakdown(e.target.value)}
-                  className={`${inputClass} min-h-[100px]`}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Note</label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className={`${inputClass} min-h-[100px]`}
-                />
-              </div>
+              <RichTextField
+                label="Breakdown"
+                labelClass={labelClass}
+                value={breakdown}
+                onChange={setBreakdown}
+                disabled={saving}
+                placeholder="Add breakdown details…"
+              />
+              <RichTextField
+                label="Note"
+                labelClass={labelClass}
+                value={notes}
+                onChange={setNotes}
+                disabled={saving}
+                placeholder="Add a note…"
+              />
             </div>
           </div>
           {saveError ? <p className={`mt-4 ${fieldErrorClass}`}>{saveError}</p> : null}
@@ -828,7 +825,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               leads.map((lead) => {
                 const serviceLabel = formatLeadService(lead);
                 const locationLabel = formatLeadLocation(lead);
-                const notesLabel = notePreview(lead.notes);
+                const notesLabel = richTextPreview(lead.notes);
                 return (
                 <tr
                   key={lead.id}

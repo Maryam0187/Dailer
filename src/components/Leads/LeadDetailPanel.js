@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
+import RichTextField from "@/components/Leads/RichTextField";
+import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
+import { isEmptyRichText } from "@/lib/richText";
 import { formatDuration } from "@/lib/formatDuration";
 import { getLeadStatusMeta, LEAD_STATUSES, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 
@@ -99,9 +102,15 @@ function ActivityItem({ update }) {
           {update.username || "Unknown user"}
         </p>
         {update.body ? (
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            {update.body}
-          </p>
+          update.type === "note_edit" || update.type === "breakdown_edit" ? (
+            <div className="mt-2">
+              <RichHtmlContent html={update.body} />
+            </div>
+          ) : (
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+              {update.body}
+            </p>
+          )
         ) : null}
       </div>
     </li>
@@ -393,53 +402,53 @@ export default function LeadDetailPanel({
           </section>
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <label className={labelClass}>Breakdown</label>
-              {breakdownDirty ? (
-                <button
-                  type="button"
-                  disabled={savingBreakdown}
-                  onClick={() => void onSaveBreakdown()}
-                  className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                >
-                  {savingBreakdown ? "Saving…" : "Save breakdown"}
-                </button>
-              ) : null}
-            </div>
-            <textarea
+            <RichTextField
+              label="Breakdown"
+              labelClass={labelClass}
               value={breakdownDraft}
-              onChange={(e) => setBreakdownDraft(e.target.value)}
-              rows={4}
+              onChange={setBreakdownDraft}
+              disabled={savingBreakdown}
               placeholder="Add breakdown details…"
-              className={`${inputClass} min-h-[96px] resize-y`}
+              actions={
+                breakdownDirty ? (
+                  <button
+                    type="button"
+                    disabled={savingBreakdown}
+                    onClick={() => void onSaveBreakdown()}
+                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {savingBreakdown ? "Saving…" : "Save breakdown"}
+                  </button>
+                ) : null
+              }
             />
-            {!lead.breakdown && !breakdownDraft ? (
+            {isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
             ) : null}
           </section>
 
           <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <label className={labelClass}>Lead notes</label>
-              {notesDirty ? (
-                <button
-                  type="button"
-                  disabled={savingNotes}
-                  onClick={() => void onSaveNotes()}
-                  className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                >
-                  {savingNotes ? "Saving…" : "Save notes"}
-                </button>
-              ) : null}
-            </div>
-            <textarea
+            <RichTextField
+              label="Lead notes"
+              labelClass={labelClass}
               value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              rows={4}
+              onChange={setNotesDraft}
+              disabled={savingNotes}
               placeholder="Add context about this lead…"
-              className={`${inputClass} min-h-[96px] resize-y`}
+              actions={
+                notesDirty ? (
+                  <button
+                    type="button"
+                    disabled={savingNotes}
+                    onClick={() => void onSaveNotes()}
+                    className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {savingNotes ? "Saving…" : "Save notes"}
+                  </button>
+                ) : null
+              }
             />
-            {!lead.notes && !notesDraft ? (
+            {isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
             ) : null}
           </section>
