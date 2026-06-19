@@ -8,10 +8,12 @@ import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { formatLeadService } from "@/lib/leadService";
+import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
+import IconTooltipButton, { CallIcon, EditIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import LeadEditModal from "@/components/Leads/LeadEditModal";
 import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 
@@ -52,12 +54,6 @@ function getPresetRange(preset) {
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 const LEADS_PAGE_SIZE = 25;
-const SERVICE_TYPE_OPTIONS = [
-  { value: "dish", label: "Dish" },
-  { value: "direct", label: "Direct" },
-  { value: "cable", label: "Cable" },
-  { value: "streams", label: "Streams" },
-];
 
 function formatLeadName(lead) {
   return lead.fullName?.trim() || "—";
@@ -108,6 +104,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [showForm, setShowForm] = useState(initialShowForm);
   const [saving, setSaving] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
+  const [editingLeadId, setEditingLeadId] = useState(null);
 
   const [phone, setPhone] = useState("");
   const [fullName, setFullName] = useState("");
@@ -168,6 +165,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }, [phone, cellNumber, fullName]);
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
+  const editingLead = leads.find((l) => l.id === editingLeadId) || null;
 
   const loadLeads = useCallback(async (targetPage, { silent = false } = {}) => {
     const resolvedPage = targetPage ?? page;
@@ -877,17 +875,17 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     </td>
                   ) : null}
                   <td className={`${tableCellClass} whitespace-nowrap text-right`}>
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLeadId(lead.id)}
-                        className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                      >
-                        View
-                      </button>
+                    <div className="flex justify-end gap-1">
+                      <IconTooltipButton title="Edit" onClick={() => setEditingLeadId(lead.id)}>
+                        <EditIcon />
+                      </IconTooltipButton>
+                      <IconTooltipButton title="View" onClick={() => setSelectedLeadId(lead.id)}>
+                        <ViewIcon />
+                      </IconTooltipButton>
                       {!phonesRedacted ? (
-                        <button
-                          type="button"
+                        <IconTooltipButton
+                          title={callingId === lead.id ? "Calling…" : "Call"}
+                          variant="primary"
                           disabled={
                             Boolean(session) ||
                             callingId === lead.id ||
@@ -895,10 +893,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                             lead.status === "dnc"
                           }
                           onClick={() => void onCallLead(lead)}
-                          className="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {callingId === lead.id ? "Calling…" : "Call"}
-                        </button>
+                          <CallIcon />
+                        </IconTooltipButton>
                       ) : null}
                     </div>
                   </td>
@@ -915,11 +912,24 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           lead={selectedLead}
           onClose={() => setSelectedLeadId(null)}
           onLeadUpdated={handleLeadUpdated}
+          onEdit={() => setEditingLeadId(selectedLead.id)}
           onCallLead={phonesRedacted ? undefined : onCallLead}
           phonesRedacted={phonesRedacted || selectedLead.phonesRedacted}
           calling={callingId === selectedLead.id}
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}
+        />
+      ) : null}
+
+      {editingLead ? (
+        <LeadEditModal
+          lead={editingLead}
+          phonesRedacted={phonesRedacted || editingLead.phonesRedacted}
+          onClose={() => setEditingLeadId(null)}
+          onSaved={(updated) => {
+            handleLeadUpdated(updated);
+            setEditingLeadId(null);
+          }}
         />
       ) : null}
         </>

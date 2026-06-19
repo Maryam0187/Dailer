@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
+import IconTooltipButton, { CallIcon, CloseIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
 import RichTextField from "@/components/Leads/RichTextField";
 import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
 import { isEmptyRichText } from "@/lib/richText";
@@ -69,6 +70,13 @@ function ActivityIcon({ type }) {
       </div>
     );
   }
+  if (type === "lead_edit") {
+    return (
+      <div className={`${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200`}>
+        ✎
+      </div>
+    );
+  }
   return (
     <div className={`${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200`}>
       +
@@ -85,6 +93,7 @@ function activityTitle(update) {
   }
   if (update.type === "note_edit") return "Notes updated";
   if (update.type === "breakdown_edit") return "Breakdown updated";
+  if (update.type === "lead_edit") return "Lead updated";
   if (update.type === "created") return "Lead created";
   return "Update";
 }
@@ -121,6 +130,7 @@ export default function LeadDetailPanel({
   lead,
   onClose,
   onLeadUpdated,
+  onEdit,
   onCallLead,
   calling,
   canCall,
@@ -181,7 +191,7 @@ export default function LeadDetailPanel({
     setActiveTab("activity");
     void loadUpdates();
     void loadCalls();
-  }, [lead?.id, lead?.notes, lead?.breakdown, loadUpdates, loadCalls]);
+  }, [lead?.id, lead?.notes, lead?.breakdown, lead?.updatedAt, loadUpdates, loadCalls]);
 
   useEffect(() => {
     const onCallEnded = () => {
@@ -350,28 +360,31 @@ export default function LeadDetailPanel({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-900"
-            >
-              Close
-            </button>
+            <div className="flex shrink-0 items-start gap-1.5">
+              {onEdit ? (
+                <IconTooltipButton title="Edit" variant="accent" onClick={onEdit}>
+                  <EditIcon />
+                </IconTooltipButton>
+              ) : null}
+              <IconTooltipButton title="Close" onClick={onClose}>
+                <CloseIcon />
+              </IconTooltipButton>
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusBadge status={lead.status} />
             {!phonesRedacted && onCallLead ? (
-              <button
-                type="button"
+              <IconTooltipButton
+                title={calling ? "Calling…" : "Call lead"}
+                variant="primary"
                 disabled={calling || !canCall || hasActiveCall || lead.status === "dnc"}
                 onClick={async () => {
                   await onCallLead?.(lead);
                   await loadCalls();
                 }}
-                className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {calling ? "Calling…" : "Call lead"}
-              </button>
+                <CallIcon />
+              </IconTooltipButton>
             ) : null}
           </div>
         </div>
