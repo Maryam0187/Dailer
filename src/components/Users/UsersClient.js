@@ -24,14 +24,35 @@ function activityActionLabel(action) {
   if (action === "login_success") return "Login";
   if (action === "login_failed") return "Login failed";
   if (action === "logout") return "Logout";
+  if (action === "lead_created") return "Lead created";
+  if (action === "lead_updated") return "Lead updated";
+  if (action === "lead_status_change") return "Lead status changed";
+  if (action === "lead_note_edit") return "Lead notes edited";
+  if (action === "lead_breakdown_edit") return "Lead breakdown edited";
+  if (action === "lead_comment") return "Lead comment";
+  if (action === "lead_assigned") return "Lead assigned";
   return String(action || "Unknown").replace(/_/g, " ");
 }
 
-function formatActivityDetails(metadata) {
-  if (!metadata || typeof metadata !== "object") return "—";
+function formatActivityDetails(metadata, entityType, entityId) {
+  if (!metadata || typeof metadata !== "object") {
+    if (entityType === "lead" && entityId) return `Lead #${entityId}`;
+    return "—";
+  }
   const parts = [];
+  if (metadata.leadName) parts.push(metadata.leadName);
+  if (metadata.previousStatus && metadata.newStatus) {
+    parts.push(`${metadata.previousStatus} → ${metadata.newStatus}`);
+  }
+  if (metadata.assignedUserId != null) {
+    parts.push(`assigned to user #${metadata.assignedUserId}`);
+  }
+  if (metadata.summary) parts.push(metadata.summary);
   if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));
   if (metadata.username) parts.push(`user: ${metadata.username}`);
+  if (parts.length === 0 && entityType === "lead" && entityId) {
+    parts.push(`Lead #${entityId}`);
+  }
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
@@ -870,7 +891,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                             {activityActionLabel(row.action)}
                           </td>
                           <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
-                            {formatActivityDetails(row.metadata)}
+                            {formatActivityDetails(row.metadata, row.entityType, row.entityId)}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
                             {row.ipAddress || "—"}
