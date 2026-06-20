@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
+import { formatLocationLabel } from "@/server/activity/resolveRequestLocation";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -16,8 +17,6 @@ function parseDateOnly(value) {
   return v;
 }
 
-import { formatLocationLabel } from "@/server/activity/resolveRequestLocation";
-
 function serializeActivity(row) {
   return {
     id: row.id,
@@ -25,6 +24,8 @@ function serializeActivity(row) {
     entityType: row.entityType,
     entityId: row.entityId,
     ipAddress: row.ipAddress,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
     country: row.country,
     region: row.region,
     city: row.city,

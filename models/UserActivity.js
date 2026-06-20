@@ -42,6 +42,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(128),
         allowNull: true,
       },
+      latitude: {
+        type: DataTypes.DECIMAL(10, 7),
+        allowNull: true,
+      },
+      longitude: {
+        type: DataTypes.DECIMAL(10, 7),
+        allowNull: true,
+      },
       userAgent: {
         type: DataTypes.STRING(512),
         allowNull: true,

@@ -32,43 +32,15 @@ function isPrivateOrLocalIp(ip) {
   return false;
 }
 
-function locationFromHeaders(headers) {
-  const country =
-    headerValue(headers, "cf-ipcountry") ||
-    headerValue(headers, "x-vercel-ip-country") ||
-    headerValue(headers, "cloudfront-viewer-country") ||
-    null;
-
-  const region =
-    headerValue(headers, "x-vercel-ip-country-region") ||
-    headerValue(headers, "cloudfront-viewer-country-region") ||
-    null;
-
-  const city =
-    headerValue(headers, "x-vercel-ip-city") ||
-    headerValue(headers, "cf-ipcity") ||
-    null;
-
-  if (!country && !region && !city) return null;
-
-  return {
-    country: country ? country.slice(0, 64) : null,
-    region: region ? region.slice(0, 128) : null,
-    city: city ? city.slice(0, 128) : null,
-  };
+function trimField(value, maxLen) {
+  if (value == null || value === "") return null;
+  return String(value).trim().slice(0, maxLen) || null;
 }
 
-function hasNamedLocation(location) {
-  return Boolean(location?.city || location?.region || location?.country);
-}
-
-function mergeLocations(primary, fallback) {
-  if (!primary && !fallback) return null;
-  return {
-    country: primary?.country || fallback?.country || null,
-    region: primary?.region || fallback?.region || null,
-    city: primary?.city || fallback?.city || null,
-  };
+function parseCoordinate(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return n;
 }
 
 async function lookupIpLocation(ip) {
@@ -80,7 +52,8 @@ async function lookupIpLocation(ip) {
   }
 
   try {
-    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,regionName,city`;
+    const fields = ["status", "country", "regionName", "city", "lat", "lon"].join(",");
+    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}&lang=en`;
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return null;
 
@@ -88,9 +61,11 @@ async function lookupIpLocation(ip) {
     if (!json || json.status !== "success") return null;
 
     const data = {
-      country: json.country ? String(json.country).slice(0, 64) : null,
-      region: json.regionName ? String(json.regionName).slice(0, 128) : null,
-      city: json.city ? String(json.city).slice(0, 128) : null,
+      latitude: parseCoordinate(json.lat),
+      longitude: parseCoordinate(json.lon),
+      country: trimField(json.country, 64),
+      region: trimField(json.regionName, 128),
+      city: trimField(json.city, 128),
     };
 
     lookupCache.set(ip, { at: Date.now(), data });
@@ -101,35 +76,32 @@ async function lookupIpLocation(ip) {
 }
 
 /**
- * Approximate location from proxy headers and IP geolocation lookup.
- * Returns city/region/country names when available (not lat/lng).
+ * Approximate location from IP geolocation (lat/lng + English place names).
+ * IP-based — not GPS-precise.
  */
 export async function resolveRequestLocation(req) {
   const headers = req?.headers;
   const ipAddress = extractClientIp(headers);
-  const headerLocation = headers ? locationFromHeaders(headers) : null;
-
-  if (hasNamedLocation(headerLocation) && headerLocation.city) {
-    return {
-      ipAddress,
-      country: headerLocation.country,
-      region: headerLocation.region,
-      city: headerLocation.city,
-    };
-  }
-
   const ipLocation = ipAddress ? await lookupIpLocation(ipAddress) : null;
-  const merged = mergeLocations(ipLocation, headerLocation);
 
   return {
     ipAddress,
-    country: merged?.country ?? null,
-    region: merged?.region ?? null,
-    city: merged?.city ?? null,
+    latitude: ipLocation?.latitude ?? null,
+    longitude: ipLocation?.longitude ?? null,
+    country: ipLocation?.country ?? null,
+    region: ipLocation?.region ?? null,
+    city: ipLocation?.city ?? null,
   };
 }
 
-export function formatLocationLabel({ city, region, country } = {}) {
+export function formatLocationLabel({ latitude, longitude, city, region, country } = {}) {
+  const lat = latitude != null ? Number(latitude) : null;
+  const lng = longitude != null ? Number(longitude) : null;
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+
   const parts = [city, region, country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : null;
 }

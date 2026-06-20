@@ -24,7 +24,8 @@ export async function logUserActivity({
   if (!action) return null;
 
   try {
-    const { ipAddress, country, region, city } = await resolveRequestLocation(req);
+    const { ipAddress, latitude, longitude, country, region, city } =
+      await resolveRequestLocation(req);
 
     return await db.UserActivity.create({
       userId,
@@ -33,6 +34,8 @@ export async function logUserActivity({
       entityId,
       sessionId,
       ipAddress,
+      latitude,
+      longitude,
       country,
       region,
       city,
