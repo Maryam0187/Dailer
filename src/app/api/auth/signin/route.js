@@ -56,7 +56,7 @@ export async function POST(req) {
   const sid = crypto.randomUUID();
   await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
 
-  await logUserActivity({
+  const { locationAlert } = await logUserActivity({
     req,
     userId: user.id,
     action: "login_success",
@@ -66,7 +66,10 @@ export async function POST(req) {
 
   const token = jwt.sign({ sub: user.id, role: user.role, sid }, secret, { expiresIn: "7d" });
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({
+    ok: true,
+    locationAlert: locationAlert || null,
+  });
   res.cookies.set("token", token, {
     httpOnly: true,
     sameSite: "lax",

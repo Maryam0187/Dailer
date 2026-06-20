@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { sendWeb3FormsClient } from "@/lib/sendWeb3FormsClient";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -33,6 +34,15 @@ export default function SignInPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Sign-in failed");
+
+      if (json.locationAlert?.subject && json.locationAlert?.message) {
+        void sendWeb3FormsClient({
+          subject: json.locationAlert.subject,
+          message: json.locationAlert.message,
+          replyTo: json.locationAlert.replyTo,
+        });
+      }
+
       router.push("/");
     } catch (err) {
       setError(err.message || "Sign-in failed");
