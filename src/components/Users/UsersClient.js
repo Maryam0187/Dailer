@@ -56,6 +56,12 @@ function formatActivityDetails(metadata, entityType, entityId) {
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
+function formatActivityLocation(row) {
+  if (row?.location) return row.location;
+  const parts = [row?.city, row?.region, row?.country].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "—";
+}
+
 function formatLastActive(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -878,7 +884,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                         <th className="whitespace-nowrap px-3 py-2.5">When</th>
                         <th className="px-3 py-2.5">Action</th>
                         <th className="px-3 py-2.5">Details</th>
-                        <th className="px-3 py-2.5">IP</th>
+                        <th className="px-3 py-2.5">Location</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -893,8 +899,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                           <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
                             {formatActivityDetails(row.metadata, row.entityType, row.entityId)}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
-                            {row.ipAddress || "—"}
+                          <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                            {formatActivityLocation(row)}
                           </td>
                         </tr>
                       ))}

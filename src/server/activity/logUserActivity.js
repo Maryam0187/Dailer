@@ -1,4 +1,5 @@
 import db from "@/server/db";
+import { resolveRequestLocation } from "@/server/activity/resolveRequestLocation";
 
 function headerValue(headers, name) {
   const raw = headers.get?.(name) ?? headers[name];
@@ -6,21 +7,9 @@ function headerValue(headers, name) {
   return String(raw).trim();
 }
 
-function requestContext(req) {
-  const headers = req?.headers;
-  if (!headers) return { ipAddress: null, userAgent: null };
-
-  const forwarded = headerValue(headers, "x-forwarded-for");
-  const ipAddress =
-    (forwarded ? forwarded.split(",")[0]?.trim() : null) ||
-    headerValue(headers, "x-real-ip") ||
-    null;
-  const userAgent = headerValue(headers, "user-agent");
-
-  return {
-    ipAddress,
-    userAgent: userAgent ? userAgent.slice(0, 512) : null,
-  };
+function requestUserAgent(req) {
+  const userAgent = headerValue(req?.headers, "user-agent");
+  return userAgent ? userAgent.slice(0, 512) : null;
 }
 
 export async function logUserActivity({
@@ -35,7 +24,7 @@ export async function logUserActivity({
   if (!action) return null;
 
   try {
-    const { ipAddress, userAgent } = requestContext(req);
+    const { ipAddress, country, region, city } = await resolveRequestLocation(req);
 
     return await db.UserActivity.create({
       userId,
@@ -44,7 +33,10 @@ export async function logUserActivity({
       entityId,
       sessionId,
       ipAddress,
-      userAgent,
+      country,
+      region,
+      city,
+      userAgent: requestUserAgent(req),
       metadata,
     });
   } catch (err) {
