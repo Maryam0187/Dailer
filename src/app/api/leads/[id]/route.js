@@ -7,6 +7,7 @@ import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
+import { logLeadUpdateActivity, logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
@@ -154,6 +155,12 @@ export async function PATCH(req, { params }) {
     }
     if (nextAssignee !== lead.assignedUserId) {
       update.assignedUserId = nextAssignee;
+      activity.push({
+        type: "assigned",
+        body: `Assigned to user #${nextAssignee}`,
+        assignedUserId: nextAssignee,
+        previousAssignedUserId: lead.assignedUserId,
+      });
     }
   }
 
@@ -171,15 +178,39 @@ export async function PATCH(req, { params }) {
 
   await lead.update(update);
 
+  const leadName = update.fullName ?? lead.fullName;
+
   for (const entry of activity) {
     await createLeadUpdate({
       leadId: lead.id,
       userId: authedUser.id,
-      type: entry.type,
+      type: entry.type === "assigned" ? "lead_edit" : entry.type,
       body: entry.body,
       previousStatus: entry.previousStatus,
       newStatus: entry.newStatus,
     });
+
+    if (entry.type === "assigned") {
+      await logLeadUserActivity({
+        req,
+        userId: authedUser.id,
+        action: "lead_assigned",
+        leadId: lead.id,
+        metadata: {
+          leadName,
+          assignedUserId: entry.assignedUserId,
+          previousAssignedUserId: entry.previousAssignedUserId,
+        },
+      });
+    } else {
+      await logLeadUpdateActivity({
+        req,
+        userId: authedUser.id,
+        leadId: lead.id,
+        leadName,
+        entry,
+      });
+    }
   }
 
   await lead.reload({

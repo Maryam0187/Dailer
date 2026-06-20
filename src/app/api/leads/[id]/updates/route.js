@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canAccessLead } from "@/server/leads/leadAccess";
 import { createLeadUpdate, fetchLeadUpdates } from "@/server/leads/leadUpdates";
+import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 
 export async function GET(req, { params }) {
   const authedUser = await getAuthedUser();
@@ -51,6 +52,17 @@ export async function POST(req, { params }) {
     userId: authedUser.id,
     type: "comment",
     body: comment.slice(0, 65535),
+  });
+
+  await logLeadUserActivity({
+    req,
+    userId: authedUser.id,
+    action: "lead_comment",
+    leadId: id,
+    metadata: {
+      leadName: lead.fullName,
+      summary: comment.length > 200 ? `${comment.slice(0, 197)}…` : comment,
+    },
   });
 
   const rows = await fetchLeadUpdates(id);

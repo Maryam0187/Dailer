@@ -20,6 +20,42 @@ function normalizePresence(value) {
   return "offline";
 }
 
+function activityActionLabel(action) {
+  if (action === "login_success") return "Login";
+  if (action === "login_failed") return "Login failed";
+  if (action === "logout") return "Logout";
+  if (action === "lead_created") return "Lead created";
+  if (action === "lead_updated") return "Lead updated";
+  if (action === "lead_status_change") return "Lead status changed";
+  if (action === "lead_note_edit") return "Lead notes edited";
+  if (action === "lead_breakdown_edit") return "Lead breakdown edited";
+  if (action === "lead_comment") return "Lead comment";
+  if (action === "lead_assigned") return "Lead assigned";
+  return String(action || "Unknown").replace(/_/g, " ");
+}
+
+function formatActivityDetails(metadata, entityType, entityId) {
+  if (!metadata || typeof metadata !== "object") {
+    if (entityType === "lead" && entityId) return `Lead #${entityId}`;
+    return "—";
+  }
+  const parts = [];
+  if (metadata.leadName) parts.push(metadata.leadName);
+  if (metadata.previousStatus && metadata.newStatus) {
+    parts.push(`${metadata.previousStatus} → ${metadata.newStatus}`);
+  }
+  if (metadata.assignedUserId != null) {
+    parts.push(`assigned to user #${metadata.assignedUserId}`);
+  }
+  if (metadata.summary) parts.push(metadata.summary);
+  if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));
+  if (metadata.username) parts.push(`user: ${metadata.username}`);
+  if (parts.length === 0 && entityType === "lead" && entityId) {
+    parts.push(`Lead #${entityId}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
 function formatLastActive(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -323,6 +359,18 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   const [metricsError, setMetricsError] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsScope, setMetricsScope] = useState("all");
+  const [activities, setActivities] = useState([]);
+  const [activitiesError, setActivitiesError] = useState(null);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityPagination, setActivityPagination] = useState({
+    page: 1,
+    pageSize: 20,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -442,6 +490,40 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     [user.id, isAdmin, appliedFrom, appliedTo, metricsScope],
   );
 
+  const loadActivities = useCallback(
+    async (signal, nextPage = 1, fromDate = appliedFrom, toDate = appliedTo) => {
+      if (!isAdmin) return;
+      setActivitiesLoading(true);
+      setActivitiesError(null);
+      try {
+        const qs = new URLSearchParams({
+          page: String(nextPage),
+          pageSize: "20",
+          fromDate,
+          toDate,
+        });
+        const res = await fetch(`/api/users/${user.id}/activities?${qs.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load activity");
+        setActivities(json.activities || []);
+        if (json.pagination) {
+          setActivityPagination(json.pagination);
+          setActivityPage(json.pagination.page || nextPage);
+        }
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setActivitiesError(err.message || "Failed to load activity");
+        setActivities([]);
+      } finally {
+        setActivitiesLoading(false);
+      }
+    },
+    [user.id, isAdmin, appliedFrom, appliedTo],
+  );
+
   async function onRefresh() {
     const controller = new AbortController();
     await loadCalls(controller.signal, page, callsFilter, appliedFrom, appliedTo, {
@@ -460,7 +542,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     setAppliedFrom(next.from);
     setAppliedTo(next.to);
     setPage(1);
+    setActivityPage(1);
     setMetrics(null);
+    setActivities([]);
     const controller = new AbortController();
     loadDetail(controller.signal);
     return () => controller.abort();
@@ -480,6 +564,13 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     return () => controller.abort();
   }, [user.id, isAdmin, activeTab, appliedFrom, appliedTo, metricsScope, loadMetrics]);
 
+  useEffect(() => {
+    if (!isAdmin || activeTab !== "activity") return undefined;
+    const controller = new AbortController();
+    loadActivities(controller.signal, activityPage, appliedFrom, appliedTo);
+    return () => controller.abort();
+  }, [user.id, isAdmin, activeTab, activityPage, appliedFrom, appliedTo, loadActivities]);
+
   function applyPreset(preset) {
     setRangePreset(preset);
     if (preset === "custom") return;
@@ -489,6 +580,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     setAppliedFrom(next.from);
     setAppliedTo(next.to);
     setPage(1);
+    setActivityPage(1);
   }
 
   async function onApplyRange() {
@@ -505,6 +597,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
     setPage(1);
+    setActivityPage(1);
   }
 
   async function onPrev() {
@@ -515,6 +608,16 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   async function onNext() {
     if (!pagination.hasNext || callsLoading) return;
     setPage(page + 1);
+  }
+
+  function onActivityPrev() {
+    if (!activityPagination.hasPrev || activitiesLoading) return;
+    setActivityPage(Math.max(1, activityPage - 1));
+  }
+
+  function onActivityNext() {
+    if (!activityPagination.hasNext || activitiesLoading) return;
+    setActivityPage(activityPage + 1);
   }
 
   async function downloadRecording(callId, url) {
@@ -631,6 +734,19 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 Metrics
               </button>
             ) : null}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab("activity")}
+                className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                  activeTab === "activity"
+                    ? "border-sky-600 text-sky-800 dark:border-sky-500 dark:text-sky-200"
+                    : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                Activity
+              </button>
+            ) : null}
           </div>
 
           <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -698,7 +814,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 <button
                   type="button"
                   onClick={onApplyRange}
-                  disabled={callsLoading || metricsLoading || rangePreset !== "custom"}
+                  disabled={
+                    callsLoading || metricsLoading || activitiesLoading || rangePreset !== "custom"
+                  }
                   className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   Apply range
@@ -707,7 +825,91 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
             </div>
           </div>
 
-          {activeTab === "metrics" && isAdmin ? (
+          {activeTab === "activity" && isAdmin ? (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                  User activity
+                </h3>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Login, logout, and other tracked actions for this user in the selected date range.
+                </p>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onActivityPrev}
+                  disabled={!activityPagination.hasPrev || activitiesLoading}
+                  className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Prev
+                </button>
+                <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+                  Page {activityPagination.page} / {activityPagination.totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={onActivityNext}
+                  disabled={!activityPagination.hasNext || activitiesLoading}
+                  className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Next
+                </button>
+              </div>
+
+              {activitiesError ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+                  {activitiesError}
+                </p>
+              ) : null}
+
+              {activitiesLoading && activities.length === 0 ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading activity…</p>
+              ) : activities.length === 0 ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                  No activity for this user in this date range.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+                  <table className="w-full min-w-[40rem] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                        <th className="whitespace-nowrap px-3 py-2.5">When</th>
+                        <th className="px-3 py-2.5">Action</th>
+                        <th className="px-3 py-2.5">Details</th>
+                        <th className="px-3 py-2.5">IP</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {activities.map((row) => (
+                        <tr key={row.id}>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                            {new Date(row.createdAt).toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                            {activityActionLabel(row.action)}
+                          </td>
+                          <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                            {formatActivityDetails(row.metadata, row.entityType, row.entityId)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
+                            {row.ipAddress || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!activitiesLoading && !activitiesError && activities.length > 0 ? (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Showing {activities.length} of {activityPagination.total} activity entries
+                </p>
+              ) : null}
+            </div>
+          ) : activeTab === "metrics" && isAdmin ? (
             <div className="flex flex-col gap-4">
               <div>
                 <label className={labelClass}>Call scope</label>

@@ -4,6 +4,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
+import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { buildLeadsListWhere, canAssignLeadToAgent, canFilterLeadsBySupervisor, getSupervisorTeamUserIds } from "@/server/leads/leadAccess";
@@ -229,6 +230,17 @@ export async function POST(req) {
     userId: authedUser.id,
     type: "created",
     body: trimField(body?.notes, 65535) ? `Initial notes: ${trimField(body?.notes, 65535)}` : "Lead created",
+  });
+
+  await logLeadUserActivity({
+    req,
+    userId: authedUser.id,
+    action: "lead_created",
+    leadId: lead.id,
+    metadata: {
+      leadName: fullName,
+      phone,
+    },
   });
 
   return NextResponse.json({ ok: true, lead: serializeLead(withUser, null, authedUser.role) }, { status: 201 });
