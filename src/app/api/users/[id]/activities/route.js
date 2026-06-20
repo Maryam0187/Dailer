@@ -16,6 +16,8 @@ function parseDateOnly(value) {
   return v;
 }
 
+import { formatLocationLabel } from "@/server/activity/resolveRequestLocation";
+
 function serializeActivity(row) {
   return {
     id: row.id,
@@ -23,6 +25,10 @@ function serializeActivity(row) {
     entityType: row.entityType,
     entityId: row.entityId,
     ipAddress: row.ipAddress,
+    country: row.country,
+    region: row.region,
+    city: row.city,
+    location: formatLocationLabel(row),
     userAgent: row.userAgent,
     sessionId: row.sessionId,
     metadata: row.metadata,
