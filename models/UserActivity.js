@@ -42,6 +42,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(128),
         allowNull: true,
       },
+      area: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
       userAgent: {
         type: DataTypes.STRING(512),
         allowNull: true,

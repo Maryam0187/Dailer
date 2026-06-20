@@ -58,7 +58,7 @@ function formatActivityDetails(metadata, entityType, entityId) {
 
 function formatActivityLocation(row) {
   if (row?.location) return row.location;
-  const parts = [row?.city, row?.region, row?.country].filter(Boolean);
+  const parts = [row?.area, row?.city, row?.region, row?.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "—";
 }
 

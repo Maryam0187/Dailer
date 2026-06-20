@@ -28,6 +28,7 @@ function serializeActivity(row) {
     country: row.country,
     region: row.region,
     city: row.city,
+    area: row.area,
     location: formatLocationLabel(row),
     userAgent: row.userAgent,
     sessionId: row.sessionId,
