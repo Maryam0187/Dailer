@@ -58,7 +58,12 @@ function formatActivityDetails(metadata, entityType, entityId) {
 
 function formatActivityLocation(row) {
   if (row?.location) return row.location;
-  const parts = [row?.area, row?.city, row?.region, row?.country].filter(Boolean);
+  const lat = row?.latitude != null ? Number(row.latitude) : null;
+  const lng = row?.longitude != null ? Number(row.longitude) : null;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+  const parts = [row?.city, row?.region, row?.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "—";
 }
 
@@ -890,7 +895,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                         <th className="whitespace-nowrap px-3 py-2.5">When</th>
                         <th className="whitespace-nowrap px-3 py-2.5">Action</th>
                         <th className="min-w-[10rem] px-3 py-2.5">Details</th>
-                        <th className="min-w-[9rem] whitespace-nowrap px-3 py-2.5">Location</th>
+                        <th className="min-w-[9rem] whitespace-nowrap px-3 py-2.5">Lat, long</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
