@@ -37,15 +37,19 @@ function locationSnapshot(row) {
   };
 }
 
+function formatCoordinates({ latitude, longitude } = {}) {
+  const lat = latitude != null ? Number(latitude) : null;
+  const lng = longitude != null ? Number(longitude) : null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+}
+
 function formatLocationBlock(label, location) {
-  const coords = formatLocationLabel(location);
+  const place = formatLocationLabel(location);
+  const coords = formatCoordinates(location);
   const lines = [`${label}:`];
+  if (place) lines.push(`  Place: ${place}`);
   if (coords) lines.push(`  Coordinates: ${coords}`);
-  if (location.city || location.region || location.country) {
-    lines.push(
-      `  Place: ${[location.city, location.region, location.country].filter(Boolean).join(", ")}`,
-    );
-  }
   if (location.ipAddress) lines.push(`  IP: ${location.ipAddress}`);
   if (lines.length === 1) lines.push("  (unknown)");
   return lines.join("\n");

@@ -56,15 +56,29 @@ function formatActivityDetails(metadata, entityType, entityId) {
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
+function truncateActivityText(text, maxLength = 64) {
+  if (!text || text === "—") return text;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
 function formatActivityLocation(row) {
   if (row?.location) return row.location;
+  const parts = [row?.city, row?.region, row?.country].filter(Boolean);
+  if (parts.length > 0) return parts.join(", ");
+  return "—";
+}
+
+function formatActivityLocationTitle(row) {
+  const place = [row?.city, row?.region, row?.country].filter(Boolean).join(", ");
   const lat = row?.latitude != null ? Number(row.latitude) : null;
   const lng = row?.longitude != null ? Number(row.longitude) : null;
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  }
-  const parts = [row?.city, row?.region, row?.country].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : "—";
+  const coords =
+    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : null;
+  if (place && coords) return `${place} (${coords})`;
+  if (place) return place;
+  if (coords) return coords;
+  return undefined;
 }
 
 function formatLastActive(value) {
@@ -883,28 +897,29 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 </p>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
-                  <table className="w-full min-w-[36rem] table-fixed text-left text-sm">
+                  <table className="w-full min-w-[32rem] table-fixed text-left text-sm">
                     <colgroup>
-                      <col className="w-[11rem]" />
-                      <col className="w-[9.5rem]" />
-                      <col />
+                      <col className="w-[10.5rem]" />
+                      <col className="w-[8.5rem]" />
+                      <col className="w-[13rem]" />
                       <col className="w-[11rem]" />
                     </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                         <th className="whitespace-nowrap px-3 py-2.5">When</th>
                         <th className="whitespace-nowrap px-3 py-2.5">Action</th>
-                        <th className="min-w-[10rem] px-3 py-2.5">Details</th>
-                        <th className="min-w-[9rem] whitespace-nowrap px-3 py-2.5">Lat, long</th>
+                        <th className="w-[13rem] max-w-[13rem] px-3 py-2.5">Details</th>
+                        <th className="w-[11rem] max-w-[11rem] px-3 py-2.5">Location</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {activities.map((row) => {
-                        const details = formatActivityDetails(
+                        const detailsFull = formatActivityDetails(
                           row.metadata,
                           row.entityType,
                           row.entityId,
                         );
+                        const details = truncateActivityText(detailsFull);
                         const location = formatActivityLocation(row);
                         return (
                           <tr key={row.id}>
@@ -914,18 +929,18 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                             <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
                               {activityActionLabel(row.action)}
                             </td>
-                            <td className="max-w-0 px-3 py-2.5 align-top">
+                            <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
                               <p
-                                className="line-clamp-2 break-words text-zinc-700 dark:text-zinc-200"
-                                title={details !== "—" ? details : undefined}
+                                className="truncate text-zinc-700 dark:text-zinc-200"
+                                title={detailsFull !== "—" ? detailsFull : undefined}
                               >
                                 {details}
                               </p>
                             </td>
-                            <td className="min-w-[9rem] px-3 py-2.5 align-top">
+                            <td className="w-[11rem] max-w-[11rem] overflow-hidden px-3 py-2.5">
                               <p
-                                className="line-clamp-2 break-words text-zinc-700 dark:text-zinc-200"
-                                title={location !== "—" ? location : undefined}
+                                className="truncate text-zinc-700 dark:text-zinc-200"
+                                title={formatActivityLocationTitle(row)}
                               >
                                 {location}
                               </p>

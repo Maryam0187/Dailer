@@ -94,14 +94,20 @@ export async function resolveRequestLocation(req) {
   };
 }
 
-export function formatLocationLabel({ latitude, longitude, city, region, country } = {}) {
-  const lat = latitude != null ? Number(latitude) : null;
-  const lng = longitude != null ? Number(longitude) : null;
-
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  }
-
+/** Place names for UI display (coordinates are stored separately). */
+export function formatLocationLabel({ city, region, country } = {}) {
   const parts = [city, region, country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** Place name plus coordinates for tooltips (coordinates still stored in DB). */
+export function formatLocationTitle({ latitude, longitude, city, region, country } = {}) {
+  const place = [city, region, country].filter(Boolean).join(", ");
+  const lat = latitude != null ? Number(latitude) : null;
+  const lng = longitude != null ? Number(longitude) : null;
+  const coords =
+    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : null;
+
+  if (place && coords) return `${place} (${coords})`;
+  return place || coords || null;
 }
