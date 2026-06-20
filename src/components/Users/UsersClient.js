@@ -1435,6 +1435,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     managerId == null || managerId === ""
       ? supervisorOptions
       : supervisorOptions.filter((s) => Number(s.managerId) === Number(managerId));
+  const visibleUsersCount = displayUsers.length;
 
   return (
     <div className="flex flex-col gap-8 lg:gap-10">
@@ -1661,7 +1662,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
             <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
               {users.length === 0 ? "No accounts yet." : listDescription}
               {users.length > 0
-                ? ` ${users.length} ${users.length === 1 ? "person" : "people"} in this list.`
+                ? ` ${visibleUsersCount} ${visibleUsersCount === 1 ? "person" : "people"} in this list.`
                 : null}
             </p>
           </div>
@@ -1706,7 +1707,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               {listError}
             </p>
           ) : null}
-          {users.length === 0 ? (
+          {displayUsers.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 px-6 py-14 text-center dark:border-zinc-700 dark:bg-zinc-950/40">
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-200/80 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 <svg
@@ -1723,9 +1724,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   />
                 </svg>
               </div>
-              <p className="text-base font-medium text-zinc-800 dark:text-zinc-200">No users yet</p>
+              <p className="text-base font-medium text-zinc-800 dark:text-zinc-200">
+                {users.length === 0 ? "No users yet" : "No users match this filter"}
+              </p>
               <p className="mt-1 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
-                Use the form above to create the first account.
+                {users.length === 0
+                  ? "Use the form above to create the first account."
+                  : "Try a different supervisor or clear the filter."}
               </p>
             </div>
           ) : (
