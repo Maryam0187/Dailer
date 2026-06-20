@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import db from "@/server/db";
+import { logUserActivity } from "@/server/activity/logUserActivity";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -15,15 +16,32 @@ export async function POST(req) {
 
   const user = await db.User.findOne({ where: { username } });
   if (!user) {
+    await logUserActivity({
+      req,
+      action: "login_failed",
+      metadata: { username, reason: "unknown_user" },
+    });
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
   if (user.isActive === false) {
+    await logUserActivity({
+      req,
+      userId: user.id,
+      action: "login_failed",
+      metadata: { username, reason: "deactivated" },
+    });
     return NextResponse.json({ error: "Account is deactivated" }, { status: 403 });
   }
 
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) {
+    await logUserActivity({
+      req,
+      userId: user.id,
+      action: "login_failed",
+      metadata: { username, reason: "invalid_password" },
+    });
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -37,6 +55,14 @@ export async function POST(req) {
   // becomes stale and is rejected by getAuthedUser on its next request.
   const sid = crypto.randomUUID();
   await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
+
+  await logUserActivity({
+    req,
+    userId: user.id,
+    action: "login_success",
+    sessionId: sid,
+    metadata: { username: user.username },
+  });
 
   const token = jwt.sign({ sub: user.id, role: user.role, sid }, secret, { expiresIn: "7d" });
 
