@@ -466,6 +466,7 @@ export default function FilesClient({ userRole = "agent" }) {
         <BrowseTab
           files={files}
           loading={loading}
+          isAdmin={isAdmin}
           deletingId={deletingId}
           openFileIds={new Set(openTabs.map((tab) => tab.fileId).filter(Boolean))}
           canOpenMore={canOpenMore}
@@ -478,6 +479,7 @@ export default function FilesClient({ userRole = "agent" }) {
       ) : activeEditorTab ? (
         <WriteTab
           tab={activeEditorTab}
+          isAdmin={isAdmin}
           saving={savingTabId === activeEditorTab.tabId}
           deleting={deletingTabId === activeEditorTab.tabId}
           onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
@@ -517,6 +519,7 @@ export default function FilesClient({ userRole = "agent" }) {
 function BrowseTab({
   files,
   loading,
+  isAdmin,
   deletingId,
   openFileIds,
   canOpenMore,
@@ -596,6 +599,11 @@ function BrowseTab({
                   </span>
                 ) : null}
               </div>
+              {isAdmin && !filteringByUser && file.owner?.username ? (
+                <p className="mt-0.5 truncate text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                  {file.owner.username}
+                </p>
+              ) : null}
               <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
                 {isEmptyRichText(file.content) ? (
                   <span className="italic text-zinc-400 dark:text-zinc-500">Empty document</span>
@@ -742,11 +750,16 @@ function UnsavedChangesDialog({ fileName, saving, saveError, onSave, onDiscard, 
   );
 }
 
-function WriteTab({ tab, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
+function WriteTab({ tab, isAdmin, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
   const isNewFile = tab.fileId == null;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
+      {isAdmin && tab.owner?.username ? (
+        <div className="border-b border-indigo-200 bg-indigo-50/80 px-5 py-2.5 text-sm text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-100">
+          Agent: <span className="font-semibold">{tab.owner.username}</span>
+        </div>
+      ) : null}
       <div className="border-b border-zinc-200 bg-zinc-50/80 px-5 py-4 dark:border-zinc-700 dark:bg-zinc-900/50">
         <label htmlFor={`file-name-${tab.tabId}`} className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           File name
