@@ -41,6 +41,9 @@ const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+const compactFilterLabelClass = "mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+const compactFilterSelectClass =
+  "h-9 min-w-[14rem] rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
 
 function RoleBadge({ value }) {
   const styles = {
@@ -1247,8 +1250,17 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [rowBusyId, setRowBusyId] = useState(null);
   const [listError, setListError] = useState(null);
   const [listRefreshing, setListRefreshing] = useState(false);
+  const [listSupervisorFilter, setListSupervisorFilter] = useState("");
 
-  const displayUsers = useMemo(() => sortUsersForDisplay(users), [users]);
+  const displayUsers = useMemo(() => {
+    const sortedUsers = sortUsersForDisplay(users);
+    if (role !== "admin" || !listSupervisorFilter) return sortedUsers;
+
+    const supervisorId = Number(listSupervisorFilter);
+    return sortedUsers.filter(
+      (u) => u.role === "agent" && Number(u.supervisorId) === supervisorId,
+    );
+  }, [users, role, listSupervisorFilter]);
 
   const applyUsersList = useCallback(
     (list) => {
@@ -1409,8 +1421,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const showRoleSelector = role === "admin" || isManager;
   const showManagerSelector =
     role === "admin" && (createRole === "agent" || createRole === "supervisor");
-  const showSupervisorSelector =
-    (role === "admin" && createRole === "agent") || (isManager && createRole === "agent");
+  const showSupervisorSelector = role === "admin" && createRole === "agent";
   const listHeading =
     role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
   const listDescription =
@@ -1654,14 +1665,36 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 : null}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onRefreshUsers}
-            disabled={listRefreshing}
-            className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            {listRefreshing ? "Refreshing…" : "Refresh"}
-          </button>
+          <div className="flex flex-wrap items-end justify-end gap-3">
+            {role === "admin" ? (
+              <div className="min-w-[14rem]">
+                <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
+                  Supervisor
+                </label>
+                <select
+                  id="users-supervisor-filter"
+                  className={compactFilterSelectClass}
+                  value={listSupervisorFilter}
+                  onChange={(e) => setListSupervisorFilter(e.target.value)}
+                >
+                  <option value="">All supervisors</option>
+                  {supervisorOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={onRefreshUsers}
+              disabled={listRefreshing}
+              className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              {listRefreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         <div className="p-4 sm:p-6">
