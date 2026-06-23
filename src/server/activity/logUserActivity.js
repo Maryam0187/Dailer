@@ -1,5 +1,6 @@
 import db from "@/server/db";
 import { resolveRequestLocation } from "@/server/activity/resolveRequestLocation";
+import { buildLocationChangeAlert } from "@/server/activity/locationChangeAlert";
 
 function headerValue(headers, name) {
   const raw = headers.get?.(name) ?? headers[name];
@@ -21,13 +22,30 @@ export async function logUserActivity({
   sessionId = null,
   metadata = null,
 }) {
-  if (!action) return null;
+  if (!action) return { activity: null, locationAlert: null };
 
   try {
     const { ipAddress, latitude, longitude, country, region, city } =
       await resolveRequestLocation(req);
 
-    return await db.UserActivity.create({
+    let previousLogin = null;
+    if (action === "login_success" && userId) {
+      previousLogin = await db.UserActivity.findOne({
+        where: { userId, action: "login_success" },
+        order: [["createdAt", "DESC"]],
+        attributes: [
+          "ipAddress",
+          "latitude",
+          "longitude",
+          "country",
+          "region",
+          "city",
+          "createdAt",
+        ],
+      });
+    }
+
+    const activity = await db.UserActivity.create({
       userId,
       action,
       entityType,
@@ -42,8 +60,20 @@ export async function logUserActivity({
       userAgent: requestUserAgent(req),
       metadata,
     });
+
+    let locationAlert = null;
+    if (action === "login_success" && userId && previousLogin) {
+      locationAlert = buildLocationChangeAlert({
+        userId,
+        username: metadata?.username,
+        previous: previousLogin,
+        current: { ipAddress, latitude, longitude, country, region, city },
+      });
+    }
+
+    return { activity, locationAlert };
   } catch (err) {
     console.error("[logUserActivity]", action, err?.message || err);
-    return null;
+    return { activity: null, locationAlert: null };
   }
 }
