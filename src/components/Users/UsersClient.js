@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
+import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 
 function roleLabel(role) {
@@ -40,14 +41,14 @@ function formatActivityDetails(metadata, entityType, entityId) {
     return "—";
   }
   const parts = [];
-  if (metadata.leadName) parts.push(metadata.leadName);
+  if (metadata.leadName) parts.push(stripHtml(metadata.leadName));
   if (metadata.previousStatus && metadata.newStatus) {
     parts.push(`${metadata.previousStatus} → ${metadata.newStatus}`);
   }
   if (metadata.assignedUserId != null) {
     parts.push(`assigned to user #${metadata.assignedUserId}`);
   }
-  if (metadata.summary) parts.push(metadata.summary);
+  if (metadata.summary) parts.push(stripHtml(metadata.summary));
   if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));
   if (metadata.username) parts.push(`user: ${metadata.username}`);
   if (parts.length === 0 && entityType === "lead" && entityId) {
