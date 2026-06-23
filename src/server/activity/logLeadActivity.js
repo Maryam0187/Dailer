@@ -1,3 +1,4 @@
+import { stripHtml } from "@/lib/richText";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 
 const LEAD_UPDATE_ACTIONS = {
@@ -42,7 +43,9 @@ export async function logLeadUpdateActivity({
     metadata.previousStatus = entry.previousStatus;
     metadata.newStatus = entry.newStatus;
   } else if (entry.body) {
-    metadata.summary = entry.body.length > 200 ? `${entry.body.slice(0, 197)}…` : entry.body;
+    const plainSummary = stripHtml(entry.body);
+    metadata.summary =
+      plainSummary.length > 200 ? `${plainSummary.slice(0, 197)}…` : plainSummary;
   }
 
   return logLeadUserActivity({
