@@ -68,30 +68,14 @@ export async function getLeadFilterCreators(authedUser) {
   }
 
   if (authedUser.role === "supervisor") {
-    const [self, agents] = await Promise.all([
-      db.User.findByPk(authedUser.id, { attributes: ["id", "username"] }),
-      getAssignableAgents(authedUser),
-    ]);
-    const rows = [];
-    if (self) {
-      rows.push({
-        id: self.id,
-        username: self.username,
-        role: "supervisor",
-        supervisorId: null,
-        supervisorName: null,
-      });
-    }
-    for (const agent of agents) {
-      rows.push({
-        id: agent.id,
-        username: agent.username,
-        role: "agent",
-        supervisorId: authedUser.id,
-        supervisorName: self?.username ?? null,
-      });
-    }
-    return rows;
+    const agents = await getAssignableAgents(authedUser);
+    return agents.map((agent) => ({
+      id: agent.id,
+      username: agent.username,
+      role: "agent",
+      supervisorId: agent.supervisorId ?? null,
+      supervisorName: null,
+    }));
   }
 
   return [];
