@@ -705,7 +705,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             ) : null}
             {showLeadFilters ? (
               <div>
-                <label className={labelClass}>Filter by agent / supervisor</label>
+                <label className={labelClass}>
+                  {showSupervisorFilter ? "Filter by agent / supervisor" : "Filter by agent"}
+                </label>
                 <select
                   value={agentFilter}
                   onChange={(e) => {
@@ -714,7 +716,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   }}
                   className={inputClass}
                 >
-                  <option value="all">All agents & supervisors</option>
+                  <option value="all">
+                    {showSupervisorFilter ? "All agents & supervisors" : "All agents"}
+                  </option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>
                       {creatorFilterLabel(a)}
