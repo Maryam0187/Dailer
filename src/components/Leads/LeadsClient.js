@@ -148,8 +148,18 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
-    return assignableAgents.filter((a) => String(a.supervisorId ?? "") === supervisorFilter);
+    return assignableAgents.filter(
+      (a) =>
+        String(a.supervisorId ?? "") === supervisorFilter ||
+        (a.role === "supervisor" && String(a.id) === supervisorFilter),
+    );
   }, [assignableAgents, showSupervisorFilter, supervisorFilter]);
+
+  function creatorFilterLabel(entry) {
+    if (entry.role === "supervisor") return `${entry.username} (Supervisor)`;
+    if (entry.supervisorName) return `${entry.username} (${entry.supervisorName})`;
+    return entry.username;
+  }
 
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
@@ -177,8 +187,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setError(null);
     try {
       const params = new URLSearchParams();
+      if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
       if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
-      else if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
       if (appliedFrom && appliedTo) {
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
@@ -695,7 +705,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             ) : null}
             {showLeadFilters ? (
               <div>
-                <label className={labelClass}>Filter by agent</label>
+                <label className={labelClass}>Filter by agent / supervisor</label>
                 <select
                   value={agentFilter}
                   onChange={(e) => {
@@ -704,10 +714,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   }}
                   className={inputClass}
                 >
-                  <option value="all">All agents</option>
+                  <option value="all">All agents & supervisors</option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>
-                      {a.username}
+                      {creatorFilterLabel(a)}
                     </option>
                   ))}
                 </select>
