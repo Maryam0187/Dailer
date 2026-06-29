@@ -33,6 +33,76 @@ export async function getFilterSupervisors(authedUser) {
   return [];
 }
 
+/** Agents and supervisors shown in the leads page creator filter. */
+export async function getLeadFilterCreators(authedUser) {
+  if (hasFullLeadAccess(authedUser.role)) {
+    const [agents, supervisors] = await Promise.all([
+      db.User.findAll({
+        where: { role: "agent", isActive: true },
+        attributes: ["id", "username", "supervisorId"],
+        order: [["username", "ASC"]],
+      }),
+      getFilterSupervisors(authedUser),
+    ]);
+    const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.username]));
+    const rows = supervisors.map((s) => ({
+      id: s.id,
+      username: s.username,
+      role: "supervisor",
+      supervisorId: null,
+      supervisorName: null,
+    }));
+    for (const agent of agents) {
+      rows.push({
+        id: agent.id,
+        username: agent.username,
+        role: "agent",
+        supervisorId: agent.supervisorId ?? null,
+        supervisorName: agent.supervisorId ? supervisorNameById.get(agent.supervisorId) ?? null : null,
+      });
+    }
+    return rows.sort((a, b) => {
+      if (a.role !== b.role) return a.role === "supervisor" ? -1 : 1;
+      return a.username.localeCompare(b.username);
+    });
+  }
+
+  if (authedUser.role === "supervisor") {
+    const [self, agents] = await Promise.all([
+      db.User.findByPk(authedUser.id, { attributes: ["id", "username"] }),
+      getAssignableAgents(authedUser),
+    ]);
+    const rows = [];
+    if (self) {
+      rows.push({
+        id: self.id,
+        username: self.username,
+        role: "supervisor",
+        supervisorId: null,
+        supervisorName: null,
+      });
+    }
+    for (const agent of agents) {
+      rows.push({
+        id: agent.id,
+        username: agent.username,
+        role: "agent",
+        supervisorId: authedUser.id,
+        supervisorName: self?.username ?? null,
+      });
+    }
+    return rows;
+  }
+
+  return [];
+}
+
+export async function canFilterLeadsByCreator(authedUser, userId) {
+  if (!Number.isInteger(userId) || userId <= 0) return false;
+  const creators = await getLeadFilterCreators(authedUser);
+  return creators.some((c) => c.id === userId);
+}
+
 /** Agents and supervisors shown in lead stats (created-by rows). */
 export async function getLeadStatsCreators(authedUser) {
   if (hasFullLeadAccess(authedUser.role)) {
@@ -120,6 +190,17 @@ function supervisorLeadOrConditions(supervisorUserId, agentIds) {
     );
   }
   return conditions;
+}
+
+/** Leads created by this agent (assignment often goes to their supervisor). */
+export function agentLeadFilterWhere(agentId) {
+  return { createdByUserId: agentId };
+}
+
+/** AND `extra` onto an existing Sequelize where clause. */
+export function andWhereClause(baseWhere, extra) {
+  if (!baseWhere || Object.keys(baseWhere).length === 0) return extra;
+  return { [Op.and]: [baseWhere, extra] };
 }
 
 /** Sequelize `where` for GET /api/leads list by role. */
