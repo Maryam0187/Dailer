@@ -12,6 +12,7 @@ import {
   andWhereClause,
   buildLeadsListWhere,
   buildSupervisorLeadsListWhere,
+  buildSupervisorTeamLeadWhere,
   canAssignLeadToAgent,
   canFilterLeadsByCreator,
   canFilterLeadsBySupervisor,
@@ -88,6 +89,10 @@ export async function GET(req) {
       }
     }
     where = await buildSupervisorLeadsListWhere(authedUser.id, agentId);
+    // Always intersect with team scope so other supervisors' agents never leak through.
+    if (agentId && agentId !== authedUser.id) {
+      where = andWhereClause(await buildSupervisorTeamLeadWhere(authedUser.id), where);
+    }
   } else {
     where = await buildLeadsListWhere(authedUser);
 

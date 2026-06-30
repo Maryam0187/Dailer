@@ -13,7 +13,7 @@ export async function getAssignableAgents(authedUser) {
   }
   if (authedUser.role === "supervisor") {
     return db.User.findAll({
-      where: { role: "agent", supervisorId: authedUser.id, isActive: true },
+      where: { role: "agent", supervisorId: Number(authedUser.id), isActive: true },
       attributes: ["id", "username", "supervisorId"],
       order: [["username", "ASC"]],
     });
@@ -157,10 +157,12 @@ export async function canAssignLeadToAgent(authedUser, agentUserId) {
 
 /** Active agents reporting to this supervisor. */
 export async function getSupervisedAgentUserIds(supervisorId) {
+  const supervisorKey = Number(supervisorId);
+  if (!Number.isInteger(supervisorKey) || supervisorKey <= 0) return [];
   const rows = await db.User.findAll({
     where: {
       role: "agent",
-      supervisorId,
+      supervisorId: supervisorKey,
       isActive: true,
     },
     attributes: ["id"],
@@ -175,23 +177,16 @@ export async function getSupervisorTeamUserIds(supervisorId) {
   return [...agentIds, supervisorId];
 }
 
-function leadBelongsToUsers(lead, userIds) {
-  if (!userIds.length) return false;
-  return userIds.includes(lead.assignedUserId) || userIds.includes(lead.createdByUserId);
+function supervisorTeamCreatorIds(supervisorUserId, agentIds) {
+  return [supervisorUserId, ...agentIds];
 }
 
-function supervisorLeadOrConditions(supervisorUserId, agentIds) {
-  const conditions = [
-    { assignedUserId: supervisorUserId },
-    { createdByUserId: supervisorUserId },
-  ];
-  if (agentIds.length > 0) {
-    conditions.push(
-      { assignedUserId: { [Op.in]: agentIds } },
-      { createdByUserId: { [Op.in]: agentIds } },
-    );
-  }
-  return conditions;
+/** Leads created by this supervisor and their agents (sales attribution). */
+export async function buildSupervisorTeamLeadWhere(supervisorUserId) {
+  const agentIds = await getSupervisedAgentUserIds(supervisorUserId);
+  return {
+    createdByUserId: { [Op.in]: supervisorTeamCreatorIds(supervisorUserId, agentIds) },
+  };
 }
 
 /** Leads created by this agent (assignment often goes to their supervisor). */
@@ -199,11 +194,10 @@ export function agentLeadFilterWhere(agentId) {
   return { createdByUserId: agentId };
 }
 
-/** Supervisor list: all team leads, own leads when (you), or one agent's created leads. */
+/** Supervisor list: team by default, own leads for (you), one agent's created leads when filtered. */
 export async function buildSupervisorLeadsListWhere(supervisorUserId, agentId) {
   if (!agentId) {
-    const agentIds = await getSupervisedAgentUserIds(supervisorUserId);
-    return { [Op.or]: supervisorLeadOrConditions(supervisorUserId, agentIds) };
+    return buildSupervisorTeamLeadWhere(supervisorUserId);
   }
   if (agentId === supervisorUserId) {
     return {
@@ -230,8 +224,7 @@ export async function buildLeadsListWhere(authedUser) {
   }
 
   if (role === "supervisor") {
-    const agentIds = await getSupervisedAgentUserIds(authedUser.id);
-    return { [Op.or]: supervisorLeadOrConditions(authedUser.id, agentIds) };
+    return buildSupervisorTeamLeadWhere(authedUser.id);
   }
 
   // admin, manager, lead_monitor — all leads
@@ -244,11 +237,9 @@ export async function canAccessLead(lead, authedUser) {
   }
 
   if (authedUser.role === "supervisor") {
-    if (lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id) {
-      return true;
-    }
     const agentIds = await getSupervisedAgentUserIds(authedUser.id);
-    return leadBelongsToUsers(lead, agentIds);
+    const teamCreatorIds = supervisorTeamCreatorIds(authedUser.id, agentIds);
+    return teamCreatorIds.includes(lead.createdByUserId);
   }
 
   return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
