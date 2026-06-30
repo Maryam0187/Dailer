@@ -156,6 +156,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }, [assignableAgents, showSupervisorFilter, supervisorFilter]);
 
   function creatorFilterLabel(entry) {
+    if (entry.isSelf) return `${entry.username} (you)`;
     if (entry.role === "supervisor") return `${entry.username} (Supervisor)`;
     if (entry.supervisorName) return `${entry.username} (${entry.supervisorName})`;
     return entry.username;
@@ -717,7 +718,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   className={inputClass}
                 >
                   <option value="all">
-                    {showSupervisorFilter ? "All agents & supervisors" : "All agents"}
+                    {showSupervisorFilter ? "All agents & supervisors" : "My leads"}
                   </option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>
