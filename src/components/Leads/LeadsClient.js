@@ -266,10 +266,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   useEffect(() => {
     if (agentFilter === "all") return;
+    if (assignableAgents.length === 0) return;
     if (!filteredAgents.some((a) => String(a.id) === agentFilter)) {
       setAgentFilter("all");
     }
-  }, [agentFilter, filteredAgents]);
+  }, [agentFilter, filteredAgents, assignableAgents.length]);
 
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);

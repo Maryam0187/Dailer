@@ -102,7 +102,7 @@ export async function getLeadFilterCreators(authedUser) {
 export async function canFilterLeadsByCreator(authedUser, userId) {
   if (!Number.isInteger(userId) || userId <= 0) return false;
   const creators = await getLeadFilterCreators(authedUser);
-  return creators.some((c) => c.id === userId);
+  return creators.some((c) => Number(c.id) === userId);
 }
 
 /** Agents and supervisors shown in lead stats (created-by rows). */
@@ -177,34 +177,8 @@ export async function getSupervisorTeamUserIds(supervisorId) {
   return [...agentIds, supervisorId];
 }
 
-function supervisorTeamCreatorIds(supervisorUserId, agentIds) {
-  return [supervisorUserId, ...agentIds];
-}
-
-/** Leads created by this supervisor and their agents (sales attribution). */
-export async function buildSupervisorTeamLeadWhere(supervisorUserId) {
-  const agentIds = await getSupervisedAgentUserIds(supervisorUserId);
-  return {
-    createdByUserId: { [Op.in]: supervisorTeamCreatorIds(supervisorUserId, agentIds) },
-  };
-}
-
-/** Leads created by this agent (assignment often goes to their supervisor). */
-export function agentLeadFilterWhere(agentId) {
-  return { createdByUserId: agentId };
-}
-
-/** Supervisor list: team by default, own leads for (you), one agent's created leads when filtered. */
-export async function buildSupervisorLeadsListWhere(supervisorUserId, agentId) {
-  if (!agentId) {
-    return buildSupervisorTeamLeadWhere(supervisorUserId);
-  }
-  if (agentId === supervisorUserId) {
-    return {
-      [Op.or]: [{ assignedUserId: supervisorUserId }, { createdByUserId: supervisorUserId }],
-    };
-  }
-  return agentLeadFilterWhere(agentId);
+function teamCreatorIds(supervisorUserId, agentIds) {
+  return [Number(supervisorUserId), ...agentIds.map(Number)];
 }
 
 /** AND `extra` onto an existing Sequelize where clause. */
@@ -213,8 +187,12 @@ export function andWhereClause(baseWhere, extra) {
   return { [Op.and]: [baseWhere, extra] };
 }
 
-/** Sequelize `where` for GET /api/leads list by role. */
-export async function buildLeadsListWhere(authedUser) {
+/**
+ * Leads list filter — always by createdByUserId:
+ * - no creator filter: whole team (supervisor + their agents) or all (admin)
+ * - creator filter: only that person's created leads
+ */
+export async function resolveLeadsListWhere(authedUser, { creatorId = null, supervisorId = null } = {}) {
   const role = authedUser.role;
 
   if (role === "agent") {
@@ -224,11 +202,32 @@ export async function buildLeadsListWhere(authedUser) {
   }
 
   if (role === "supervisor") {
-    return buildSupervisorTeamLeadWhere(authedUser.id);
+    const agentIds = await getSupervisedAgentUserIds(authedUser.id);
+    const teamIds = teamCreatorIds(authedUser.id, agentIds);
+    if (creatorId) {
+      if (!teamIds.includes(creatorId)) return null;
+      return { createdByUserId: creatorId };
+    }
+    return { createdByUserId: { [Op.in]: teamIds } };
   }
 
-  // admin, manager, lead_monitor — all leads
-  return {};
+  if (hasFullLeadAccess(role)) {
+    if (supervisorId) {
+      const agentIds = await getSupervisedAgentUserIds(supervisorId);
+      const teamIds = teamCreatorIds(supervisorId, agentIds);
+      if (creatorId) {
+        if (!teamIds.includes(creatorId)) return null;
+        return { createdByUserId: creatorId };
+      }
+      return { createdByUserId: { [Op.in]: teamIds } };
+    }
+    if (creatorId) {
+      return { createdByUserId: creatorId };
+    }
+    return {};
+  }
+
+  return { createdByUserId: -1 };
 }
 
 export async function canAccessLead(lead, authedUser) {
@@ -238,8 +237,8 @@ export async function canAccessLead(lead, authedUser) {
 
   if (authedUser.role === "supervisor") {
     const agentIds = await getSupervisedAgentUserIds(authedUser.id);
-    const teamCreatorIds = supervisorTeamCreatorIds(authedUser.id, agentIds);
-    return teamCreatorIds.includes(lead.createdByUserId);
+    const teamIds = teamCreatorIds(authedUser.id, agentIds);
+    return teamIds.includes(Number(lead.createdByUserId));
   }
 
   return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;

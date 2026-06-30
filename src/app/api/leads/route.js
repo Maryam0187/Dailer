@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
@@ -8,15 +7,11 @@ import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import {
-  agentLeadFilterWhere,
   andWhereClause,
-  buildLeadsListWhere,
-  buildSupervisorLeadsListWhere,
-  buildSupervisorTeamLeadWhere,
   canAssignLeadToAgent,
   canFilterLeadsByCreator,
   canFilterLeadsBySupervisor,
-  getSupervisorTeamUserIds,
+  resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
@@ -67,59 +62,37 @@ export async function GET(req) {
   const supervisorIdRaw = searchParams.get("supervisorId");
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
-  const agentId = agentIdRaw ? Number(agentIdRaw) : null;
+  const creatorId = agentIdRaw ? Number(agentIdRaw) : null;
   const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
 
   let where;
 
-  if (agentIdRaw && (!Number.isInteger(agentId) || agentId <= 0)) {
+  if (agentIdRaw && (!Number.isInteger(creatorId) || creatorId <= 0)) {
     return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });
   }
   if (supervisorIdRaw && (!Number.isInteger(supervisorId) || supervisorId <= 0)) {
     return NextResponse.json({ error: "Invalid supervisorId" }, { status: 400 });
   }
 
-  if (authedUser.role === "supervisor") {
-    if (supervisorIdRaw) {
-      return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
-    }
-    if (agentId) {
-      if (!(await canFilterLeadsByCreator(authedUser, agentId))) {
-        return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
-      }
-    }
-    where = await buildSupervisorLeadsListWhere(authedUser.id, agentId);
-    // Always intersect with team scope so other supervisors' agents never leak through.
-    if (agentId && agentId !== authedUser.id) {
-      where = andWhereClause(await buildSupervisorTeamLeadWhere(authedUser.id), where);
-    }
-  } else {
-    where = await buildLeadsListWhere(authedUser);
+  if (authedUser.role === "supervisor" && supervisorIdRaw) {
+    return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
+  }
 
-    if (supervisorId) {
-      if (!(await canFilterLeadsBySupervisor(authedUser, supervisorId))) {
-        return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
-      }
-      const teamUserIds = await getSupervisorTeamUserIds(supervisorId);
-      if (teamUserIds.length === 0) {
-        where = andWhereClause(where, { assignedUserId: -1 });
-      } else if (agentId) {
-        if (!teamUserIds.includes(agentId)) {
-          return NextResponse.json({ error: "Invalid agentId for supervisor" }, { status: 403 });
-        }
-        if (!(await canFilterLeadsByCreator(authedUser, agentId))) {
-          return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
-        }
-        where = andWhereClause(where, agentLeadFilterWhere(agentId));
-      } else {
-        where = andWhereClause(where, { assignedUserId: { [Op.in]: teamUserIds } });
-      }
-    } else if (agentId) {
-      if (!(await canFilterLeadsByCreator(authedUser, agentId))) {
-        return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
-      }
-      where = andWhereClause(where, agentLeadFilterWhere(agentId));
-    }
+  if (creatorId && !(await canFilterLeadsByCreator(authedUser, creatorId))) {
+    return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
+  }
+
+  if (supervisorId && !(await canFilterLeadsBySupervisor(authedUser, supervisorId))) {
+    return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
+  }
+
+  where = await resolveLeadsListWhere(authedUser, {
+    creatorId,
+    supervisorId: authedUser.role === "supervisor" ? null : supervisorId,
+  });
+
+  if (!where) {
+    return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
   }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {

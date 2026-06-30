@@ -1,6 +1,6 @@
 import db from "@/server/db";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
-import { buildLeadsListWhere, getFilterSupervisors, getLeadStatsCreators } from "@/server/leads/leadAccess";
+import { resolveLeadsListWhere, getFilterSupervisors, getLeadStatsCreators } from "@/server/leads/leadAccess";
 
 const STATUS_KEYS = ["new", "contacted", "callback", "qualified", "closed", "dnc"];
 
@@ -63,7 +63,7 @@ function normalizeUserId(value) {
 }
 
 export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
-  const accessWhere = await buildLeadsListWhere(authedUser);
+  const accessWhere = await resolveLeadsListWhere(authedUser);
   const leads = await db.Lead.findAll({
     where: {
       ...accessWhere,
