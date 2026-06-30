@@ -68,14 +68,32 @@ export async function getLeadFilterCreators(authedUser) {
   }
 
   if (authedUser.role === "supervisor") {
-    const agents = await getAssignableAgents(authedUser);
-    return agents.map((agent) => ({
-      id: agent.id,
-      username: agent.username,
-      role: "agent",
-      supervisorId: agent.supervisorId ?? null,
-      supervisorName: null,
-    }));
+    const [self, agents] = await Promise.all([
+      db.User.findByPk(authedUser.id, { attributes: ["id", "username"] }),
+      getAssignableAgents(authedUser),
+    ]);
+    const rows = [];
+    if (self) {
+      rows.push({
+        id: self.id,
+        username: self.username,
+        role: "supervisor",
+        supervisorId: null,
+        supervisorName: null,
+        isSelf: true,
+      });
+    }
+    for (const agent of agents) {
+      rows.push({
+        id: agent.id,
+        username: agent.username,
+        role: "agent",
+        supervisorId: agent.supervisorId ?? null,
+        supervisorName: null,
+        isSelf: false,
+      });
+    }
+    return rows;
   }
 
   return [];
@@ -179,6 +197,16 @@ function supervisorLeadOrConditions(supervisorUserId, agentIds) {
 /** Leads created by this agent (assignment often goes to their supervisor). */
 export function agentLeadFilterWhere(agentId) {
   return { createdByUserId: agentId };
+}
+
+/** Supervisor list scope: own leads by default, or filtered by creator. */
+export function buildSupervisorLeadsListWhere(supervisorUserId, agentId) {
+  if (!agentId || agentId === supervisorUserId) {
+    return {
+      [Op.or]: [{ assignedUserId: supervisorUserId }, { createdByUserId: supervisorUserId }],
+    };
+  }
+  return agentLeadFilterWhere(agentId);
 }
 
 /** AND `extra` onto an existing Sequelize where clause. */
