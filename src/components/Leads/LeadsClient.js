@@ -718,7 +718,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   className={inputClass}
                 >
                   <option value="all">
-                    {showSupervisorFilter ? "All agents & supervisors" : "My leads"}
+                    {showSupervisorFilter ? "All agents & supervisors" : "All agents"}
                   </option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>
