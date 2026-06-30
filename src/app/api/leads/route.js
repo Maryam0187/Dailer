@@ -87,7 +87,7 @@ export async function GET(req) {
         return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
       }
     }
-    where = buildSupervisorLeadsListWhere(authedUser.id, agentId);
+    where = await buildSupervisorLeadsListWhere(authedUser.id, agentId);
   } else {
     where = await buildLeadsListWhere(authedUser);
 

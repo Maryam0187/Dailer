@@ -199,9 +199,13 @@ export function agentLeadFilterWhere(agentId) {
   return { createdByUserId: agentId };
 }
 
-/** Supervisor list scope: own leads by default, or filtered by creator. */
-export function buildSupervisorLeadsListWhere(supervisorUserId, agentId) {
-  if (!agentId || agentId === supervisorUserId) {
+/** Supervisor list: all team leads, own leads when (you), or one agent's created leads. */
+export async function buildSupervisorLeadsListWhere(supervisorUserId, agentId) {
+  if (!agentId) {
+    const agentIds = await getSupervisedAgentUserIds(supervisorUserId);
+    return { [Op.or]: supervisorLeadOrConditions(supervisorUserId, agentIds) };
+  }
+  if (agentId === supervisorUserId) {
     return {
       [Op.or]: [{ assignedUserId: supervisorUserId }, { createdByUserId: supervisorUserId }],
     };
