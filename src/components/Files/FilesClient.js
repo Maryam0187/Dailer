@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import RichTextEditor from "@/components/Leads/RichTextEditor";
 import IconTooltipButton, { CloseIcon, DeleteIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
 import { isEmptyRichText, normalizeRichHtml, richTextPreview } from "@/lib/richText";
+import FilesStatsPanel from "@/components/Files/FilesStatsPanel";
 
 const MAX_OPEN_TABS = 5;
+const FILES_PAGE_SIZE = 24;
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
@@ -97,6 +99,15 @@ function tabLabel(tab) {
 export default function FilesClient({ userRole = "agent" }) {
   const isAdmin = userRole === "admin";
   const [files, setFiles] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: FILES_PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
   const [viewAll, setViewAll] = useState(false);
   const [userFilter, setUserFilter] = useState("all");
   const [filterUsers, setFilterUsers] = useState([]);
@@ -111,34 +122,58 @@ export default function FilesClient({ userRole = "agent" }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const openTabsRef = useRef(openTabs);
   openTabsRef.current = openTabs;
+  const pageRef = useRef(page);
+  pageRef.current = page;
 
   const activeEditorTab = openTabs.find((tab) => tab.tabId === activeView) ?? null;
   const canOpenMore = openTabs.length < MAX_OPEN_TABS;
-  const isBrowseActive = activeView === "browse" || !activeEditorTab;
+  const isStatsActive = activeView === "stats";
+  const isBrowseActive = activeView === "browse";
   const isFilteringByUser = isAdmin && userFilter !== "all";
   const filteredUsername = filterUsers.find((user) => String(user.id) === userFilter)?.username ?? null;
   const isFilteredUserEmpty = isFilteringByUser && !loading && files.length === 0;
 
-  const loadFiles = useCallback(async () => {
-    setError(null);
-    try {
-      const qs = isAdmin && userFilter !== "all" ? `?userId=${encodeURIComponent(userFilter)}` : "";
-      const res = await fetch(`/api/files${qs}`, { credentials: "include" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to load files");
-      setFiles(json.files || []);
-      setViewAll(Boolean(json.viewAll));
-    } catch (err) {
-      setError(err.message || "Failed to load files");
-    } finally {
-      setLoading(false);
-    }
-  }, [isAdmin, userFilter]);
+  const loadFiles = useCallback(
+    async (targetPage = pageRef.current) => {
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(targetPage));
+        params.set("pageSize", String(FILES_PAGE_SIZE));
+        if (isAdmin && userFilter !== "all") {
+          params.set("userId", userFilter);
+        }
+        const res = await fetch(`/api/files?${params.toString()}`, { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load files");
+        setFiles(json.files || []);
+        setViewAll(Boolean(json.viewAll));
+        if (json.pagination) {
+          setPagination(json.pagination);
+          setPage(json.pagination.page || targetPage);
+        } else {
+          setPagination({
+            page: targetPage,
+            pageSize: FILES_PAGE_SIZE,
+            total: json.files?.length ?? 0,
+            totalPages: 1,
+            hasNext: false,
+            hasPrev: targetPage > 1,
+          });
+        }
+      } catch (err) {
+        setError(err.message || "Failed to load files");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isAdmin, userFilter],
+  );
 
   useEffect(() => {
     setLoading(true);
-    loadFiles();
-  }, [loadFiles]);
+    void loadFiles(page);
+  }, [loadFiles, page]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -320,7 +355,9 @@ export default function FilesClient({ userRole = "agent" }) {
       if (switchToTab) {
         setActiveView(newTabId);
       }
-      await loadFiles();
+      const reloadPage = tab.fileId ? pageRef.current : 1;
+      if (!tab.fileId) setPage(1);
+      await loadFiles(reloadPage);
       if (closeAfterSave) {
         closeTab(newTabId);
       }
@@ -361,7 +398,7 @@ export default function FilesClient({ userRole = "agent" }) {
 
       setDeleteConfirm(null);
       closeTabsForFile(file.id);
-      await loadFiles();
+      await loadFiles(pageRef.current);
     } catch (err) {
       const message = err.message || "Failed to delete file";
       if (openTab) updateTab(openTab.tabId, { saveError: message });
@@ -374,13 +411,41 @@ export default function FilesClient({ userRole = "agent" }) {
 
   return (
     <div className="flex flex-col gap-5">
+      {isAdmin ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveView("browse")}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              isBrowseActive
+                ? "border-indigo-600 bg-indigo-100 text-indigo-950 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+          >
+            All files
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("stats")}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              isStatsActive
+                ? "border-indigo-600 bg-indigo-100 text-indigo-950 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+          >
+            File stats
+          </button>
+        </div>
+      ) : null}
+
+      {!isStatsActive ? (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
           <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
             {viewAll ? "All files" : "My files"}
             {!loading ? (
               <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
-                {files.length}
+                {pagination.total}
               </span>
             ) : null}
           </button>
@@ -429,14 +494,15 @@ export default function FilesClient({ userRole = "agent" }) {
           </button>
         ) : null}
       </div>
+      ) : null}
 
-      {!canOpenMore ? (
+      {!isStatsActive && !canOpenMore ? (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           {MAX_OPEN_TABS} tabs open — close one to open another file.
         </p>
       ) : null}
 
-      {error ? (
+      {error && !isStatsActive ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
           {error}
         </div>
@@ -448,7 +514,10 @@ export default function FilesClient({ userRole = "agent" }) {
             Filter by user
             <select
               value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
+              onChange={(e) => {
+                setUserFilter(e.target.value);
+                setPage(1);
+              }}
               className={`${selectClass} mt-1.5 block`}
             >
               <option value="all">All users</option>
@@ -462,6 +531,8 @@ export default function FilesClient({ userRole = "agent" }) {
         </div>
       ) : null}
 
+      {isStatsActive ? <FilesStatsPanel /> : null}
+
       {isBrowseActive ? (
         <BrowseTab
           files={files}
@@ -472,6 +543,9 @@ export default function FilesClient({ userRole = "agent" }) {
           canOpenMore={canOpenMore}
           filteringByUser={isFilteringByUser}
           filteredUsername={filteredUsername}
+          pagination={pagination}
+          onPrevPage={() => setPage((current) => Math.max(1, current - 1))}
+          onNextPage={() => setPage((current) => current + 1)}
           onNewFile={openNewFile}
           onEditFile={openEditFile}
           onDeleteFile={requestDeleteFile}
@@ -525,6 +599,9 @@ function BrowseTab({
   canOpenMore,
   filteringByUser,
   filteredUsername,
+  pagination,
+  onPrevPage,
+  onNextPage,
   onNewFile,
   onEditFile,
   onDeleteFile,
@@ -576,7 +653,35 @@ function BrowseTab({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Showing {files.length} of {pagination.total} files
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPrevPage}
+            disabled={!pagination.hasPrev || loading}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Prev
+          </button>
+          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+            Page {pagination.page} / {pagination.totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={onNextPage}
+            disabled={!pagination.hasNext || loading}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {files.map((file) => {
         const isOpen = openFileIds.has(file.id);
         return (
@@ -639,6 +744,7 @@ function BrowseTab({
           </article>
         );
       })}
+      </div>
     </div>
   );
 }
