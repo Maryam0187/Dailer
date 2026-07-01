@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
@@ -54,8 +54,8 @@ function parsePositiveInt(value, fallback) {
 }
 
 export async function GET(req) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const { searchParams } = new URL(req.url);
   const agentIdRaw = searchParams.get("agentId");
@@ -132,8 +132,8 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const body = await req.json().catch(() => null);
   const phone = normalizeToE164(body?.phone);

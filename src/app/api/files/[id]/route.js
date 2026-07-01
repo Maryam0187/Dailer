@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canViewAllFiles, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
+import { canViewAllFiles, canWriteFiles, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
@@ -24,6 +24,9 @@ export async function GET(_req, { params }) {
 export async function PATCH(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canWriteFiles(authedUser)) {
+    return NextResponse.json({ error: "Files are read-only with limited after-shift access." }, { status: 403 });
+  }
 
   const { id: rawId } = await params;
   const id = Number(rawId);
@@ -69,6 +72,9 @@ export async function PATCH(req, { params }) {
 export async function DELETE(_req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canWriteFiles(authedUser)) {
+    return NextResponse.json({ error: "Files are read-only with limited after-shift access." }, { status: 403 });
+  }
 
   const { id: rawId } = await params;
   const id = Number(rawId);

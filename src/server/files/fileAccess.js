@@ -13,6 +13,18 @@ export const fileListIncludes = [
 ];
 
 export async function getAccessibleFile(id, authedUser) {
+  if (authedUser?.accessMode === "limited") {
+    const limitedId = authedUser.afterShiftLimitedFileId;
+    if (!limitedId || Number(id) !== Number(limitedId)) {
+      return null;
+    }
+    return db.UserFile.findOne({
+      where: { id: limitedId },
+      attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+      include: fileListIncludes,
+    });
+  }
+
   const where = { id };
   if (!canViewAllFiles(authedUser.role)) {
     where.userId = authedUser.id;
@@ -23,4 +35,8 @@ export async function getAccessibleFile(id, authedUser) {
     attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
     include: fileListIncludes,
   });
+}
+
+export function canWriteFiles(authedUser) {
+  return authedUser?.accessMode !== "limited";
 }

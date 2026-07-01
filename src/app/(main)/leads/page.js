@@ -5,6 +5,7 @@ import LeadsClient from "@/components/Leads/LeadsClient";
 export default async function LeadsPage({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (authedUser.accessMode === "limited") redirect("/");
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
   const initialShowForm = sp?.new === "1";

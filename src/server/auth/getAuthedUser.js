@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import db from "@/server/db";
+import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
 
 /**
@@ -43,16 +44,10 @@ async function resolveAuthedUser() {
   const user = await db.User.findByPk(userId);
   if (!user || user.isActive === false) return { user: null, logoutReason: null };
 
-  // Single-session enforcement: this cookie's sid must still be the user's
-  // current active session. A newer login on another device/browser rotates
-  // the sid server-side, so any older cookie holding the previous sid is
-  // treated as unauthenticated. The `payload.sid &&` guard keeps legacy JWTs
-  // (issued before this column existed) valid until they expire naturally.
   if (payload.sid && user.activeSessionId !== payload.sid) {
     return { user: null, logoutReason: null };
   }
 
-  // Sessions are valid for the Pakistan calendar day they were issued on.
   if (!isSessionValidForToday(payload)) {
     await clearUserSession(user.id);
     return { user: null, logoutReason: "session_day_ended" };
@@ -63,8 +58,6 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: "shift_ended" };
   }
 
-  // Refresh presence on real authenticated activity — no synthetic heartbeat
-  // needed. Debounced so a flurry of API calls only triggers one UPDATE.
   try {
     const lastSeen = user.activeSessionLastSeenAt
       ? new Date(user.activeSessionLastSeenAt).getTime()
@@ -79,12 +72,16 @@ async function resolveAuthedUser() {
     /* non-fatal: presence is best-effort and must not block auth */
   }
 
+  const accessMode = resolveAccessMode(user);
+
   return {
     user: {
       id: user.id,
       username: user.username,
       role: user.role,
       managerId: user.managerId,
+      accessMode,
+      afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,
     },
     logoutReason: null,
   };

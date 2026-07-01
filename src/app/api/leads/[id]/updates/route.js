@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { canAccessLead } from "@/server/leads/leadAccess";
 import { createLeadUpdate, fetchLeadUpdates } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 
 export async function GET(req, { params }) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
   const id = Number(rawId);
@@ -26,8 +26,8 @@ export async function GET(req, { params }) {
 }
 
 export async function POST(req, { params }) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
   const id = Number(rawId);

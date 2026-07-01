@@ -47,7 +47,7 @@ app.prepare().then(() => {
       if (!Number.isInteger(userId) || userId <= 0) return nextSocket(new Error("Unauthorized"));
 
       const user = await db.User.findByPk(userId, {
-        attributes: ["id", "role", "isActive", "afterShiftFullAccess"],
+        attributes: ["id", "role", "isActive", "afterShiftAccess", "afterShiftLimitedFileId"],
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 

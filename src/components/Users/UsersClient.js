@@ -144,14 +144,22 @@ function ActiveBadge({ active }) {
   );
 }
 
-function AfterShiftAccessBadge({ enabled }) {
-  return enabled ? (
-    <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
-      After shift
-    </span>
-  ) : (
-    <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>
-  );
+function AfterShiftAccessBadge({ access }) {
+  if (access === "full") {
+    return (
+      <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+        Full
+      </span>
+    );
+  }
+  if (access === "limited") {
+    return (
+      <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        Limited
+      </span>
+    );
+  }
+  return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
 }
 
 function PresenceBadge({ status }) {
@@ -335,7 +343,7 @@ function UserRowActionsMenu({
           )
         ) : null}
         {isAdmin && user.role !== "admin" && active ? (
-          user.afterShiftFullAccess ? (
+          user.afterShiftAccess === "full" || user.afterShiftAccess === "limited" ? (
             <button
               type="button"
               role="menuitem"
@@ -353,7 +361,7 @@ function UserRowActionsMenu({
               className={menuActivateClass}
               onClick={() => runAction(onGrantAfterShift)}
             >
-              {busy ? "Granting…" : "Grant after-shift access"}
+              {busy ? "Granting…" : "Grant full after-shift access"}
             </button>
           )
         ) : null}
@@ -1297,7 +1305,11 @@ function EditUserModal({
   const [managerId, setManagerId] = useState(user.managerId ?? "");
   const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
   const [isActive, setIsActive] = useState(user.isActive !== false);
-  const [afterShiftFullAccess, setAfterShiftFullAccess] = useState(user.afterShiftFullAccess === true);
+  const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
+  const [limitedFileId, setLimitedFileId] = useState(
+    user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "",
+  );
+  const [fileOptions, setFileOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1308,9 +1320,28 @@ function EditUserModal({
     setManagerId(user.managerId ?? "");
     setSupervisorId(user.supervisorId ?? "");
     setIsActive(user.isActive !== false);
-    setAfterShiftFullAccess(user.afterShiftFullAccess === true);
+    setAfterShiftAccess(user.afterShiftAccess || "none");
+    setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
     setError(null);
   }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/files?pageSize=200", { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load files");
+        if (!cancelled) setFileOptions(json.files || []);
+      } catch {
+        if (!cancelled) setFileOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -1350,9 +1381,17 @@ function EditUserModal({
       if (isActive !== (user.isActive !== false)) payload.isActive = isActive;
 
       if (isAdmin && user.role !== "admin") {
-        if (afterShiftFullAccess !== (user.afterShiftFullAccess === true)) {
-          payload.afterShiftFullAccess = afterShiftFullAccess;
+        const prevAccess = user.afterShiftAccess || "none";
+        if (afterShiftAccess !== prevAccess) payload.afterShiftAccess = afterShiftAccess;
+        if (afterShiftAccess === "limited") {
+          payload.afterShiftLimitedFileId = limitedFileId ? Number(limitedFileId) : null;
+        } else if (prevAccess === "limited") {
+          payload.afterShiftLimitedFileId = null;
         }
+      }
+
+      if (isAdmin && afterShiftAccess === "limited" && !limitedFileId) {
+        throw new Error("Select a file for limited after-shift access.");
       }
 
       if (Object.keys(payload).length === 0) {
@@ -1519,20 +1558,55 @@ function EditUserModal({
           </div>
 
           {isAdmin && user.role !== "admin" ? (
-            <div className="flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
-              <input
-                id="edit-after-shift"
-                type="checkbox"
-                checked={afterShiftFullAccess}
-                onChange={(e) => setAfterShiftFullAccess(e.target.checked)}
-                className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
-              />
-              <label htmlFor="edit-after-shift" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                After-shift full access
-                <span className="mt-0.5 block text-xs font-normal text-zinc-500 dark:text-zinc-400">
-                  Allows sign-in and full use outside shift hours (6:00–11:00 PM Pakistan time).
-                </span>
-              </label>
+            <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
+              <div className="flex flex-col gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "none"}
+                    onChange={() => setAfterShiftAccess("none")}
+                  />
+                  None
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "full"}
+                    onChange={() => setAfterShiftAccess("full")}
+                  />
+                  Full access
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "limited"}
+                    onChange={() => setAfterShiftAccess("limited")}
+                  />
+                  Limited (dialer + one file)
+                </label>
+              </div>
+              {afterShiftAccess === "limited" ? (
+                <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  Assigned file
+                  <select
+                    className={`${inputClass} mt-1.5`}
+                    value={limitedFileId}
+                    onChange={(e) => setLimitedFileId(e.target.value)}
+                  >
+                    <option value="">Select a file…</option>
+                    {fileOptions.map((file) => (
+                      <option key={file.id} value={file.id}>
+                        {file.name}
+                        {file.owner?.username ? ` (${file.owner.username})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           ) : null}
 
@@ -1571,7 +1645,8 @@ function normalizeUsersList(list) {
   return (list || []).map((u) => ({
     ...u,
     isActive: u.isActive !== false && u.isActive !== 0,
-    afterShiftFullAccess: u.afterShiftFullAccess === true,
+    afterShiftAccess: u.afterShiftAccess || "none",
+    afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
     presence: normalizePresence(u.presence),
     lastActiveAt: u.lastActiveAt ?? null,
   }));
@@ -1763,16 +1838,24 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     }
   }
 
-  async function toggleAfterShiftAccess(u, nextEnabled) {
+  async function setAfterShiftAccessForUser(u, access, limitedFileId = null) {
     if (u.role === "admin") return;
     setListError(null);
     setRowBusyId(u.id);
     try {
+      const body = { afterShiftAccess: access };
+      if (access === "limited") {
+        if (!limitedFileId) {
+          setEditingUser(u);
+          return;
+        }
+        body.afterShiftLimitedFileId = limitedFileId;
+      }
       const res = await fetch(`/api/users/${u.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ afterShiftFullAccess: nextEnabled }),
+        body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Update failed");
@@ -2025,7 +2108,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-200/30 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-none dark:ring-white/5">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200/90 bg-zinc-50/90 px-4 py-4 sm:px-6 dark:border-zinc-700 dark:bg-zinc-800/40">
           <div>
             <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
             <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
@@ -2037,7 +2120,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
             {role === "admin" ? (
-              <div className="min-w-[14rem]">
+              <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
                 <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
                   Supervisor
                 </label>
@@ -2156,7 +2239,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             {u.role === "admin" ? (
                               <span className="text-xs text-zinc-500 dark:text-zinc-400">Always</span>
                             ) : (
-                              <AfterShiftAccessBadge enabled={u.afterShiftFullAccess === true} />
+                              <AfterShiftAccessBadge access={u.afterShiftAccess || "none"} />
                             )}
                           </td>
                         ) : null}
@@ -2180,8 +2263,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             onEdit={() => setEditingUser(u)}
                             onDeactivate={() => toggleActive(u, false)}
                             onActivate={() => toggleActive(u, true)}
-                            onGrantAfterShift={() => toggleAfterShiftAccess(u, true)}
-                            onRevokeAfterShift={() => toggleAfterShiftAccess(u, false)}
+                            onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}
+                            onRevokeAfterShift={() => setAfterShiftAccessForUser(u, "none")}
                           />
                         </td>
                       </tr>

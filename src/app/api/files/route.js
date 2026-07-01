@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canViewAllFiles, fileListIncludes } from "@/server/files/fileAccess";
+import { canViewAllFiles, canWriteFiles, fileListIncludes } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
@@ -14,6 +14,45 @@ function parsePositiveInt(value, fallback) {
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (authedUser.accessMode === "limited") {
+    const limitedId = authedUser.afterShiftLimitedFileId;
+    if (!limitedId) {
+      return NextResponse.json({
+        files: [],
+        viewAll: false,
+        limitedAccess: true,
+        pagination: {
+          page: 1,
+          pageSize: 1,
+          total: 0,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false,
+        },
+      });
+    }
+
+    const file = await db.UserFile.findByPk(limitedId, {
+      attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+      include: fileListIncludes,
+    });
+
+    return NextResponse.json({
+      files: file ? [serializeUserFile(file)] : [],
+      viewAll: false,
+      limitedAccess: true,
+      readOnly: true,
+      pagination: {
+        page: 1,
+        pageSize: 1,
+        total: file ? 1 : 0,
+        totalPages: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
+    });
+  }
 
   const { searchParams } = new URL(req.url);
   const isAdmin = canViewAllFiles(authedUser.role);
@@ -65,6 +104,9 @@ export async function GET(req) {
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canWriteFiles(authedUser)) {
+    return NextResponse.json({ error: "Files are read-only with limited after-shift access." }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const name = trimFileName(body?.name);

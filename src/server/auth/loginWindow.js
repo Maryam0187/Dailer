@@ -1,3 +1,5 @@
+import { hasAfterShiftGrant } from "@/server/auth/accessMode";
+
 // Pakistan shift: 6:00 PM – 11:00 PM PKT (UTC+5, no DST) = 13:00 – 18:00 UTC.
 const DEFAULT_START_UTC = "13:00";
 const DEFAULT_END_UTC = "18:00";
@@ -47,7 +49,7 @@ export function isLoginAllowed(user, date = new Date()) {
   if (!isShiftWindowEnforced()) return true;
   if (!user) return false;
   if (user.role === "admin") return true;
-  if (user.afterShiftFullAccess) return true;
+  if (hasAfterShiftGrant(user)) return true;
   return isWithinLoginWindow(date);
 }
 

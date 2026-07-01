@@ -13,7 +13,8 @@ const LIST_ATTRIBUTES = [
   "createdBy",
   "createdAt",
   "isActive",
-  "afterShiftFullAccess",
+  "afterShiftAccess",
+  "afterShiftLimitedFileId",
   "activeSessionId",
   "activeSessionLastSeenAt",
 ];
@@ -46,7 +47,10 @@ function serializeUserRow(row, now, { includeShiftAccess = false } = {}) {
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
     ...(includeShiftAccess
-      ? { afterShiftFullAccess: row.afterShiftFullAccess === true }
+      ? {
+          afterShiftAccess: row.afterShiftAccess || "none",
+          afterShiftLimitedFileId: row.afterShiftLimitedFileId ?? null,
+        }
       : {}),
     presence: presence.status,
     lastActiveAt: presence.lastActiveAt,

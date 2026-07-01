@@ -11,5 +11,5 @@ export default async function FilesPage() {
       ? "View and manage rich-text documents for all users. New files you create are saved under your account."
       : "Create and save rich-text documents with custom file names. Your files are private to your account.";
 
-  return <FilesClient userRole={authedUser.role} pageDescription={pageDescription} />;
+  return <FilesClient userRole={authedUser.role} pageDescription={pageDescription} accessMode={authedUser.accessMode} />;
 }
