@@ -36,7 +36,7 @@ app.prepare().then(() => {
     return out;
   }
 
-  io.use((socket, nextSocket) => {
+  io.use(async (socket, nextSocket) => {
     try {
       const cookies = parseCookies(socket.handshake.headers?.cookie || "");
       const token = cookies.token;
@@ -45,6 +45,17 @@ app.prepare().then(() => {
       const payload = jwt.verify(token, secret);
       const userId = Number(payload?.sub);
       if (!Number.isInteger(userId) || userId <= 0) return nextSocket(new Error("Unauthorized"));
+
+      const user = await db.User.findByPk(userId, {
+        attributes: ["id", "role", "isActive"],
+      });
+      if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
+
+      const { isLoginAllowedForRole } = await import("./src/server/auth/loginWindow.js");
+      if (!isLoginAllowedForRole(user.role)) {
+        return nextSocket(new Error("Unauthorized"));
+      }
+
       socket.data.userId = userId;
       return nextSocket();
     } catch {

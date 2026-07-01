@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
+import { isLoginAllowedForRole, loginWindowErrorMessage } from "@/server/auth/loginWindow";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -43,6 +44,16 @@ export async function POST(req) {
       metadata: { username, reason: "invalid_password" },
     });
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  }
+
+  if (!isLoginAllowedForRole(user.role)) {
+    await logUserActivity({
+      req,
+      userId: user.id,
+      action: "login_failed",
+      metadata: { username, reason: "outside_login_window" },
+    });
+    return NextResponse.json({ error: loginWindowErrorMessage() }, { status: 403 });
   }
 
   const secret = process.env.JWT_SECRET;

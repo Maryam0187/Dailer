@@ -3,15 +3,17 @@ import Footer from "@/components/layout/Footer";
 import MainAppShell from "@/components/layout/MainAppShell";
 import MainContentShell from "@/components/layout/MainContentShell";
 import Navbar from "@/components/layout/Navbar";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserWithLogoutReason } from "@/server/auth/getAuthedUser";
 import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 /** Read Railway/runtime env on each request (avoid build-time inlining of deployment metadata). */
 export const dynamic = "force-dynamic";
 
 export default async function MainLayout({ children }) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) redirect("/sign-in");
+  const { user: authedUser, logoutReason } = await getAuthedUserWithLogoutReason();
+  if (!authedUser) {
+    redirect(logoutReason === "shift_ended" ? "/sign-in?reason=shift_ended" : "/sign-in");
+  }
   const deploymentTag = getDeploymentTag();
   const deployedAt = getDeploymentTimestampRaw();
 
