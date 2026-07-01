@@ -227,6 +227,70 @@ function getPresetRange(preset) {
 const callsDateInputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
 
+function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, downloadingId }) {
+  return (
+    <article className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-950/40">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-zinc-700 dark:text-zinc-200">
+          {new Date(call.createdAt).toLocaleString()}
+        </p>
+        <span className="shrink-0 rounded-full bg-zinc-200/80 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+          {call.status || "—"}
+        </span>
+      </div>
+      <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100">{call.toNumber || "—"}</p>
+      {showConferenceColumn ? (
+        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+          Invited:{" "}
+          {Array.isArray(call.invitedToNames) && call.invitedToNames.length > 0
+            ? call.invitedToNames.join(", ")
+            : "—"}
+        </p>
+      ) : null}
+      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-zinc-700 dark:text-zinc-200">
+        {isAdmin ? (
+          <>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Agent leg</dt>
+              <dd className="tabular-nums">{formatDuration(call.agentDurationSeconds)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Customer leg</dt>
+              <dd className="tabular-nums">{formatDuration(call.customerDurationSeconds)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Total</dt>
+              <dd className="font-semibold tabular-nums">{formatDuration(call.durationSeconds)}</dd>
+            </div>
+          </>
+        ) : (
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Duration</dt>
+            <dd className="font-semibold tabular-nums">{formatDuration(call.durationSeconds)}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recording</dt>
+          <dd className="mt-0.5">
+            {call.recordingDownloadUrl ? (
+              <button
+                type="button"
+                onClick={() => onDownload(call.id, call.recordingDownloadUrl)}
+                disabled={downloadingId === call.id}
+                className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+              >
+                {downloadingId === call.id ? "Downloading…" : "Download"}
+              </button>
+            ) : (
+              <span className="text-zinc-500">—</span>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
 const menuItemBase =
   "flex w-full items-center rounded-lg border px-3 py-1.5 text-left text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -739,7 +803,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   const isSelf = user.id === currentUserId;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
       <button
         type="button"
         className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px]"
@@ -750,9 +814,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-detail-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative z-10 flex max-h-[100dvh] w-full max-w-6xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
-        <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+        <div className="border-b border-zinc-200 px-4 py-4 sm:px-6 dark:border-zinc-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2
@@ -809,12 +873,12 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
-          <div className="mb-4 flex border-b border-zinc-200 dark:border-zinc-700">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+          <div className="mb-4 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
               onClick={() => setActiveTab("calls")}
-              className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+              className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
                 activeTab === "calls"
                   ? "border-emerald-600 text-emerald-800 dark:border-emerald-500 dark:text-emerald-200"
                   : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -826,7 +890,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               <button
                 type="button"
                 onClick={() => setActiveTab("metrics")}
-                className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
                   activeTab === "metrics"
                     ? "border-violet-600 text-violet-800 dark:border-violet-500 dark:text-violet-200"
                     : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -839,7 +903,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               <button
                 type="button"
                 onClick={() => setActiveTab("activity")}
-                className={`border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
                   activeTab === "activity"
                     ? "border-sky-600 text-sky-800 dark:border-sky-500 dark:text-sky-200"
                     : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -911,14 +975,14 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   required
                 />
               </div>
-              <div className="flex items-end">
+              <div className="flex items-end sm:col-span-1">
                 <button
                   type="button"
                   onClick={onApplyRange}
                   disabled={
                     callsLoading || metricsLoading || activitiesLoading || rangePreset !== "custom"
                   }
-                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  className="h-10 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
                 >
                   Apply range
                 </button>
@@ -1195,7 +1259,20 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   : "No call logs for this user in this date range."}
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+            <>
+            <div className="space-y-3 md:hidden">
+              {calls.map((c) => (
+                <UserCallLogCard
+                  key={c.id}
+                  call={c}
+                  isAdmin={isAdmin}
+                  showConferenceColumn={callsFilter === "conference"}
+                  onDownload={downloadRecording}
+                  downloadingId={downloadingId}
+                />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto rounded-xl border border-zinc-200 md:block dark:border-zinc-700">
               <table className="w-full min-w-[52rem] text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
@@ -1272,6 +1349,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 </tbody>
               </table>
             </div>
+            </>
           )}
 
           {!callsLoading && !callsError && calls.length > 0 ? (
