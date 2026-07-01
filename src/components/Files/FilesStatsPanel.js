@@ -66,12 +66,9 @@ export default function FilesStatsPanel() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">File stats</h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            File counts and the most recently updated file per user.
-          </p>
-        </div>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          File counts and the most recently updated file per user.
+        </p>
         <button
           type="button"
           onClick={() => void loadStats()}
