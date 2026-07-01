@@ -5,15 +5,21 @@ import { canViewAllFiles, fileListIncludes } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
+function parsePositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return fallback;
+  return n;
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
   const isAdmin = canViewAllFiles(authedUser.role);
   const where = {};
 
   if (isAdmin) {
-    const { searchParams } = new URL(req.url);
     const userIdRaw = searchParams.get("userId");
     if (userIdRaw && userIdRaw !== "all") {
       const userId = Number(userIdRaw);
@@ -28,16 +34,31 @@ export async function GET(req) {
     where.userId = authedUser.id;
   }
 
-  const files = await db.UserFile.findAll({
+  const page = parsePositiveInt(searchParams.get("page"), 1);
+  const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 24), 100);
+  const offset = (page - 1) * pageSize;
+
+  const { rows: files, count } = await db.UserFile.findAndCountAll({
     where,
     order: [["updatedAt", "DESC"]],
+    offset,
+    limit: pageSize,
     attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
     include: isAdmin ? fileListIncludes : [],
+    distinct: isAdmin,
   });
 
   return NextResponse.json({
     files: files.map(serializeUserFile),
     viewAll: isAdmin,
+    pagination: {
+      page,
+      pageSize,
+      total: count,
+      totalPages: Math.max(1, Math.ceil(count / pageSize)),
+      hasNext: offset + files.length < count,
+      hasPrev: page > 1,
+    },
   });
 }
 
