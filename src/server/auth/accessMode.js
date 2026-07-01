@@ -1,16 +1,10 @@
-import { isShiftWindowEnforced, isWithinLoginWindow } from "@/server/auth/loginWindow";
+import {
+  getAfterShiftAccess,
+  isShiftWindowEnforced,
+  isWithinLoginWindow,
+} from "@/server/auth/loginWindow";
 
-export function getAfterShiftAccess(user) {
-  if (!user) return "none";
-  if (user.afterShiftAccess) return user.afterShiftAccess;
-  if (user.afterShiftFullAccess) return "full";
-  return "none";
-}
-
-export function hasAfterShiftGrant(user) {
-  const access = getAfterShiftAccess(user);
-  return access === "full" || access === "limited";
-}
+export { getAfterShiftAccess, hasAfterShiftGrant } from "@/server/auth/loginWindow";
 
 /** `full` during shift/admin/grant-full; `limited` after shift with limited grant; never `blocked` here (auth rejects earlier). */
 export function resolveAccessMode(user, date = new Date()) {

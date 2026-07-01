@@ -4,6 +4,7 @@ const next = require("next");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const db = require("./models");
+const { isLoginAllowed, isSessionValidForToday } = require("./src/server/auth/loginWindow.core.cjs");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
@@ -51,9 +52,6 @@ app.prepare().then(() => {
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 
-      const { isLoginAllowed, isSessionValidForToday } = await import(
-        "./src/server/auth/loginWindow.js"
-      );
       if (!isSessionValidForToday(payload)) {
         return nextSocket(new Error("Unauthorized"));
       }
