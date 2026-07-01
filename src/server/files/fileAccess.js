@@ -37,6 +37,12 @@ export async function getAccessibleFile(id, authedUser) {
   });
 }
 
-export function canWriteFiles(authedUser) {
+export function canCreateFiles(authedUser) {
   return authedUser?.accessMode !== "limited";
+}
+
+export function canWriteFile(authedUser, fileId) {
+  if (authedUser?.accessMode !== "limited") return true;
+  const limitedId = authedUser.afterShiftLimitedFileId;
+  return Boolean(limitedId && Number(fileId) === Number(limitedId));
 }

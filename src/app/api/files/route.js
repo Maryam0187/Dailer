@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canViewAllFiles, canWriteFiles, fileListIncludes } from "@/server/files/fileAccess";
+import { canCreateFiles, canViewAllFiles, fileListIncludes } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
@@ -42,7 +42,6 @@ export async function GET(req) {
       files: file ? [serializeUserFile(file)] : [],
       viewAll: false,
       limitedAccess: true,
-      readOnly: true,
       pagination: {
         page: 1,
         pageSize: 1,
@@ -104,8 +103,8 @@ export async function GET(req) {
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canWriteFiles(authedUser)) {
-    return NextResponse.json({ error: "Files are read-only with limited after-shift access." }, { status: 403 });
+  if (!canCreateFiles(authedUser)) {
+    return NextResponse.json({ error: "Creating files is not available with limited after-shift access." }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);

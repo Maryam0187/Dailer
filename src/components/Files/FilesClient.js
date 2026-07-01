@@ -99,7 +99,6 @@ function tabLabel(tab) {
 export default function FilesClient({ userRole = "agent", pageDescription = "", accessMode = "full" }) {
   const isAdmin = userRole === "admin";
   const isLimitedAfterShift = accessMode === "limited";
-  const isReadOnly = isLimitedAfterShift;
   const [files, setFiles] = useState([]);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -219,7 +218,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   }
 
   function openNewFile() {
-    if (isReadOnly) return;
+    if (isLimitedAfterShift) return;
     if (!canOpenMore) {
       showMaxTabsMessage();
       return;
@@ -261,6 +260,11 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
     openEditFile(files[0]);
   }, [isLimitedAfterShift, loading, files, openTabs.length]);
 
+  useEffect(() => {
+    if (!isLimitedAfterShift || activeView !== "browse" || openTabs.length === 0) return;
+    setActiveView(openTabs[0].tabId);
+  }, [isLimitedAfterShift, activeView, openTabs]);
+
   function closeTab(tabId) {
     setOpenTabs((tabs) => {
       const remaining = tabs.filter((tab) => tab.tabId !== tabId);
@@ -290,6 +294,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   }
 
   function requestCloseTab(tabId) {
+    if (isLimitedAfterShift) return;
     const tab = openTabs.find((t) => t.tabId === tabId);
     if (!tab) return;
     if (!isTabDirty(tab)) {
@@ -449,14 +454,25 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
 
       <div className={`flex flex-wrap items-center justify-between gap-3 ${isEditing ? "shrink-0" : ""}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
-          <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
-            {isLimitedAfterShift ? "Assigned file" : viewAll ? "All files" : "My files"}
-            {!loading && isBrowseActive ? (
-              <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
-                {pagination.total}
-              </span>
-            ) : null}
-          </button>
+          {isLimitedAfterShift ? (
+            <span className={browseTabClass(true)} aria-current="page">
+              Assigned file
+              {!loading ? (
+                <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                  {pagination.total}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
+              {viewAll ? "All files" : "My files"}
+              {!loading && isBrowseActive ? (
+                <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                  {pagination.total}
+                </span>
+              ) : null}
+            </button>
+          )}
 
           {isAdmin ? (
             <button type="button" onClick={() => setActiveView("stats")} className={browseTabClass(isStatsActive)}>
@@ -498,7 +514,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
 
         </div>
 
-        {isBrowseActive && !isFilteredUserEmpty && !isReadOnly ? (
+        {isBrowseActive && !isFilteredUserEmpty && !isLimitedAfterShift ? (
           <button
             type="button"
             onClick={openNewFile}
@@ -575,7 +591,8 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         <div className="min-h-0 flex-1 overflow-hidden">
           <WriteTab
             tab={activeEditorTab}
-            readOnly={isReadOnly}
+            allowDelete={!isLimitedAfterShift}
+            allowClose={!isLimitedAfterShift}
             saving={savingTabId === activeEditorTab.tabId}
             deleting={deletingTabId === activeEditorTab.tabId}
             onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
@@ -879,10 +896,10 @@ function UnsavedChangesDialog({ fileName, saving, saveError, onSave, onDiscard, 
   );
 }
 
-function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelete, onClose }) {
+function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelete, onClose, allowDelete = true, allowClose = true }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-      {!isNewFile ? (
+      {!isNewFile && allowDelete ? (
         <button
           type="button"
           onClick={onDelete}
@@ -892,14 +909,16 @@ function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelet
           {deleting ? "Deleting…" : "Delete"}
         </button>
       ) : null}
-      <button
-        type="button"
-        onClick={onClose}
-        disabled={saving || deleting}
-        className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-      >
-        Close
-      </button>
+      {allowClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={saving || deleting}
+          className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Close
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onSave}
@@ -913,12 +932,11 @@ function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelet
   );
 }
 
-function WriteTab({ tab, readOnly = false, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
+function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
 
   useEffect(() => {
-    if (readOnly) return undefined;
     function handleKeyDown(event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -928,7 +946,7 @@ function WriteTab({ tab, readOnly = false, saving, deleting, onFileNameChange, o
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [onSave, saving, deleting, readOnly]);
+  }, [onSave, saving, deleting]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100/80 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -940,24 +958,19 @@ function WriteTab({ tab, readOnly = false, saving, deleting, onFileNameChange, o
             value={tab.fileName}
             onChange={(e) => onFileNameChange(e.target.value)}
             placeholder="Untitled document"
-            readOnly={readOnly}
             className={editorTitleClass}
           />
-          {readOnly ? (
-            <span className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-              Read only
-            </span>
-          ) : (
-            <WriteTabActions
-              isNewFile={isNewFile}
-              saving={saving}
-              deleting={deleting}
-              isDirty={isDirty}
-              onSave={onSave}
-              onDelete={onDelete}
-              onClose={onClose}
-            />
-          )}
+          <WriteTabActions
+            isNewFile={isNewFile}
+            allowDelete={allowDelete}
+            allowClose={allowClose}
+            saving={saving}
+            deleting={deleting}
+            isDirty={isDirty}
+            onSave={onSave}
+            onDelete={onDelete}
+            onClose={onClose}
+          />
         </div>
 
         {tab.saveError ? (
@@ -972,7 +985,7 @@ function WriteTab({ tab, readOnly = false, saving, deleting, onFileNameChange, o
           key={tab.tabId}
           value={tab.content}
           onChange={onContentChange}
-          editable={!readOnly}
+          editable
           placeholder="Start writing…"
           minHeightClass="min-h-[16rem]"
           wordLayout
