@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
-import { isLoginAllowedForRole, loginWindowErrorMessage } from "@/server/auth/loginWindow";
+import { isLoginAllowed, loginWindowErrorMessage } from "@/server/auth/loginWindow";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -46,7 +46,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  if (!isLoginAllowedForRole(user.role)) {
+  if (!isLoginAllowed(user)) {
     await logUserActivity({
       req,
       userId: user.id,

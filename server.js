@@ -47,12 +47,12 @@ app.prepare().then(() => {
       if (!Number.isInteger(userId) || userId <= 0) return nextSocket(new Error("Unauthorized"));
 
       const user = await db.User.findByPk(userId, {
-        attributes: ["id", "role", "isActive"],
+        attributes: ["id", "role", "isActive", "afterShiftFullAccess"],
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 
-      const { isLoginAllowedForRole } = await import("./src/server/auth/loginWindow.js");
-      if (!isLoginAllowedForRole(user.role)) {
+      const { isLoginAllowed } = await import("./src/server/auth/loginWindow.js");
+      if (!isLoginAllowed(user)) {
         return nextSocket(new Error("Unauthorized"));
       }
 

@@ -42,12 +42,14 @@ export function isWithinLoginWindow(date = new Date()) {
   return minutes >= start && minutes <= end;
 }
 
-export function isLoginAllowedForRole(role, date = new Date()) {
+export function isLoginAllowed(user, date = new Date()) {
   if (!isShiftWindowEnforced()) return true;
-  if (role === "admin") return true;
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.afterShiftFullAccess) return true;
   return isWithinLoginWindow(date);
 }
 
 export function loginWindowErrorMessage() {
-  return "Sign-in is only allowed during shift hours (6:00 PM – 11:00 PM Pakistan time).";
+  return "Sign-in is only allowed during shift hours (6:00 PM – 11:00 PM Pakistan time), unless an admin has granted after-shift access.";
 }

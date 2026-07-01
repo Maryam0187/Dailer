@@ -26,6 +26,7 @@ export default async function UsersPage() {
     "createdBy",
     "createdAt",
     "isActive",
+    "afterShiftFullAccess",
     "activeSessionId",
     "activeSessionLastSeenAt",
   ];
@@ -89,6 +90,9 @@ export default async function UsersPage() {
       createdByUsername: r.creator?.username ?? null,
       createdAt: r.createdAt,
       isActive: !(r.isActive === false || r.isActive === 0),
+      ...(authedUser.role === "admin"
+        ? { afterShiftFullAccess: r.afterShiftFullAccess === true }
+        : {}),
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     };

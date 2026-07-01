@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import db from "@/server/db";
-import { isLoginAllowedForRole } from "@/server/auth/loginWindow";
+import { isLoginAllowed } from "@/server/auth/loginWindow";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -41,7 +41,7 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: null };
   }
 
-  if (!isLoginAllowedForRole(user.role)) {
+  if (!isLoginAllowed(user)) {
     try {
       await db.User.update(
         { activeSessionId: null, activeSessionLastSeenAt: null },

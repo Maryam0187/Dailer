@@ -4,6 +4,8 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { assertCanManageTarget } from "@/server/auth/userAccess";
+import { isWithinLoginWindow } from "@/server/auth/loginWindow";
+import { logUserActivity } from "@/server/activity/logUserActivity";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -22,10 +24,19 @@ export async function GET(_req, { params }) {
       "role",
       "managerId",
       "supervisorId",
+      "createdBy",
       "createdAt",
       "isActive",
+      "afterShiftFullAccess",
       "activeSessionId",
       "activeSessionLastSeenAt",
+    ],
+    include: [
+      {
+        association: "creator",
+        attributes: ["id", "username"],
+        required: false,
+      },
     ],
   });
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -48,8 +59,11 @@ export async function GET(_req, { params }) {
       role: target.role,
       managerId: target.managerId,
       supervisorId: target.supervisorId,
+      createdBy: target.createdBy ?? null,
+      createdByUsername: target.creator?.username ?? null,
       createdAt: target.createdAt,
       isActive: target.isActive !== false,
+      afterShiftFullAccess: authedUser.role === "admin" ? target.afterShiftFullAccess === true : undefined,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     },
@@ -167,6 +181,16 @@ export async function PATCH(req, { params }) {
     updates.isActive = Boolean(body.isActive);
   }
 
+  if (isAdmin && body.afterShiftFullAccess !== undefined) {
+    if (target.role === "admin") {
+      return NextResponse.json(
+        { error: "Admin accounts always have full access" },
+        { status: 400 },
+      );
+    }
+    updates.afterShiftFullAccess = Boolean(body.afterShiftFullAccess);
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
@@ -180,8 +204,41 @@ export async function PATCH(req, { params }) {
     throw err;
   }
 
+  if (
+    isAdmin &&
+    body.afterShiftFullAccess === false &&
+    !isWithinLoginWindow() &&
+    target.activeSessionId
+  ) {
+    await db.User.update(
+      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { where: { id: target.id } },
+    );
+  }
+
+  if (isAdmin && body.afterShiftFullAccess !== undefined) {
+    const granted = Boolean(body.afterShiftFullAccess);
+    await logUserActivity({
+      req,
+      userId: authedUser.id,
+      action: granted ? "after_shift_access_granted" : "after_shift_access_revoked",
+      entityType: "user",
+      entityId: target.id,
+      metadata: { targetUsername: target.username },
+    });
+  }
+
   const fresh = await db.User.findByPk(id, {
-    attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+    attributes: [
+      "id",
+      "username",
+      "role",
+      "managerId",
+      "supervisorId",
+      "createdAt",
+      "isActive",
+      "afterShiftFullAccess",
+    ],
   });
 
   return NextResponse.json({ user: fresh });
