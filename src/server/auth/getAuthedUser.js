@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import db from "@/server/db";
-import { isLoginAllowed } from "@/server/auth/loginWindow";
+import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -10,6 +10,17 @@ import { isLoginAllowed } from "@/server/auth/loginWindow";
  * (heartbeat-style page loads, polling components, etc.).
  */
 const LAST_SEEN_REFRESH_MS = 30 * 1000;
+
+async function clearUserSession(userId) {
+  try {
+    await db.User.update(
+      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { where: { id: userId } },
+    );
+  } catch {
+    /* non-fatal: session clear is best-effort */
+  }
+}
 
 async function resolveAuthedUser() {
   const cookieStore = await cookies();
@@ -41,15 +52,14 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: null };
   }
 
+  // Sessions are valid for the Pakistan calendar day they were issued on.
+  if (!isSessionValidForToday(payload)) {
+    await clearUserSession(user.id);
+    return { user: null, logoutReason: "session_day_ended" };
+  }
+
   if (!isLoginAllowed(user)) {
-    try {
-      await db.User.update(
-        { activeSessionId: null, activeSessionLastSeenAt: null },
-        { where: { id: user.id } },
-      );
-    } catch {
-      /* non-fatal: session clear is best-effort */
-    }
+    await clearUserSession(user.id);
     return { user: null, logoutReason: "shift_ended" };
   }
 
@@ -88,4 +98,10 @@ export async function getAuthedUser() {
 /** For server layouts that need to distinguish shift logout from other auth failures. */
 export async function getAuthedUserWithLogoutReason() {
   return resolveAuthedUser();
+}
+
+export function signInRedirectPath(logoutReason) {
+  if (logoutReason === "shift_ended") return "/sign-in?reason=shift_ended";
+  if (logoutReason === "session_day_ended") return "/sign-in?reason=session_day_ended";
+  return "/sign-in";
 }

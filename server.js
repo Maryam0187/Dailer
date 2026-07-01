@@ -51,7 +51,12 @@ app.prepare().then(() => {
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 
-      const { isLoginAllowed } = await import("./src/server/auth/loginWindow.js");
+      const { isLoginAllowed, isSessionValidForToday } = await import(
+        "./src/server/auth/loginWindow.js"
+      );
+      if (!isSessionValidForToday(payload)) {
+        return nextSocket(new Error("Unauthorized"));
+      }
       if (!isLoginAllowed(user)) {
         return nextSocket(new Error("Unauthorized"));
       }

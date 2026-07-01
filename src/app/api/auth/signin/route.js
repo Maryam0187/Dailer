@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
-import { isLoginAllowed, loginWindowErrorMessage } from "@/server/auth/loginWindow";
+import { isLoginAllowed, getSessionCalendarDate, loginWindowErrorMessage } from "@/server/auth/loginWindow";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -65,6 +65,7 @@ export async function POST(req) {
   // overwrites the DB row. Any older cookie still holding the previous sid
   // becomes stale and is rejected by getAuthedUser on its next request.
   const sid = crypto.randomUUID();
+  const sessionDay = getSessionCalendarDate();
   await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
 
   const { locationAlert } = await logUserActivity({
@@ -72,10 +73,12 @@ export async function POST(req) {
     userId: user.id,
     action: "login_success",
     sessionId: sid,
-    metadata: { username: user.username },
+    metadata: { username: user.username, sessionDay },
   });
 
-  const token = jwt.sign({ sub: user.id, role: user.role, sid }, secret, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: user.id, role: user.role, sid, sessionDay }, secret, {
+    expiresIn: "7d",
+  });
 
   const res = NextResponse.json({
     ok: true,

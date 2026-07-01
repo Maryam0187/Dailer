@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
+import ShiftStatusBadge from "@/components/layout/ShiftStatusBadge";
 
-export default function Navbar({ role }) {
+export default function Navbar({ role, shiftStatus = null }) {
   const pathname = usePathname();
   const onDialerPage = pathname === "/";
   const onLeadsPage = pathname === "/leads";
@@ -96,6 +97,7 @@ export default function Navbar({ role }) {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2 rounded-xl border border-zinc-200/80 bg-white/60 px-2 py-1.5 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-3 sm:px-3">
+          {role === "admin" && shiftStatus ? <ShiftStatusBadge shiftStatus={shiftStatus} /> : null}
           <ThemeToggle />
           <LogoutButton />
         </div>

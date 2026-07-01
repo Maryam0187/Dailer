@@ -310,15 +310,16 @@ export default function BillingClient() {
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
             <p className="text-sm text-zinc-700 dark:text-zinc-200">
               Preview: {new Date(billPreview.fromDate).toLocaleDateString()} -{" "}
-              {new Date(billPreview.toDate).toLocaleDateString()}
+              {new Date(billPreview.toDate).toLocaleDateString()} | Calls:{" "}
+              <span className="font-semibold">{billPreview.totalCalls}</span> | Total:{" "}
+              <span className="font-semibold">
+                {money(billPreview.totalAmount, billPreview.currency)}
+              </span>
             </p>
             <div className="mt-3 grid gap-1 text-sm text-zinc-700 dark:text-zinc-200">
-              <p>
-                Fixed markup per call: {money(billPreview.fixedMarkupPerCall, billPreview.currency)}
-              </p>
-              <p className="text-zinc-600 dark:text-zinc-400">
-                Generate PDF will fetch billable usage from Twilio for this range.
-              </p>
+              <p>Twilio base: {money(billPreview.twilioBaseAmount, billPreview.currency)}</p>
+              <p>Markup total: {money(billPreview.markupAmount, billPreview.currency)}</p>
+              <p>Fixed markup per call: {money(billPreview.fixedMarkupPerCall, billPreview.currency)}</p>
             </div>
             <button
               type="button"
