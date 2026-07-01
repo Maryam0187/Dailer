@@ -60,6 +60,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      afterShiftAccess: {
+        type: DataTypes.ENUM("none", "full", "limited"),
+        allowNull: false,
+        defaultValue: "none",
+      },
+      afterShiftLimitedFileId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "UserFiles",
+          key: "id",
+        },
+      },
     },
     {
       tableName: "Users",
@@ -76,6 +89,10 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.User, { as: "supervisedAgents", foreignKey: "supervisorId" });
     User.belongsTo(models.User, { as: "creator", foreignKey: "createdBy" });
     User.hasMany(models.User, { as: "createdUsers", foreignKey: "createdBy" });
+    User.belongsTo(models.UserFile, {
+      as: "afterShiftLimitedFile",
+      foreignKey: "afterShiftLimitedFileId",
+    });
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });
@@ -84,4 +101,3 @@ module.exports = (sequelize, DataTypes) => {
 
   return User;
 };
-

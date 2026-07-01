@@ -81,31 +81,7 @@ export async function POST(req) {
       { transaction: tx },
     );
 
-    const localLogs = totals.lines.length
-      ? await db.CallLog.findAll({
-          where: { twilioSid: totals.lines.map((line) => line.twilioSid) },
-          attributes: ["id", "twilioSid"],
-          transaction: tx,
-        })
-      : [];
-
-    const logBySid = new Map(localLogs.map((log) => [log.twilioSid, log.id]));
-
-    const items = totals.lines.map((line) => ({
-      billId: bill.id,
-      callLogId: logBySid.get(line.twilioSid) || null,
-      twilioSid: line.twilioSid,
-      toNumber: line.toNumber,
-      fromNumber: line.fromNumber,
-      durationSeconds: line.durationSeconds,
-      twilioCost: line.twilioCost,
-      markupApplied: line.markupApplied,
-      lineAmount: line.lineAmount,
-    }));
-
-    await db.BillItem.bulkCreate(items, { transaction: tx });
-
-    const pdfPath = await writeBillPdf({ bill, items });
+    const pdfPath = await writeBillPdf({ bill });
     await bill.update({ pdfPath }, { transaction: tx });
     await tx.commit();
     committed = true;

@@ -32,6 +32,8 @@ function activityActionLabel(action) {
   if (action === "lead_breakdown_edit") return "Lead breakdown edited";
   if (action === "lead_comment") return "Lead comment";
   if (action === "lead_assigned") return "Lead assigned";
+  if (action === "after_shift_access_granted") return "After-shift access granted";
+  if (action === "after_shift_access_revoked") return "After-shift access revoked";
   return String(action || "Unknown").replace(/_/g, " ");
 }
 
@@ -142,6 +144,24 @@ function ActiveBadge({ active }) {
   );
 }
 
+function AfterShiftAccessBadge({ access }) {
+  if (access === "full") {
+    return (
+      <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+        Full
+      </span>
+    );
+  }
+  if (access === "limited") {
+    return (
+      <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        Limited
+      </span>
+    );
+  }
+  return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
+}
+
 function PresenceBadge({ status }) {
   const value = normalizePresence(status);
   const styles = {
@@ -215,7 +235,19 @@ const menuEditClass = `${menuItemBase} border-zinc-200 bg-white text-zinc-800 ho
 const menuDeactivateClass = `${menuItemBase} border-red-200 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60`;
 const menuActivateClass = `${menuItemBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60`;
 
-function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActivate, onDeactivate }) {
+function UserRowActionsMenu({
+  user,
+  active,
+  isSelf,
+  busy,
+  isAdmin,
+  onView,
+  onEdit,
+  onActivate,
+  onDeactivate,
+  onGrantAfterShift,
+  onRevokeAfterShift,
+}) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const triggerRef = useRef(null);
@@ -307,6 +339,29 @@ function UserRowActionsMenu({ user, active, isSelf, busy, onView, onEdit, onActi
               onClick={() => runAction(onActivate)}
             >
               {busy ? "Activating…" : "Activate"}
+            </button>
+          )
+        ) : null}
+        {isAdmin && user.role !== "admin" && active ? (
+          user.afterShiftAccess === "full" || user.afterShiftAccess === "limited" ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuDeactivateClass}
+              onClick={() => runAction(onRevokeAfterShift)}
+            >
+              {busy ? "Revoking…" : "Revoke after-shift access"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuActivateClass}
+              onClick={() => runAction(onGrantAfterShift)}
+            >
+              {busy ? "Granting…" : "Grant full after-shift access"}
             </button>
           )
         ) : null}
@@ -676,6 +731,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
 
   const presence = normalizePresence(user.presence ?? detail?.presence);
   const lastActiveAt = detail?.lastActiveAt ?? user.lastActiveAt ?? null;
+  const createdByLabel =
+    detail?.createdByUsername ??
+    user.createdByUsername ??
+    (detail?.createdBy ?? user.createdBy ? `User #${detail?.createdBy ?? user.createdBy}` : "—");
+  const createdAtValue = detail?.createdAt ?? user.createdAt ?? null;
   const isSelf = user.id === currentUserId;
 
   return (
@@ -719,6 +779,21 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     ({new Date(lastActiveAt).toLocaleString()})
                   </span>
                 ) : null}
+              </p>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Created by:{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {detailLoading && !detail ? "Loading…" : createdByLabel}
+                </span>
+                <span className="mx-1.5 text-zinc-400 dark:text-zinc-500">·</span>
+                Created:{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {detailLoading && !detail
+                    ? "Loading…"
+                    : createdAtValue
+                      ? new Date(createdAtValue).toLocaleString()
+                      : "—"}
+                </span>
               </p>
               {detailError ? (
                 <p className="mt-2 text-xs text-red-600">{detailError}</p>
@@ -1230,6 +1305,11 @@ function EditUserModal({
   const [managerId, setManagerId] = useState(user.managerId ?? "");
   const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
   const [isActive, setIsActive] = useState(user.isActive !== false);
+  const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
+  const [limitedFileId, setLimitedFileId] = useState(
+    user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "",
+  );
+  const [fileOptions, setFileOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1240,8 +1320,28 @@ function EditUserModal({
     setManagerId(user.managerId ?? "");
     setSupervisorId(user.supervisorId ?? "");
     setIsActive(user.isActive !== false);
+    setAfterShiftAccess(user.afterShiftAccess || "none");
+    setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
     setError(null);
   }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/files?pageSize=200", { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load files");
+        if (!cancelled) setFileOptions(json.files || []);
+      } catch {
+        if (!cancelled) setFileOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -1279,6 +1379,20 @@ function EditUserModal({
       }
 
       if (isActive !== (user.isActive !== false)) payload.isActive = isActive;
+
+      if (isAdmin && user.role !== "admin") {
+        const prevAccess = user.afterShiftAccess || "none";
+        if (afterShiftAccess !== prevAccess) payload.afterShiftAccess = afterShiftAccess;
+        if (afterShiftAccess === "limited") {
+          payload.afterShiftLimitedFileId = limitedFileId ? Number(limitedFileId) : null;
+        } else if (prevAccess === "limited") {
+          payload.afterShiftLimitedFileId = null;
+        }
+      }
+
+      if (isAdmin && afterShiftAccess === "limited" && !limitedFileId) {
+        throw new Error("Select a file for limited after-shift access.");
+      }
 
       if (Object.keys(payload).length === 0) {
         onClose();
@@ -1443,6 +1557,59 @@ function EditUserModal({
             </label>
           </div>
 
+          {isAdmin && user.role !== "admin" ? (
+            <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
+              <div className="flex flex-col gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "none"}
+                    onChange={() => setAfterShiftAccess("none")}
+                  />
+                  None
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "full"}
+                    onChange={() => setAfterShiftAccess("full")}
+                  />
+                  Full access
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="after-shift-access"
+                    checked={afterShiftAccess === "limited"}
+                    onChange={() => setAfterShiftAccess("limited")}
+                  />
+                  Limited (dialer + one file)
+                </label>
+              </div>
+              {afterShiftAccess === "limited" ? (
+                <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  Assigned file
+                  <select
+                    className={`${inputClass} mt-1.5`}
+                    value={limitedFileId}
+                    onChange={(e) => setLimitedFileId(e.target.value)}
+                  >
+                    <option value="">Select a file…</option>
+                    {fileOptions.map((file) => (
+                      <option key={file.id} value={file.id}>
+                        {file.name}
+                        {file.owner?.username ? ` (${file.owner.username})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
           {error ? (
             <p
               className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
@@ -1478,6 +1645,8 @@ function normalizeUsersList(list) {
   return (list || []).map((u) => ({
     ...u,
     isActive: u.isActive !== false && u.isActive !== 0,
+    afterShiftAccess: u.afterShiftAccess || "none",
+    afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
     presence: normalizePresence(u.presence),
     lastActiveAt: u.lastActiveAt ?? null,
   }));
@@ -1669,6 +1838,35 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     }
   }
 
+  async function setAfterShiftAccessForUser(u, access, limitedFileId = null) {
+    if (u.role === "admin") return;
+    setListError(null);
+    setRowBusyId(u.id);
+    try {
+      const body = { afterShiftAccess: access };
+      if (access === "limited") {
+        if (!limitedFileId) {
+          setEditingUser(u);
+          return;
+        }
+        body.afterShiftLimitedFileId = limitedFileId;
+      }
+      const res = await fetch(`/api/users/${u.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Update failed");
+      await loadUsers();
+    } catch (err) {
+      setListError(err.message || "Update failed");
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
   const isManager = role === "manager";
   const isSupervisor = role === "supervisor";
   const showRoleSelector = role === "admin" || isManager;
@@ -1684,6 +1882,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         ? "Agents and supervisors assigned to you."
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
+  const showAfterShiftColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
@@ -1909,7 +2108,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-md shadow-zinc-200/30 ring-1 ring-zinc-950/[0.04] dark:border-zinc-700/80 dark:bg-zinc-900 dark:shadow-none dark:ring-white/5">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200/90 bg-zinc-50/90 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200/90 bg-zinc-50/90 px-4 py-4 sm:px-6 dark:border-zinc-700 dark:bg-zinc-800/40">
           <div>
             <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">{listHeading}</h2>
             <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
@@ -1921,7 +2120,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
             {role === "admin" ? (
-              <div className="min-w-[14rem]">
+              <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
                 <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
                   Supervisor
                 </label>
@@ -1996,11 +2195,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
+                    {showAfterShiftColumn ? (
+                      <th className="px-4 py-3.5">After shift</th>
+                    ) : null}
                     {showHierarchyColumns ? (
                       <th className="px-4 py-3.5">Supervisor</th>
                     ) : null}
-                    <th className="px-4 py-3.5">Created by</th>
-                    <th className="px-4 py-3.5">Created</th>
                     <th className="px-4 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -2034,6 +2234,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
                         </td>
+                        {showAfterShiftColumn ? (
+                          <td className="px-4 py-3.5">
+                            {u.role === "admin" ? (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">Always</span>
+                            ) : (
+                              <AfterShiftAccessBadge access={u.afterShiftAccess || "none"} />
+                            )}
+                          </td>
+                        ) : null}
                         {showHierarchyColumns ? (
                           <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
                             {u.role === "agent"
@@ -2043,25 +2252,19 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                               : "—"}
                           </td>
                         ) : null}
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
-                          {u.createdByUsername ??
-                            (u.createdBy
-                              ? users.find((x) => x.id === u.createdBy)?.username ?? u.createdBy
-                              : "—")}
-                        </td>
-                        <td className="px-4 py-3.5 tabular-nums text-zinc-600 dark:text-zinc-300">
-                          {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
-                        </td>
                         <td className="px-4 py-3.5 text-right">
                           <UserRowActionsMenu
                             user={u}
                             active={active}
                             isSelf={u.id === currentUserId}
                             busy={rowBusyId === u.id}
+                            isAdmin={role === "admin"}
                             onView={() => setViewingUser(u)}
                             onEdit={() => setEditingUser(u)}
                             onDeactivate={() => toggleActive(u, false)}
                             onActivate={() => toggleActive(u, true)}
+                            onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}
+                            onRevokeAfterShift={() => setAfterShiftAccessForUser(u, "none")}
                           />
                         </td>
                       </tr>

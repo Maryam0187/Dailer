@@ -9,11 +9,11 @@ import FilesStatsPanel from "@/components/Files/FilesStatsPanel";
 const MAX_OPEN_TABS = 5;
 const FILES_PAGE_SIZE = 24;
 
-const inputClass =
-  "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
-
 const selectClass =
   "h-11 min-w-[200px] rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
+
+const editorTitleClass =
+  "min-w-0 flex-1 border-0 bg-transparent text-lg font-semibold text-zinc-900 outline-none placeholder:text-zinc-400 focus:ring-0 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 const browseTabClass = (active) =>
   `shrink-0 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
@@ -96,8 +96,9 @@ function tabLabel(tab) {
   return tab.fileId == null ? "New file" : "Untitled";
 }
 
-export default function FilesClient({ userRole = "agent" }) {
+export default function FilesClient({ userRole = "agent", pageDescription = "", accessMode = "full" }) {
   const isAdmin = userRole === "admin";
+  const isLimitedAfterShift = accessMode === "limited";
   const [files, setFiles] = useState([]);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -126,6 +127,7 @@ export default function FilesClient({ userRole = "agent" }) {
   pageRef.current = page;
 
   const activeEditorTab = openTabs.find((tab) => tab.tabId === activeView) ?? null;
+  const isEditing = Boolean(activeEditorTab);
   const canOpenMore = openTabs.length < MAX_OPEN_TABS;
   const isStatsActive = activeView === "stats";
   const isBrowseActive = activeView === "browse";
@@ -176,6 +178,18 @@ export default function FilesClient({ userRole = "agent" }) {
   }, [loadFiles, page]);
 
   useEffect(() => {
+    if (!isEditing) return;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+    };
+  }, [isEditing]);
+
+  useEffect(() => {
     if (!isAdmin) return;
 
     let cancelled = false;
@@ -204,6 +218,7 @@ export default function FilesClient({ userRole = "agent" }) {
   }
 
   function openNewFile() {
+    if (isLimitedAfterShift) return;
     if (!canOpenMore) {
       showMaxTabsMessage();
       return;
@@ -240,6 +255,16 @@ export default function FilesClient({ userRole = "agent" }) {
     setError(null);
   }
 
+  useEffect(() => {
+    if (!isLimitedAfterShift || loading || files.length === 0 || openTabs.length > 0) return;
+    openEditFile(files[0]);
+  }, [isLimitedAfterShift, loading, files, openTabs.length]);
+
+  useEffect(() => {
+    if (!isLimitedAfterShift || activeView !== "browse" || openTabs.length === 0) return;
+    setActiveView(openTabs[0].tabId);
+  }, [isLimitedAfterShift, activeView, openTabs]);
+
   function closeTab(tabId) {
     setOpenTabs((tabs) => {
       const remaining = tabs.filter((tab) => tab.tabId !== tabId);
@@ -269,6 +294,7 @@ export default function FilesClient({ userRole = "agent" }) {
   }
 
   function requestCloseTab(tabId) {
+    if (isLimitedAfterShift) return;
     const tab = openTabs.find((t) => t.tabId === tabId);
     if (!tab) return;
     if (!isTabDirty(tab)) {
@@ -293,13 +319,13 @@ export default function FilesClient({ userRole = "agent" }) {
       return;
     }
 
-    const result = await saveTab(tabId, { switchToTab: false, closeAfterSave: true });
+    const result = await saveTab(tabId, { closeAfterSave: true });
     if (result?.ok) {
       setCloseConfirm(null);
     }
   }
 
-  async function saveTab(tabId, { switchToTab = true, closeAfterSave = false } = {}) {
+  async function saveTab(tabId, { closeAfterSave = false } = {}) {
     const tab = openTabsRef.current.find((t) => t.tabId === tabId);
     if (!tab) return { ok: false };
 
@@ -352,9 +378,7 @@ export default function FilesClient({ userRole = "agent" }) {
             : t,
         ),
       );
-      if (switchToTab) {
-        setActiveView(newTabId);
-      }
+      setActiveView((current) => (current === tabId ? newTabId : current));
       const reloadPage = tab.fileId ? pageRef.current : 1;
       if (!tab.fileId) setPage(1);
       await loadFiles(reloadPage);
@@ -410,47 +434,54 @@ export default function FilesClient({ userRole = "agent" }) {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      {isAdmin ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveView("browse")}
-            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
-              isBrowseActive
-                ? "border-indigo-600 bg-indigo-100 text-indigo-950 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-100"
-                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            }`}
-          >
-            All files
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView("stats")}
-            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
-              isStatsActive
-                ? "border-indigo-600 bg-indigo-100 text-indigo-950 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-100"
-                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            }`}
-          >
-            File stats
-          </button>
+    <div
+      className={
+        isEditing
+          ? "flex h-[calc(100dvh-8.5rem)] flex-col overflow-hidden"
+          : "flex flex-col gap-5"
+      }
+    >
+      {!isEditing ? (
+        <div className="mb-2 border-b border-zinc-200/80 pb-6 dark:border-zinc-800">
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">Files</h1>
+          {pageDescription ? (
+            <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
+              {pageDescription}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
-      {!isStatsActive ? (
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${isEditing ? "shrink-0" : ""}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
-          <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
-            {viewAll ? "All files" : "My files"}
-            {!loading ? (
-              <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
-                {pagination.total}
-              </span>
-            ) : null}
-          </button>
+          {isLimitedAfterShift ? (
+            <span className={browseTabClass(true)} aria-current="page">
+              Assigned file
+              {!loading ? (
+                <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                  {pagination.total}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
+              {viewAll ? "All files" : "My files"}
+              {!loading && isBrowseActive ? (
+                <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                  {pagination.total}
+                </span>
+              ) : null}
+            </button>
+          )}
 
-          {openTabs.map((tab) => {
+          {isAdmin ? (
+            <button type="button" onClick={() => setActiveView("stats")} className={browseTabClass(isStatsActive)}>
+              File stats
+            </button>
+          ) : null}
+
+          {!isLimitedAfterShift
+            ? openTabs.map((tab) => {
             const active = activeView === tab.tabId;
             const dirty = isTabDirty(tab);
             return (
@@ -478,11 +509,12 @@ export default function FilesClient({ userRole = "agent" }) {
                 </button>
               </div>
             );
-          })}
+          })
+            : null}
 
         </div>
 
-        {isBrowseActive && !isFilteredUserEmpty ? (
+        {isBrowseActive && !isFilteredUserEmpty && !isLimitedAfterShift ? (
           <button
             type="button"
             onClick={openNewFile}
@@ -494,21 +526,20 @@ export default function FilesClient({ userRole = "agent" }) {
           </button>
         ) : null}
       </div>
-      ) : null}
 
       {!isStatsActive && !canOpenMore ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className={`text-xs text-zinc-500 dark:text-zinc-400 ${isEditing ? "shrink-0" : ""}`}>
           {MAX_OPEN_TABS} tabs open — close one to open another file.
         </p>
       ) : null}
 
-      {error && !isStatsActive ? (
+      {error && !isStatsActive && !isEditing ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
           {error}
         </div>
       ) : null}
 
-      {isAdmin && isBrowseActive ? (
+      {isAdmin && isBrowseActive && !isLimitedAfterShift ? (
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Filter by user
@@ -533,7 +564,13 @@ export default function FilesClient({ userRole = "agent" }) {
 
       {isStatsActive ? <FilesStatsPanel /> : null}
 
-      {isBrowseActive ? (
+      {isLimitedAfterShift && !loading && files.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400">
+          No file has been assigned for your limited after-shift access.
+        </div>
+      ) : null}
+
+      {isBrowseActive && !isLimitedAfterShift ? (
         <BrowseTab
           files={files}
           loading={loading}
@@ -551,17 +588,20 @@ export default function FilesClient({ userRole = "agent" }) {
           onDeleteFile={requestDeleteFile}
         />
       ) : activeEditorTab ? (
-        <WriteTab
-          tab={activeEditorTab}
-          isAdmin={isAdmin}
-          saving={savingTabId === activeEditorTab.tabId}
-          deleting={deletingTabId === activeEditorTab.tabId}
-          onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
-          onContentChange={(value) => updateTab(activeEditorTab.tabId, { content: value, saveError: null })}
-          onSave={() => saveTab(activeEditorTab.tabId, { switchToTab: false, closeAfterSave: true })}
-          onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
-          onClose={() => requestCloseTab(activeEditorTab.tabId)}
-        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <WriteTab
+            tab={activeEditorTab}
+            allowDelete={!isLimitedAfterShift}
+            allowClose={!isLimitedAfterShift}
+            saving={savingTabId === activeEditorTab.tabId}
+            deleting={deletingTabId === activeEditorTab.tabId}
+            onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
+            onContentChange={(value) => updateTab(activeEditorTab.tabId, { content: value, saveError: null })}
+            onSave={() => saveTab(activeEditorTab.tabId, { closeAfterSave: false })}
+            onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
+            onClose={() => requestCloseTab(activeEditorTab.tabId)}
+          />
+        </div>
       ) : null}
 
       {closeConfirm ? (
@@ -682,68 +722,68 @@ function BrowseTab({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {files.map((file) => {
-        const isOpen = openFileIds.has(file.id);
-        return (
-          <article
-            key={file.id}
-            className={`group flex flex-col rounded-xl border bg-white p-3 shadow-sm transition-[border-color,box-shadow] dark:bg-zinc-950 ${
-              isOpen
-                ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
-                : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
-            }`}
-          >
-            <button type="button" onClick={() => onEditFile(file)} className="min-w-0 flex-1 text-left">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="truncate text-sm font-semibold text-zinc-900 group-hover:text-indigo-700 dark:text-zinc-100 dark:group-hover:text-indigo-300">
-                  {file.name}
-                </h3>
-                {isOpen ? (
-                  <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
-                    Open
-                  </span>
+        {files.map((file) => {
+          const isOpen = openFileIds.has(file.id);
+          return (
+            <article
+              key={file.id}
+              className={`group flex flex-col rounded-xl border bg-white p-3 shadow-sm transition-[border-color,box-shadow] dark:bg-zinc-950 ${
+                isOpen
+                  ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
+                  : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
+              }`}
+            >
+              <button type="button" onClick={() => onEditFile(file)} className="min-w-0 flex-1 text-left">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="truncate text-sm font-semibold text-zinc-900 group-hover:text-indigo-700 dark:text-zinc-100 dark:group-hover:text-indigo-300">
+                    {file.name}
+                  </h3>
+                  {isOpen ? (
+                    <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
+                      Open
+                    </span>
+                  ) : null}
+                </div>
+                {isAdmin && !filteringByUser && file.owner?.username ? (
+                  <p className="mt-0.5 truncate text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    {file.owner.username}
+                  </p>
                 ) : null}
-              </div>
-              {isAdmin && !filteringByUser && file.owner?.username ? (
-                <p className="mt-0.5 truncate text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
-                  {file.owner.username}
+                <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+                  {isEmptyRichText(file.content) ? (
+                    <span className="italic text-zinc-400 dark:text-zinc-500">Empty document</span>
+                  ) : (
+                    richTextPreview(file.content, 80)
+                  )}
                 </p>
-              ) : null}
-              <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
-                {isEmptyRichText(file.content) ? (
-                  <span className="italic text-zinc-400 dark:text-zinc-500">Empty document</span>
-                ) : (
-                  richTextPreview(file.content, 80)
-                )}
-              </p>
-            </button>
+              </button>
 
-            <div className="mt-2 flex items-center justify-between gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-              <div className="min-w-0 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
-                <p className="truncate">Created {formatShortDate(file.createdAt)}</p>
-                <p className="truncate">Updated {formatDate(file.updatedAt)}</p>
+              <div className="mt-2 flex items-center justify-between gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                <div className="min-w-0 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+                  <p className="truncate">Created {formatShortDate(file.createdAt)}</p>
+                  <p className="truncate">Updated {formatDate(file.updatedAt)}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <IconTooltipButton
+                    title={isOpen ? "Switch to tab" : "Open in tab"}
+                    variant="accent"
+                    onClick={() => onEditFile(file)}
+                  >
+                    <EditIcon />
+                  </IconTooltipButton>
+                  <IconTooltipButton
+                    title="Delete file"
+                    variant="danger"
+                    disabled={deletingId === file.id}
+                    onClick={() => onDeleteFile(file)}
+                  >
+                    <DeleteIcon />
+                  </IconTooltipButton>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <IconTooltipButton
-                  title={isOpen ? "Switch to tab" : "Open in tab"}
-                  variant="accent"
-                  onClick={() => onEditFile(file)}
-                >
-                  <EditIcon />
-                </IconTooltipButton>
-                <IconTooltipButton
-                  title="Delete file"
-                  variant="danger"
-                  disabled={deletingId === file.id}
-                  onClick={() => onDeleteFile(file)}
-                >
-                  <DeleteIcon />
-                </IconTooltipButton>
-              </div>
-            </div>
-          </article>
-        );
-      })}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
@@ -856,75 +896,102 @@ function UnsavedChangesDialog({ fileName, saving, saveError, onSave, onDiscard, 
   );
 }
 
-function WriteTab({ tab, isAdmin, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
+function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelete, onClose, allowDelete = true, allowClose = true }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {!isNewFile && allowDelete ? (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting || saving}
+          className="rounded-lg border border-transparent px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:border-red-900/50 dark:hover:bg-red-950/30"
+        >
+          {deleting ? "Deleting…" : "Delete"}
+        </button>
+      ) : null}
+      {allowClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={saving || deleting}
+          className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Close
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={saving || deleting}
+        title="Save (Ctrl+S)"
+        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
+      </button>
+    </div>
+  );
+}
+
+function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
   const isNewFile = tab.fileId == null;
+  const isDirty = isTabDirty(tab);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!saving && !deleting) onSave();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onSave, saving, deleting]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
-      {isAdmin && tab.owner?.username ? (
-        <div className="border-b border-indigo-200 bg-indigo-50/80 px-5 py-2.5 text-sm text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-100">
-          Agent: <span className="font-semibold">{tab.owner.username}</span>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100/80 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/50">
+      <div className="shrink-0 border-b border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950">
+        <div className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+          <input
+            id={`file-name-${tab.tabId}`}
+            type="text"
+            value={tab.fileName}
+            onChange={(e) => onFileNameChange(e.target.value)}
+            placeholder="Untitled document"
+            className={editorTitleClass}
+          />
+          <WriteTabActions
+            isNewFile={isNewFile}
+            allowDelete={allowDelete}
+            allowClose={allowClose}
+            saving={saving}
+            deleting={deleting}
+            isDirty={isDirty}
+            onSave={onSave}
+            onDelete={onDelete}
+            onClose={onClose}
+          />
         </div>
-      ) : null}
-      <div className="border-b border-zinc-200 bg-zinc-50/80 px-5 py-4 dark:border-zinc-700 dark:bg-zinc-900/50">
-        <label htmlFor={`file-name-${tab.tabId}`} className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          File name
-        </label>
-        <input
-          id={`file-name-${tab.tabId}`}
-          type="text"
-          value={tab.fileName}
-          onChange={(e) => onFileNameChange(e.target.value)}
-          placeholder="e.g. Meeting notes, Script draft"
-          className={inputClass}
-        />
+
+        {tab.saveError ? (
+          <p className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 sm:px-5">
+            {tab.saveError}
+          </p>
+        ) : null}
       </div>
 
-      <div className="p-5">
-        <span className="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Content</span>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <RichTextEditor
           key={tab.tabId}
           value={tab.content}
           onChange={onContentChange}
+          editable
           placeholder="Start writing…"
-          minHeightClass="min-h-[420px]"
+          minHeightClass="min-h-[16rem]"
           wordLayout
+          stickyToolbar
+          embedded
         />
-
-        {tab.saveError ? <p className="mt-3 text-sm text-red-600 dark:text-red-400">{tab.saveError}</p> : null}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/80 px-5 py-4 dark:border-zinc-700 dark:bg-zinc-900/50">
-        <div>
-          {!isNewFile ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={deleting || saving}
-              className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/30"
-            >
-              {deleting ? "Deleting…" : "Delete"}
-            </button>
-          ) : null}
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving || deleting}
-            className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Close tab
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving || deleting}
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
       </div>
     </div>
   );

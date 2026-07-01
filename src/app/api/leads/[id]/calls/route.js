@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import { canAccessLead } from "@/server/leads/leadAccess";
@@ -12,8 +12,8 @@ function parsePositiveInt(value, fallback) {
 }
 
 export async function GET(req, { params }) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
   const leadId = Number(rawId);

@@ -60,6 +60,7 @@ export async function POST(req) {
   }
 
   const totals = calculateTotals(calls, settings.fixedMarkupPerCall);
+
   return NextResponse.json({
     preview: {
       fromDate,
@@ -70,7 +71,6 @@ export async function POST(req) {
       twilioBaseAmount: totals.twilioBaseAmount,
       markupAmount: totals.markupAmount,
       totalAmount: totals.totalAmount,
-      lines: totals.lines,
     },
   });
 }

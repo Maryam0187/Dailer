@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canViewAllFiles, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
+import { canCreateFiles, canViewAllFiles, canWriteFile, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
@@ -24,11 +24,14 @@ export async function GET(_req, { params }) {
 export async function PATCH(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { id: rawId } = await params;
   const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) {
     return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+  }
+
+  if (!canWriteFile(authedUser, id)) {
+    return NextResponse.json({ error: "You cannot edit this file with limited after-shift access." }, { status: 403 });
   }
 
   const file = await getAccessibleFile(id, authedUser);
@@ -69,6 +72,9 @@ export async function PATCH(req, { params }) {
 export async function DELETE(_req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canCreateFiles(authedUser)) {
+    return NextResponse.json({ error: "Deleting files is not available with limited after-shift access." }, { status: 403 });
+  }
 
   const { id: rawId } = await params;
   const id = Number(rawId);

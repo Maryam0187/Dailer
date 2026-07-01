@@ -4,6 +4,7 @@ const next = require("next");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const db = require("./models");
+const { isLoginAllowed, isSessionValidForToday } = require("./src/server/auth/loginWindow.core.cjs");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
@@ -36,7 +37,7 @@ app.prepare().then(() => {
     return out;
   }
 
-  io.use((socket, nextSocket) => {
+  io.use(async (socket, nextSocket) => {
     try {
       const cookies = parseCookies(socket.handshake.headers?.cookie || "");
       const token = cookies.token;
@@ -45,6 +46,19 @@ app.prepare().then(() => {
       const payload = jwt.verify(token, secret);
       const userId = Number(payload?.sub);
       if (!Number.isInteger(userId) || userId <= 0) return nextSocket(new Error("Unauthorized"));
+
+      const user = await db.User.findByPk(userId, {
+        attributes: ["id", "role", "isActive", "afterShiftAccess", "afterShiftLimitedFileId"],
+      });
+      if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
+
+      if (!isSessionValidForToday(payload)) {
+        return nextSocket(new Error("Unauthorized"));
+      }
+      if (!isLoginAllowed(user)) {
+        return nextSocket(new Error("Unauthorized"));
+      }
+
       socket.data.userId = userId;
       return nextSocket();
     } catch {

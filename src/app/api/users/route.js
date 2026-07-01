@@ -13,6 +13,8 @@ const LIST_ATTRIBUTES = [
   "createdBy",
   "createdAt",
   "isActive",
+  "afterShiftAccess",
+  "afterShiftLimitedFileId",
   "activeSessionId",
   "activeSessionLastSeenAt",
 ];
@@ -25,7 +27,7 @@ const LIST_INCLUDE = [
   },
 ];
 
-function serializeUserRow(row, now) {
+function serializeUserRow(row, now, { includeShiftAccess = false } = {}) {
   const presence = derivePresence(
     {
       id: row.id,
@@ -44,6 +46,12 @@ function serializeUserRow(row, now) {
     createdByUsername: row.creator?.username ?? null,
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
+    ...(includeShiftAccess
+      ? {
+          afterShiftAccess: row.afterShiftAccess || "none",
+          afterShiftLimitedFileId: row.afterShiftLimitedFileId ?? null,
+        }
+      : {}),
     presence: presence.status,
     lastActiveAt: presence.lastActiveAt,
   };
@@ -61,7 +69,9 @@ export async function GET(req) {
     });
     const now = Date.now();
     return NextResponse.json({
-      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+      users: sortUsersForDisplay(
+        rows.map((r) => serializeUserRow(r, now, { includeShiftAccess: true })),
+      ),
     });
   }
 

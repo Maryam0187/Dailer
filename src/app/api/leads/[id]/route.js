@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
@@ -20,8 +20,8 @@ const ALLOWED_STATUSES = new Set(["new", "contacted", "callback", "qualified", "
 const ALLOWED_SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
 
 export async function PATCH(req, { params }) {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
   const id = Number(rawId);

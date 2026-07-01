@@ -307,6 +307,8 @@ export default function RichTextEditor({
   compactToolbar = false,
   showToolbar = true,
   editable = true,
+  stickyToolbar = false,
+  embedded = false,
 }) {
   const editor = useEditor({
     immediatelyRender: false,
@@ -363,7 +365,17 @@ export default function RichTextEditor({
 
   const editorSurface = (
     <>
-      {showToolbar ? <EditorToolbar editor={editor} compact={compactToolbar} /> : null}
+      {showToolbar ? (
+        <div
+          className={
+            stickyToolbar
+              ? "sticky top-0 z-10 shrink-0 border-b border-zinc-200 bg-[#f3f3f3] dark:border-zinc-700 dark:bg-zinc-900/95"
+              : undefined
+          }
+        >
+          <EditorToolbar editor={editor} compact={compactToolbar} />
+        </div>
+      ) : null}
       {wordLayout ? (
         <div className="bg-[#e8e8e8] px-3 py-4 dark:bg-zinc-900">
           <div className="word-page mx-auto max-w-[816px] rounded-sm bg-white px-10 py-8 shadow-md dark:bg-zinc-950 dark:shadow-black/40 sm:px-14 sm:py-10">
@@ -379,7 +391,15 @@ export default function RichTextEditor({
   );
 
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-600 dark:bg-zinc-950">
+    <div
+      className={
+        embedded
+          ? "bg-transparent"
+          : `rounded-xl border border-zinc-200 bg-white dark:border-zinc-600 dark:bg-zinc-950 ${
+              stickyToolbar ? "" : "overflow-hidden"
+            }`
+      }
+    >
       {editorSurface}
     </div>
   );

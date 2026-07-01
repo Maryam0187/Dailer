@@ -17,6 +17,10 @@ export default function SignInPage() {
     const reason = new URLSearchParams(window.location.search).get("reason");
     if (reason === "replaced") {
       setNotice("Your session ended because you signed in on another device.");
+    } else if (reason === "shift_ended") {
+      setNotice("Your shift has ended. Sign-in is available again at 6:00 PM Pakistan time.");
+    } else if (reason === "session_day_ended") {
+      setNotice("Your previous session ended. Please sign in again to start today's session.");
     }
   }, []);
 

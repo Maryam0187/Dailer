@@ -4,6 +4,8 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { assertCanManageTarget } from "@/server/auth/userAccess";
+import { isWithinLoginWindow } from "@/server/auth/loginWindow";
+import { logUserActivity } from "@/server/activity/logUserActivity";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -22,10 +24,25 @@ export async function GET(_req, { params }) {
       "role",
       "managerId",
       "supervisorId",
+      "createdBy",
       "createdAt",
       "isActive",
+      "afterShiftAccess",
+      "afterShiftLimitedFileId",
       "activeSessionId",
       "activeSessionLastSeenAt",
+    ],
+    include: [
+      {
+        association: "creator",
+        attributes: ["id", "username"],
+        required: false,
+      },
+      {
+        association: "afterShiftLimitedFile",
+        attributes: ["id", "name"],
+        required: false,
+      },
     ],
   });
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -48,8 +65,15 @@ export async function GET(_req, { params }) {
       role: target.role,
       managerId: target.managerId,
       supervisorId: target.supervisorId,
+      createdBy: target.createdBy ?? null,
+      createdByUsername: target.creator?.username ?? null,
       createdAt: target.createdAt,
       isActive: target.isActive !== false,
+      afterShiftAccess: authedUser.role === "admin" ? target.afterShiftAccess || "none" : undefined,
+      afterShiftLimitedFileId:
+        authedUser.role === "admin" ? target.afterShiftLimitedFileId ?? null : undefined,
+      afterShiftLimitedFileName:
+        authedUser.role === "admin" ? target.afterShiftLimitedFile?.name ?? null : undefined,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     },
@@ -167,6 +191,56 @@ export async function PATCH(req, { params }) {
     updates.isActive = Boolean(body.isActive);
   }
 
+  if (isAdmin && body.afterShiftAccess !== undefined) {
+    if (target.role === "admin") {
+      return NextResponse.json(
+        { error: "Admin accounts always have full access" },
+        { status: 400 },
+      );
+    }
+    const allowedAccess = ["none", "full", "limited"];
+    if (!allowedAccess.includes(body.afterShiftAccess)) {
+      return NextResponse.json({ error: "Invalid afterShiftAccess" }, { status: 400 });
+    }
+    updates.afterShiftAccess = body.afterShiftAccess;
+    if (body.afterShiftAccess !== "limited") {
+      updates.afterShiftLimitedFileId = null;
+    }
+  }
+
+  if (isAdmin && body.afterShiftLimitedFileId !== undefined) {
+    const fileId =
+      body.afterShiftLimitedFileId == null ? null : Number(body.afterShiftLimitedFileId);
+    if (fileId != null && (!Number.isInteger(fileId) || fileId <= 0)) {
+      return NextResponse.json({ error: "Invalid afterShiftLimitedFileId" }, { status: 400 });
+    }
+    if (fileId != null) {
+      const file = await db.UserFile.findByPk(fileId, { attributes: ["id"] });
+      if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+    updates.afterShiftLimitedFileId = fileId;
+  }
+
+  if (isAdmin && body.afterShiftFullAccess !== undefined) {
+    if (target.role === "admin") {
+      return NextResponse.json(
+        { error: "Admin accounts always have full access" },
+        { status: 400 },
+      );
+    }
+    updates.afterShiftAccess = body.afterShiftFullAccess ? "full" : "none";
+    if (!body.afterShiftFullAccess) updates.afterShiftLimitedFileId = null;
+  }
+
+  const nextAccess = updates.afterShiftAccess ?? target.afterShiftAccess ?? "none";
+  const nextLimitedFileId =
+    updates.afterShiftLimitedFileId !== undefined
+      ? updates.afterShiftLimitedFileId
+      : target.afterShiftLimitedFileId;
+  if (updates.afterShiftAccess === "limited" && !nextLimitedFileId) {
+    return NextResponse.json({ error: "Limited access requires a file" }, { status: 400 });
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
@@ -180,9 +254,58 @@ export async function PATCH(req, { params }) {
     throw err;
   }
 
+  const accessRevoked =
+    updates.afterShiftAccess === "none" || body.afterShiftFullAccess === false;
+  if (isAdmin && accessRevoked && !isWithinLoginWindow() && target.activeSessionId) {
+    await db.User.update(
+      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { where: { id: target.id } },
+    );
+  }
+
+  if (isAdmin && (body.afterShiftAccess !== undefined || body.afterShiftFullAccess !== undefined)) {
+    const next = updates.afterShiftAccess ?? target.afterShiftAccess ?? "none";
+    await logUserActivity({
+      req,
+      userId: authedUser.id,
+      action: next === "none" ? "after_shift_access_revoked" : "after_shift_access_granted",
+      entityType: "user",
+      entityId: target.id,
+      metadata: {
+        targetUsername: target.username,
+        afterShiftAccess: next,
+        afterShiftLimitedFileId: nextLimitedFileId ?? null,
+      },
+    });
+  }
+
   const fresh = await db.User.findByPk(id, {
-    attributes: ["id", "username", "role", "managerId", "supervisorId", "createdAt", "isActive"],
+    attributes: [
+      "id",
+      "username",
+      "role",
+      "managerId",
+      "supervisorId",
+      "createdAt",
+      "isActive",
+      "afterShiftAccess",
+      "afterShiftLimitedFileId",
+    ],
+    include: [
+      {
+        association: "afterShiftLimitedFile",
+        attributes: ["id", "name"],
+        required: false,
+      },
+    ],
   });
 
-  return NextResponse.json({ user: fresh });
+  return NextResponse.json({
+    user: fresh
+      ? {
+          ...fresh.toJSON(),
+          afterShiftLimitedFileName: fresh.afterShiftLimitedFile?.name ?? null,
+        }
+      : fresh,
+  });
 }

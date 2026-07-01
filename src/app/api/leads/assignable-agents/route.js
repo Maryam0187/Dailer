@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { canUseLeadFilters } from "@/lib/leadRoles";
 import { getFilterSupervisors, getLeadFilterCreators } from "@/server/leads/leadAccess";
 
 export async function GET() {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
 
   if (!canUseLeadFilters(authedUser.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

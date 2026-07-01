@@ -194,7 +194,7 @@ export default function BillingClient() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {error ? (
         <p
           className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
@@ -204,7 +204,7 @@ export default function BillingClient() {
         </p>
       ) : null}
 
-      <section className="rounded-2xl border border-sky-200 bg-white p-6 shadow-sm dark:border-sky-900/40 dark:bg-zinc-900">
+      <section className="rounded-2xl border border-sky-200 bg-white p-4 shadow-sm sm:p-6 dark:border-sky-900/40 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Markup settings</h2>
         <form className="mt-4 flex flex-col gap-4 sm:max-w-md" onSubmit={onSaveSettings}>
           <div>
@@ -233,7 +233,7 @@ export default function BillingClient() {
         </form>
       </section>
 
-      <section className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm dark:border-emerald-900/40 dark:bg-zinc-900">
+      <section className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm sm:p-6 dark:border-emerald-900/40 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Generate bill</h2>
         <form className="mt-4 grid gap-4 sm:grid-cols-3" onSubmit={onPreviewBill}>
           <div className="sm:col-span-3">
@@ -295,11 +295,11 @@ export default function BillingClient() {
               required
             />
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end sm:col-span-1">
             <button
               type="submit"
               disabled={previewing || generating || rangePreset !== "custom"}
-              className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              className="h-11 w-full rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
             >
               {previewing ? "Previewing..." : "Preview bill"}
             </button>
@@ -308,14 +308,21 @@ export default function BillingClient() {
 
         {billPreview ? (
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-            <p className="text-sm text-zinc-700 dark:text-zinc-200">
-              Preview: {new Date(billPreview.fromDate).toLocaleDateString()} -{" "}
-              {new Date(billPreview.toDate).toLocaleDateString()} | Calls:{" "}
-              <span className="font-semibold">{billPreview.totalCalls}</span> | Total:{" "}
-              <span className="font-semibold">
-                {money(billPreview.totalAmount, billPreview.currency)}
-              </span>
-            </p>
+            <div className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
+              <p>
+                Preview: {new Date(billPreview.fromDate).toLocaleDateString()} –{" "}
+                {new Date(billPreview.toDate).toLocaleDateString()}
+              </p>
+              <p>
+                Calls: <span className="font-semibold">{billPreview.totalCalls}</span>
+              </p>
+              <p>
+                Total:{" "}
+                <span className="font-semibold">
+                  {money(billPreview.totalAmount, billPreview.currency)}
+                </span>
+              </p>
+            </div>
             <div className="mt-3 grid gap-1 text-sm text-zinc-700 dark:text-zinc-200">
               <p>Twilio base: {money(billPreview.twilioBaseAmount, billPreview.currency)}</p>
               <p>Markup total: {money(billPreview.markupAmount, billPreview.currency)}</p>
@@ -325,66 +332,10 @@ export default function BillingClient() {
               type="button"
               onClick={onGenerateBill}
               disabled={generating}
-              className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              className="mt-4 w-full rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
             >
               {generating ? "Generating PDF..." : "Generate PDF"}
             </button>
-
-            <div className="mt-5 overflow-x-auto rounded-xl border border-emerald-200/80 bg-white/80 p-3 dark:border-emerald-900/40 dark:bg-zinc-900/70">
-              <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Preview logs ({billPreview.lines?.length || 0})
-              </h3>
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                    <th className="py-2 pr-3">Call SID</th>
-                    <th className="py-2 pr-3">To</th>
-                    <th className="py-2 pr-3">From</th>
-                    <th className="py-2 pr-3">Duration</th>
-                    <th className="py-2 pr-3">Twilio</th>
-                    <th className="py-2 pr-3">Markup</th>
-                    <th className="py-2">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(billPreview.lines || []).map((line) => (
-                    <tr
-                      key={line.twilioSid}
-                      className="border-b border-zinc-100 dark:border-zinc-800"
-                    >
-                      <td className="py-2 pr-3 font-mono text-xs text-zinc-700 dark:text-zinc-200">
-                        {line.twilioSid}
-                      </td>
-                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                        {line.toNumber || "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                        {line.fromNumber || "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                        {line.durationSeconds ?? "—"}s
-                      </td>
-                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                        {money(line.twilioCost, billPreview.currency)}
-                      </td>
-                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                        {money(line.markupApplied, billPreview.currency)}
-                      </td>
-                      <td className="py-2 font-semibold text-zinc-900 dark:text-zinc-100">
-                        {money(line.lineAmount, billPreview.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                  {(billPreview.lines || []).length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-3 text-zinc-600 dark:text-zinc-300">
-                        No billable logs found in selected range.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
           </div>
         ) : null}
 
@@ -406,9 +357,55 @@ export default function BillingClient() {
         ) : null}
       </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6 dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Recent bills</h2>
-        <div className="mt-4 overflow-x-auto">
+
+        <div className="mt-4 space-y-3 md:hidden">
+          {billHistory.map((b) => (
+            <article
+              key={b.id}
+              className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-950/40"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold text-zinc-900 dark:text-zinc-100">Bill #{b.id}</p>
+                <a
+                  href={`/api/billing/bills/${b.id}/pdf`}
+                  className="shrink-0 text-sky-700 underline underline-offset-4 dark:text-sky-300"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open PDF
+                </a>
+              </div>
+              <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+                {new Date(b.fromDate).toLocaleDateString()} – {new Date(b.toDate).toLocaleDateString()}
+              </p>
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-zinc-700 dark:text-zinc-200">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Calls</dt>
+                  <dd className="font-medium">{b.totalCalls}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Total</dt>
+                  <dd className="font-semibold">{money(b.totalAmount, b.currency)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Twilio base</dt>
+                  <dd>{money(b.twilioBaseAmount, b.currency)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Markup</dt>
+                  <dd>{money(b.markupAmount, b.currency)}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+          {billHistory.length === 0 ? (
+            <p className="py-3 text-sm text-zinc-600 dark:text-zinc-300">No bills yet.</p>
+          ) : null}
+        </div>
+
+        <div className="mt-4 hidden overflow-x-auto md:block">
           <table className="w-full min-w-[700px] text-left text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">

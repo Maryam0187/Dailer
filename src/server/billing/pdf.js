@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-export async function writeBillPdf({ bill, items }) {
+export async function writeBillPdf({ bill }) {
   const invoicesDir = path.join(process.cwd(), "storage", "invoices");
   fs.mkdirSync(invoicesDir, { recursive: true });
   const fileName = `bill-${bill.id}.pdf`;
@@ -47,23 +47,6 @@ export async function writeBillPdf({ bill, items }) {
   drawText(`Fixed markup per call: ${bill.currency} ${bill.fixedMarkupPerCall}`, 40);
   nextLine(22);
 
-  drawText("Call SID", 40, 11, true);
-  drawText("To", 220, 11, true);
-  drawText("Twilio", 330, 11, true);
-  drawText("Markup", 410, 11, true);
-  drawText("Line Total", 490, 11, true);
-  nextLine(16);
-
-  for (const item of items) {
-    drawText(String(item.twilioSid || "").slice(0, 22), 40);
-    drawText(String(item.toNumber || "-").slice(0, 18), 220);
-    drawText(`${bill.currency} ${item.twilioCost}`, 330);
-    drawText(`${bill.currency} ${item.markupApplied}`, 410);
-    drawText(`${bill.currency} ${item.lineAmount}`, 490);
-    nextLine();
-  }
-
-  nextLine(12);
   drawText(`Total calls: ${bill.totalCalls}`, 40, 11, true);
   nextLine(16);
   drawText(`Twilio base total: ${bill.currency} ${bill.twilioBaseAmount}`, 40);
@@ -71,25 +54,6 @@ export async function writeBillPdf({ bill, items }) {
   drawText(`Markup total: ${bill.currency} ${bill.markupAmount}`, 40);
   nextLine();
   drawText(`Final total: ${bill.currency} ${bill.totalAmount}`, 40, 13, true);
-  nextLine(24);
-  drawText(
-    "Note: Some billed entries may not show To/From numbers.",
-    40,
-    9,
-    true,
-  );
-  nextLine(12);
-  drawText(
-    "These are Twilio-generated billable call legs (for example, client or conference segments).",
-    40,
-    9,
-  );
-  nextLine(12);
-  drawText(
-    "Any line with non-zero Twilio cost is included in this invoice and traceable by Call SID.",
-    40,
-    9,
-  );
 
   const bytes = await doc.save();
   fs.writeFileSync(filePath, bytes);

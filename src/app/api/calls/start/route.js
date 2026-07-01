@@ -22,6 +22,10 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const leadId = Number(body?.leadId);
+  if (authedUser.accessMode === "limited" && Number.isInteger(leadId) && leadId > 0) {
+    return NextResponse.json({ error: "Lead calls are not available with limited after-shift access." }, { status: 403 });
+  }
+
   let toNumber = body?.toNumber;
   let lead = null;
 
