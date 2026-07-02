@@ -1,58 +1,45 @@
-// Pakistan shift: 6:00 PM – 11:00 PM PKT (UTC+5, no DST) = 13:00 – 18:00 UTC.
-const DEFAULT_START_UTC = "13:00";
-const DEFAULT_END_UTC = "18:00";
-const SESSION_TIMEZONE = "Asia/Karachi";
-
-function parseUtcTimeOfDay(value) {
-  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-
-  return hour * 60 + minute;
-}
+// Shift bounds are stored as UTC (HH:mm). Compare in UTC for reliable enforcement.
+const { parseHhmm } = require("../../lib/shiftTime.cjs");
+const {
+  getShiftSettings,
+  getShiftWindowLabel,
+  readShiftEnabled,
+} = require("./shiftSettingsStore.cjs");
+const { isAfterShiftGrantExpired } = require("./afterShiftGrant.cjs");
 
 function utcMinutesOfDay(date = new Date()) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
 }
 
-function windowBounds() {
-  const start =
-    parseUtcTimeOfDay(process.env.LOGIN_WINDOW_START_UTC) ??
-    parseUtcTimeOfDay(DEFAULT_START_UTC);
-  const end =
-    parseUtcTimeOfDay(process.env.LOGIN_WINDOW_END_UTC) ??
-    parseUtcTimeOfDay(DEFAULT_END_UTC);
-
-  return { start, end };
-}
-
-function isShiftWindowEnforced() {
-  return process.env.LOGIN_WINDOW_ENABLED !== "false";
-}
-
-function isWithinLoginWindow(date = new Date()) {
-  if (!isShiftWindowEnforced()) return true;
-
-  const { start, end } = windowBounds();
-  if (start == null || end == null) return true;
-
-  const minutes = utcMinutesOfDay(date);
-  return minutes >= start && minutes <= end;
-}
-
-function getAfterShiftAccess(user) {
+function getAfterShiftAccess(user, date = new Date()) {
   if (!user) return "none";
-  if (user.afterShiftAccess) return user.afterShiftAccess;
-  if (user.afterShiftFullAccess) return "full";
-  return "none";
+  const access = user.afterShiftAccess;
+  let effective = "none";
+  if (access === "full" || access === "limited") effective = access;
+  else if (user.afterShiftFullAccess) effective = "full";
+  if (effective !== "none" && isAfterShiftGrantExpired(user, date)) return "none";
+  return effective;
 }
 
 function hasAfterShiftGrant(user) {
   const access = getAfterShiftAccess(user);
   return access === "full" || access === "limited";
+}
+
+function isShiftWindowEnforced() {
+  return readShiftEnabled(getShiftSettings().enabled, true);
+}
+
+function isWithinLoginWindow(date = new Date()) {
+  if (!isShiftWindowEnforced()) return true;
+
+  const settings = getShiftSettings();
+  const start = parseHhmm(settings.startUtc);
+  const end = parseHhmm(settings.endUtc);
+  if (start == null || end == null) return false;
+
+  const minutes = utcMinutesOfDay(date);
+  return minutes >= start && minutes <= end;
 }
 
 function isLoginAllowed(user, date = new Date()) {
@@ -64,7 +51,8 @@ function isLoginAllowed(user, date = new Date()) {
 }
 
 function loginWindowErrorMessage() {
-  return "Sign-in is only allowed during shift hours (6:00 PM – 11:00 PM Pakistan time), unless an admin has granted after-shift access.";
+  const windowLabel = getShiftWindowLabel();
+  return `Sign-in is only allowed during shift hours (${windowLabel}), unless an admin has granted after-shift access.`;
 }
 
 function getShiftStatus(date = new Date()) {
@@ -73,20 +61,26 @@ function getShiftStatus(date = new Date()) {
       status: "disabled",
       label: "Enforcement off",
       detail: "Shift login window is disabled",
+      windowLabel: getShiftWindowLabel(),
+      active: true,
     };
   }
 
   const active = isWithinLoginWindow(date);
+  const windowLabel = getShiftWindowLabel();
   return {
     status: active ? "active" : "ended",
     label: active ? "Shift active" : "Shift ended",
-    detail: "6:00 PM – 11:00 PM Pakistan time",
+    detail: windowLabel,
+    windowLabel,
+    active,
   };
 }
 
 function getSessionCalendarDate(date = new Date()) {
+  const timeZone = getShiftSettings().timezone || "Asia/Karachi";
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: SESSION_TIMEZONE,
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import Footer from "@/components/layout/Footer";
 import MainAppShell from "@/components/layout/MainAppShell";
 import MainContentShell from "@/components/layout/MainContentShell";
 import Navbar from "@/components/layout/Navbar";
 import { getAuthedUserWithLogoutReason, signInRedirectPath } from "@/server/auth/getAuthedUser";
-import { getShiftStatus } from "@/server/auth/loginWindow";
+import { getLiveShiftStatus } from "@/server/auth/shiftSettings";
 import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 /** Read Railway/runtime env on each request (avoid build-time inlining of deployment metadata). */
@@ -13,11 +14,21 @@ export const dynamic = "force-dynamic";
 export default async function MainLayout({ children }) {
   const { user: authedUser, logoutReason } = await getAuthedUserWithLogoutReason();
   if (!authedUser) {
-    redirect(signInRedirectPath(logoutReason));
+    if (logoutReason && logoutReason !== "shift_ended") {
+      const jar = await cookies();
+      jar.set("sign_in_notice", logoutReason, {
+        maxAge: 120,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        httpOnly: false,
+      });
+    }
+    redirect(signInRedirectPath());
   }
   const deploymentTag = getDeploymentTag();
   const deployedAt = getDeploymentTimestampRaw();
-  const shiftStatus = authedUser.role === "admin" ? getShiftStatus() : null;
+  const shiftStatus = authedUser.role === "admin" ? await getLiveShiftStatus() : null;
 
   return (
     <MainAppShell>

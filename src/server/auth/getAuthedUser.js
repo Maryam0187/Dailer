@@ -3,6 +3,11 @@ import { cookies } from "next/headers";
 import db from "@/server/db";
 import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
+import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
+import {
+  hasStoredAfterShiftGrant,
+  isAfterShiftGrantExpired,
+} from "@/server/auth/afterShiftGrant.cjs";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -15,7 +20,7 @@ const LAST_SEEN_REFRESH_MS = 30 * 1000;
 async function clearUserSession(userId) {
   try {
     await db.User.update(
-      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: userId } },
     );
   } catch {
@@ -23,7 +28,36 @@ async function clearUserSession(userId) {
   }
 }
 
+async function revokeExpiredAfterShiftGrant(user) {
+  if (!user || !hasStoredAfterShiftGrant(user) || !isAfterShiftGrantExpired(user)) {
+    return user;
+  }
+
+  try {
+    await db.User.update(
+      {
+        afterShiftAccess: "none",
+        afterShiftLimitedFileId: null,
+        afterShiftAccessExpiresAt: null,
+      },
+      { where: { id: user.id } },
+    );
+  } catch {
+    return user;
+  }
+
+  user.afterShiftAccess = "none";
+  user.afterShiftLimitedFileId = null;
+  user.afterShiftAccessExpiresAt = null;
+  return user;
+}
+
 async function resolveAuthedUser() {
+  // Always sync shift bounds from DB before login-window checks. The status API
+  // already does this; using a stale boot-time cache here caused false shift_ended
+  // logouts while /api/shift/status still reported the shift as active.
+  await getShiftSettingsRecord();
+
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
   if (!token) return { user: null, logoutReason: null };
@@ -41,11 +75,13 @@ async function resolveAuthedUser() {
   const userId = payload?.sub;
   if (!userId) return { user: null, logoutReason: null };
 
-  const user = await db.User.findByPk(userId);
+  let user = await db.User.findByPk(userId);
   if (!user || user.isActive === false) return { user: null, logoutReason: null };
 
+  user = await revokeExpiredAfterShiftGrant(user);
+
   if (payload.sid && user.activeSessionId !== payload.sid) {
-    return { user: null, logoutReason: null };
+    return { user: null, logoutReason: "replaced" };
   }
 
   if (!isSessionValidForToday(payload)) {
@@ -97,8 +133,6 @@ export async function getAuthedUserWithLogoutReason() {
   return resolveAuthedUser();
 }
 
-export function signInRedirectPath(logoutReason) {
-  if (logoutReason === "shift_ended") return "/sign-in?reason=shift_ended";
-  if (logoutReason === "session_day_ended") return "/sign-in?reason=session_day_ended";
+export function signInRedirectPath() {
   return "/sign-in";
 }

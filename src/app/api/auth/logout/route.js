@@ -13,7 +13,7 @@ export async function POST(req) {
         attributes: ["id", "activeSessionId"],
       });
       await db.User.update(
-        { activeSessionId: null, activeSessionLastSeenAt: null },
+        { activeSessionId: null, activeSessionLastSeenAt: new Date() },
         { where: { id: authed.id } },
       );
       await logUserActivity({

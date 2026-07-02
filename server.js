@@ -13,7 +13,14 @@ const port = parseInt(process.env.PORT, 10) || 3000;
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
+  try {
+    const { ensureShiftSettingsLoaded } = await import("./src/server/auth/shiftSettings.js");
+    await ensureShiftSettingsLoaded();
+  } catch (err) {
+    console.error("[shift] failed to load settings on boot:", err?.message || err);
+  }
+
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);

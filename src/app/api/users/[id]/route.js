@@ -6,6 +6,12 @@ import { derivePresence } from "@/server/auth/presence";
 import { assertCanManageTarget } from "@/server/auth/userAccess";
 import { isWithinLoginWindow } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
+import { getDefaultGrantDurationMinutes } from "@/server/auth/shiftSettings";
+import {
+  computeGrantExpiresAt,
+  parseGrantDurationMinutes,
+  resolveGrantDurationMinutes,
+} from "@/server/auth/afterShiftGrant.cjs";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -29,6 +35,8 @@ export async function GET(_req, { params }) {
       "isActive",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
+      "afterShiftAccessExpiresAt",
+      "afterShiftGrantDurationMinutes",
       "activeSessionId",
       "activeSessionLastSeenAt",
     ],
@@ -74,6 +82,10 @@ export async function GET(_req, { params }) {
         authedUser.role === "admin" ? target.afterShiftLimitedFileId ?? null : undefined,
       afterShiftLimitedFileName:
         authedUser.role === "admin" ? target.afterShiftLimitedFile?.name ?? null : undefined,
+      afterShiftAccessExpiresAt:
+        authedUser.role === "admin" ? target.afterShiftAccessExpiresAt ?? null : undefined,
+      afterShiftGrantDurationMinutes:
+        authedUser.role === "admin" ? target.afterShiftGrantDurationMinutes ?? null : undefined,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     },
@@ -191,6 +203,20 @@ export async function PATCH(req, { params }) {
     updates.isActive = Boolean(body.isActive);
   }
 
+  const globalGrantDuration = isAdmin ? await getDefaultGrantDurationMinutes() : null;
+
+  if (isAdmin && body.afterShiftGrantDurationMinutes !== undefined) {
+    if (body.afterShiftGrantDurationMinutes == null || body.afterShiftGrantDurationMinutes === "") {
+      updates.afterShiftGrantDurationMinutes = null;
+    } else {
+      const duration = parseGrantDurationMinutes(body.afterShiftGrantDurationMinutes);
+      if (!duration) {
+        return NextResponse.json({ error: "Invalid afterShiftGrantDurationMinutes" }, { status: 400 });
+      }
+      updates.afterShiftGrantDurationMinutes = duration;
+    }
+  }
+
   if (isAdmin && body.afterShiftAccess !== undefined) {
     if (target.role === "admin") {
       return NextResponse.json(
@@ -203,7 +229,21 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Invalid afterShiftAccess" }, { status: 400 });
     }
     updates.afterShiftAccess = body.afterShiftAccess;
-    if (body.afterShiftAccess !== "limited") {
+    if (body.afterShiftAccess === "none") {
+      updates.afterShiftLimitedFileId = null;
+      updates.afterShiftAccessExpiresAt = null;
+    } else if (body.afterShiftAccess === "full" || body.afterShiftAccess === "limited") {
+      const duration = resolveGrantDurationMinutes(
+        { ...target.toJSON(), ...updates },
+        body.afterShiftAccessDurationMinutes,
+        globalGrantDuration,
+      );
+      updates.afterShiftAccessExpiresAt = computeGrantExpiresAt(duration);
+      if (body.afterShiftAccessDurationMinutes !== undefined) {
+        updates.afterShiftGrantDurationMinutes = duration;
+      }
+    }
+    if (body.afterShiftAccess !== "limited" && body.afterShiftAccess !== "none") {
       updates.afterShiftLimitedFileId = null;
     }
   }
@@ -215,8 +255,11 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Invalid afterShiftLimitedFileId" }, { status: 400 });
     }
     if (fileId != null) {
-      const file = await db.UserFile.findByPk(fileId, { attributes: ["id"] });
+      const file = await db.UserFile.findByPk(fileId, { attributes: ["id", "userId"] });
       if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+      if (Number(file.userId) !== Number(target.id)) {
+        return NextResponse.json({ error: "File must belong to this user" }, { status: 400 });
+      }
     }
     updates.afterShiftLimitedFileId = fileId;
   }
@@ -229,7 +272,38 @@ export async function PATCH(req, { params }) {
       );
     }
     updates.afterShiftAccess = body.afterShiftFullAccess ? "full" : "none";
-    if (!body.afterShiftFullAccess) updates.afterShiftLimitedFileId = null;
+    if (!body.afterShiftFullAccess) {
+      updates.afterShiftLimitedFileId = null;
+      updates.afterShiftAccessExpiresAt = null;
+    } else {
+      const duration = resolveGrantDurationMinutes(
+        { ...target.toJSON(), ...updates },
+        body.afterShiftAccessDurationMinutes,
+        globalGrantDuration,
+      );
+      updates.afterShiftAccessExpiresAt = computeGrantExpiresAt(duration);
+      if (body.afterShiftAccessDurationMinutes !== undefined) {
+        updates.afterShiftGrantDurationMinutes = duration;
+      }
+    }
+  }
+
+  if (
+    isAdmin &&
+    body.afterShiftAccessDurationMinutes !== undefined &&
+    body.afterShiftAccess === undefined &&
+    body.afterShiftFullAccess === undefined &&
+    body.afterShiftGrantDurationMinutes === undefined
+  ) {
+    const currentAccess = updates.afterShiftAccess ?? target.afterShiftAccess ?? "none";
+    const duration = parseGrantDurationMinutes(body.afterShiftAccessDurationMinutes);
+    if (!duration) {
+      return NextResponse.json({ error: "Invalid afterShiftAccessDurationMinutes" }, { status: 400 });
+    }
+    updates.afterShiftGrantDurationMinutes = duration;
+    if (currentAccess === "full" || currentAccess === "limited") {
+      updates.afterShiftAccessExpiresAt = computeGrantExpiresAt(duration);
+    }
   }
 
   const nextAccess = updates.afterShiftAccess ?? target.afterShiftAccess ?? "none";
@@ -258,7 +332,7 @@ export async function PATCH(req, { params }) {
     updates.afterShiftAccess === "none" || body.afterShiftFullAccess === false;
   if (isAdmin && accessRevoked && !isWithinLoginWindow() && target.activeSessionId) {
     await db.User.update(
-      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: target.id } },
     );
   }
@@ -275,6 +349,7 @@ export async function PATCH(req, { params }) {
         targetUsername: target.username,
         afterShiftAccess: next,
         afterShiftLimitedFileId: nextLimitedFileId ?? null,
+        afterShiftAccessExpiresAt: updates.afterShiftAccessExpiresAt ?? null,
       },
     });
   }
@@ -290,6 +365,8 @@ export async function PATCH(req, { params }) {
       "isActive",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
+      "afterShiftAccessExpiresAt",
+      "afterShiftGrantDurationMinutes",
     ],
     include: [
       {

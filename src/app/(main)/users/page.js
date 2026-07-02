@@ -29,6 +29,8 @@ export default async function UsersPage() {
     "isActive",
     "afterShiftAccess",
     "afterShiftLimitedFileId",
+    "afterShiftAccessExpiresAt",
+    "afterShiftGrantDurationMinutes",
     "activeSessionId",
     "activeSessionLastSeenAt",
   ];
@@ -100,6 +102,8 @@ export default async function UsersPage() {
         ? {
             afterShiftAccess: r.afterShiftAccess || "none",
             afterShiftLimitedFileId: r.afterShiftLimitedFileId ?? null,
+            afterShiftAccessExpiresAt: r.afterShiftAccessExpiresAt ?? null,
+            afterShiftGrantDurationMinutes: r.afterShiftGrantDurationMinutes ?? null,
             lastIpAddress: lastIpByUserId?.get(r.id) ?? null,
           }
         : {}),

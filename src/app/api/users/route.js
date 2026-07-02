@@ -16,6 +16,8 @@ const LIST_ATTRIBUTES = [
   "isActive",
   "afterShiftAccess",
   "afterShiftLimitedFileId",
+  "afterShiftAccessExpiresAt",
+  "afterShiftGrantDurationMinutes",
   "activeSessionId",
   "activeSessionLastSeenAt",
 ];
@@ -55,6 +57,8 @@ function serializeUserRow(
       ? {
           afterShiftAccess: row.afterShiftAccess || "none",
           afterShiftLimitedFileId: row.afterShiftLimitedFileId ?? null,
+          afterShiftAccessExpiresAt: row.afterShiftAccessExpiresAt ?? null,
+          afterShiftGrantDurationMinutes: row.afterShiftGrantDurationMinutes ?? null,
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),
