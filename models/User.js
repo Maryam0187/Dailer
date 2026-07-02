@@ -96,6 +96,7 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });
+    User.hasMany(models.ShiftSetting, { as: "updatedShiftSettings", foreignKey: "updatedBy" });
     User.hasMany(models.UserActivity, { as: "activities", foreignKey: "userId" });
   };
 

@@ -1404,11 +1404,11 @@ function EditUserModal({
   }, [user]);
 
   useEffect(() => {
-    if (!isAdmin) return undefined;
+    if (!isAdmin || !user?.id) return undefined;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/files?pageSize=200", { credentials: "include" });
+        const res = await fetch(`/api/files?userId=${user.id}&pageSize=200`, { credentials: "include" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Failed to load files");
         if (!cancelled) setFileOptions(json.files || []);
@@ -1419,7 +1419,7 @@ function EditUserModal({
     return () => {
       cancelled = true;
     };
-  }, [isAdmin]);
+  }, [isAdmin, user.id]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -1676,10 +1676,14 @@ function EditUserModal({
                     onChange={(e) => setLimitedFileId(e.target.value)}
                   >
                     <option value="">Select a file…</option>
+                    {fileOptions.length === 0 ? (
+                      <option value="" disabled>
+                        No files for this user
+                      </option>
+                    ) : null}
                     {fileOptions.map((file) => (
                       <option key={file.id} value={file.id}>
                         {file.name}
-                        {file.owner?.username ? ` (${file.owner.username})` : ""}
                       </option>
                     ))}
                   </select>

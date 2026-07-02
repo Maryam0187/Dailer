@@ -96,6 +96,12 @@ function buildNavItems(role, pathname, accessMode = "full") {
         active: pathname === "/billing",
         palette: "violet",
       },
+      {
+        href: "/shift",
+        label: "Shift",
+        active: pathname === "/shift",
+        palette: "amber",
+      },
     );
   }
 
@@ -224,9 +230,9 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3">
-            {role === "admin" && shiftStatus ? (
+            {role === "admin" ? (
               <span className="hidden sm:inline-flex">
-                <ShiftStatusBadge shiftStatus={shiftStatus} />
+                <ShiftStatusBadge initialShiftStatus={shiftStatus} />
               </span>
             ) : null}
             <ThemeToggle />
@@ -246,9 +252,9 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
               id="mobile-nav-menu"
               className="absolute left-0 right-0 top-full z-50 max-h-[calc(100dvh-3.5rem)] overflow-y-auto border-t border-sky-500/15 bg-white/98 px-3 py-3 shadow-lg backdrop-blur-md sm:max-h-[calc(100dvh-4rem)] dark:border-sky-500/20 dark:bg-zinc-950/98 lg:hidden"
             >
-              {role === "admin" && shiftStatus ? (
+              {role === "admin" ? (
                 <div className="mb-3 sm:hidden">
-                  <ShiftStatusBadge shiftStatus={shiftStatus} />
+                  <ShiftStatusBadge initialShiftStatus={shiftStatus} />
                 </div>
               ) : null}
               <div className="flex flex-col gap-2">

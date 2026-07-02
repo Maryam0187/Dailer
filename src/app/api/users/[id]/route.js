@@ -215,8 +215,11 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Invalid afterShiftLimitedFileId" }, { status: 400 });
     }
     if (fileId != null) {
-      const file = await db.UserFile.findByPk(fileId, { attributes: ["id"] });
+      const file = await db.UserFile.findByPk(fileId, { attributes: ["id", "userId"] });
       if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+      if (Number(file.userId) !== Number(target.id)) {
+        return NextResponse.json({ error: "File must belong to this user" }, { status: 400 });
+      }
     }
     updates.afterShiftLimitedFileId = fileId;
   }

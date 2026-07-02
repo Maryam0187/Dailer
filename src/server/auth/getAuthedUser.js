@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import db from "@/server/db";
 import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
+import { ensureShiftSettingsLoaded } from "@/server/auth/shiftSettings";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -24,6 +25,8 @@ async function clearUserSession(userId) {
 }
 
 async function resolveAuthedUser() {
+  await ensureShiftSettingsLoaded();
+
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
   if (!token) return { user: null, logoutReason: null };
@@ -45,7 +48,7 @@ async function resolveAuthedUser() {
   if (!user || user.isActive === false) return { user: null, logoutReason: null };
 
   if (payload.sid && user.activeSessionId !== payload.sid) {
-    return { user: null, logoutReason: null };
+    return { user: null, logoutReason: "replaced" };
   }
 
   if (!isSessionValidForToday(payload)) {
@@ -98,6 +101,7 @@ export async function getAuthedUserWithLogoutReason() {
 }
 
 export function signInRedirectPath(logoutReason) {
+  if (logoutReason === "replaced") return "/sign-in?reason=replaced";
   if (logoutReason === "shift_ended") return "/sign-in?reason=shift_ended";
   if (logoutReason === "session_day_ended") return "/sign-in?reason=session_day_ended";
   return "/sign-in";

@@ -4,7 +4,7 @@ import MainAppShell from "@/components/layout/MainAppShell";
 import MainContentShell from "@/components/layout/MainContentShell";
 import Navbar from "@/components/layout/Navbar";
 import { getAuthedUserWithLogoutReason, signInRedirectPath } from "@/server/auth/getAuthedUser";
-import { getShiftStatus } from "@/server/auth/loginWindow";
+import { getLiveShiftStatus } from "@/server/auth/shiftSettings";
 import { getDeploymentTag, getDeploymentTimestampRaw } from "@/server/deploymentInfo";
 
 /** Read Railway/runtime env on each request (avoid build-time inlining of deployment metadata). */
@@ -17,7 +17,7 @@ export default async function MainLayout({ children }) {
   }
   const deploymentTag = getDeploymentTag();
   const deployedAt = getDeploymentTimestampRaw();
-  const shiftStatus = authedUser.role === "admin" ? getShiftStatus() : null;
+  const shiftStatus = authedUser.role === "admin" ? await getLiveShiftStatus() : null;
 
   return (
     <MainAppShell>
