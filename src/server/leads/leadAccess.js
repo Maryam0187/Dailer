@@ -181,9 +181,15 @@ function teamCreatorIds(supervisorUserId, agentIds) {
   return [Number(supervisorUserId), ...agentIds.map(Number)];
 }
 
+/** True when `where` is absent or `{}` — not when it only uses Symbol keys like Op.or. */
+function isEmptyWhere(where) {
+  if (!where || typeof where !== "object") return true;
+  return Object.keys(where).length === 0 && Object.getOwnPropertySymbols(where).length === 0;
+}
+
 /** AND `extra` onto an existing Sequelize where clause. */
 export function andWhereClause(baseWhere, extra) {
-  if (!baseWhere || Object.keys(baseWhere).length === 0) return extra;
+  if (isEmptyWhere(baseWhere)) return extra;
   return { [Op.and]: [baseWhere, extra] };
 }
 
