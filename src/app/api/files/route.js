@@ -34,7 +34,7 @@ export async function GET(req) {
     }
 
     const file = await db.UserFile.findByPk(limitedId, {
-      attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+      attributes: ["id", "name", "content", "userId", "deleted", "createdAt", "updatedAt"],
       include: fileListIncludes,
     });
 
@@ -55,7 +55,12 @@ export async function GET(req) {
 
   const { searchParams } = new URL(req.url);
   const isAdmin = canViewAllFiles(authedUser.role);
+  const showDeleted = isAdmin && searchParams.get("deleted") === "true";
   const where = {};
+
+  if (showDeleted) {
+    where.deleted = true;
+  }
 
   if (isAdmin) {
     const userIdRaw = searchParams.get("userId");
@@ -76,19 +81,24 @@ export async function GET(req) {
   const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 24), 100);
   const offset = (page - 1) * pageSize;
 
-  const { rows: files, count } = await db.UserFile.findAndCountAll({
+  const query = {
     where,
     order: [["updatedAt", "DESC"]],
     offset,
     limit: pageSize,
-    attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+    attributes: ["id", "name", "content", "userId", "deleted", "createdAt", "updatedAt"],
     include: isAdmin ? fileListIncludes : [],
     distinct: isAdmin,
-  });
+  };
+
+  const { rows: files, count } = showDeleted
+    ? await db.UserFile.unscoped().findAndCountAll(query)
+    : await db.UserFile.findAndCountAll(query);
 
   return NextResponse.json({
-    files: files.map(serializeUserFile),
+    files: files.map((file) => serializeUserFile(file, { includeDeleted: showDeleted })),
     viewAll: isAdmin,
+    showDeleted,
     pagination: {
       page,
       pageSize,

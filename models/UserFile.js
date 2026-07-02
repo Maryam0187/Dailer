@@ -22,13 +22,22 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         references: { model: "Users", key: "id" },
       },
+      deleted: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "UserFiles",
       timestamps: true,
+      defaultScope: {
+        where: { deleted: false },
+      },
       indexes: [
         { fields: ["userId"] },
-        { unique: true, fields: ["userId", "name"] },
+        { fields: ["userId", "name"] },
+        { fields: ["userId", "deleted"] },
       ],
     },
   );
