@@ -165,9 +165,10 @@ export async function updateShiftSettings(patch, updatedBy) {
     );
   }
 
-  const grantDuration = body?.afterShiftGrantDurationMinutes !== undefined
-    ? normalizeGrantDurationMinutes(body.afterShiftGrantDurationMinutes)
-  : undefined;
+  const grantDuration =
+    patch?.afterShiftGrantDurationMinutes !== undefined
+      ? normalizeGrantDurationMinutes(patch.afterShiftGrantDurationMinutes)
+      : undefined;
 
   let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
   if (!row) {
