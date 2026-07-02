@@ -4,6 +4,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -29,7 +30,11 @@ const LIST_INCLUDE = [
   },
 ];
 
-function serializeUserRow(row, now, { includeShiftAccess = false } = {}) {
+function serializeUserRow(
+  row,
+  now,
+  { includeShiftAccess = false, includeIpAddress = false, lastIpAddress = null } = {},
+) {
   const presence = derivePresence(
     {
       id: row.id,
@@ -56,6 +61,7 @@ function serializeUserRow(row, now, { includeShiftAccess = false } = {}) {
           afterShiftGrantDurationMinutes: row.afterShiftGrantDurationMinutes ?? null,
         }
       : {}),
+    ...(includeIpAddress ? { lastIpAddress } : {}),
     presence: presence.status,
     lastActiveAt: presence.lastActiveAt,
   };
@@ -72,9 +78,16 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
+    const lastIpByUserId = await getLastIpAddressesByUserId(rows.map((r) => r.id));
     return NextResponse.json({
       users: sortUsersForDisplay(
-        rows.map((r) => serializeUserRow(r, now, { includeShiftAccess: true })),
+        rows.map((r) =>
+          serializeUserRow(r, now, {
+            includeShiftAccess: true,
+            includeIpAddress: true,
+            lastIpAddress: lastIpByUserId.get(r.id) ?? null,
+          }),
+        ),
       ),
     });
   }

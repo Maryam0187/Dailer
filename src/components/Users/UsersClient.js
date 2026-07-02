@@ -2081,6 +2081,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showAfterShiftColumn = role === "admin";
+  const showIpColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
@@ -2392,6 +2393,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Role</th>
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
+                    {showIpColumn ? <th className="px-4 py-3.5">IP address</th> : null}
                     <th className="px-4 py-3.5">Status</th>
                     {showAfterShiftColumn ? (
                       <th className="px-4 py-3.5">After shift</th>
@@ -2429,6 +2431,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
                           {formatLastActive(u.lastActiveAt)}
                         </td>
+                        {showIpColumn ? (
+                          <td className="px-4 py-3.5 font-mono text-xs text-zinc-600 dark:text-zinc-300">
+                            {u.lastIpAddress ?? "—"}
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
                         </td>
