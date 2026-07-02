@@ -5,6 +5,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
+import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
@@ -72,6 +73,10 @@ export default async function UsersPage() {
   ]);
 
   const nowMs = Date.now();
+  const lastIpByUserId =
+    authedUser.role === "admin"
+      ? await getLastIpAddressesByUserId(usersRows.map((r) => r.id))
+      : null;
   const users = usersRows.map((r) => {
     const presence = derivePresence(
       {
@@ -95,6 +100,7 @@ export default async function UsersPage() {
         ? {
             afterShiftAccess: r.afterShiftAccess || "none",
             afterShiftLimitedFileId: r.afterShiftLimitedFileId ?? null,
+            lastIpAddress: lastIpByUserId?.get(r.id) ?? null,
           }
         : {}),
       presence: presence.status,
