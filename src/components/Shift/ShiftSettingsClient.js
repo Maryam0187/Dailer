@@ -31,6 +31,7 @@ export default function ShiftSettingsClient() {
   const [timezoneOptions, setTimezoneOptions] = useState([]);
   const [windowLabel, setWindowLabel] = useState("");
   const [shiftStatus, setShiftStatus] = useState(null);
+  const [grantDurationMinutes, setGrantDurationMinutes] = useState(120);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -49,6 +50,7 @@ export default function ShiftSettingsClient() {
     setStartLocal(settings.startLocal || utcHhmmToZonedHhmm(settings.startUtc, settings.timezone) || "18:00");
     setEndLocal(settings.endLocal || utcHhmmToZonedHhmm(settings.endUtc, settings.timezone) || "23:00");
     setTimezone(settings.timezone || "Asia/Karachi");
+    setGrantDurationMinutes(settings.afterShiftGrantDurationMinutes || 120);
     setTimezoneOptions(settings.timezoneOptions || []);
     setWindowLabel(settings.windowLabel || "");
     setShiftStatus(status || null);
@@ -96,7 +98,13 @@ export default function ShiftSettingsClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ enabled, startLocal, endLocal, timezone }),
+        body: JSON.stringify({
+          enabled,
+          startLocal,
+          endLocal,
+          timezone,
+          afterShiftGrantDurationMinutes: grantDurationMinutes,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save shift settings");
@@ -208,6 +216,32 @@ export default function ShiftSettingsClient() {
             />
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{timezoneLabel}</p>
           </div>
+        </div>
+
+        <div>
+          <label className={labelClass} htmlFor="shift-grant-duration">
+            Default after-shift grant duration
+          </label>
+          <select
+            id="shift-grant-duration"
+            className={inputClass}
+            value={grantDurationMinutes}
+            onChange={(e) => {
+              setGrantDurationMinutes(Number(e.target.value));
+              setSaved(false);
+            }}
+          >
+            <option value={30}>30 minutes</option>
+            <option value={60}>1 hour</option>
+            <option value={120}>2 hours</option>
+            <option value={240}>4 hours</option>
+            <option value={480}>8 hours</option>
+            <option value={720}>12 hours</option>
+            <option value={1440}>24 hours</option>
+          </select>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Full and limited after-shift access auto-revoke after this time.
+          </p>
         </div>
 
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-zinc-950/60">

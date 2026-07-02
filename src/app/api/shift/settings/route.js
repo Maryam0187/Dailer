@@ -33,6 +33,7 @@ export async function PATCH(req) {
         startUtc: body?.startUtc,
         endUtc: body?.endUtc,
         timezone: body?.timezone,
+        afterShiftGrantDurationMinutes: body?.afterShiftGrantDurationMinutes,
       },
       authedUser.id,
     );

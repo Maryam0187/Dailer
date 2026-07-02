@@ -6,8 +6,7 @@ import { TwilioVoiceProvider } from "@/contexts/TwilioVoiceContext";
 import GlobalWebCallInterface from "@/components/Dialer/GlobalWebCallInterface";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-
-const REDIRECT_REASONS = new Set(["replaced", "shift_ended", "session_day_ended"]);
+import { stashSignInNotice } from "@/lib/signInNotice";
 
 /**
  * When an API returns 401, resolve the real logout reason (shift ended vs another
@@ -29,8 +28,9 @@ function AuthExpiryWatcher() {
           redirecting = false;
           return;
         }
-        const reason = REDIRECT_REASONS.has(json?.reason) ? json.reason : null;
-        window.location.href = reason ? `/sign-in?reason=${reason}` : "/sign-in";
+        const reason = json?.reason || null;
+        if (reason && reason !== "shift_ended") stashSignInNotice(reason);
+        window.location.href = "/sign-in";
       } catch {
         window.location.href = "/sign-in";
       }

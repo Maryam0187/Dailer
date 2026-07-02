@@ -144,22 +144,60 @@ function ActiveBadge({ active }) {
   );
 }
 
-function AfterShiftAccessBadge({ access }) {
+const GRANT_DURATION_OPTIONS = [
+  { value: 30, label: "30 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: 120, label: "2 hours" },
+  { value: 240, label: "4 hours" },
+  { value: 480, label: "8 hours" },
+  { value: 720, label: "12 hours" },
+  { value: 1440, label: "24 hours" },
+];
+
+function formatGrantExpiry(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+function grantDurationLabel(minutes) {
+  const opt = GRANT_DURATION_OPTIONS.find((o) => o.value === minutes);
+  return opt?.label || `${minutes} min`;
+}
+
+function AfterShiftAccessBadge({ access, expiresAt, grantDurationMinutes }) {
   if (access === "full") {
     return (
-      <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
-        Full
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+          Full
+        </span>
+        {expiresAt ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">until {formatGrantExpiry(expiresAt)}</span>
+        ) : grantDurationMinutes ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{grantDurationLabel(grantDurationMinutes)} each grant</span>
+        ) : null}
       </span>
     );
   }
   if (access === "limited") {
     return (
-      <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-        Limited
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+          Limited
+        </span>
+        {expiresAt ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">until {formatGrantExpiry(expiresAt)}</span>
+        ) : grantDurationMinutes ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{grantDurationLabel(grantDurationMinutes)} each grant</span>
+        ) : null}
       </span>
     );
   }
-  return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
+  return <span className="text-xs text-zinc-500 dark:text-zinc-400">
+    {grantDurationMinutes ? `${grantDurationLabel(grantDurationMinutes)} when granted` : "—"}
+  </span>;
 }
 
 function PresenceBadge({ status }) {
@@ -1384,6 +1422,9 @@ function EditUserModal({
   const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
+  const [grantDurationMinutes, setGrantDurationMinutes] = useState(
+    user.afterShiftGrantDurationMinutes ?? 120,
+  );
   const [limitedFileId, setLimitedFileId] = useState(
     user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "",
   );
@@ -1399,9 +1440,30 @@ function EditUserModal({
     setSupervisorId(user.supervisorId ?? "");
     setIsActive(user.isActive !== false);
     setAfterShiftAccess(user.afterShiftAccess || "none");
+    setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
     setError(null);
   }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          const globalDefault = json.settings?.afterShiftGrantDurationMinutes || 120;
+          setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? globalDefault);
+        }
+      } catch {
+        /* use default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, user.afterShiftGrantDurationMinutes]);
 
   useEffect(() => {
     if (!isAdmin || !user?.id) return undefined;
@@ -1465,6 +1527,14 @@ function EditUserModal({
           payload.afterShiftLimitedFileId = limitedFileId ? Number(limitedFileId) : null;
         } else if (prevAccess === "limited") {
           payload.afterShiftLimitedFileId = null;
+        }
+        if (user.afterShiftGrantDurationMinutes !== grantDurationMinutes) {
+          payload.afterShiftGrantDurationMinutes = grantDurationMinutes;
+        }
+        if (afterShiftAccess === "full" || afterShiftAccess === "limited") {
+          if (afterShiftAccess !== prevAccess) {
+            payload.afterShiftAccessDurationMinutes = grantDurationMinutes;
+          }
         }
       }
 
@@ -1667,6 +1737,29 @@ function EditUserModal({
                   Limited (dialer + one file)
                 </label>
               </div>
+              <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                After-shift grant duration (this user)
+                <select
+                  className={`${inputClass} mt-1.5`}
+                  value={grantDurationMinutes}
+                  onChange={(e) => setGrantDurationMinutes(Number(e.target.value))}
+                >
+                  {GRANT_DURATION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                  Used when granting full or limited after-shift access. Overrides the global shift default.
+                </span>
+                {user.afterShiftAccessExpiresAt &&
+                (user.afterShiftAccess === "full" || user.afterShiftAccess === "limited") ? (
+                  <span className="mt-1 block text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                    Current grant expires {formatGrantExpiry(user.afterShiftAccessExpiresAt)}
+                  </span>
+                ) : null}
+              </label>
               {afterShiftAccess === "limited" ? (
                 <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
                   Assigned file
@@ -1729,6 +1822,8 @@ function normalizeUsersList(list) {
     isActive: u.isActive !== false && u.isActive !== 0,
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
+    afterShiftAccessExpiresAt: u.afterShiftAccessExpiresAt ?? null,
+    afterShiftGrantDurationMinutes: u.afterShiftGrantDurationMinutes ?? null,
     presence: normalizePresence(u.presence),
     lastActiveAt: u.lastActiveAt ?? null,
   }));
@@ -1736,6 +1831,7 @@ function normalizeUsersList(list) {
 
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
   const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
+  const [defaultGrantDurationMinutes, setDefaultGrantDurationMinutes] = useState(120);
   const applyPresenceUpdateRef = useRef(null);
   const [managerOptions, setManagerOptions] = useState(managers ?? []);
   const [supervisorOptions, setSupervisorOptions] = useState(supervisors ?? []);
@@ -1826,6 +1922,25 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       socket.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (role !== "admin") return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setDefaultGrantDurationMinutes(json.settings?.afterShiftGrantDurationMinutes || 120);
+        }
+      } catch {
+        /* use default */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
 
   async function onRefreshUsers() {
     setListError(null);
@@ -1925,7 +2040,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     setListError(null);
     setRowBusyId(u.id);
     try {
-      const body = { afterShiftAccess: access };
+      const duration = u.afterShiftGrantDurationMinutes ?? defaultGrantDurationMinutes;
+      const body = { afterShiftAccess: access, afterShiftAccessDurationMinutes: duration };
       if (access === "limited") {
         if (!limitedFileId) {
           setEditingUser(u);
@@ -2321,7 +2437,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             {u.role === "admin" ? (
                               <span className="text-xs text-zinc-500 dark:text-zinc-400">Always</span>
                             ) : (
-                              <AfterShiftAccessBadge access={u.afterShiftAccess || "none"} />
+                              <AfterShiftAccessBadge
+                                access={u.afterShiftAccess || "none"}
+                                expiresAt={u.afterShiftAccessExpiresAt}
+                                grantDurationMinutes={u.afterShiftGrantDurationMinutes}
+                              />
                             )}
                           </td>
                         ) : null}

@@ -73,6 +73,14 @@ module.exports = (sequelize, DataTypes) => {
           key: "id",
         },
       },
+      afterShiftAccessExpiresAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      afterShiftGrantDurationMinutes: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
     },
     {
       tableName: "Users",

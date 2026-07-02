@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sendWeb3FormsClient } from "@/lib/sendWeb3FormsClient";
+import {
+  consumeSignInNotice,
+  signInNoticeMessage,
+  stripSignInReasonFromUrl,
+} from "@/lib/signInNotice";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -13,36 +18,16 @@ export default function SignInPage() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const reason = new URLSearchParams(window.location.search).get("reason");
-    if (reason === "replaced") {
-      setNotice("Your session ended because you signed in on another device.");
-    } else if (reason === "shift_ended") {
-      void fetch("/api/shift/status", { cache: "no-store" })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json?.active) {
-            setNotice("Your session ended. Please sign in again to continue.");
-            return;
-          }
-          const windowLabel = json?.windowLabel || json?.detail;
-          setNotice(
-            windowLabel
-              ? `Your shift has ended. Sign-in is available again during shift hours (${windowLabel}).`
-              : "Your shift has ended. Sign-in is available again during the next shift window.",
-          );
-        })
-        .catch(() => {
-          setNotice("Your shift has ended. Sign-in is available again during the next shift window.");
-        });
-    } else if (reason === "session_day_ended") {
-      setNotice("Your previous session ended. Please sign in again to start today's session.");
-    }
+    stripSignInReasonFromUrl();
+    const reason = consumeSignInNotice();
+    const message = signInNoticeMessage(reason);
+    if (message) setNotice(message);
   }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
 
     try {

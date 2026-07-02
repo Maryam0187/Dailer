@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import Footer from "@/components/layout/Footer";
 import MainAppShell from "@/components/layout/MainAppShell";
 import MainContentShell from "@/components/layout/MainContentShell";
@@ -13,7 +14,17 @@ export const dynamic = "force-dynamic";
 export default async function MainLayout({ children }) {
   const { user: authedUser, logoutReason } = await getAuthedUserWithLogoutReason();
   if (!authedUser) {
-    redirect(signInRedirectPath(logoutReason));
+    if (logoutReason && logoutReason !== "shift_ended") {
+      const jar = await cookies();
+      jar.set("sign_in_notice", logoutReason, {
+        maxAge: 120,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        httpOnly: false,
+      });
+    }
+    redirect(signInRedirectPath());
   }
   const deploymentTag = getDeploymentTag();
   const deployedAt = getDeploymentTimestampRaw();

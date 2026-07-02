@@ -29,6 +29,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "Asia/Karachi",
       },
+      afterShiftGrantDurationMinutes: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 120,
+      },
       updatedBy: {
         type: DataTypes.INTEGER,
         allowNull: true,

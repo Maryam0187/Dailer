@@ -15,6 +15,10 @@ import {
   parseUtcTimeOfDay,
   readShiftEnabled,
 } from "@/server/auth/shiftSettingsStore.cjs";
+import {
+  DEFAULT_GRANT_DURATION_MINUTES,
+  normalizeGrantDurationMinutes,
+} from "@/server/auth/afterShiftGrant.cjs";
 
 export { getShiftSettings, getShiftWindowLabelFromStore as getShiftWindowLabel, parseUtcTimeOfDay };
 
@@ -61,9 +65,18 @@ function serializeShiftSettings(row) {
     timezone: applied.timezone,
     windowLabel: getShiftWindowLabel(applied.startUtc, applied.endUtc, applied.timezone),
     timezoneOptions: TIMEZONE_OPTIONS,
+    afterShiftGrantDurationMinutes: normalizeGrantDurationMinutes(
+      row?.afterShiftGrantDurationMinutes,
+      DEFAULT_GRANT_DURATION_MINUTES,
+    ),
     updatedBy: row?.updatedBy ?? null,
     updatedAt: row?.updatedAt ?? null,
   };
+}
+
+export async function getDefaultGrantDurationMinutes() {
+  const record = await getShiftSettingsRecord();
+  return record.afterShiftGrantDurationMinutes;
 }
 
 async function loadShiftSettingsFromDb() {
@@ -76,6 +89,7 @@ async function loadShiftSettingsFromDb() {
         startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : DEFAULT_START_UTC,
         endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : DEFAULT_END_UTC,
         timezone: defaults.timezone,
+        afterShiftGrantDurationMinutes: DEFAULT_GRANT_DURATION_MINUTES,
         updatedBy: null,
       });
     }
@@ -151,6 +165,10 @@ export async function updateShiftSettings(patch, updatedBy) {
     );
   }
 
+  const grantDuration = body?.afterShiftGrantDurationMinutes !== undefined
+    ? normalizeGrantDurationMinutes(body.afterShiftGrantDurationMinutes)
+  : undefined;
+
   let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
   if (!row) {
     row = await db.ShiftSetting.create({
@@ -158,6 +176,7 @@ export async function updateShiftSettings(patch, updatedBy) {
       startUtc,
       endUtc,
       timezone,
+      afterShiftGrantDurationMinutes: grantDuration ?? DEFAULT_GRANT_DURATION_MINUTES,
       updatedBy: updatedBy ?? null,
     });
   } else {
@@ -165,6 +184,7 @@ export async function updateShiftSettings(patch, updatedBy) {
     row.startUtc = startUtc;
     row.endUtc = endUtc;
     row.timezone = timezone;
+    if (grantDuration != null) row.afterShiftGrantDurationMinutes = grantDuration;
     row.updatedBy = updatedBy ?? null;
     await row.save();
   }

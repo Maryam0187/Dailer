@@ -5,10 +5,10 @@ import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 import { isLoginAllowed, getSessionCalendarDate, loginWindowErrorMessage } from "@/server/auth/loginWindow";
-import { ensureShiftSettingsLoaded, reloadShiftSettings } from "@/server/auth/shiftSettings";
+import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
 
 export async function POST(req) {
-  await reloadShiftSettings();
+  await getShiftSettingsRecord();
 
   const body = await req.json().catch(() => null);
   const username = body?.username;

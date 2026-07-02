@@ -5,17 +5,20 @@ const {
   getShiftWindowLabel,
   readShiftEnabled,
 } = require("./shiftSettingsStore.cjs");
+const { isAfterShiftGrantExpired } = require("./afterShiftGrant.cjs");
 
 function utcMinutesOfDay(date = new Date()) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
 }
 
-function getAfterShiftAccess(user) {
+function getAfterShiftAccess(user, date = new Date()) {
   if (!user) return "none";
   const access = user.afterShiftAccess;
-  if (access === "full" || access === "limited") return access;
-  if (user.afterShiftFullAccess) return "full";
-  return "none";
+  let effective = "none";
+  if (access === "full" || access === "limited") effective = access;
+  else if (user.afterShiftFullAccess) effective = "full";
+  if (effective !== "none" && isAfterShiftGrantExpired(user, date)) return "none";
+  return effective;
 }
 
 function hasAfterShiftGrant(user) {
