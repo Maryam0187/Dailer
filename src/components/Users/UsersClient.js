@@ -1901,7 +1901,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     const nextPresence = normalizePresence(payload?.presence);
     const lastActiveAt = payload?.lastActiveAt ?? null;
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, presence: nextPresence, lastActiveAt } : u)),
+      prev.map((u) => {
+        if (u.id !== userId) return u;
+        return {
+          ...u,
+          presence: nextPresence,
+          lastActiveAt: lastActiveAt ?? u.lastActiveAt ?? null,
+        };
+      }),
     );
   }, []);
 

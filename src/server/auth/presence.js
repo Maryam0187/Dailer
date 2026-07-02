@@ -5,9 +5,9 @@ import { isUserOnline } from "@/server/socketHub";
 //   away    – no open socket right now, but their last activity is recent
 //   offline – logged out, OR never seen, OR no socket for a long time
 //
-// `activeSessionLastSeenAt` is bumped both by `getAuthedUser()` on every
-// authenticated request and by socket connect/disconnect events, so the
-// away → offline timing reflects when the user really left.
+// `activeSessionLastSeenAt` is bumped on authenticated requests, socket
+// connect/disconnect, and when a session ends (logout / forced sign-out). It is
+// kept after logout so admins still see when the user was last active.
 
 export const AWAY_GRACE_MS = 5 * 60 * 1000;
 

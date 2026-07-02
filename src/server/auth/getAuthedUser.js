@@ -20,7 +20,7 @@ const LAST_SEEN_REFRESH_MS = 30 * 1000;
 async function clearUserSession(userId) {
   try {
     await db.User.update(
-      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: userId } },
     );
   } catch {

@@ -332,7 +332,7 @@ export async function PATCH(req, { params }) {
     updates.afterShiftAccess === "none" || body.afterShiftFullAccess === false;
   if (isAdmin && accessRevoked && !isWithinLoginWindow() && target.activeSessionId) {
     await db.User.update(
-      { activeSessionId: null, activeSessionLastSeenAt: null },
+      { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: target.id } },
     );
   }
