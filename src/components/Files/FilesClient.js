@@ -66,6 +66,10 @@ function createNewTab() {
     content: "",
     owner: null,
     deleted: false,
+    sharedWithAll: false,
+    readOnly: false,
+    canCopy: false,
+    isOwner: true,
     saveError: null,
     savedSnapshot: snapshot,
   };
@@ -97,7 +101,12 @@ function tabLabel(tab) {
   return tab.fileId == null ? "New file" : "Untitled";
 }
 
-export default function FilesClient({ userRole = "agent", pageDescription = "", accessMode = "full" }) {
+export default function FilesClient({
+  userRole = "agent",
+  currentUserId = null,
+  pageDescription = "",
+  accessMode = "full",
+}) {
   const isAdmin = userRole === "admin";
   const isLimitedAfterShift = accessMode === "limited";
   const [files, setFiles] = useState([]);
@@ -122,21 +131,39 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   const [deletingTabId, setDeletingTabId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
+  const [copyingId, setCopyingId] = useState(null);
   const [closeConfirm, setCloseConfirm] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [sharedFileTotal, setSharedFileTotal] = useState(null);
   const openTabsRef = useRef(openTabs);
   openTabsRef.current = openTabs;
   const pageRef = useRef(page);
   pageRef.current = page;
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
 
   const activeEditorTab = openTabs.find((tab) => tab.tabId === activeView) ?? null;
   const isEditing = Boolean(activeEditorTab);
   const canOpenMore = openTabs.length < MAX_OPEN_TABS;
   const isStatsActive = activeView === "stats";
   const isBrowseActive = activeView === "browse";
+  const isSharedBrowseActive = activeView === "shared";
+  const isListBrowseActive = isBrowseActive || isSharedBrowseActive;
   const isFilteringByUser = isAdmin && userFilter !== "all";
   const filteredUsername = filterUsers.find((user) => String(user.id) === userFilter)?.username ?? null;
   const isFilteredUserEmpty = isFilteringByUser && !loading && files.length === 0;
+
+  const refreshSharedFileTotal = useCallback(async () => {
+    if (isLimitedAfterShift) return;
+    try {
+      const params = new URLSearchParams({ scope: "shared", page: "1", pageSize: "1" });
+      const res = await fetch(`/api/files?${params.toString()}`, { credentials: "include" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setSharedFileTotal(json.pagination?.total ?? 0);
+    } catch {
+      /* badge count is optional */
+    }
+  }, [isLimitedAfterShift]);
 
   const loadFiles = useCallback(
     async (targetPage = pageRef.current) => {
@@ -145,7 +172,13 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         const params = new URLSearchParams();
         params.set("page", String(targetPage));
         params.set("pageSize", String(FILES_PAGE_SIZE));
-        if (isAdmin && userFilter !== "all") {
+        const listScope = activeViewRef.current === "shared" ? "shared" : "mine";
+        if (listScope === "shared") {
+          params.set("scope", "shared");
+        } else if (!isAdmin) {
+          params.set("scope", "mine");
+        }
+        if (isAdmin && userFilter !== "all" && listScope === "mine") {
           params.set("userId", userFilter);
         }
         if (isAdmin && showDeleted) {
@@ -159,6 +192,9 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         if (json.pagination) {
           setPagination(json.pagination);
           setPage(json.pagination.page || targetPage);
+          if (json.scope === "shared") {
+            setSharedFileTotal(json.pagination.total ?? 0);
+          }
         } else {
           setPagination({
             page: targetPage,
@@ -179,9 +215,20 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   );
 
   useEffect(() => {
+    if (activeView !== "browse" && activeView !== "shared") return;
     setLoading(true);
     void loadFiles(page);
-  }, [loadFiles, page]);
+  }, [loadFiles, page, activeView]);
+
+  useEffect(() => {
+    if (isLimitedAfterShift) return;
+    void refreshSharedFileTotal();
+  }, [isLimitedAfterShift, refreshSharedFileTotal]);
+
+  function switchListView(view) {
+    setActiveView(view);
+    setPage(1);
+  }
 
   useEffect(() => {
     if (!isEditing) return;
@@ -254,6 +301,10 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
       content: file.content || "",
       owner: file.owner || null,
       deleted: Boolean(file.deleted),
+      sharedWithAll: Boolean(file.sharedWithAll),
+      readOnly: Boolean(file.readOnly),
+      canCopy: Boolean(file.canCopy),
+      isOwner: file.isOwner ?? (file.owner?.id == null || file.owner?.id === currentUserId),
       saveError: null,
       savedSnapshot: snapshot,
     };
@@ -335,6 +386,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   async function saveTab(tabId, { closeAfterSave = false } = {}) {
     const tab = openTabsRef.current.find((t) => t.tabId === tabId);
     if (!tab) return { ok: false };
+    if (tab.readOnly) return { ok: false };
 
     const name = tab.fileName.trim();
     if (!name) {
@@ -379,6 +431,10 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
                 fileName: saved.name,
                 content: saved.content || "",
                 owner: saved.owner || t.owner,
+                sharedWithAll: Boolean(saved.sharedWithAll),
+                readOnly: Boolean(saved.readOnly),
+                canCopy: Boolean(saved.canCopy),
+                isOwner: saved.isOwner ?? t.isOwner,
                 saveError: null,
                 savedSnapshot,
               }
@@ -389,6 +445,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
       const reloadPage = tab.fileId ? pageRef.current : 1;
       if (!tab.fileId) setPage(1);
       await loadFiles(reloadPage);
+      void refreshSharedFileTotal();
       if (closeAfterSave) {
         closeTab(newTabId);
       }
@@ -430,6 +487,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
       setDeleteConfirm(null);
       closeTabsForFile(file.id);
       await loadFiles(pageRef.current);
+      void refreshSharedFileTotal();
     } catch (err) {
       const message = err.message || "Failed to delete file";
       if (openTab) updateTab(openTab.tabId, { saveError: message });
@@ -437,6 +495,80 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
     } finally {
       if (openTab) setDeletingTabId(null);
       else setDeletingId(null);
+    }
+  }
+
+  async function copyFile(file) {
+    if (!file?.id) return;
+    setCopyingId(file.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ copyFrom: file.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to copy file");
+
+      const copied = json.file;
+      if (!copied) throw new Error("Failed to copy file");
+
+      const existing = openTabs.find((tab) => tab.fileId === copied.id);
+      if (existing) {
+        setActiveView(existing.tabId);
+      } else if (canOpenMore) {
+        openEditFile(copied);
+      } else {
+        showMaxTabsMessage();
+      }
+
+      setPage(1);
+      await loadFiles(1);
+    } catch (err) {
+      setError(err.message || "Failed to copy file");
+    } finally {
+      setCopyingId(null);
+    }
+  }
+
+  async function toggleSharedWithAll(fileId, nextShared) {
+    if (!fileId) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/files/${fileId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sharedWithAll: nextShared }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update visibility");
+
+      const updated = json.file;
+      if (updated) {
+        const snapshot = tabSnapshotFromFile(updated);
+        setOpenTabs((tabs) =>
+          tabs.map((tab) =>
+            tab.fileId === fileId
+              ? {
+                  ...tab,
+                  sharedWithAll: Boolean(updated.sharedWithAll),
+                  readOnly: Boolean(updated.readOnly),
+                  canCopy: Boolean(updated.canCopy),
+                  isOwner: Boolean(updated.isOwner),
+                  savedSnapshot: snapshot,
+                }
+              : tab,
+          ),
+        );
+      }
+
+      await loadFiles(pageRef.current);
+      void refreshSharedFileTotal();
+    } catch (err) {
+      setError(err.message || "Failed to update visibility");
     }
   }
 
@@ -466,6 +598,10 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
                   content: restored.content || "",
                   owner: restored.owner || tab.owner,
                   deleted: false,
+                  sharedWithAll: Boolean(restored.sharedWithAll),
+                  readOnly: Boolean(restored.readOnly),
+                  canCopy: Boolean(restored.canCopy),
+                  isOwner: Boolean(restored.isOwner),
                   saveError: null,
                   savedSnapshot: snapshot,
                 }
@@ -513,14 +649,38 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
               ) : null}
             </span>
           ) : (
-            <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
-              {showDeleted ? "Deleted files" : viewAll ? "All files" : "My files"}
-              {!loading && isBrowseActive ? (
-                <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
-                  {pagination.total}
-                </span>
+            <>
+              <button
+                type="button"
+                onClick={() => switchListView("browse")}
+                className={browseTabClass(isBrowseActive)}
+              >
+                {showDeleted ? "Deleted files" : viewAll ? "All files" : "My files"}
+                {!loading && isBrowseActive ? (
+                  <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                    {pagination.total}
+                  </span>
+                ) : null}
+              </button>
+              {!showDeleted ? (
+                <button
+                  type="button"
+                  onClick={() => switchListView("shared")}
+                  className={browseTabClass(isSharedBrowseActive)}
+                >
+                  Shared files
+                  {!loading && isSharedBrowseActive ? (
+                    <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
+                      {pagination.total}
+                    </span>
+                  ) : sharedFileTotal != null ? (
+                    <span className="ml-1.5 rounded-full bg-zinc-200/80 px-1.5 py-0.5 text-[11px] font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                      {sharedFileTotal}
+                    </span>
+                  ) : null}
+                </button>
               ) : null}
-            </button>
+            </>
           )}
 
           {isAdmin ? (
@@ -615,6 +775,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
               onChange={(e) => {
                 setShowDeleted(e.target.checked);
                 setPage(1);
+                if (e.target.checked) setActiveView("browse");
               }}
               className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
             />
@@ -631,14 +792,18 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         </div>
       ) : null}
 
-      {isBrowseActive && !isLimitedAfterShift ? (
+      {isListBrowseActive && !isLimitedAfterShift ? (
         <BrowseTab
           files={files}
           loading={loading}
           isAdmin={isAdmin}
+          listMode={
+            isSharedBrowseActive ? "shared" : showDeleted ? "deleted" : isAdmin ? "all" : "mine"
+          }
           showDeleted={showDeleted}
           deletingId={deletingId}
           restoringId={restoringId}
+          copyingId={copyingId}
           openFileIds={new Set(openTabs.map((tab) => tab.fileId).filter(Boolean))}
           canOpenMore={canOpenMore}
           filteringByUser={isFilteringByUser}
@@ -650,15 +815,20 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
           onEditFile={openEditFile}
           onDeleteFile={requestDeleteFile}
           onRestoreFile={restoreFile}
+          onCopyFile={copyFile}
         />
       ) : activeEditorTab ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <WriteTab
             tab={activeEditorTab}
-            allowDelete={!isLimitedAfterShift && !activeEditorTab.deleted}
+            isAdmin={isAdmin}
+            allowDelete={!isLimitedAfterShift && !activeEditorTab.deleted && (isAdmin || activeEditorTab.isOwner)}
             allowClose={!isLimitedAfterShift}
-            allowSave={!activeEditorTab.deleted}
+            allowSave={!activeEditorTab.deleted && !activeEditorTab.readOnly}
+            readOnly={Boolean(activeEditorTab.readOnly)}
+            canCopy={Boolean(activeEditorTab.canCopy)}
             isDeleted={Boolean(activeEditorTab.deleted)}
+            copying={activeEditorTab.fileId != null && copyingId === activeEditorTab.fileId}
             restoring={
               activeEditorTab.fileId != null && restoringId === activeEditorTab.fileId
             }
@@ -667,6 +837,8 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
             onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
             onContentChange={(value) => updateTab(activeEditorTab.tabId, { content: value, saveError: null })}
             onSave={() => saveTab(activeEditorTab.tabId, { closeAfterSave: false })}
+            onCopy={() => copyFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
+            onToggleShared={(nextShared) => toggleSharedWithAll(activeEditorTab.fileId, nextShared)}
             onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onRestore={() => restoreFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onClose={() => requestCloseTab(activeEditorTab.tabId)}
@@ -704,9 +876,11 @@ function BrowseTab({
   files,
   loading,
   isAdmin,
+  listMode = "mine",
   showDeleted,
   deletingId,
   restoringId,
+  copyingId,
   openFileIds,
   canOpenMore,
   filteringByUser,
@@ -718,6 +892,7 @@ function BrowseTab({
   onEditFile,
   onDeleteFile,
   onRestoreFile,
+  onCopyFile,
 }) {
   if (loading) {
     return (
@@ -734,6 +909,19 @@ function BrowseTab({
           <p className="text-lg font-medium text-zinc-800 dark:text-zinc-200">No deleted files</p>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             Deleted files will appear here for admin recovery.
+          </p>
+        </div>
+      );
+    }
+
+    if (listMode === "shared") {
+      return (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-700 dark:bg-zinc-950">
+          <p className="text-lg font-medium text-zinc-800 dark:text-zinc-200">No shared files</p>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            {isAdmin
+              ? "No files have been marked visible to all users yet."
+              : "When an admin shares a file with everyone, it will appear here for read-only viewing."}
           </p>
         </div>
       );
@@ -780,7 +968,8 @@ function BrowseTab({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Showing {files.length} of {pagination.total} {showDeleted ? "deleted " : ""}files
+          Showing {files.length} of {pagination.total}{" "}
+          {listMode === "shared" ? "shared " : showDeleted ? "deleted " : ""}files
         </p>
         <div className="flex items-center gap-2">
           <button
@@ -808,6 +997,11 @@ function BrowseTab({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {files.map((file) => {
           const isOpen = openFileIds.has(file.id);
+          const showOwner =
+            listMode === "shared" ||
+            (isAdmin && !filteringByUser && file.owner?.username) ||
+            (!file.isOwner && file.owner?.username);
+          const canDelete = !showDeleted && (isAdmin || file.isOwner);
           return (
             <article
               key={file.id}
@@ -832,13 +1026,17 @@ function BrowseTab({
                     <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200">
                       Deleted
                     </span>
+                  ) : file.sharedWithAll ? (
+                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
+                      {file.isOwner ? "Shared" : "Read-only"}
+                    </span>
                   ) : isOpen ? (
                     <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
                       Open
                     </span>
                   ) : null}
                 </div>
-                {isAdmin && !filteringByUser && file.owner?.username ? (
+                {showOwner ? (
                   <p className="mt-0.5 truncate text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
                     {file.owner.username}
                   </p>
@@ -880,20 +1078,33 @@ function BrowseTab({
                   ) : (
                     <>
                       <IconTooltipButton
-                        title={isOpen ? "Switch to tab" : "Open in tab"}
+                        title={file.readOnly ? "Open read-only" : isOpen ? "Switch to tab" : "Open in tab"}
                         variant="accent"
                         onClick={() => onEditFile(file)}
                       >
                         <EditIcon />
                       </IconTooltipButton>
-                      <IconTooltipButton
-                        title="Delete file"
-                        variant="danger"
-                        disabled={deletingId === file.id}
-                        onClick={() => onDeleteFile(file)}
-                      >
-                        <DeleteIcon />
-                      </IconTooltipButton>
+                      {file.canCopy ? (
+                        <button
+                          type="button"
+                          title="Make a copy to edit"
+                          disabled={copyingId === file.id}
+                          onClick={() => onCopyFile(file)}
+                          className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+                        >
+                          {copyingId === file.id ? "Copying…" : "Copy"}
+                        </button>
+                      ) : null}
+                      {canDelete ? (
+                        <IconTooltipButton
+                          title="Delete file"
+                          variant="danger"
+                          disabled={deletingId === file.id}
+                          onClick={() => onDeleteFile(file)}
+                        >
+                          <DeleteIcon />
+                        </IconTooltipButton>
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -1016,11 +1227,15 @@ function UnsavedChangesDialog({ fileName, saving, saveError, onSave, onDiscard, 
 function WriteTabActions({
   isNewFile,
   isDeleted,
+  readOnly = false,
+  canCopy = false,
+  copying = false,
   saving,
   deleting,
   restoring,
   isDirty,
   onSave,
+  onCopy,
   onDelete,
   onRestore,
   onClose,
@@ -1038,6 +1253,16 @@ function WriteTabActions({
           className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
         >
           {restoring ? "Restoring…" : "Recover"}
+        </button>
+      ) : null}
+      {readOnly && canCopy ? (
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={copying || saving}
+          className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+        >
+          {copying ? "Copying…" : "Make a copy"}
         </button>
       ) : null}
       {!isNewFile && allowDelete ? (
@@ -1077,16 +1302,22 @@ function WriteTabActions({
 
 function WriteTab({
   tab,
+  isAdmin = false,
   allowDelete = true,
   allowClose = true,
   allowSave = true,
+  readOnly = false,
+  canCopy = false,
   isDeleted = false,
+  copying = false,
   saving,
   deleting,
   restoring,
   onFileNameChange,
   onContentChange,
   onSave,
+  onCopy,
+  onToggleShared,
   onDelete,
   onRestore,
   onClose,
@@ -1094,6 +1325,7 @@ function WriteTab({
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
   const isRestoring = tab.fileId != null && restoring;
+  const isReadOnlyView = isDeleted || readOnly;
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -1116,13 +1348,16 @@ function WriteTab({
             type="text"
             value={tab.fileName}
             onChange={(e) => onFileNameChange(e.target.value)}
-            readOnly={isDeleted}
+            readOnly={isReadOnlyView}
             placeholder="Untitled document"
             className={editorTitleClass}
           />
           <WriteTabActions
             isNewFile={isNewFile}
             isDeleted={isDeleted}
+            readOnly={readOnly}
+            canCopy={canCopy}
+            copying={copying}
             allowDelete={allowDelete}
             allowClose={allowClose}
             allowSave={allowSave}
@@ -1131,15 +1366,34 @@ function WriteTab({
             restoring={isRestoring}
             isDirty={isDirty}
             onSave={onSave}
+            onCopy={onCopy}
             onDelete={onDelete}
             onRestore={onRestore}
             onClose={onClose}
           />
         </div>
 
+        {isAdmin && tab.fileId != null && !isDeleted ? (
+          <label className="flex items-center gap-2 border-t border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300 sm:px-5">
+            <input
+              type="checkbox"
+              checked={Boolean(tab.sharedWithAll)}
+              onChange={(e) => onToggleShared(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
+            />
+            Visible to all users (read-only for others)
+          </label>
+        ) : null}
+
         {isDeleted ? (
           <p className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 sm:px-5">
             This file is deleted. Open read-only — use Recover to restore it.
+          </p>
+        ) : readOnly ? (
+          <p className="border-t border-sky-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200 sm:px-5">
+            This file is shared read-only.
+            {tab.owner?.username ? ` Owned by ${tab.owner.username}.` : ""}
+            {canCopy ? " Make a copy to edit your own version." : ""}
           </p>
         ) : null}
 
@@ -1155,7 +1409,8 @@ function WriteTab({
           key={tab.tabId}
           value={tab.content}
           onChange={onContentChange}
-          editable={!isDeleted}
+          editable={!isReadOnlyView}
+          showToolbar={!isReadOnlyView}
           placeholder="Start writing…"
           minHeightClass="min-h-[16rem]"
           wordLayout

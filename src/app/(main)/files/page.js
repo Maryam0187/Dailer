@@ -9,7 +9,14 @@ export default async function FilesPage() {
   const pageDescription =
     authedUser.role === "admin"
       ? "View and manage rich-text documents for all users. New files you create are saved under your account."
-      : "Create and save rich-text documents with custom file names. Your files are private to your account.";
+      : "Create and save rich-text documents. Shared files from admins are read-only — make a copy to edit your own version.";
 
-  return <FilesClient userRole={authedUser.role} pageDescription={pageDescription} accessMode={authedUser.accessMode} />;
+  return (
+    <FilesClient
+      userRole={authedUser.role}
+      currentUserId={authedUser.id}
+      pageDescription={pageDescription}
+      accessMode={authedUser.accessMode}
+    />
+  );
 }
