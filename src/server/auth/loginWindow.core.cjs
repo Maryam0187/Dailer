@@ -1,8 +1,12 @@
 // Shift bounds are stored as UTC (HH:mm). Compare in UTC for reliable enforcement.
-const { parseHhmm } = require("../../lib/shiftTime.cjs");
+const {
+  parseHhmm,
+  formatHhmmInTimezone,
+  getShiftWindowLabel,
+  getTimezoneLabel,
+} = require("../../lib/shiftTime.cjs");
 const {
   getShiftSettings,
-  getShiftWindowLabel,
   readShiftEnabled,
   getWeekdayInTimezone,
   normalizeLeaveDays,
@@ -10,6 +14,8 @@ const {
   WEEKDAY_LABELS,
 } = require("./shiftSettingsStore.cjs");
 const { isAfterShiftGrantExpired } = require("./afterShiftGrant.cjs");
+
+const SHIFT_ENDING_WARNING_MINUTES = 15;
 
 function utcMinutesOfDay(date = new Date()) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
@@ -74,6 +80,40 @@ function isLoginAllowed(user, date = new Date()) {
   return isWithinLoginWindow(date);
 }
 
+function currentShiftWindowLabel() {
+  const settings = getShiftSettings();
+  return getShiftWindowLabel(settings.startUtc, settings.endUtc, settings.timezone);
+}
+
+function getMinutesUntilShiftEnd(date = new Date()) {
+  if (!isShiftWindowEnforced() || !isManuallyActive() || isLeaveDay(date)) return null;
+
+  const settings = getShiftSettings();
+  const end = parseHhmm(settings.endUtc);
+  if (end == null) return null;
+
+  const minutes = utcMinutesOfDay(date);
+  if (minutes > end) return null;
+  return end - minutes;
+}
+
+function getShiftEndingSoonInfo(date = new Date()) {
+  const settings = getShiftSettings();
+  const minutesRemaining = getMinutesUntilShiftEnd(date);
+  const endingSoon =
+    minutesRemaining != null &&
+    minutesRemaining <= SHIFT_ENDING_WARNING_MINUTES &&
+    isWithinLoginWindow(date);
+
+  return {
+    endingSoon,
+    minutesRemaining,
+    shiftEndLabel: formatHhmmInTimezone(settings.endUtc, settings.timezone),
+    timezoneLabel: getTimezoneLabel(settings.timezone),
+    warningMinutes: SHIFT_ENDING_WARNING_MINUTES,
+  };
+}
+
 function loginWindowErrorMessage(date = new Date()) {
   if (isLeaveDay(date)) {
     return `Sign-in is not allowed on leave days (${getLeaveDayLabel(date)}).`;
@@ -81,7 +121,7 @@ function loginWindowErrorMessage(date = new Date()) {
   if (!isManuallyActive()) {
     return "Shift has been ended by an admin. Sign-in is not allowed until the shift is activated again.";
   }
-  const windowLabel = getShiftWindowLabel();
+  const windowLabel = currentShiftWindowLabel();
   return `Sign-in is only allowed during shift hours (${windowLabel}), unless an admin has granted after-shift access.`;
 }
 
@@ -91,7 +131,7 @@ function getShiftStatus(date = new Date()) {
       status: "disabled",
       label: "Enforcement off",
       detail: "Shift login window is disabled",
-      windowLabel: getShiftWindowLabel(),
+      windowLabel: currentShiftWindowLabel(),
       active: true,
     };
   }
@@ -102,7 +142,7 @@ function getShiftStatus(date = new Date()) {
       status: "leave",
       label: "Leave day",
       detail: `No sign-in today (${leaveDayLabel})`,
-      windowLabel: getShiftWindowLabel(),
+      windowLabel: currentShiftWindowLabel(),
       active: false,
     };
   }
@@ -112,19 +152,21 @@ function getShiftStatus(date = new Date()) {
       status: "paused",
       label: "Shift ended",
       detail: "Manually ended by admin",
-      windowLabel: getShiftWindowLabel(),
+      windowLabel: currentShiftWindowLabel(),
       active: false,
     };
   }
 
   const active = isWithinLoginWindow(date);
-  const windowLabel = getShiftWindowLabel();
+  const windowLabel = currentShiftWindowLabel();
+  const endingSoonInfo = getShiftEndingSoonInfo(date);
   return {
     status: active ? "active" : "ended",
     label: active ? "Shift active" : "Shift ended",
     detail: windowLabel,
     windowLabel,
     active,
+    ...endingSoonInfo,
   };
 }
 
@@ -154,6 +196,9 @@ module.exports = {
   isLoginAllowed,
   loginWindowErrorMessage,
   getShiftStatus,
+  getShiftEndingSoonInfo,
+  getMinutesUntilShiftEnd,
+  SHIFT_ENDING_WARNING_MINUTES,
   getSessionCalendarDate,
   isSessionValidForToday,
 };

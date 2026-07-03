@@ -6,6 +6,7 @@ import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindo
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
 import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
+import { userHasActiveCall } from "@/server/calls/userActiveCall";
 import {
   hasStoredAfterShiftGrant,
   isAfterShiftGrantExpired,
@@ -113,8 +114,11 @@ async function resolveAuthedUser() {
   }
 
   if (!isLoginAllowed(user)) {
-    await clearUserSession(user.id);
-    return { user: null, logoutReason: "shift_ended" };
+    const onActiveCall = await userHasActiveCall(user.id);
+    if (!onActiveCall) {
+      await clearUserSession(user.id);
+      return { user: null, logoutReason: "shift_ended" };
+    }
   }
 
   try {

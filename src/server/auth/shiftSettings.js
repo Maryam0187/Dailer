@@ -125,13 +125,7 @@ export async function reloadShiftSettings() {
 }
 
 export async function getShiftSettingsRecord() {
-  await ensureShiftSettingsLoaded();
-  let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
-  if (!row) {
-    await reloadShiftSettings();
-    row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
-  }
-  return serializeShiftSettings(row);
+  return reloadShiftSettings();
 }
 
 export function parseShiftTimeInput(value) {

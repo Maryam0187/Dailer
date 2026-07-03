@@ -84,7 +84,10 @@ app.prepare().then(async () => {
         return nextSocket(new Error("Unauthorized"));
       }
       if (!isLoginAllowed(user)) {
-        return nextSocket(new Error("Unauthorized"));
+        const { userHasActiveCall } = await import("./src/server/calls/userActiveCall.js");
+        if (!(await userHasActiveCall(userId))) {
+          return nextSocket(new Error("Unauthorized"));
+        }
       }
 
       socket.data.userId = userId;

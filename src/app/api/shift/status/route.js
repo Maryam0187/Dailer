@@ -12,5 +12,10 @@ export async function GET() {
     detail: shiftStatus.detail,
     windowLabel: shiftStatus.windowLabel,
     active: shiftStatus.active,
+    endingSoon: shiftStatus.endingSoon,
+    minutesRemaining: shiftStatus.minutesRemaining,
+    shiftEndLabel: shiftStatus.shiftEndLabel,
+    timezoneLabel: shiftStatus.timezoneLabel,
+    warningMinutes: shiftStatus.warningMinutes,
   });
 }

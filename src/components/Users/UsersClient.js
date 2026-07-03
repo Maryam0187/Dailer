@@ -166,17 +166,46 @@ function grantDurationLabel(minutes) {
   return opt?.label || `${minutes} min`;
 }
 
-function AfterShiftAccessBadge({ access, expiresAt, grantDurationMinutes }) {
+function formatGrantTimeRemaining(expiresAt) {
+  if (!expiresAt) return null;
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return "expired";
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return minutes === 1 ? "1 min left" : `${minutes} min left`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  if (rem === 0) return hours === 1 ? "1 hour left" : `${hours} hours left`;
+  return `${hours}h ${rem}m left`;
+}
+
+function AfterShiftAccessBadge({
+  access,
+  expiresAt,
+  grantDurationMinutes,
+  isCustomGrantDuration = false,
+}) {
+  const durationLabel = grantDurationMinutes ? grantDurationLabel(grantDurationMinutes) : null;
+  const durationHint = durationLabel
+    ? isCustomGrantDuration
+      ? durationLabel
+      : `${durationLabel} (default)`
+    : null;
+  const remainingLabel = formatGrantTimeRemaining(expiresAt);
+  const expiryLabel = expiresAt ? formatGrantExpiry(expiresAt) : null;
+
   if (access === "full") {
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className="inline-flex rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
           Full
         </span>
-        {expiresAt ? (
-          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">until {formatGrantExpiry(expiresAt)}</span>
-        ) : grantDurationMinutes ? (
-          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{grantDurationLabel(grantDurationMinutes)} each grant</span>
+        {remainingLabel && expiryLabel ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+            {durationHint ? `${durationHint} · ` : ""}
+            {remainingLabel} · until {expiryLabel}
+          </span>
+        ) : durationHint ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{durationHint} each grant</span>
         ) : null}
       </span>
     );
@@ -187,17 +216,22 @@ function AfterShiftAccessBadge({ access, expiresAt, grantDurationMinutes }) {
         <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
           Limited
         </span>
-        {expiresAt ? (
-          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">until {formatGrantExpiry(expiresAt)}</span>
-        ) : grantDurationMinutes ? (
-          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{grantDurationLabel(grantDurationMinutes)} each grant</span>
+        {remainingLabel && expiryLabel ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+            {durationHint ? `${durationHint} · ` : ""}
+            {remainingLabel} · until {expiryLabel}
+          </span>
+        ) : durationHint ? (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{durationHint} each grant</span>
         ) : null}
       </span>
     );
   }
-  return <span className="text-xs text-zinc-500 dark:text-zinc-400">
-    {grantDurationMinutes ? `${grantDurationLabel(grantDurationMinutes)} when granted` : "—"}
-  </span>;
+  return (
+    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+      {durationHint ? `${durationHint} when granted` : "—"}
+    </span>
+  );
 }
 
 function PresenceBadge({ status }) {
@@ -1454,7 +1488,11 @@ function EditUserModal({
         const json = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) {
           const globalDefault = json.settings?.afterShiftGrantDurationMinutes || 120;
-          setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? globalDefault);
+          setGrantDurationMinutes(
+            user.afterShiftGrantDurationMinutes != null
+              ? user.afterShiftGrantDurationMinutes
+              : globalDefault,
+          );
         }
       } catch {
         /* use default */
@@ -1933,7 +1971,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   useEffect(() => {
     if (role !== "admin") return undefined;
     let cancelled = false;
-    (async () => {
+
+    async function loadDefaultGrantDuration() {
       try {
         const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
@@ -1943,9 +1982,17 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       } catch {
         /* use default */
       }
-    })();
+    }
+
+    void loadDefaultGrantDuration();
+
+    function onShiftSettingsChanged() {
+      void loadDefaultGrantDuration();
+    }
+    window.addEventListener("shift-status-changed", onShiftSettingsChanged);
     return () => {
       cancelled = true;
+      window.removeEventListener("shift-status-changed", onShiftSettingsChanged);
     };
   }, [role]);
 
@@ -2454,7 +2501,10 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                               <AfterShiftAccessBadge
                                 access={u.afterShiftAccess || "none"}
                                 expiresAt={u.afterShiftAccessExpiresAt}
-                                grantDurationMinutes={u.afterShiftGrantDurationMinutes}
+                                grantDurationMinutes={
+                                  u.afterShiftGrantDurationMinutes ?? defaultGrantDurationMinutes
+                                }
+                                isCustomGrantDuration={u.afterShiftGrantDurationMinutes != null}
                               />
                             )}
                           </td>

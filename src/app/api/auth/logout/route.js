@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
+import { userHasActiveCall } from "@/server/calls/userActiveCall";
 
 export async function POST(req) {
   // Logout is an explicit "end my session" — clear any active dialer lock for this user
@@ -9,6 +10,12 @@ export async function POST(req) {
   try {
     const authed = await getAuthedUser();
     if (authed?.id) {
+      if (await userHasActiveCall(authed.id)) {
+        return NextResponse.json(
+          { error: "You cannot sign out while on an active call. End the call first." },
+          { status: 409 },
+        );
+      }
       const userRow = await db.User.findByPk(authed.id, {
         attributes: ["id", "activeSessionId"],
       });
