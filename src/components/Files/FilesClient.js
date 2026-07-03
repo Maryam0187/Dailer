@@ -65,6 +65,7 @@ function createNewTab() {
     fileName: "",
     content: "",
     owner: null,
+    deleted: false,
     saveError: null,
     savedSnapshot: snapshot,
   };
@@ -658,7 +659,9 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
             allowClose={!isLimitedAfterShift}
             allowSave={!activeEditorTab.deleted}
             isDeleted={Boolean(activeEditorTab.deleted)}
-            restoring={restoringId === activeEditorTab.fileId}
+            restoring={
+              activeEditorTab.fileId != null && restoringId === activeEditorTab.fileId
+            }
             saving={savingTabId === activeEditorTab.tabId}
             deleting={deletingTabId === activeEditorTab.tabId}
             onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
@@ -1090,18 +1093,19 @@ function WriteTab({
 }) {
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
+  const isRestoring = tab.fileId != null && restoring;
 
   useEffect(() => {
     function handleKeyDown(event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        if (!saving && !deleting && !restoring && allowSave) onSave();
+        if (!saving && !deleting && !isRestoring && allowSave) onSave();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [onSave, saving, deleting, restoring, allowSave]);
+  }, [onSave, saving, deleting, isRestoring, allowSave]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100/80 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -1124,7 +1128,7 @@ function WriteTab({
             allowSave={allowSave}
             saving={saving}
             deleting={deleting}
-            restoring={restoring}
+            restoring={isRestoring}
             isDirty={isDirty}
             onSave={onSave}
             onDelete={onDelete}
