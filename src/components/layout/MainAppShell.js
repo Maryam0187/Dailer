@@ -20,6 +20,7 @@ function AuthExpiryWatcher() {
 
     async function redirectForAuthExpiry() {
       if (redirecting || window.location.pathname.startsWith("/sign-in")) return;
+      if (window.location.pathname.startsWith("/leave-application")) return;
       redirecting = true;
       try {
         const res = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
@@ -43,6 +44,7 @@ function AuthExpiryWatcher() {
       if (
         res.status === 401 &&
         !window.location.pathname.startsWith("/sign-in") &&
+        !window.location.pathname.startsWith("/leave-application") &&
         !url.includes("/api/auth/signin") &&
         !url.includes("/api/auth/session")
       ) {

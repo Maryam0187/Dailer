@@ -3,7 +3,9 @@ import { cookies } from "next/headers";
 import db from "@/server/db";
 import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
+import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
+import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
 import {
   hasStoredAfterShiftGrant,
   isAfterShiftGrantExpired,
@@ -89,6 +91,27 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: "session_day_ended" };
   }
 
+  const sessionPurpose =
+    payload?.purpose === "leave_application" ? "leave_application" : "full";
+
+  if (sessionPurpose === "leave_application") {
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        sessionPurpose: "leave_application",
+      },
+      logoutReason: null,
+    };
+  }
+
+  const onApprovedLeave = await isUserOnApprovedLeave(user.id);
+  if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
+    await clearUserSession(user.id);
+    return { user: null, logoutReason: "user_on_leave" };
+  }
+
   if (!isLoginAllowed(user)) {
     await clearUserSession(user.id);
     return { user: null, logoutReason: "shift_ended" };
@@ -118,6 +141,7 @@ async function resolveAuthedUser() {
       managerId: user.managerId,
       accessMode,
       afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,
+      sessionPurpose: "full",
     },
     logoutReason: null,
   };

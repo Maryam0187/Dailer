@@ -55,11 +55,32 @@ app.prepare().then(async () => {
       if (!Number.isInteger(userId) || userId <= 0) return nextSocket(new Error("Unauthorized"));
 
       const user = await db.User.findByPk(userId, {
-        attributes: ["id", "role", "isActive", "afterShiftAccess", "afterShiftLimitedFileId"],
+        attributes: [
+          "id",
+          "role",
+          "isActive",
+          "afterShiftAccess",
+          "afterShiftLimitedFileId",
+          "afterShiftAccessExpiresAt",
+        ],
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 
       if (!isSessionValidForToday(payload)) {
+        return nextSocket(new Error("Unauthorized"));
+      }
+      if (payload?.purpose === "leave_application") {
+        return nextSocket(new Error("Unauthorized"));
+      }
+
+      const { isUserOnApprovedLeave } = await import("./src/server/leave/userLeave.js");
+      const { hasAfterShiftGrant } = require("./src/server/auth/loginWindow.core.cjs");
+
+      if (
+        (await isUserOnApprovedLeave(userId)) &&
+        user.role !== "admin" &&
+        !hasAfterShiftGrant(user)
+      ) {
         return nextSocket(new Error("Unauthorized"));
       }
       if (!isLoginAllowed(user)) {

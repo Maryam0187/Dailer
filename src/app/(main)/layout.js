@@ -26,6 +26,9 @@ export default async function MainLayout({ children }) {
     }
     redirect(signInRedirectPath());
   }
+  if (authedUser.sessionPurpose === "leave_application") {
+    redirect("/leave-application");
+  }
   const deploymentTag = getDeploymentTag();
   const deployedAt = getDeploymentTimestampRaw();
   const shiftStatus = authedUser.role === "admin" ? await getLiveShiftStatus() : null;
