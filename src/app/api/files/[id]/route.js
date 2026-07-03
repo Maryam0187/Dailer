@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canCreateFiles, canViewAllFiles, canWriteFile, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
+import { resolveRestoreFileName } from "@/server/files/resolveRestoreFileName";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
 export async function GET(_req, { params }) {
@@ -18,7 +19,7 @@ export async function GET(_req, { params }) {
   const file = await getAccessibleFile(id, authedUser);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-  return NextResponse.json({ file: serializeUserFile(file) });
+  return NextResponse.json({ file: serializeUserFile(file, { includeDeleted: canViewAllFiles(authedUser.role) }) });
 }
 
 export async function PATCH(req, { params }) {
@@ -30,14 +31,39 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
   }
 
+  const body = await req.json().catch(() => null);
+
+  if (body?.restore === true) {
+    if (!canViewAllFiles(authedUser.role)) {
+      return NextResponse.json({ error: "Only admins can restore deleted files" }, { status: 403 });
+    }
+
+    const file = await getAccessibleFile(id, authedUser, { includeDeleted: true });
+    if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+    if (!file.deleted) return NextResponse.json({ error: "File is not deleted" }, { status: 400 });
+
+    const restoredName = await resolveRestoreFileName(file.userId, file.name);
+    const renamed = restoredName !== file.name;
+
+    await file.update({ deleted: false, name: restoredName });
+    await file.reload({ include: fileListIncludes });
+    return NextResponse.json({
+      ok: true,
+      renamed,
+      file: serializeUserFile(file),
+    });
+  }
+
   if (!canWriteFile(authedUser, id)) {
     return NextResponse.json({ error: "You cannot edit this file with limited after-shift access." }, { status: 403 });
   }
 
   const file = await getAccessibleFile(id, authedUser);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+  if (file.deleted) {
+    return NextResponse.json({ error: "Cannot edit a deleted file. Restore it first." }, { status: 403 });
+  }
 
-  const body = await req.json().catch(() => null);
   const update = {};
   const ownerUserId = file.userId;
 
@@ -84,7 +110,14 @@ export async function DELETE(_req, { params }) {
 
   const file = await getAccessibleFile(id, authedUser);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+  if (file.deleted) {
+    return NextResponse.json({ error: "File is already deleted" }, { status: 400 });
+  }
 
-  await file.destroy();
+  await file.update({ deleted: true });
+  await db.User.update(
+    { afterShiftLimitedFileId: null },
+    { where: { afterShiftLimitedFileId: id } },
+  );
   return NextResponse.json({ ok: true });
 }

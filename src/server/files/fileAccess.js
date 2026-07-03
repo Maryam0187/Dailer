@@ -12,7 +12,7 @@ export const fileListIncludes = [
   },
 ];
 
-export async function getAccessibleFile(id, authedUser) {
+export async function getAccessibleFile(id, authedUser, { includeDeleted = false } = {}) {
   if (authedUser?.accessMode === "limited") {
     const limitedId = authedUser.afterShiftLimitedFileId;
     if (!limitedId || Number(id) !== Number(limitedId)) {
@@ -20,7 +20,7 @@ export async function getAccessibleFile(id, authedUser) {
     }
     return db.UserFile.findOne({
       where: { id: limitedId },
-      attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+      attributes: ["id", "name", "content", "userId", "deleted", "createdAt", "updatedAt"],
       include: fileListIncludes,
     });
   }
@@ -30,11 +30,18 @@ export async function getAccessibleFile(id, authedUser) {
     where.userId = authedUser.id;
   }
 
-  return db.UserFile.findOne({
+  const query = {
     where,
-    attributes: ["id", "name", "content", "userId", "createdAt", "updatedAt"],
+    attributes: ["id", "name", "content", "userId", "deleted", "createdAt", "updatedAt"],
     include: fileListIncludes,
-  });
+  };
+
+  const allowDeleted = includeDeleted || canViewAllFiles(authedUser.role);
+  if (allowDeleted) {
+    return db.UserFile.unscoped().findOne(query);
+  }
+
+  return db.UserFile.findOne(query);
 }
 
 export function canCreateFiles(authedUser) {

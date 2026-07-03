@@ -111,6 +111,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   });
   const [viewAll, setViewAll] = useState(false);
   const [userFilter, setUserFilter] = useState("all");
+  const [showDeleted, setShowDeleted] = useState(false);
   const [filterUsers, setFilterUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -119,6 +120,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
   const [savingTabId, setSavingTabId] = useState(null);
   const [deletingTabId, setDeletingTabId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
   const [closeConfirm, setCloseConfirm] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const openTabsRef = useRef(openTabs);
@@ -145,6 +147,9 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         if (isAdmin && userFilter !== "all") {
           params.set("userId", userFilter);
         }
+        if (isAdmin && showDeleted) {
+          params.set("deleted", "true");
+        }
         const res = await fetch(`/api/files?${params.toString()}`, { credentials: "include" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Failed to load files");
@@ -169,7 +174,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
         setLoading(false);
       }
     },
-    [isAdmin, userFilter],
+    [isAdmin, userFilter, showDeleted],
   );
 
   useEffect(() => {
@@ -247,6 +252,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
       fileName: file.name,
       content: file.content || "",
       owner: file.owner || null,
+      deleted: Boolean(file.deleted),
       saveError: null,
       savedSnapshot: snapshot,
     };
@@ -433,6 +439,48 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
     }
   }
 
+  async function restoreFile(file) {
+    if (!file?.id) return;
+    setRestoringId(file.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/files/${file.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ restore: true }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to restore file");
+
+      const restored = json.file;
+      if (restored) {
+        const snapshot = tabSnapshotFromFile(restored);
+        setOpenTabs((tabs) =>
+          tabs.map((tab) =>
+            tab.fileId === file.id
+              ? {
+                  ...tab,
+                  fileName: restored.name,
+                  content: restored.content || "",
+                  owner: restored.owner || tab.owner,
+                  deleted: false,
+                  saveError: null,
+                  savedSnapshot: snapshot,
+                }
+              : tab,
+          ),
+        );
+      }
+
+      await loadFiles(pageRef.current);
+    } catch (err) {
+      setError(err.message || "Failed to restore file");
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
   return (
     <div
       className={
@@ -465,7 +513,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
             </span>
           ) : (
             <button type="button" onClick={() => setActiveView("browse")} className={browseTabClass(isBrowseActive)}>
-              {viewAll ? "All files" : "My files"}
+              {showDeleted ? "Deleted files" : viewAll ? "All files" : "My files"}
               {!loading && isBrowseActive ? (
                 <span className="ml-1.5 rounded-full bg-indigo-200/80 px-1.5 py-0.5 text-[11px] font-bold text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100">
                   {pagination.total}
@@ -514,7 +562,7 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
 
         </div>
 
-        {isBrowseActive && !isFilteredUserEmpty && !isLimitedAfterShift ? (
+        {isBrowseActive && !isFilteredUserEmpty && !isLimitedAfterShift && !showDeleted ? (
           <button
             type="button"
             onClick={openNewFile}
@@ -559,6 +607,18 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
               ))}
             </select>
           </label>
+          <label className="flex items-center gap-2 pb-2.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={showDeleted}
+              onChange={(e) => {
+                setShowDeleted(e.target.checked);
+                setPage(1);
+              }}
+              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
+            />
+            Show deleted files
+          </label>
         </div>
       ) : null}
 
@@ -575,7 +635,9 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
           files={files}
           loading={loading}
           isAdmin={isAdmin}
+          showDeleted={showDeleted}
           deletingId={deletingId}
+          restoringId={restoringId}
           openFileIds={new Set(openTabs.map((tab) => tab.fileId).filter(Boolean))}
           canOpenMore={canOpenMore}
           filteringByUser={isFilteringByUser}
@@ -586,19 +648,24 @@ export default function FilesClient({ userRole = "agent", pageDescription = "", 
           onNewFile={openNewFile}
           onEditFile={openEditFile}
           onDeleteFile={requestDeleteFile}
+          onRestoreFile={restoreFile}
         />
       ) : activeEditorTab ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <WriteTab
             tab={activeEditorTab}
-            allowDelete={!isLimitedAfterShift}
+            allowDelete={!isLimitedAfterShift && !activeEditorTab.deleted}
             allowClose={!isLimitedAfterShift}
+            allowSave={!activeEditorTab.deleted}
+            isDeleted={Boolean(activeEditorTab.deleted)}
+            restoring={restoringId === activeEditorTab.fileId}
             saving={savingTabId === activeEditorTab.tabId}
             deleting={deletingTabId === activeEditorTab.tabId}
             onFileNameChange={(value) => updateTab(activeEditorTab.tabId, { fileName: value, saveError: null })}
             onContentChange={(value) => updateTab(activeEditorTab.tabId, { content: value, saveError: null })}
             onSave={() => saveTab(activeEditorTab.tabId, { closeAfterSave: false })}
             onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
+            onRestore={() => restoreFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onClose={() => requestCloseTab(activeEditorTab.tabId)}
           />
         </div>
@@ -634,7 +701,9 @@ function BrowseTab({
   files,
   loading,
   isAdmin,
+  showDeleted,
   deletingId,
+  restoringId,
   openFileIds,
   canOpenMore,
   filteringByUser,
@@ -645,6 +714,7 @@ function BrowseTab({
   onNewFile,
   onEditFile,
   onDeleteFile,
+  onRestoreFile,
 }) {
   if (loading) {
     return (
@@ -655,6 +725,17 @@ function BrowseTab({
   }
 
   if (files.length === 0) {
+    if (showDeleted) {
+      return (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-700 dark:bg-zinc-950">
+          <p className="text-lg font-medium text-zinc-800 dark:text-zinc-200">No deleted files</p>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            Deleted files will appear here for admin recovery.
+          </p>
+        </div>
+      );
+    }
+
     if (filteringByUser) {
       return (
         <div className="rounded-2xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-700 dark:bg-zinc-950">
@@ -696,7 +777,7 @@ function BrowseTab({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Showing {files.length} of {pagination.total} files
+          Showing {files.length} of {pagination.total} {showDeleted ? "deleted " : ""}files
         </p>
         <div className="flex items-center gap-2">
           <button
@@ -728,17 +809,27 @@ function BrowseTab({
             <article
               key={file.id}
               className={`group flex flex-col rounded-xl border bg-white p-3 shadow-sm transition-[border-color,box-shadow] dark:bg-zinc-950 ${
-                isOpen
-                  ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
-                  : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
+                showDeleted
+                  ? "border-red-200 bg-red-50/30 dark:border-red-900/40 dark:bg-red-950/10"
+                  : isOpen
+                    ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
+                    : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
               }`}
             >
-              <button type="button" onClick={() => onEditFile(file)} className="min-w-0 flex-1 text-left">
+              <button
+                type="button"
+                onClick={() => onEditFile(file)}
+                className="min-w-0 flex-1 text-left"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="truncate text-sm font-semibold text-zinc-900 group-hover:text-indigo-700 dark:text-zinc-100 dark:group-hover:text-indigo-300">
                     {file.name}
                   </h3>
-                  {isOpen ? (
+                  {showDeleted ? (
+                    <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200">
+                      Deleted
+                    </span>
+                  ) : isOpen ? (
                     <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
                       Open
                     </span>
@@ -764,21 +855,44 @@ function BrowseTab({
                   <p className="truncate">Updated {formatDate(file.updatedAt)}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <IconTooltipButton
-                    title={isOpen ? "Switch to tab" : "Open in tab"}
-                    variant="accent"
-                    onClick={() => onEditFile(file)}
-                  >
-                    <EditIcon />
-                  </IconTooltipButton>
-                  <IconTooltipButton
-                    title="Delete file"
-                    variant="danger"
-                    disabled={deletingId === file.id}
-                    onClick={() => onDeleteFile(file)}
-                  >
-                    <DeleteIcon />
-                  </IconTooltipButton>
+                  {showDeleted ? (
+                    <>
+                      <IconTooltipButton
+                        title="Open in tab"
+                        variant="accent"
+                        onClick={() => onEditFile(file)}
+                      >
+                        <EditIcon />
+                      </IconTooltipButton>
+                      <button
+                        type="button"
+                        title="Restore file"
+                        disabled={restoringId === file.id}
+                        onClick={() => onRestoreFile(file)}
+                        className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
+                      >
+                        {restoringId === file.id ? "Restoring…" : "Recover"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <IconTooltipButton
+                        title={isOpen ? "Switch to tab" : "Open in tab"}
+                        variant="accent"
+                        onClick={() => onEditFile(file)}
+                      >
+                        <EditIcon />
+                      </IconTooltipButton>
+                      <IconTooltipButton
+                        title="Delete file"
+                        variant="danger"
+                        disabled={deletingId === file.id}
+                        onClick={() => onDeleteFile(file)}
+                      >
+                        <DeleteIcon />
+                      </IconTooltipButton>
+                    </>
+                  )}
                 </div>
               </div>
             </article>
@@ -810,8 +924,8 @@ function DeleteConfirmDialog({ fileName, deleting, onConfirm, onCancel }) {
               Delete file?
             </h3>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Delete <span className="font-medium text-zinc-800 dark:text-zinc-200">{fileName}</span>? This cannot be
-              undone.
+              Delete <span className="font-medium text-zinc-800 dark:text-zinc-200">{fileName}</span>? It will be hidden
+              from users. Admins can recover it later.
             </p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
@@ -896,9 +1010,33 @@ function UnsavedChangesDialog({ fileName, saving, saveError, onSave, onDiscard, 
   );
 }
 
-function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelete, onClose, allowDelete = true, allowClose = true }) {
+function WriteTabActions({
+  isNewFile,
+  isDeleted,
+  saving,
+  deleting,
+  restoring,
+  isDirty,
+  onSave,
+  onDelete,
+  onRestore,
+  onClose,
+  allowDelete = true,
+  allowClose = true,
+  allowSave = true,
+}) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {isDeleted ? (
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={restoring || saving}
+          className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
+        >
+          {restoring ? "Restoring…" : "Recover"}
+        </button>
+      ) : null}
       {!isNewFile && allowDelete ? (
         <button
           type="button"
@@ -913,26 +1051,43 @@ function WriteTabActions({ isNewFile, saving, deleting, isDirty, onSave, onDelet
         <button
           type="button"
           onClick={onClose}
-          disabled={saving || deleting}
+          disabled={saving || deleting || restoring}
           className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           Close
         </button>
       ) : null}
+      {allowSave ? (
       <button
         type="button"
         onClick={onSave}
-        disabled={saving || deleting}
+        disabled={saving || deleting || restoring}
         title="Save (Ctrl+S)"
         className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
       </button>
+      ) : null}
     </div>
   );
 }
 
-function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting, onFileNameChange, onContentChange, onSave, onDelete, onClose }) {
+function WriteTab({
+  tab,
+  allowDelete = true,
+  allowClose = true,
+  allowSave = true,
+  isDeleted = false,
+  saving,
+  deleting,
+  restoring,
+  onFileNameChange,
+  onContentChange,
+  onSave,
+  onDelete,
+  onRestore,
+  onClose,
+}) {
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
 
@@ -940,13 +1095,13 @@ function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting
     function handleKeyDown(event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        if (!saving && !deleting) onSave();
+        if (!saving && !deleting && !restoring && allowSave) onSave();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [onSave, saving, deleting]);
+  }, [onSave, saving, deleting, restoring, allowSave]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100/80 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -957,21 +1112,32 @@ function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting
             type="text"
             value={tab.fileName}
             onChange={(e) => onFileNameChange(e.target.value)}
+            readOnly={isDeleted}
             placeholder="Untitled document"
             className={editorTitleClass}
           />
           <WriteTabActions
             isNewFile={isNewFile}
+            isDeleted={isDeleted}
             allowDelete={allowDelete}
             allowClose={allowClose}
+            allowSave={allowSave}
             saving={saving}
             deleting={deleting}
+            restoring={restoring}
             isDirty={isDirty}
             onSave={onSave}
             onDelete={onDelete}
+            onRestore={onRestore}
             onClose={onClose}
           />
         </div>
+
+        {isDeleted ? (
+          <p className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 sm:px-5">
+            This file is deleted. Open read-only — use Recover to restore it.
+          </p>
+        ) : null}
 
         {tab.saveError ? (
           <p className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 sm:px-5">
@@ -985,7 +1151,7 @@ function WriteTab({ tab, allowDelete = true, allowClose = true, saving, deleting
           key={tab.tabId}
           value={tab.content}
           onChange={onContentChange}
-          editable
+          editable={!isDeleted}
           placeholder="Start writing…"
           minHeightClass="min-h-[16rem]"
           wordLayout
