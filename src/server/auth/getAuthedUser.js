@@ -161,6 +161,9 @@ export async function getAuthedUserWithLogoutReason() {
   return resolveAuthedUser();
 }
 
-export function signInRedirectPath() {
+export function signInRedirectPath(logoutReason = null) {
+  if (logoutReason && logoutReason !== "shift_ended") {
+    return `/sign-in?reason=${encodeURIComponent(logoutReason)}`;
+  }
   return "/sign-in";
 }
