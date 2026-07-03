@@ -16,6 +16,14 @@ const styles = {
     dot: "bg-zinc-400",
     pill: "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300",
   },
+  leave: {
+    dot: "bg-amber-500",
+    pill: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+  },
+  paused: {
+    dot: "bg-rose-500",
+    pill: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  },
 };
 
 export default function ShiftStatusBadge({ initialShiftStatus = null }) {

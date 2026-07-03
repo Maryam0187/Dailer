@@ -34,6 +34,7 @@ export async function PATCH(req) {
         endUtc: body?.endUtc,
         timezone: body?.timezone,
         afterShiftGrantDurationMinutes: body?.afterShiftGrantDurationMinutes,
+        leaveDays: body?.leaveDays,
       },
       authedUser.id,
     );

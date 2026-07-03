@@ -8,6 +8,16 @@ import {
   zonedHhmmToUtcHhmm,
 } from "@/lib/shiftTime.cjs";
 
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
@@ -18,6 +28,12 @@ function statusStyles(status) {
     return "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
   }
   if (status === "ended") {
+    return "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200";
+  }
+  if (status === "leave") {
+    return "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+  }
+  if (status === "paused") {
     return "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200";
   }
   return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300";
@@ -32,6 +48,9 @@ export default function ShiftSettingsClient() {
   const [windowLabel, setWindowLabel] = useState("");
   const [shiftStatus, setShiftStatus] = useState(null);
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(120);
+  const [leaveDays, setLeaveDays] = useState([0]);
+  const [manuallyActive, setManuallyActive] = useState(true);
+  const [togglingActive, setTogglingActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -51,6 +70,8 @@ export default function ShiftSettingsClient() {
     setEndLocal(settings.endLocal || utcHhmmToZonedHhmm(settings.endUtc, settings.timezone) || "23:00");
     setTimezone(settings.timezone || "Asia/Karachi");
     setGrantDurationMinutes(settings.afterShiftGrantDurationMinutes || 120);
+    setLeaveDays(Array.isArray(settings.leaveDays) ? settings.leaveDays : [0]);
+    setManuallyActive(settings.manuallyActive !== false);
     setTimezoneOptions(settings.timezoneOptions || []);
     setWindowLabel(settings.windowLabel || "");
     setShiftStatus(status || null);
@@ -88,6 +109,30 @@ export default function ShiftSettingsClient() {
     setSaved(false);
   }
 
+  async function onToggleShiftActive(nextActive) {
+    setError(null);
+    setTogglingActive(true);
+    try {
+      const res = await fetch("/api/shift/active", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ manuallyActive: nextActive }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update shift status");
+
+      applySettings(json.settings || {}, json.shiftStatus);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("shift-status-changed"));
+      }
+    } catch (err) {
+      setError(err.message || "Failed to update shift status");
+    } finally {
+      setTogglingActive(false);
+    }
+  }
+
   async function onSave(e) {
     e.preventDefault();
     setError(null);
@@ -104,6 +149,7 @@ export default function ShiftSettingsClient() {
           endLocal,
           timezone,
           afterShiftGrantDurationMinutes: grantDurationMinutes,
+          leaveDays,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -127,6 +173,39 @@ export default function ShiftSettingsClient() {
 
   return (
     <div className="space-y-6">
+      <div className="max-w-xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Shift active</p>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Turn off to end the shift immediately. It stays off until you turn it back on.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={manuallyActive}
+            disabled={togglingActive}
+            onClick={() => void onToggleShiftActive(!manuallyActive)}
+            className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              manuallyActive ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"
+            }`}
+          >
+            <span
+              className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition ${
+                manuallyActive ? "translate-x-7" : "translate-x-1"
+              }`}
+            />
+            <span className="sr-only">{manuallyActive ? "Shift active" : "Shift ended"}</span>
+          </button>
+        </div>
+        <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          {manuallyActive
+            ? "Agents can sign in during shift hours."
+            : "Shift is ended. Agents cannot sign in unless an admin granted after-shift access."}
+        </p>
+      </div>
+
       {shiftStatus ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm font-medium ${statusStyles(shiftStatus.status)}`}
@@ -215,6 +294,40 @@ export default function ShiftSettingsClient() {
               required
             />
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{timezoneLabel}</p>
+          </div>
+        </div>
+
+        <div>
+          <p className={labelClass}>Leave days</p>
+          <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+            Agents cannot sign in on leave days unless an admin granted after-shift access. Admins are unaffected.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {WEEKDAY_OPTIONS.map((day) => {
+              const checked = leaveDays.includes(day.value);
+              return (
+                <label
+                  key={day.value}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+                    checked={checked}
+                    onChange={(e) => {
+                      setLeaveDays((prev) => {
+                        if (e.target.checked) {
+                          return [...new Set([...prev, day.value])].sort((a, b) => a - b);
+                        }
+                        return prev.filter((value) => value !== day.value);
+                      });
+                      setSaved(false);
+                    }}
+                  />
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">{day.label}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 

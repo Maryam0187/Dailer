@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
-import { isLoginAllowed, getSessionCalendarDate, loginWindowErrorMessage } from "@/server/auth/loginWindow";
+import { isLoginAllowed, getSessionCalendarDate, loginWindowErrorMessage, isLeaveDay, isManuallyActive } from "@/server/auth/loginWindow";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
 
 export async function POST(req) {
@@ -54,7 +54,14 @@ export async function POST(req) {
       req,
       userId: user.id,
       action: "login_failed",
-      metadata: { username, reason: "outside_login_window" },
+      metadata: {
+        username,
+        reason: isLeaveDay()
+          ? "leave_day"
+          : !isManuallyActive()
+            ? "shift_manually_ended"
+            : "outside_login_window",
+      },
     });
     return NextResponse.json({ error: loginWindowErrorMessage() }, { status: 403 });
   }
