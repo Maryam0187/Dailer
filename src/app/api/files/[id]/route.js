@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canCreateFiles, canViewAllFiles, canWriteFile, fileListIncludes, getAccessibleFile } from "@/server/files/fileAccess";
+import {
+  canCreateFiles,
+  canDeleteFile,
+  canEditFile,
+  canToggleSharedWithAll,
+  canViewAllFiles,
+  canWriteFile,
+  fileListIncludes,
+  getAccessibleFile,
+} from "@/server/files/fileAccess";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { resolveRestoreFileName } from "@/server/files/resolveRestoreFileName";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
@@ -19,7 +28,9 @@ export async function GET(_req, { params }) {
   const file = await getAccessibleFile(id, authedUser);
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-  return NextResponse.json({ file: serializeUserFile(file, { includeDeleted: canViewAllFiles(authedUser.role) }) });
+  return NextResponse.json({
+    file: serializeUserFile(file, { includeDeleted: canViewAllFiles(authedUser.role), viewer: authedUser }),
+  });
 }
 
 export async function PATCH(req, { params }) {
@@ -50,12 +61,8 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({
       ok: true,
       renamed,
-      file: serializeUserFile(file),
+      file: serializeUserFile(file, { viewer: authedUser }),
     });
-  }
-
-  if (!canWriteFile(authedUser, id)) {
-    return NextResponse.json({ error: "You cannot edit this file with limited after-shift access." }, { status: 403 });
   }
 
   const file = await getAccessibleFile(id, authedUser);
@@ -66,6 +73,25 @@ export async function PATCH(req, { params }) {
 
   const update = {};
   const ownerUserId = file.userId;
+  const togglingSharedOnly =
+    body?.sharedWithAll !== undefined &&
+    body?.name == null &&
+    body?.content === undefined;
+
+  if (body?.sharedWithAll !== undefined) {
+    if (!canToggleSharedWithAll(authedUser)) {
+      return NextResponse.json({ error: "Only admins can change file visibility" }, { status: 403 });
+    }
+    update.sharedWithAll = Boolean(body.sharedWithAll);
+  }
+
+  if (!togglingSharedOnly && !canEditFile(authedUser, file)) {
+    return NextResponse.json({ error: "This file is read-only for your account." }, { status: 403 });
+  }
+
+  if (!togglingSharedOnly && !canWriteFile(authedUser, id)) {
+    return NextResponse.json({ error: "You cannot edit this file with limited after-shift access." }, { status: 403 });
+  }
 
   if (body?.name != null) {
     const name = trimFileName(body.name);
@@ -91,8 +117,8 @@ export async function PATCH(req, { params }) {
   }
 
   await file.update(update);
-  await file.reload({ include: canViewAllFiles(authedUser.role) ? fileListIncludes : [] });
-  return NextResponse.json({ ok: true, file: serializeUserFile(file) });
+  await file.reload({ include: fileListIncludes });
+  return NextResponse.json({ ok: true, file: serializeUserFile(file, { viewer: authedUser }) });
 }
 
 export async function DELETE(_req, { params }) {
@@ -112,6 +138,9 @@ export async function DELETE(_req, { params }) {
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
   if (file.deleted) {
     return NextResponse.json({ error: "File is already deleted" }, { status: 400 });
+  }
+  if (!canDeleteFile(authedUser, file)) {
+    return NextResponse.json({ error: "You cannot delete this file" }, { status: 403 });
   }
 
   await file.update({ deleted: true });

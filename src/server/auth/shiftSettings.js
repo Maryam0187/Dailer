@@ -8,19 +8,23 @@ import {
 import {
   applyShiftSettings,
   DEFAULT_END_UTC,
+  DEFAULT_LEAVE_DAYS,
   DEFAULT_START_UTC,
   DEFAULT_TIMEZONE,
+  formatLeaveDaysLabel,
   getShiftSettings,
   getShiftWindowLabel as getShiftWindowLabelFromStore,
+  normalizeLeaveDays,
   parseUtcTimeOfDay,
   readShiftEnabled,
+  WEEKDAY_LABELS,
 } from "@/server/auth/shiftSettingsStore.cjs";
 import {
   DEFAULT_GRANT_DURATION_MINUTES,
   normalizeGrantDurationMinutes,
 } from "@/server/auth/afterShiftGrant.cjs";
 
-export { getShiftSettings, getShiftWindowLabelFromStore as getShiftWindowLabel, parseUtcTimeOfDay };
+export { getShiftSettings, getShiftWindowLabelFromStore as getShiftWindowLabel, parseUtcTimeOfDay, WEEKDAY_LABELS };
 
 const TIMEZONE_OPTIONS = [
   { value: "Asia/Karachi", label: "Pakistan (PKT)" },
@@ -39,6 +43,8 @@ function envDefaults() {
     startUtc: String(process.env.LOGIN_WINDOW_START_UTC || DEFAULT_START_UTC).trim() || DEFAULT_START_UTC,
     endUtc: String(process.env.LOGIN_WINDOW_END_UTC || DEFAULT_END_UTC).trim() || DEFAULT_END_UTC,
     timezone: DEFAULT_TIMEZONE,
+    leaveDays: [...DEFAULT_LEAVE_DAYS],
+    manuallyActive: true,
   };
 }
 
@@ -49,6 +55,8 @@ function serializeShiftSettings(row) {
         startUtc: row.startUtc,
         endUtc: row.endUtc,
         timezone: row.timezone || DEFAULT_TIMEZONE,
+        leaveDays: normalizeLeaveDays(row.leaveDays, DEFAULT_LEAVE_DAYS),
+        manuallyActive: readShiftEnabled(row.manuallyActive, true),
       }
     : envDefaults();
 
@@ -63,6 +71,9 @@ function serializeShiftSettings(row) {
     startLocal: utcHhmmToZonedHhmm(applied.startUtc, applied.timezone),
     endLocal: utcHhmmToZonedHhmm(applied.endUtc, applied.timezone),
     timezone: applied.timezone,
+    leaveDays: applied.leaveDays,
+    leaveDaysLabel: formatLeaveDaysLabel(applied.leaveDays),
+    manuallyActive: applied.manuallyActive,
     windowLabel: getShiftWindowLabel(applied.startUtc, applied.endUtc, applied.timezone),
     timezoneOptions: TIMEZONE_OPTIONS,
     afterShiftGrantDurationMinutes: normalizeGrantDurationMinutes(
@@ -89,6 +100,8 @@ async function loadShiftSettingsFromDb() {
         startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : DEFAULT_START_UTC,
         endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : DEFAULT_END_UTC,
         timezone: defaults.timezone,
+        leaveDays: defaults.leaveDays,
+        manuallyActive: defaults.manuallyActive,
         afterShiftGrantDurationMinutes: DEFAULT_GRANT_DURATION_MINUTES,
         updatedBy: null,
       });
@@ -112,13 +125,7 @@ export async function reloadShiftSettings() {
 }
 
 export async function getShiftSettingsRecord() {
-  await ensureShiftSettingsLoaded();
-  let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
-  if (!row) {
-    await reloadShiftSettings();
-    row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
-  }
-  return serializeShiftSettings(row);
+  return reloadShiftSettings();
 }
 
 export function parseShiftTimeInput(value) {
@@ -170,6 +177,11 @@ export async function updateShiftSettings(patch, updatedBy) {
       ? normalizeGrantDurationMinutes(patch.afterShiftGrantDurationMinutes)
       : undefined;
 
+  const leaveDays =
+    patch?.leaveDays !== undefined
+      ? normalizeLeaveDays(patch.leaveDays, DEFAULT_LEAVE_DAYS)
+      : undefined;
+
   let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
   if (!row) {
     row = await db.ShiftSetting.create({
@@ -177,6 +189,7 @@ export async function updateShiftSettings(patch, updatedBy) {
       startUtc,
       endUtc,
       timezone,
+      leaveDays: leaveDays ?? DEFAULT_LEAVE_DAYS,
       afterShiftGrantDurationMinutes: grantDuration ?? DEFAULT_GRANT_DURATION_MINUTES,
       updatedBy: updatedBy ?? null,
     });
@@ -185,7 +198,33 @@ export async function updateShiftSettings(patch, updatedBy) {
     row.startUtc = startUtc;
     row.endUtc = endUtc;
     row.timezone = timezone;
+    if (leaveDays != null) row.leaveDays = leaveDays;
     if (grantDuration != null) row.afterShiftGrantDurationMinutes = grantDuration;
+    row.updatedBy = updatedBy ?? null;
+    await row.save();
+  }
+
+  return reloadShiftSettings();
+}
+
+export async function updateShiftManuallyActive(manuallyActive, updatedBy) {
+  const active = readShiftEnabled(manuallyActive, true);
+
+  let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
+  if (!row) {
+    const defaults = envDefaults();
+    row = await db.ShiftSetting.create({
+      enabled: defaults.enabled,
+      startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : DEFAULT_START_UTC,
+      endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : DEFAULT_END_UTC,
+      timezone: defaults.timezone,
+      leaveDays: defaults.leaveDays,
+      manuallyActive: active,
+      afterShiftGrantDurationMinutes: DEFAULT_GRANT_DURATION_MINUTES,
+      updatedBy: updatedBy ?? null,
+    });
+  } else {
+    row.manuallyActive = active;
     row.updatedBy = updatedBy ?? null;
     await row.save();
   }

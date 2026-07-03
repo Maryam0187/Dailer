@@ -34,6 +34,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 120,
       },
+      leaveDays: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [0],
+      },
+      manuallyActive: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
       updatedBy: {
         type: DataTypes.INTEGER,
         allowNull: true,

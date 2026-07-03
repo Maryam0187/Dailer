@@ -3,7 +3,10 @@ import { cookies } from "next/headers";
 import db from "@/server/db";
 import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
+import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
+import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
+import { userHasActiveCall } from "@/server/calls/userActiveCall";
 import {
   hasStoredAfterShiftGrant,
   isAfterShiftGrantExpired,
@@ -89,9 +92,33 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: "session_day_ended" };
   }
 
-  if (!isLoginAllowed(user)) {
+  const sessionPurpose =
+    payload?.purpose === "leave_application" ? "leave_application" : "full";
+
+  if (sessionPurpose === "leave_application") {
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        sessionPurpose: "leave_application",
+      },
+      logoutReason: null,
+    };
+  }
+
+  const onApprovedLeave = await isUserOnApprovedLeave(user.id);
+  if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
     await clearUserSession(user.id);
-    return { user: null, logoutReason: "shift_ended" };
+    return { user: null, logoutReason: "user_on_leave" };
+  }
+
+  if (!isLoginAllowed(user)) {
+    const onActiveCall = await userHasActiveCall(user.id);
+    if (!onActiveCall) {
+      await clearUserSession(user.id);
+      return { user: null, logoutReason: "shift_ended" };
+    }
   }
 
   try {
@@ -118,6 +145,7 @@ async function resolveAuthedUser() {
       managerId: user.managerId,
       accessMode,
       afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,
+      sessionPurpose: "full",
     },
     logoutReason: null,
   };
@@ -133,6 +161,9 @@ export async function getAuthedUserWithLogoutReason() {
   return resolveAuthedUser();
 }
 
-export function signInRedirectPath() {
+export function signInRedirectPath(logoutReason = null) {
+  if (logoutReason && logoutReason !== "shift_ended") {
+    return `/sign-in?reason=${encodeURIComponent(logoutReason)}`;
+  }
   return "/sign-in";
 }

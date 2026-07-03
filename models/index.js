@@ -13,6 +13,7 @@ const billModelFactory = require("./Bill");
 const billItemModelFactory = require("./BillItem");
 const userFileModelFactory = require("./UserFile");
 const userActivityModelFactory = require("./UserActivity");
+const leaveApplicationModelFactory = require("./LeaveApplication");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -72,6 +73,7 @@ db.Bill = billModelFactory(sequelize, Sequelize.DataTypes);
 db.BillItem = billItemModelFactory(sequelize, Sequelize.DataTypes);
 db.UserFile = userFileModelFactory(sequelize, Sequelize.DataTypes);
 db.UserActivity = userActivityModelFactory(sequelize, Sequelize.DataTypes);
+db.LeaveApplication = leaveApplicationModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];
