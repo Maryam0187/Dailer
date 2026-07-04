@@ -133,3 +133,112 @@ body {
   border-radius: 0.125rem;
   padding: 0 0.125rem;
 }
+
+.tiptap-editor table,
+.tiptap-readonly table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.tiptap-editor td,
+.tiptap-editor th,
+.tiptap-readonly td,
+.tiptap-readonly th {
+  border: 1px solid rgb(212 212 216);
+  min-width: 4rem;
+  padding: 0.4rem 0.55rem;
+  position: relative;
+  vertical-align: top;
+}
+
+.dark .tiptap-editor td,
+.dark .tiptap-editor th,
+.dark .tiptap-readonly td,
+.dark .tiptap-readonly th {
+  border-color: rgb(82 82 91);
+}
+
+.tiptap-editor th,
+.tiptap-readonly th {
+  background-color: rgb(224 231 255);
+  color: rgb(30 27 75);
+  font-weight: 600;
+}
+
+.dark .tiptap-editor th,
+.dark .tiptap-readonly th {
+  background-color: rgb(49 46 129);
+  color: rgb(224 231 255);
+}
+
+.tiptap-editor table[data-striped="true"] tbody tr:nth-child(even) td,
+.tiptap-readonly table[data-striped="true"] tbody tr:nth-child(even) td,
+.tiptap-editor table:not([data-striped]) tbody tr:nth-child(even) td,
+.tiptap-readonly table:not([data-striped]) tbody tr:nth-child(even) td {
+  background-color: rgb(244 244 245);
+}
+
+.dark .tiptap-editor table[data-striped="true"] tbody tr:nth-child(even) td,
+.dark .tiptap-readonly table[data-striped="true"] tbody tr:nth-child(even) td,
+.dark .tiptap-editor table:not([data-striped]) tbody tr:nth-child(even) td,
+.dark .tiptap-readonly table:not([data-striped]) tbody tr:nth-child(even) td {
+  background-color: rgb(39 39 42);
+}
+
+.tiptap-editor table[data-striped="true"] tbody tr:nth-child(odd) td,
+.tiptap-readonly table[data-striped="true"] tbody tr:nth-child(odd) td,
+.tiptap-editor table:not([data-striped]) tbody tr:nth-child(odd) td,
+.tiptap-readonly table:not([data-striped]) tbody tr:nth-child(odd) td {
+  background-color: rgb(255 255 255);
+}
+
+.dark .tiptap-editor table[data-striped="true"] tbody tr:nth-child(odd) td,
+.dark .tiptap-readonly table[data-striped="true"] tbody tr:nth-child(odd) td,
+.dark .tiptap-editor table:not([data-striped]) tbody tr:nth-child(odd) td,
+.dark .tiptap-readonly table:not([data-striped]) tbody tr:nth-child(odd) td {
+  background-color: rgb(24 24 27);
+}
+
+.tiptap-editor table[data-striped="false"] tbody tr td,
+.tiptap-readonly table[data-striped="false"] tbody tr td {
+  background-color: rgb(255 255 255);
+}
+
+.dark .tiptap-editor table[data-striped="false"] tbody tr td,
+.dark .tiptap-readonly table[data-striped="false"] tbody tr td {
+  background-color: rgb(24 24 27);
+}
+
+.tiptap-editor .selectedCell::after,
+.tiptap-readonly .selectedCell::after {
+  background: rgb(14 165 233 / 0.15);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.tiptap-editor .column-resize-handle,
+.tiptap-readonly .column-resize-handle {
+  background-color: rgb(14 165 233);
+  bottom: -2px;
+  pointer-events: none;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+}
+
+.tiptap-editor .tableWrapper,
+.tiptap-readonly .tableWrapper {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
+.tiptap-editor.resize-cursor,
+.tiptap-readonly.resize-cursor {
+  cursor: col-resize;
+}

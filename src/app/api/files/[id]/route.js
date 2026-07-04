@@ -5,7 +5,7 @@ import {
   canCreateFiles,
   canDeleteFile,
   canEditFile,
-  canToggleSharedWithAll,
+  canManageFileSharing,
   canViewAllFiles,
   canWriteFile,
   fileListIncludes,
@@ -14,6 +14,7 @@ import {
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { resolveRestoreFileName } from "@/server/files/resolveRestoreFileName";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
+import { syncFileEditAccess } from "@/server/files/syncFileEditAccess";
 
 export async function GET(_req, { params }) {
   const authedUser = await getAuthedUser();
@@ -73,23 +74,33 @@ export async function PATCH(req, { params }) {
 
   const update = {};
   const ownerUserId = file.userId;
-  const togglingSharedOnly =
-    body?.sharedWithAll !== undefined &&
+  const sharingSettingsOnly =
+    (body?.sharedWithAll !== undefined || body?.editAccessUserIds !== undefined) &&
     body?.name == null &&
     body?.content === undefined;
 
   if (body?.sharedWithAll !== undefined) {
-    if (!canToggleSharedWithAll(authedUser)) {
+    if (!canManageFileSharing(authedUser)) {
       return NextResponse.json({ error: "Only admins can change file visibility" }, { status: 403 });
     }
     update.sharedWithAll = Boolean(body.sharedWithAll);
   }
 
-  if (!togglingSharedOnly && !canEditFile(authedUser, file)) {
+  if (body?.editAccessUserIds !== undefined) {
+    if (!canManageFileSharing(authedUser)) {
+      return NextResponse.json({ error: "Only admins can change edit access" }, { status: 403 });
+    }
+    if (!Array.isArray(body.editAccessUserIds)) {
+      return NextResponse.json({ error: "editAccessUserIds must be an array" }, { status: 400 });
+    }
+    await syncFileEditAccess(id, body.editAccessUserIds, authedUser.id, ownerUserId);
+  }
+
+  if (!sharingSettingsOnly && !canEditFile(authedUser, file)) {
     return NextResponse.json({ error: "This file is read-only for your account." }, { status: 403 });
   }
 
-  if (!togglingSharedOnly && !canWriteFile(authedUser, id)) {
+  if (!sharingSettingsOnly && !canWriteFile(authedUser, id)) {
     return NextResponse.json({ error: "You cannot edit this file with limited after-shift access." }, { status: 403 });
   }
 
@@ -112,11 +123,14 @@ export async function PATCH(req, { params }) {
     update.content = sanitizeFileContent(body.content);
   }
 
-  if (Object.keys(update).length === 0) {
+  if (Object.keys(update).length === 0 && body?.editAccessUserIds === undefined) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  await file.update(update);
+  if (Object.keys(update).length > 0) {
+    await file.update(update);
+  }
+
   await file.reload({ include: fileListIncludes });
   return NextResponse.json({ ok: true, file: serializeUserFile(file, { viewer: authedUser }) });
 }

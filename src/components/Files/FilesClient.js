@@ -67,6 +67,8 @@ function createNewTab() {
     owner: null,
     deleted: false,
     sharedWithAll: false,
+    editAccessUsers: [],
+    hasEditAccess: false,
     readOnly: false,
     canCopy: false,
     isOwner: true,
@@ -99,6 +101,16 @@ function tabLabel(tab) {
   const name = tab.fileName.trim();
   if (name) return name;
   return tab.fileId == null ? "New file" : "Untitled";
+}
+
+function sharingFieldsFromFile(file) {
+  return {
+    sharedWithAll: Boolean(file.sharedWithAll),
+    editAccessUsers: file.editAccessUsers || [],
+    hasEditAccess: Boolean(file.hasEditAccess),
+    readOnly: Boolean(file.readOnly),
+    canCopy: Boolean(file.canCopy),
+  };
 }
 
 export default function FilesClient({
@@ -301,9 +313,7 @@ export default function FilesClient({
       content: file.content || "",
       owner: file.owner || null,
       deleted: Boolean(file.deleted),
-      sharedWithAll: Boolean(file.sharedWithAll),
-      readOnly: Boolean(file.readOnly),
-      canCopy: Boolean(file.canCopy),
+      ...sharingFieldsFromFile(file),
       isOwner: file.isOwner ?? (file.owner?.id == null || file.owner?.id === currentUserId),
       saveError: null,
       savedSnapshot: snapshot,
@@ -431,10 +441,7 @@ export default function FilesClient({
                 fileName: saved.name,
                 content: saved.content || "",
                 owner: saved.owner || t.owner,
-                sharedWithAll: Boolean(saved.sharedWithAll),
-                readOnly: Boolean(saved.readOnly),
-                canCopy: Boolean(saved.canCopy),
-                isOwner: saved.isOwner ?? t.isOwner,
+                ...sharingFieldsFromFile(saved),
                 saveError: null,
                 savedSnapshot,
               }
@@ -533,42 +540,57 @@ export default function FilesClient({
     }
   }
 
+  async function applySharingUpdate(fileId, payload) {
+    const res = await fetch(`/api/files/${fileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || "Failed to update sharing settings");
+    return json.file;
+  }
+
+  function syncTabSharingFields(fileId, updated) {
+    if (!updated) return;
+    const snapshot = tabSnapshotFromFile(updated);
+    setOpenTabs((tabs) =>
+      tabs.map((tab) =>
+        tab.fileId === fileId
+          ? {
+              ...tab,
+              ...sharingFieldsFromFile(updated),
+              savedSnapshot: snapshot,
+            }
+          : tab,
+      ),
+    );
+  }
+
   async function toggleSharedWithAll(fileId, nextShared) {
     if (!fileId) return;
     setError(null);
     try {
-      const res = await fetch(`/api/files/${fileId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ sharedWithAll: nextShared }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to update visibility");
-
-      const updated = json.file;
-      if (updated) {
-        const snapshot = tabSnapshotFromFile(updated);
-        setOpenTabs((tabs) =>
-          tabs.map((tab) =>
-            tab.fileId === fileId
-              ? {
-                  ...tab,
-                  sharedWithAll: Boolean(updated.sharedWithAll),
-                  readOnly: Boolean(updated.readOnly),
-                  canCopy: Boolean(updated.canCopy),
-                  isOwner: Boolean(updated.isOwner),
-                  savedSnapshot: snapshot,
-                }
-              : tab,
-          ),
-        );
-      }
-
+      const updated = await applySharingUpdate(fileId, { sharedWithAll: nextShared });
+      syncTabSharingFields(fileId, updated);
       await loadFiles(pageRef.current);
       void refreshSharedFileTotal();
     } catch (err) {
       setError(err.message || "Failed to update visibility");
+    }
+  }
+
+  async function updateEditAccess(fileId, userIds) {
+    if (!fileId) return;
+    setError(null);
+    try {
+      const updated = await applySharingUpdate(fileId, { editAccessUserIds: userIds });
+      syncTabSharingFields(fileId, updated);
+      await loadFiles(pageRef.current);
+      void refreshSharedFileTotal();
+    } catch (err) {
+      setError(err.message || "Failed to update edit access");
     }
   }
 
@@ -598,10 +620,7 @@ export default function FilesClient({
                   content: restored.content || "",
                   owner: restored.owner || tab.owner,
                   deleted: false,
-                  sharedWithAll: Boolean(restored.sharedWithAll),
-                  readOnly: Boolean(restored.readOnly),
-                  canCopy: Boolean(restored.canCopy),
-                  isOwner: Boolean(restored.isOwner),
+                  ...sharingFieldsFromFile(restored),
                   saveError: null,
                   savedSnapshot: snapshot,
                 }
@@ -839,6 +858,8 @@ export default function FilesClient({
             onSave={() => saveTab(activeEditorTab.tabId, { closeAfterSave: false })}
             onCopy={() => copyFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onToggleShared={(nextShared) => toggleSharedWithAll(activeEditorTab.fileId, nextShared)}
+            onEditAccessChange={(userIds) => updateEditAccess(activeEditorTab.fileId, userIds)}
+            shareUsers={filterUsers}
             onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onRestore={() => restoreFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onClose={() => requestCloseTab(activeEditorTab.tabId)}
@@ -921,7 +942,7 @@ function BrowseTab({
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             {isAdmin
               ? "No files have been marked visible to all users yet."
-              : "When an admin shares a file with everyone, it will appear here for read-only viewing."}
+              : "When an admin shares a file with everyone or grants you edit access, it will appear here."}
           </p>
         </div>
       );
@@ -1026,6 +1047,10 @@ function BrowseTab({
                     <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200">
                       Deleted
                     </span>
+                  ) : file.hasEditAccess ? (
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
+                      Can edit
+                    </span>
                   ) : file.sharedWithAll ? (
                     <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
                       {file.isOwner ? "Shared" : "Read-only"}
@@ -1114,6 +1139,69 @@ function BrowseTab({
         })}
       </div>
     </div>
+  );
+}
+
+function GrantEditAccessDialog({ users, selectedIds, onToggleUser, onClose }) {
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[60] bg-zinc-950/50 backdrop-blur-[2px]"
+        aria-label="Close dialog"
+        onClick={onClose}
+      />
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="grant-edit-access-title"
+          className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-700">
+            <h3 id="grant-edit-access-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Grant edit access
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              Selected users can edit this file even if it is not visible to everyone.
+            </p>
+          </div>
+          <div className="max-h-64 overflow-y-auto px-5 py-3">
+            {users.length === 0 ? (
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">No other users available.</p>
+            ) : (
+              <ul className="space-y-1">
+                {users.map((user) => {
+                  const checked = selectedIds.has(user.id);
+                  return (
+                    <li key={user.id}>
+                      <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-zinc-800 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => onToggleUser(user.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
+                        />
+                        <span className="truncate">{user.username}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="flex justify-end border-t border-zinc-200 px-5 py-4 dark:border-zinc-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1318,14 +1406,34 @@ function WriteTab({
   onSave,
   onCopy,
   onToggleShared,
+  onEditAccessChange,
+  shareUsers = [],
   onDelete,
   onRestore,
   onClose,
 }) {
+  const [grantAccessOpen, setGrantAccessOpen] = useState(false);
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
   const isRestoring = tab.fileId != null && restoring;
   const isReadOnlyView = isDeleted || readOnly;
+  const ownerId = tab.owner?.id ?? null;
+  const editAccessIds = new Set((tab.editAccessUsers || []).map((user) => user.id));
+  const selectableUsers = shareUsers.filter((user) => user.id !== ownerId);
+  const selectedUsers = tab.editAccessUsers || [];
+
+  function toggleEditAccessUser(userId, checked) {
+    if (checked) {
+      if (!userId || editAccessIds.has(userId)) return;
+      onEditAccessChange([...editAccessIds, userId]);
+      return;
+    }
+    onEditAccessChange([...editAccessIds].filter((id) => id !== userId));
+  }
+
+  function removeEditAccessUser(userId) {
+    toggleEditAccessUser(userId, false);
+  }
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -1374,15 +1482,53 @@ function WriteTab({
         </div>
 
         {isAdmin && tab.fileId != null && !isDeleted ? (
-          <label className="flex items-center gap-2 border-t border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300 sm:px-5">
-            <input
-              type="checkbox"
-              checked={Boolean(tab.sharedWithAll)}
-              onChange={(e) => onToggleShared(e.target.checked)}
-              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
-            />
-            Visible to all users (read-only for others)
-          </label>
+          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-200 px-4 py-2.5 dark:border-zinc-700 sm:px-5">
+            {selectedUsers.map((user) => (
+              <span
+                key={user.id}
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100"
+              >
+                {user.username}
+                <button
+                  type="button"
+                  onClick={() => removeEditAccessUser(user.id)}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
+                  aria-label={`Remove edit access for ${user.username}`}
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {selectableUsers.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setGrantAccessOpen(true)}
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+              >
+                Grant access
+              </button>
+            ) : null}
+            <div className="min-w-0 flex-1" />
+            <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={Boolean(tab.sharedWithAll)}
+                onChange={(e) => onToggleShared(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
+              />
+              Visible to all users (read-only for others)
+            </label>
+          </div>
+        ) : null}
+
+        {grantAccessOpen ? (
+          <GrantEditAccessDialog
+            users={selectableUsers}
+            selectedIds={editAccessIds}
+            onToggleUser={toggleEditAccessUser}
+            onClose={() => setGrantAccessOpen(false)}
+          />
         ) : null}
 
         {isDeleted ? (
@@ -1394,6 +1540,11 @@ function WriteTab({
             This file is shared read-only.
             {tab.owner?.username ? ` Owned by ${tab.owner.username}.` : ""}
             {canCopy ? " Make a copy to edit your own version." : ""}
+          </p>
+        ) : tab.hasEditAccess && !tab.isOwner ? (
+          <p className="border-t border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200 sm:px-5">
+            An admin granted you edit access to this file.
+            {tab.owner?.username ? ` Owned by ${tab.owner.username}.` : ""}
           </p>
         ) : null}
 

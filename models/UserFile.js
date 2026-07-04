@@ -49,6 +49,7 @@ module.exports = (sequelize, DataTypes) => {
 
   UserFile.associate = (models) => {
     UserFile.belongsTo(models.User, { as: "owner", foreignKey: "userId" });
+    UserFile.hasMany(models.UserFileEditAccess, { as: "editAccessGrants", foreignKey: "fileId" });
   };
 
   return UserFile;
