@@ -8,6 +8,7 @@ const LEAD_UPDATE_ACTIONS = {
   breakdown_edit: "lead_breakdown_edit",
   lead_edit: "lead_updated",
   comment: "lead_comment",
+  lead_phase_change: "lead_workflow_change",
 };
 
 export function leadActivityAction(type) {

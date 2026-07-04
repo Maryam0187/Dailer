@@ -5,7 +5,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
-import { getLeadStatusMeta, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
+import { formatLeadStatusShort, formatLeadWorkflowSummary, getLeadPhaseMeta, WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
@@ -49,7 +49,32 @@ function getPresetRange(preset) {
     const from = new Date(today.getFullYear(), today.getMonth(), 1);
     return { from: formatDateInput(from), to: formatDateInput(today) };
   }
+  if (preset === "all") {
+    return { from: "", to: "" };
+  }
   return { from: "", to: "" };
+}
+
+const SALE_PHASE_FILTERS = [
+  { id: "all", label: "All sales" },
+  { id: "active", label: "Active sales" },
+  { id: "closed", label: "Closed sales" },
+  { id: "cancelled", label: "Cancelled sales" },
+];
+
+function salePhaseFilterLabel(id) {
+  return SALE_PHASE_FILTERS.find((f) => f.id === id)?.label || "All sales";
+}
+
+function resolveLeadListDateField(leadPhaseFilter) {
+  if (leadPhaseFilter === "closed" || leadPhaseFilter === "cancelled") return "updated";
+  return "created";
+}
+
+function dateRangeHint(leadPhaseFilter) {
+  if (leadPhaseFilter === "closed") return "closed in";
+  if (leadPhaseFilter === "cancelled") return "cancelled in";
+  return "created in";
 }
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
@@ -74,13 +99,15 @@ function inputClassForValidation(baseClass, isValid) {
   return `${baseClass} border-red-400 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/70`;
 }
 
-function StatusPill({ status }) {
-  const meta = getLeadStatusMeta(status);
+function StatusPill({ lead }) {
+  const meta = getLeadPhaseMeta(lead?.leadPhase || "active");
+  const summary = formatLeadWorkflowSummary(lead);
   return (
     <span
-      className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE_CLASS[meta.tone]}`}
+      title={summary}
+      className={`inline-flex max-w-[160px] truncate rounded-full border px-2 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[meta.tone]}`}
     >
-      {meta.label}
+      {formatLeadStatusShort(lead)}
     </span>
   );
 }
@@ -119,12 +146,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [notes, setNotes] = useState("");
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
+  const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
-  const initialRange = getPresetRange("today");
-  const [rangePreset, setRangePreset] = useState("today");
+  const initialRange = getPresetRange("all");
+  const [rangePreset, setRangePreset] = useState("all");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
@@ -190,9 +218,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       const params = new URLSearchParams();
       if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
       if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+      if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (appliedFrom && appliedTo) {
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
+        params.set("dateField", resolveLeadListDateField(leadPhaseFilter));
       }
       params.set("sortBy", sortBy);
       params.set("sortDir", "desc");
@@ -227,7 +257,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         setLoading(false);
       }
     }
-  }, [agentFilter, supervisorFilter, appliedFrom, appliedTo, sortBy, page]);
+  }, [agentFilter, supervisorFilter, leadPhaseFilter, appliedFrom, appliedTo, sortBy, page]);
 
   useEffect(() => {
     void loadLeads();
@@ -367,7 +397,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }
 
   async function onCallLead(lead) {
-    if (phonesRedacted || session || lead.status === "dnc") return;
+    if (phonesRedacted || session || lead.status === "dnc" || lead.leadPhase === "cancelled") return;
     setCallingId(lead.id);
     setError(null);
     try {
@@ -432,7 +462,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         <div>
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Your leads</h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Click a lead to view notes, update status, and add comments.
+            Click a lead to update status, add notes, and view activity.
           </p>
         </div>
         <button
@@ -606,16 +636,40 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="mb-4">
+          <label className={labelClass}>Sale status</label>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by sale status">
+            {SALE_PHASE_FILTERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setLeadPhaseFilter(option.id);
+                  setPage(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  leadPhaseFilter === option.id
+                    ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <form
-          className="grid gap-4"
+          className="grid gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-700"
           onSubmit={(e) => {
             void onApplyRange(e);
           }}
         >
           <div>
-            <label className={labelClass}>Created date range</label>
+            <label className={labelClass}>Date range (optional)</label>
             <div className="flex flex-wrap gap-2">
               {[
+                { id: "all", label: "All time" },
                 { id: "today", label: "Today" },
                 { id: "yesterday", label: "Yesterday" },
                 { id: "week", label: "Last 7 days" },
@@ -681,8 +735,20 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             </div>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Showing leads created <span className="font-medium">{appliedFrom}</span> —{" "}
-            <span className="font-medium">{appliedTo}</span>
+            {appliedFrom && appliedTo ? (
+              <>
+                Showing <span className="font-medium">{salePhaseFilterLabel(leadPhaseFilter)}</span>{" "}
+                {dateRangeHint(leadPhaseFilter)}{" "}
+                <span className="font-medium">
+                  {appliedFrom} — {appliedTo}
+                </span>
+              </>
+            ) : (
+              <>
+                Showing <span className="font-medium">{salePhaseFilterLabel(leadPhaseFilter)}</span> across all
+                dates.
+              </>
+            )}
           </p>
         </form>
 
@@ -729,7 +795,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </select>
               </div>
             ) : null}
-            <div>
+            <div className="sm:col-span-2 lg:col-span-3">
               <span className={labelClass}>Sort by</span>
               <div className="flex flex-wrap gap-2" role="group" aria-label="Sort leads">
                 {[
@@ -813,7 +879,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className={`${tableHeadClass} min-w-[120px] max-w-[140px] px-3`}>Name</th>
               <th className={tableHeadClass}>Phone</th>
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
-              <th className={tableHeadClass}>Status</th>
+              <th className={`${tableHeadClass} max-w-[120px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
               <th className={`${tableHeadClass} max-w-[90px]`}>Notes</th>
               {showLeadFilters ? <th className={`${tableHeadClass} max-w-[100px]`}>Created by</th> : null}
@@ -830,7 +896,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             ) : leads.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
-                  {supervisorFilter !== "all" || agentFilter !== "all" || rangePreset !== "today"
+                  {supervisorFilter !== "all" || agentFilter !== "all" || leadPhaseFilter !== "all" || rangePreset !== "all"
                     ? "No leads match the selected filters."
                     : "No leads yet. Add your first lead above."}
                 </td>
@@ -867,8 +933,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   >
                     {serviceLabel}
                   </td>
-                  <td className={`${tableCellClass} whitespace-nowrap`}>
-                    <StatusPill status={lead.status} />
+                  <td className={`${tableCellClass} max-w-[120px]`}>
+                    <StatusPill lead={lead} />
                   </td>
                   <td
                     className={`${tableCellClass} max-w-[100px] truncate text-zinc-600 dark:text-zinc-400`}
@@ -906,7 +972,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                             Boolean(session) ||
                             callingId === lead.id ||
                             !canStartCall ||
-                            lead.status === "dnc"
+                            lead.status === "dnc" || lead.leadPhase === "cancelled"
                           }
                           onClick={() => void onCallLead(lead)}
                         >

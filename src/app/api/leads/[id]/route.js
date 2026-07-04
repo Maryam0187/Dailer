@@ -8,6 +8,8 @@ import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
 import { logLeadUpdateActivity, logLeadUserActivity } from "@/server/activity/logLeadActivity";
+import { applyLeadWorkflowPatch } from "@/server/leads/applyLeadWorkflowPatch";
+import { hasLeadWorkflowPatch } from "@/lib/leadWorkflow";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 
 function trimField(value, maxLen) {
@@ -162,6 +164,15 @@ export async function PATCH(req, { params }) {
         previousAssignedUserId: lead.assignedUserId,
       });
     }
+  }
+
+  if (hasLeadWorkflowPatch(body)) {
+    const { update: workflowUpdate, activity: workflowActivity, errors } = applyLeadWorkflowPatch(lead, body);
+    if (errors.length) {
+      return NextResponse.json({ error: errors[0] }, { status: 400 });
+    }
+    Object.assign(update, workflowUpdate);
+    activity.push(...workflowActivity);
   }
 
   if (Object.keys(update).length === 0) {
