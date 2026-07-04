@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import Highlight from "@tiptap/extension-highlight";
 import Placeholder from "@tiptap/extension-placeholder";
+import { Table, TableView } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyleKit } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
@@ -26,6 +30,49 @@ const FONT_FAMILIES = [
 
 const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px", "28px"];
 
+function applyTableStripedAttr(tableElement, node) {
+  if (!tableElement || !node) return;
+  tableElement.setAttribute("data-striped", node.attrs.striped === false ? "false" : "true");
+}
+
+class StripedTableView extends TableView {
+  constructor(node, cellMinWidth, view, HTMLAttributes = {}) {
+    super(node, cellMinWidth, view, HTMLAttributes);
+    applyTableStripedAttr(this.table, node);
+  }
+
+  update(node) {
+    const updated = super.update(node);
+    if (updated) {
+      applyTableStripedAttr(this.table, node);
+    }
+    return updated;
+  }
+}
+
+const RichTextTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      striped: {
+        default: true,
+        parseHTML: (element) => element.getAttribute("data-striped") !== "false",
+        renderHTML: (attributes) => ({
+          "data-striped": attributes.striped === false ? "false" : "true",
+        }),
+      },
+    };
+  },
+});
+
+function isTableStriped(editor) {
+  return editor.getAttributes("table").striped !== false;
+}
+
+function toggleTableStripes(editor) {
+  editor.chain().focus().updateAttributes("table", { striped: !isTableStriped(editor) }).run();
+}
+
 function ToolbarDivider() {
   return <span className="mx-1 w-px self-stretch bg-zinc-300 dark:bg-zinc-600" aria-hidden />;
 }
@@ -45,7 +92,100 @@ function ToolbarButton({ label, title, onClick, active = false, disabled = false
   );
 }
 
+function TableToolbarButtons({ editor, compact = false }) {
+  const inTable = editor.isActive("table");
+
+  if (compact) {
+    return (
+      <>
+        <ToolbarDivider />
+        <ToolbarButton
+          label="Tbl"
+          title="Insert table"
+          disabled={inTable}
+          onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+        />
+        {inTable ? (
+          <>
+            <ToolbarButton label="+R" title="Add row" onClick={() => editor.chain().focus().addRowAfter().run()} />
+            <ToolbarButton label="+C" title="Add column" onClick={() => editor.chain().focus().addColumnAfter().run()} />
+            <ToolbarButton
+              label="Str"
+              title="Toggle row stripes"
+              active={isTableStriped(editor)}
+              onClick={() => toggleTableStripes(editor)}
+            />
+            <ToolbarButton label="×T" title="Delete table" onClick={() => editor.chain().focus().deleteTable().run()} />
+          </>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ToolbarDivider />
+      <ToolbarButton
+        label="Table"
+        title="Insert table"
+        disabled={inTable}
+        onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+      />
+      {inTable ? (
+        <>
+          <ToolbarButton label="+ Row" title="Add row after" onClick={() => editor.chain().focus().addRowAfter().run()} />
+          <ToolbarButton
+            label="+ Col"
+            title="Add column after"
+            onClick={() => editor.chain().focus().addColumnAfter().run()}
+          />
+          <ToolbarButton
+            label="− Row"
+            title="Delete row"
+            onClick={() => editor.chain().focus().deleteRow().run()}
+          />
+          <ToolbarButton
+            label="− Col"
+            title="Delete column"
+            onClick={() => editor.chain().focus().deleteColumn().run()}
+          />
+          <ToolbarButton
+            label="Header"
+            title="Toggle header row"
+            active={editor.isActive("tableHeader")}
+            onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+          />
+          <ToolbarButton
+            label="Stripes"
+            title="Toggle row stripes"
+            active={isTableStriped(editor)}
+            onClick={() => toggleTableStripes(editor)}
+          />
+          <ToolbarButton
+            label="Del table"
+            title="Delete table"
+            onClick={() => editor.chain().focus().deleteTable().run()}
+          />
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function EditorToolbar({ editor, compact = false }) {
+  const [, setToolbarTick] = useState(0);
+
+  useEffect(() => {
+    if (!editor) return undefined;
+    const refresh = () => setToolbarTick((tick) => tick + 1);
+    editor.on("selectionUpdate", refresh);
+    editor.on("transaction", refresh);
+    return () => {
+      editor.off("selectionUpdate", refresh);
+      editor.off("transaction", refresh);
+    };
+  }, [editor]);
+
   if (!editor) return null;
 
   const currentStyle = editor.isActive("heading", { level: 2 })
@@ -152,6 +292,7 @@ function EditorToolbar({ editor, compact = false }) {
             active={editor.isActive("orderedList")}
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
           />
+          <TableToolbarButtons editor={editor} compact />
         </div>
       </div>
     );
@@ -274,6 +415,8 @@ function EditorToolbar({ editor, compact = false }) {
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
         />
 
+        <TableToolbarButtons editor={editor} />
+
         <ToolbarDivider />
 
         <ToolbarButton
@@ -317,11 +460,18 @@ export default function RichTextEditor({
       StarterKit.configure({
         heading: { levels: [2, 3] },
       }),
+      RichTextTable.configure({
+        resizable: true,
+        View: StripedTableView,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Underline,
       Highlight.configure({ multicolor: true }),
       TextStyleKit,
       TextAlign.configure({
-        types: ["heading", "paragraph"],
+        types: ["heading", "paragraph", "tableCell", "tableHeader"],
       }),
       Placeholder.configure({
         placeholder: ({ editor }) => (editor.isEmpty ? placeholder : ""),

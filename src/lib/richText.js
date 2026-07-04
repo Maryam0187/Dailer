@@ -1,4 +1,4 @@
-const BLOCK_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "LI", "UL", "OL"]);
+const BLOCK_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "LI", "UL", "OL", "TABLE"]);
 
 export function stripHtml(html) {
   if (!html) return "";

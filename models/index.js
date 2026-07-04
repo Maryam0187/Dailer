@@ -12,6 +12,7 @@ const shiftSettingModelFactory = require("./ShiftSetting");
 const billModelFactory = require("./Bill");
 const billItemModelFactory = require("./BillItem");
 const userFileModelFactory = require("./UserFile");
+const userFileEditAccessModelFactory = require("./UserFileEditAccess");
 const userActivityModelFactory = require("./UserActivity");
 const leaveApplicationModelFactory = require("./LeaveApplication");
 
@@ -72,6 +73,7 @@ db.ShiftSetting = shiftSettingModelFactory(sequelize, Sequelize.DataTypes);
 db.Bill = billModelFactory(sequelize, Sequelize.DataTypes);
 db.BillItem = billItemModelFactory(sequelize, Sequelize.DataTypes);
 db.UserFile = userFileModelFactory(sequelize, Sequelize.DataTypes);
+db.UserFileEditAccess = userFileEditAccessModelFactory(sequelize, Sequelize.DataTypes);
 db.UserActivity = userActivityModelFactory(sequelize, Sequelize.DataTypes);
 db.LeaveApplication = leaveApplicationModelFactory(sequelize, Sequelize.DataTypes);
 
