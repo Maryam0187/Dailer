@@ -3,7 +3,11 @@ import db from "@/server/db";
 import { getSessionCalendarDate } from "@/server/auth/loginWindow";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const ACTIVE_LEAVE_STATUSES = ["pending", "approved"];
+const ACTIVE_LEAVE_STATUSES = ["approved"];
+
+function isLeaveNotYetStarted(application, today = getSessionCalendarDate()) {
+  return Boolean(application?.startDate && application.startDate >= today);
+}
 
 export function parseLeaveDateInput(value) {
   const trimmed = String(value || "").trim();
@@ -28,11 +32,11 @@ export function isLeaveRangeValid(startDate, endDate, today = getSessionCalendar
 }
 
 export function canUserEditLeaveReason(application) {
-  return application?.status === "pending";
+  return application?.status === "approved" && isLeaveNotYetStarted(application);
 }
 
 export function canUserDeleteLeaveApplication(application) {
-  return application?.status === "pending";
+  return application?.status === "approved" && isLeaveNotYetStarted(application);
 }
 
 export function serializeLeaveApplication(row, fallbackUsername = null) {
@@ -103,7 +107,8 @@ export async function createLeaveApplication({ userId, startDate, endDate, reaso
     startDate,
     endDate,
     reason: trimmedReason || null,
-    status: "pending",
+    status: "approved",
+    reviewedAt: new Date(),
   });
 }
 
@@ -114,7 +119,7 @@ export async function updateLeaveApplicationReason({ applicationId, userId, reas
   }
 
   if (!canUserEditLeaveReason(row)) {
-    throw new Error("Reason can only be edited before admin approval.");
+    throw new Error("Reason can only be edited before leave starts.");
   }
 
   const trimmedReason = String(reason || "").trim();
@@ -131,38 +136,10 @@ export async function deleteLeaveApplication({ applicationId, userId }) {
   }
 
   if (!canUserDeleteLeaveApplication(row)) {
-    throw new Error("Only pending applications can be cancelled.");
+    throw new Error("Leave can only be cancelled before it starts.");
   }
 
   await row.destroy();
-  return row;
-}
-
-export async function updateLeaveApplicationStatus({ applicationId, status, reviewedBy }) {
-  if (status !== "approved" && status !== "rejected") {
-    throw new Error("Status must be approved or rejected.");
-  }
-
-  const row = await db.LeaveApplication.findByPk(applicationId);
-  if (!row) {
-    throw new Error("Application not found.");
-  }
-
-  if (row.status !== "pending") {
-    throw new Error("Only pending applications can be reviewed.");
-  }
-
-  if (status === "approved") {
-    if (await hasOverlappingLeaveApplication(row.userId, row.startDate, row.endDate, applicationId)) {
-      throw new Error("This user already has another approved or pending leave for these dates.");
-    }
-  }
-
-  row.status = status;
-  row.reviewedBy = reviewedBy ?? null;
-  row.reviewedAt = new Date();
-  await row.save();
-
   return row;
 }
 

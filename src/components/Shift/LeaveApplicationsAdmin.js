@@ -7,23 +7,10 @@ function formatDateRange(startDate, endDate) {
   return `${startDate} – ${endDate}`;
 }
 
-function statusLabel(status) {
-  if (status === "approved") return "Approved";
-  if (status === "rejected") return "Rejected";
-  return "Pending";
-}
-
-function statusClass(status) {
-  if (status === "approved") return "text-emerald-700 dark:text-emerald-300";
-  if (status === "rejected") return "text-rose-700 dark:text-rose-300";
-  return "text-amber-700 dark:text-amber-300";
-}
-
 export default function LeaveApplicationsAdmin() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,31 +31,11 @@ export default function LeaveApplicationsAdmin() {
     void load();
   }, [load]);
 
-  async function reviewApplication(id, status) {
-    setBusyId(id);
-    setError(null);
-    try {
-      const res = await fetch(`/api/leave-applications/${id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to update application");
-      await load();
-    } catch (err) {
-      setError(err.message || "Failed to update application");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   return (
     <div className="max-w-4xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Leave applications</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Review and approve leave requests. Only approved leave blocks agent sign-in on those dates.
+        All submitted leave requests. Leave blocks agent sign-in on those dates.
       </p>
 
       {loading ? (
@@ -85,9 +52,7 @@ export default function LeaveApplicationsAdmin() {
                 <th className="px-2 py-2 font-semibold">User</th>
                 <th className="px-2 py-2 font-semibold">Dates</th>
                 <th className="px-2 py-2 font-semibold">Reason</th>
-                <th className="px-2 py-2 font-semibold">Status</th>
                 <th className="px-2 py-2 font-semibold">Submitted</th>
-                <th className="px-2 py-2 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -98,35 +63,8 @@ export default function LeaveApplicationsAdmin() {
                     {formatDateRange(app.startDate, app.endDate)}
                   </td>
                   <td className="px-2 py-2 text-zinc-600 dark:text-zinc-400">{app.reason || "—"}</td>
-                  <td className={`px-2 py-2 font-semibold ${statusClass(app.status)}`}>
-                    {statusLabel(app.status)}
-                  </td>
                   <td className="px-2 py-2 text-zinc-600 dark:text-zinc-400">
                     {app.createdAt ? new Date(app.createdAt).toLocaleString() : "—"}
-                  </td>
-                  <td className="px-2 py-2">
-                    {app.status === "pending" ? (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={busyId === app.id}
-                          onClick={() => void reviewApplication(app.id, "approved")}
-                          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === app.id}
-                          onClick={() => void reviewApplication(app.id, "rejected")}
-                          className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-zinc-400">—</span>
-                    )}
                   </td>
                 </tr>
               ))}

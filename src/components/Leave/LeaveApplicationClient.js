@@ -13,18 +13,6 @@ function formatDateRange(startDate, endDate) {
   return `${startDate} – ${endDate}`;
 }
 
-function statusLabel(status) {
-  if (status === "approved") return "Approved";
-  if (status === "rejected") return "Rejected";
-  return "Pending approval";
-}
-
-function statusClass(status) {
-  if (status === "approved") return "bg-emerald-100 text-emerald-800";
-  if (status === "rejected") return "bg-rose-100 text-rose-800";
-  return "bg-amber-100 text-amber-900";
-}
-
 function CancelConfirmDialog({ dateRange, cancelling, onConfirm, onClose }) {
   return (
     <>
@@ -151,7 +139,7 @@ export default function LeaveApplicationClient({ username }) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to submit leave application");
 
-      setSuccess("Leave application submitted and pending admin approval.");
+      setSuccess("Leave application submitted.");
       resetNewForm();
       await loadApplications();
     } catch (err) {
@@ -256,7 +244,9 @@ export default function LeaveApplicationClient({ username }) {
             </button>
           </div>
 
-          <p className="mb-6 text-sm text-zinc-600">Apply for leave on specific dates. Admin approval is required.</p>
+          <p className="mb-6 text-sm text-zinc-600">
+            Apply for leave on specific dates. Leave blocks sign-in on those dates.
+          </p>
 
           {error ? (
             <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
@@ -336,9 +326,8 @@ export default function LeaveApplicationClient({ username }) {
                     key={app.id}
                     className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium">{formatDateRange(app.startDate, app.endDate)}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium">{formatDateRange(app.startDate, app.endDate)}</p>
                         {editingId === app.id ? (
                           <div className="mt-2 space-y-2">
                             <label className="block text-xs font-medium text-zinc-600" htmlFor={`edit-reason-${app.id}`}>
@@ -374,10 +363,6 @@ export default function LeaveApplicationClient({ username }) {
                         ) : (
                           <p className="mt-0.5 text-zinc-400">No reason provided</p>
                         )}
-                      </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(app.status)}`}>
-                        {statusLabel(app.status)}
-                      </span>
                     </div>
                     {editingId !== app.id && (app.canEdit || app.canDelete) ? (
                       <div className="mt-2 flex gap-3">

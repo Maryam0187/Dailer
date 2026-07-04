@@ -8,6 +8,8 @@ import {
   serializeLeaveApplication,
 } from "@/server/leave/userLeave";
 import { logUserActivity } from "@/server/activity/logUserActivity";
+import { buildLeaveApplicationAlert } from "@/server/leave/buildLeaveApplicationAlert";
+import { sendWeb3Forms } from "@/lib/sendWeb3Forms";
 
 export const runtime = "nodejs";
 
@@ -60,8 +62,22 @@ export async function POST(req) {
       action: "leave_application_submitted",
       entityType: "leave_application",
       entityId: application.id,
-      metadata: { startDate, endDate, status: "pending" },
+      metadata: { startDate, endDate, status: "approved" },
     });
+
+    const adminAlert = buildLeaveApplicationAlert({
+      userId: authedUser.id,
+      username: authedUser.username,
+      startDate,
+      endDate,
+      reason,
+      applicationId: application.id,
+    });
+    if (adminAlert?.subject && adminAlert?.message) {
+      void sendWeb3Forms(adminAlert).catch((err) => {
+        console.warn("[leave-applications] admin alert failed", err?.message || err);
+      });
+    }
 
     return NextResponse.json({
       ok: true,
