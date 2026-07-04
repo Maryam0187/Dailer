@@ -25,7 +25,9 @@ export async function GET() {
       : await listLeaveApplicationsForUser(authedUser.id);
 
   return NextResponse.json({
-    applications: rows.map((row) => serializeLeaveApplication(row, authedUser.username)),
+    applications: rows.map((row) =>
+      serializeLeaveApplication(row, authedUser.username, { forAdmin: authedUser.role === "admin" }),
+    ),
   });
 }
 
