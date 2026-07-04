@@ -3,12 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 
+function hasActiveLocalCall(session) {
+  const callId = Number(session?.callId);
+  return Number.isInteger(callId) && callId > 0;
+}
+
 export default function LogoutButton() {
   const router = useRouter();
   const { session } = useActiveCall();
 
   async function onLogout() {
-    if (session?.callId) {
+    if (hasActiveLocalCall(session)) {
       window.alert("You cannot sign out while on an active call. End the call first.");
       return;
     }
