@@ -45,7 +45,16 @@ export async function POST(req) {
   }
 
   if (!call.twilioSid) {
-    return NextResponse.json({ ok: true, ended: false, reason: "missing_twilio_sid" }, { status: 200 });
+    const terminalStatus = ["completed", "failed", "busy", "no-answer", "canceled"].includes(
+      String(call.status || "").toLowerCase(),
+    )
+      ? call.status
+      : "completed";
+    await call.update({ status: terminalStatus });
+    return NextResponse.json(
+      { ok: true, ended: true, reason: "missing_twilio_sid", call: { id: call.id, status: terminalStatus } },
+      { status: 200 },
+    );
   }
 
   try {
