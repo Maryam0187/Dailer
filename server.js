@@ -77,22 +77,33 @@ app.prepare().then(async () => {
 
       const { hasAfterShiftGrant } = require("./src/server/auth/loginWindow.core.cjs");
 
-      if (
-        (await isUserOnApprovedLeave(userId)) &&
-        user.role !== "admin" &&
-        !hasAfterShiftGrant(user)
-      ) {
+      let onApprovedLeave = false;
+      try {
+        onApprovedLeave = await isUserOnApprovedLeave(userId);
+      } catch (err) {
+        console.error("[socket] leave check failed:", err?.message || err);
+      }
+
+      if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
         return nextSocket(new Error("Unauthorized"));
       }
+
       if (!isLoginAllowed(user)) {
-        if (!(await userHasActiveCall(userId))) {
+        let onActiveCall = false;
+        try {
+          onActiveCall = await userHasActiveCall(userId);
+        } catch (err) {
+          console.error("[socket] active-call check failed:", err?.message || err);
+        }
+        if (!onActiveCall) {
           return nextSocket(new Error("Unauthorized"));
         }
       }
 
       socket.data.userId = userId;
       return nextSocket();
-    } catch {
+    } catch (err) {
+      console.error("[socket] auth failed:", err?.message || err);
       return nextSocket(new Error("Unauthorized"));
     }
   });
@@ -195,9 +206,7 @@ app.prepare().then(async () => {
 
     const next = (presence.get(userId) || 0) + 1;
     presence.set(userId, next);
-    if (next === 1) {
-      void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
-    }
+    void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
 
     socket.on("disconnect", () => {
       const current = presence.get(userId) || 0;

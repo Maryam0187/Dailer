@@ -22,11 +22,7 @@ function getTwilioClient() {
     ? process.env.TWILIO_TEST_AUTH_TOKEN || process.env.TWILIO_AUTH_TOKEN
     : process.env.TWILIO_AUTH_TOKEN;
 
-  if (!accountSid || !authToken) {
-    throw new Error(
-      "Twilio credentials not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.",
-    );
-  }
+  if (!accountSid || !authToken) return null;
   return twilio(accountSid, authToken);
 }
 
@@ -41,6 +37,7 @@ async function fetchTwilioCallStatus(callSid) {
   if (!sid) return null;
   try {
     const client = getTwilioClient();
+    if (!client) return null;
     const call = await client.calls(sid).fetch();
     return String(call.status || "").toLowerCase();
   } catch (err) {
