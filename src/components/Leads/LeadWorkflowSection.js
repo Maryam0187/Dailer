@@ -2,14 +2,12 @@
 
 import { useState } from "react";
 import {
-  getLeadContactTagMeta,
-  getLeadPaymentMethodMeta,
-  getLeadPhaseMeta,
   LEAD_CONTACT_TAGS,
   LEAD_PAYMENT_METHODS,
   normalizeContactCounts,
   WORKFLOW_BADGE_CLASS,
 } from "@/lib/leadWorkflow";
+import { workflowTagDisplayLabel, workflowTagTone } from "@/lib/workflowTagLabels";
 import { InfoIcon } from "@/components/Leads/IconTooltipButton";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -78,7 +76,14 @@ function formatAppointmentWhen(iso) {
   });
 }
 
-export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, setError }) {
+export default function LeadWorkflowSection({
+  lead,
+  onPatch,
+  onReloadActivity,
+  setError,
+  workflowTagLookup = {},
+  isAdmin = false,
+}) {
   const [busy, setBusy] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -87,7 +92,8 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
   const [appointmentNote, setAppointmentNote] = useState("");
 
   const phase = lead?.leadPhase || "active";
-  const phaseMeta = getLeadPhaseMeta(phase);
+  const phaseTone = workflowTagTone(workflowTagLookup, "phase", phase);
+  const phaseLabel = workflowTagDisplayLabel(workflowTagLookup, "phase", phase, { isAdmin, fallback: "Active" });
   const tagsLocked = phase !== "active";
   const paymentLocked = phase === "cancelled";
   const progressTags = lead?.leadProgressTags || [];
@@ -95,10 +101,30 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
   const processedRequired = Boolean(lead?.leadProcessedRequired);
   const missingVerified = !progressTags.includes("verified");
   const missingProcessed = processedRequired && !progressTags.includes("processed");
-  const saleDoneBlocked = missingVerified || missingProcessed;
-  const saleDoneHint = processedRequired
-    ? "Mark Verified and Processed before Sale done."
-    : "Mark Verified before Sale done.";
+  const missingSaleDone = !progressTags.includes("sale_done");
+  const saleDoneBlocked = missingVerified || missingProcessed || missingSaleDone;
+  const saleDoneHint = (() => {
+    const missing = [];
+    if (missingVerified) {
+      missing.push(
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { isAdmin: true, fallback: "Verified" }),
+      );
+    }
+    if (missingProcessed) {
+      missing.push(
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { isAdmin: true, fallback: "Processed" }),
+      );
+    }
+    if (missingSaleDone) {
+      missing.push(
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { isAdmin: true, fallback: "Sale done" }),
+      );
+    }
+    if (!missing.length) return "";
+    if (missing.length === 1) return `Mark ${missing[0]} before Sale close.`;
+    const last = missing.pop();
+    return `Mark ${missing.join(", ")} and ${last} before Sale close.`;
+  })();
 
   async function patch(payload) {
     setBusy(true);
@@ -146,6 +172,11 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
     await patch({ leadContactTag: tag });
   }
 
+  async function clearCallOutcome() {
+    if (tagsLocked || busy || !lead?.leadContactTag) return;
+    await patch({ leadContactTag: null });
+  }
+
   async function saveAppointment() {
     if (!appointmentAt) {
       setError("Appointment date is required");
@@ -190,11 +221,14 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
   }
 
   function contactLabel(tagDef) {
-    const meta = getLeadContactTagMeta(tagDef.value);
     const count = counts[tagDef.value] || 0;
     const active = lead?.leadContactTag === tagDef.value;
-    if (active && count > 1) return `${meta.label} ×${count}`;
-    return meta.label;
+    const label = workflowTagDisplayLabel(workflowTagLookup, "contact", tagDef.value, {
+      isAdmin,
+      fallback: tagDef.value,
+    });
+    if (active && count > 1) return `${label} ×${count}`;
+    return label;
   }
 
   return (
@@ -203,8 +237,8 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
         Lead status
       </p>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[phaseMeta.tone]}`}>
-          {phaseMeta.label}
+        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[phaseTone]}`}>
+          {phaseLabel}
         </span>
         {phase === "cancelled" && lead?.leadCancelReason ? (
           <span className="text-xs text-red-700 dark:text-red-300">Reason: {lead.leadCancelReason}</span>
@@ -221,7 +255,9 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
             className={chipClass(progressTags.includes("verified"), "blue", busy || tagsLocked)}
             aria-pressed={progressTags.includes("verified")}
           >
-            <ChipLabel active={progressTags.includes("verified")}>Verified</ChipLabel>
+            <ChipLabel active={progressTags.includes("verified")}>
+              {workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { isAdmin, fallback: "Verified" })}
+            </ChipLabel>
           </button>
           {processedRequired ? (
             <button
@@ -231,9 +267,26 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
               className={chipClass(progressTags.includes("processed"), "violet", busy || tagsLocked)}
               aria-pressed={progressTags.includes("processed")}
             >
-              <ChipLabel active={progressTags.includes("processed")}>Processed</ChipLabel>
+              <ChipLabel active={progressTags.includes("processed")}>
+                {workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { isAdmin, fallback: "Processed" })}
+              </ChipLabel>
             </button>
           ) : null}
+          <button
+            type="button"
+            disabled={busy || tagsLocked}
+            onClick={() => void toggleProgressTag("sale_done")}
+            className={chipClass(
+              progressTags.includes("sale_done"),
+              workflowTagTone(workflowTagLookup, "progress", "sale_done", "emerald"),
+              busy || tagsLocked,
+            )}
+            aria-pressed={progressTags.includes("sale_done")}
+          >
+            <ChipLabel active={progressTags.includes("sale_done")}>
+              {workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { isAdmin, fallback: "Sale done" })}
+            </ChipLabel>
+          </button>
         </div>
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
           Click to check; click again to uncheck.
@@ -252,22 +305,33 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
 
       <div className="mb-4">
         <label className={labelClass}>Call outcome</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {LEAD_CONTACT_TAGS.map((tag) => {
             const active = lead?.leadContactTag === tag.value;
+            const tone = workflowTagTone(workflowTagLookup, "contact", tag.value, tag.tone);
             return (
             <button
               key={tag.value}
               type="button"
               disabled={busy || tagsLocked}
               onClick={() => void setCallOutcome(tag.value)}
-              className={chipClass(active, tag.tone, busy || tagsLocked)}
+              className={chipClass(active, tone, busy || tagsLocked)}
               aria-pressed={active}
             >
               <ChipLabel active={active}>{contactLabel(tag)}</ChipLabel>
             </button>
             );
           })}
+          {lead?.leadContactTag ? (
+            <button
+              type="button"
+              disabled={busy || tagsLocked}
+              onClick={() => void clearCallOutcome()}
+              className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
         {lead?.leadContactTag === "appointment" && lead?.leadAppointmentAt ? (
           <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -276,7 +340,7 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
           </p>
         ) : null}
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Click to log call outcome; click the same outcome again to log another call.
+          Click to log call outcome; click the same outcome again to log another call. Use Clear to remove the current outcome.
         </p>
       </div>
 
@@ -285,16 +349,22 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
         <div className="flex flex-wrap gap-2">
           {LEAD_PAYMENT_METHODS.map((method) => {
             const active = lead?.leadPaymentMethod === method.value;
+            const tone = workflowTagTone(workflowTagLookup, "payment", method.value, method.tone);
             return (
             <button
               key={method.value}
               type="button"
               disabled={busy || paymentLocked}
               onClick={() => void togglePayment(method.value)}
-              className={chipClass(active, method.tone, busy || paymentLocked)}
+              className={chipClass(active, tone, busy || paymentLocked)}
               aria-pressed={active}
             >
-              <ChipLabel active={active}>{method.label}</ChipLabel>
+              <ChipLabel active={active}>
+                {workflowTagDisplayLabel(workflowTagLookup, "payment", method.value, {
+                  isAdmin,
+                  fallback: method.label,
+                })}
+              </ChipLabel>
             </button>
             );
           })}
@@ -313,7 +383,7 @@ export default function LeadWorkflowSection({ lead, onPatch, onReloadActivity, s
               onClick={() => void closeSale()}
               className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-900 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
             >
-              Sale done
+              {workflowTagDisplayLabel(workflowTagLookup, "phase", "closed", { isAdmin, fallback: "Sale close" })}
             </button>
             {saleDoneBlocked ? (
               <span

@@ -167,7 +167,7 @@ export async function PATCH(req, { params }) {
   }
 
   if (hasLeadWorkflowPatch(body)) {
-    const { update: workflowUpdate, activity: workflowActivity, errors } = applyLeadWorkflowPatch(lead, body);
+    const { update: workflowUpdate, activity: workflowActivity, errors } = await applyLeadWorkflowPatch(lead, body);
     if (errors.length) {
       return NextResponse.json({ error: errors[0] }, { status: 400 });
     }

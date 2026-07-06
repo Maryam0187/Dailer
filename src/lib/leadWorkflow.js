@@ -1,12 +1,13 @@
 export const LEAD_PHASES = [
   { value: "active", label: "Active", tone: "emerald" },
-  { value: "closed", label: "Sale done", tone: "zinc" },
+  { value: "closed", label: "Sale close", tone: "zinc" },
   { value: "cancelled", label: "Cancelled", tone: "red" },
 ];
 
 export const LEAD_PROGRESS_TAGS = [
   { value: "verified", label: "Verified", tone: "blue" },
   { value: "processed", label: "Processed", tone: "violet" },
+  { value: "sale_done", label: "Sale done", tone: "emerald" },
 ];
 
 export const LEAD_CONTACT_TAGS = [
@@ -105,15 +106,17 @@ export function formatAppointmentActivity(at, note) {
   return trimmed ? `${base} — ${trimmed}` : base;
 }
 
-export function contactOutcomeActivityLabel(tag, count) {
-  const label = getLeadContactTagMeta(tag).label;
+export function contactOutcomeActivityLabel(tag, count, registry = null) {
+  const label = registry
+    ? registry?.contact?.[tag]?.fullLabel || tag
+    : getLeadContactTagMeta(tag).label;
   if (tag === "appointment") return label;
   return count > 1 ? `${label} (${count})` : label;
 }
 
 export function formatLeadStatusShort(lead) {
   const phase = lead?.leadPhase || "active";
-  if (phase === "closed") return "Sale done";
+  if (phase === "closed") return "Sale close";
   if (phase === "cancelled") return "Cancelled";
   return "Active";
 }

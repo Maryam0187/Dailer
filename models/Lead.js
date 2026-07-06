@@ -106,7 +106,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: false,
       },
       leadContactTag: {
-        type: DataTypes.ENUM("voicemail", "hangup", "no_response", "appointment"),
+        type: DataTypes.ENUM("voicemail", "hangup", "no_response", "appointment", "sale_done"),
         allowNull: true,
       },
       leadContactCounts: {

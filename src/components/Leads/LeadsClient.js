@@ -5,7 +5,13 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
-import { formatLeadStatusShort, formatLeadWorkflowSummary, getLeadPhaseMeta, WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import {
+  buildWorkflowTagLookup,
+  formatLeadStatusShortWithTags,
+  formatLeadWorkflowSummaryWithTags,
+  workflowTagTone,
+} from "@/lib/workflowTagLabels";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
@@ -16,6 +22,7 @@ import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
+import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
@@ -99,15 +106,15 @@ function inputClassForValidation(baseClass, isValid) {
   return `${baseClass} border-red-400 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/70`;
 }
 
-function StatusPill({ lead }) {
-  const meta = getLeadPhaseMeta(lead?.leadPhase || "active");
-  const summary = formatLeadWorkflowSummary(lead);
+function StatusPill({ lead, workflowTagLookup, isAdmin }) {
+  const tone = workflowTagTone(workflowTagLookup, "phase", lead?.leadPhase || "active");
+  const summary = formatLeadWorkflowSummaryWithTags(lead, workflowTagLookup, isAdmin);
   return (
     <span
       title={summary}
-      className={`inline-flex max-w-[160px] truncate rounded-full border px-2 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[meta.tone]}`}
+      className={`inline-flex max-w-[160px] truncate rounded-full border px-2 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[tone]}`}
     >
-      {formatLeadStatusShort(lead)}
+      {formatLeadStatusShortWithTags(lead, workflowTagLookup, isAdmin)}
     </span>
   );
 }
@@ -167,8 +174,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     hasNext: false,
     hasPrev: false,
   });
+  const [workflowTags, setWorkflowTags] = useState([]);
+  const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
 
   const showLeadStats = canViewLeadStats(userRole);
+  const isAdmin = userRole === "admin";
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
   const phonesRedacted = shouldRedactLeadPhones(userRole);
@@ -262,6 +272,21 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  const loadWorkflowTags = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workflow-tags", { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load tag labels");
+      setWorkflowTags(json.tags || []);
+    } catch {
+      setWorkflowTags([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWorkflowTags();
+  }, [loadWorkflowTags]);
 
   function onPrevPage() {
     if (!pagination.hasPrev || loading) return;
@@ -451,10 +476,24 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           >
             Lead stats
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("tags")}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              activeView === "tags"
+                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Tag labels
+          </button>
         </div>
       ) : null}
 
       {showLeadStats && activeView === "stats" ? <LeadsStatsPanel /> : null}
+      {showLeadStats && activeView === "tags" ? (
+        <WorkflowTagsAdminPanel onTagsUpdated={loadWorkflowTags} />
+      ) : null}
 
       {(showLeadStats ? activeView === "list" : true) ? (
         <>
@@ -934,7 +973,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     {serviceLabel}
                   </td>
                   <td className={`${tableCellClass} max-w-[120px]`}>
-                    <StatusPill lead={lead} />
+                    <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} isAdmin={isAdmin} />
                   </td>
                   <td
                     className={`${tableCellClass} max-w-[100px] truncate text-zinc-600 dark:text-zinc-400`}
@@ -1000,6 +1039,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           calling={callingId === selectedLead.id}
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}
+          workflowTagLookup={workflowTagLookup}
+          isAdmin={isAdmin}
         />
       ) : null}
 

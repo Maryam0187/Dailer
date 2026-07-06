@@ -2,15 +2,17 @@ import {
   LEAD_PHASE_VALUES,
   contactOutcomeActivityLabel,
   formatAppointmentActivity,
-  getLeadContactTagMeta,
   getLeadPaymentMethodMeta,
-  getLeadPhaseMeta,
   getLeadProgressTagMeta,
   normalizeContactCounts,
   normalizeLeadContactTag,
   normalizeLeadPaymentMethod,
   parseLeadProgressTags,
 } from "@/lib/leadWorkflow";
+import {
+  getWorkflowTagRegistry,
+  workflowTagFullLabel,
+} from "@/server/workflowTags/registry";
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -29,7 +31,13 @@ function progressTagsEqual(a, b) {
   return JSON.stringify(a || []) === JSON.stringify(b || []);
 }
 
-export function applyLeadWorkflowPatch(lead, body) {
+export async function applyLeadWorkflowPatch(lead, body) {
+  const registry = await getWorkflowTagRegistry();
+  const contactLabel = (tag) => workflowTagFullLabel(registry, "contact", tag, tag);
+  const phaseLabel = (phase) => workflowTagFullLabel(registry, "phase", phase, phase);
+  const progressLabel = (tag) => workflowTagFullLabel(registry, "progress", tag, getLeadProgressTagMeta(tag).label);
+  const paymentLabel = (method) =>
+    workflowTagFullLabel(registry, "payment", method, getLeadPaymentMethodMeta(method).label);
   const update = {};
   const activity = [];
   const errors = [];
@@ -63,8 +71,8 @@ export function applyLeadWorkflowPatch(lead, body) {
     } else if (!progressTagsEqual(tags, current.leadProgressTags)) {
       const prev = new Set(current.leadProgressTags);
       const next = new Set(tags);
-      const added = [...next].filter((t) => !prev.has(t)).map((t) => `+${getLeadProgressTagMeta(t).label}`);
-      const removed = [...prev].filter((t) => !next.has(t)).map((t) => `-${getLeadProgressTagMeta(t).label}`);
+      const added = [...next].filter((t) => !prev.has(t)).map((t) => `+${progressLabel(t)}`);
+      const removed = [...prev].filter((t) => !next.has(t)).map((t) => `-${progressLabel(t)}`);
       update.leadProgressTags = tags;
       if (added.length || removed.length) {
         activity.push({
@@ -84,7 +92,7 @@ export function applyLeadWorkflowPatch(lead, body) {
       activity.push({
         type: "lead_phase_change",
         body: method
-          ? `Payment collected: ${getLeadPaymentMethodMeta(method).label}`
+          ? `Payment collected: ${paymentLabel(method)}`
           : "Payment collected: Cleared",
       });
     }
@@ -109,7 +117,7 @@ export function applyLeadWorkflowPatch(lead, body) {
         contactChanged = true;
         activity.push({
           type: "lead_phase_change",
-          body: `Call: ${getLeadContactTagMeta(current.leadContactTag).label} → Cleared`,
+          body: `Call: ${contactLabel(current.leadContactTag)} → Cleared`,
         });
       }
     } else if (tag === "appointment") {
@@ -149,7 +157,7 @@ export function applyLeadWorkflowPatch(lead, body) {
         contactChanged = true;
         activity.push({
           type: "lead_phase_change",
-          body: contactOutcomeActivityLabel(tag, nextCounts[tag]),
+          body: contactOutcomeActivityLabel(tag, nextCounts[tag], registry),
         });
       } else {
         if (current.leadContactTag) nextCounts[current.leadContactTag] = 0;
@@ -163,12 +171,12 @@ export function applyLeadWorkflowPatch(lead, body) {
         if (current.leadContactTag) {
           activity.push({
             type: "lead_phase_change",
-            body: `Call: ${getLeadContactTagMeta(current.leadContactTag).label} → ${getLeadContactTagMeta(tag).label}`,
+            body: `Call: ${contactLabel(current.leadContactTag)} → ${contactLabel(tag)}`,
           });
         } else {
           activity.push({
             type: "lead_phase_change",
-            body: contactOutcomeActivityLabel(tag, 1),
+            body: contactOutcomeActivityLabel(tag, 1, registry),
           });
         }
       }
@@ -193,6 +201,9 @@ export function applyLeadWorkflowPatch(lead, body) {
       if (phase === "closed") {
         if (!effectiveProgress.includes("verified")) {
           errors.push("Verified is required before closing this sale");
+        }
+        if (!effectiveProgress.includes("sale_done")) {
+          errors.push("Sale done is required before closing this sale");
         }
         if (effectiveRequired && !effectiveProgress.includes("processed")) {
           errors.push("Processed is required before closing this sale");
@@ -226,7 +237,7 @@ export function applyLeadWorkflowPatch(lead, body) {
           });
         }
         if (phase === "closed") {
-          activity.push({ type: "lead_phase_change", body: "Closed: Sale done" });
+          activity.push({ type: "lead_phase_change", body: "Closed: Sale close" });
         } else if (phase === "cancelled") {
           activity.push({
             type: "lead_phase_change",
@@ -237,7 +248,7 @@ export function applyLeadWorkflowPatch(lead, body) {
         } else {
           activity.push({
             type: "lead_phase_change",
-            body: `Phase: ${getLeadPhaseMeta(current.leadPhase).label} → ${getLeadPhaseMeta(phase).label}`,
+            body: `Phase: ${phaseLabel(current.leadPhase)} → ${phaseLabel(phase)}`,
           });
         }
       }

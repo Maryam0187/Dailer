@@ -9,7 +9,13 @@ import RichTextField from "@/components/Leads/RichTextField";
 import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
 import { isEmptyRichText } from "@/lib/richText";
 import { formatDuration } from "@/lib/formatDuration";
-import { formatLeadStatusShort, formatLeadWorkflowSummary, getLeadPhaseMeta, WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import {
+  formatActivityBodyWithTags,
+  formatLeadStatusShortWithTags,
+  formatLeadWorkflowSummaryWithTags,
+  workflowTagTone,
+} from "@/lib/workflowTagLabels";
 import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -30,16 +36,16 @@ function formatWhen(iso) {
   });
 }
 
-function WorkflowHeaderBadge({ lead }) {
+function WorkflowHeaderBadge({ lead, workflowTagLookup, isAdmin }) {
   const phase = lead?.leadPhase || "active";
-  const meta = getLeadPhaseMeta(phase);
-  const detail = formatLeadWorkflowSummary(lead);
+  const tone = workflowTagTone(workflowTagLookup, "phase", phase);
+  const detail = formatLeadWorkflowSummaryWithTags(lead, workflowTagLookup, isAdmin);
   return (
     <span
       title={detail}
-      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[meta.tone]}`}
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[tone]}`}
     >
-      {formatLeadStatusShort(lead)}
+      {formatLeadStatusShortWithTags(lead, workflowTagLookup, isAdmin)}
     </span>
   );
 }
@@ -110,7 +116,11 @@ function activityTitle(update) {
   return "Update";
 }
 
-function ActivityItem({ update }) {
+function ActivityItem({ update, workflowTagLookup, isAdmin }) {
+  const body =
+    update.type === "lead_phase_change"
+      ? formatActivityBodyWithTags(update.body, workflowTagLookup, isAdmin)
+      : update.body;
   return (
     <li className="flex gap-3">
       <ActivityIcon type={update.type} />
@@ -122,14 +132,14 @@ function ActivityItem({ update }) {
         <p className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
           {update.username || "Unknown user"}
         </p>
-        {update.body ? (
+        {body ? (
           update.type === "note_edit" || update.type === "breakdown_edit" ? (
             <div className="mt-2">
-              <RichHtmlContent html={update.body} />
+              <RichHtmlContent html={body} />
             </div>
           ) : (
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-              {update.body}
+              {body}
             </p>
           )
         ) : null}
@@ -148,6 +158,8 @@ export default function LeadDetailPanel({
   canCall,
   hasActiveCall,
   phonesRedacted = false,
+  workflowTagLookup = {},
+  isAdmin = false,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -369,7 +381,7 @@ export default function LeadDetailPanel({
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <WorkflowHeaderBadge lead={lead} />
+            <WorkflowHeaderBadge lead={lead} workflowTagLookup={workflowTagLookup} isAdmin={isAdmin} />
             {!phonesRedacted && onCallLead ? (
               <IconTooltipButton
                 title={calling ? "Calling…" : "Call lead"}
@@ -398,6 +410,8 @@ export default function LeadDetailPanel({
             onPatch={patchLead}
             onReloadActivity={loadUpdates}
             setError={setError}
+            workflowTagLookup={workflowTagLookup}
+            isAdmin={isAdmin}
           />
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
@@ -573,7 +587,12 @@ export default function LeadDetailPanel({
               ) : (
                 <ul className="flex flex-col gap-3">
                   {updates.map((u) => (
-                    <ActivityItem key={u.id} update={u} />
+                    <ActivityItem
+                      key={u.id}
+                      update={u}
+                      workflowTagLookup={workflowTagLookup}
+                      isAdmin={isAdmin}
+                    />
                   ))}
                 </ul>
               )
