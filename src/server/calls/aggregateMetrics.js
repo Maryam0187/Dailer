@@ -11,9 +11,13 @@ export async function conferenceCallIds() {
 }
 
 export function dateRangeWhere(fromDate, toDate) {
+  return dateRangeWhereOn("createdAt", fromDate, toDate);
+}
+
+export function dateRangeWhereOn(field, fromDate, toDate) {
   const after = new Date(`${fromDate}T00:00:00.000Z`);
   const before = new Date(`${toDate}T23:59:59.999Z`);
-  return { createdAt: { [Op.between]: [after, before] } };
+  return { [field]: { [Op.between]: [after, before] } };
 }
 
 const NON_ADMIN_USER_WHERE = { role: { [Op.ne]: "admin" } };

@@ -9,7 +9,14 @@ import RichTextField from "@/components/Leads/RichTextField";
 import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
 import { isEmptyRichText } from "@/lib/richText";
 import { formatDuration } from "@/lib/formatDuration";
-import { getLeadStatusMeta, LEAD_STATUSES, STATUS_BADGE_CLASS } from "@/lib/leadStatus";
+import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import {
+  formatActivityBodyWithTags,
+  formatLeadWorkflowTooltipSummary,
+  formatLeadStatusShortWithTags,
+  workflowTagTone,
+} from "@/lib/workflowTagLabels";
+import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -29,13 +36,16 @@ function formatWhen(iso) {
   });
 }
 
-function StatusBadge({ status }) {
-  const meta = getLeadStatusMeta(status);
+function WorkflowHeaderBadge({ lead, workflowTagLookup, preferShortLabels }) {
+  const phase = lead?.leadPhase || "active";
+  const tone = workflowTagTone(workflowTagLookup, "phase", phase);
+  const detail = formatLeadWorkflowTooltipSummary(lead, workflowTagLookup, preferShortLabels);
   return (
     <span
-      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE_CLASS[meta.tone]}`}
+      title={detail}
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[tone]}`}
     >
-      {meta.label}
+      {formatLeadStatusShortWithTags(lead, workflowTagLookup, preferShortLabels)}
     </span>
   );
 }
@@ -70,6 +80,13 @@ function ActivityIcon({ type }) {
       </div>
     );
   }
+  if (type === "lead_phase_change") {
+    return (
+      <div className={`${base} bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200`}>
+        ◆
+      </div>
+    );
+  }
   if (type === "lead_edit") {
     return (
       <div className={`${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200`}>
@@ -87,18 +104,23 @@ function ActivityIcon({ type }) {
 function activityTitle(update) {
   if (update.type === "comment") return "Comment";
   if (update.type === "status_change") {
-    const from = getLeadStatusMeta(update.previousStatus).label;
-    const to = getLeadStatusMeta(update.newStatus).label;
-    return `Status: ${from} → ${to}`;
+    const from = update.previousStatus || "—";
+    const to = update.newStatus || "—";
+    return `Legacy status: ${from} → ${to}`;
   }
   if (update.type === "note_edit") return "Notes updated";
   if (update.type === "breakdown_edit") return "Breakdown updated";
+  if (update.type === "lead_phase_change") return "Lead workflow updated";
   if (update.type === "lead_edit") return "Lead updated";
   if (update.type === "created") return "Lead created";
   return "Update";
 }
 
-function ActivityItem({ update }) {
+function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
+  const body =
+    update.type === "lead_phase_change"
+      ? formatActivityBodyWithTags(update.body, workflowTagLookup, preferShortLabels)
+      : update.body;
   return (
     <li className="flex gap-3">
       <ActivityIcon type={update.type} />
@@ -110,14 +132,14 @@ function ActivityItem({ update }) {
         <p className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
           {update.username || "Unknown user"}
         </p>
-        {update.body ? (
+        {body ? (
           update.type === "note_edit" || update.type === "breakdown_edit" ? (
             <div className="mt-2">
-              <RichHtmlContent html={update.body} />
+              <RichHtmlContent html={body} />
             </div>
           ) : (
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-              {update.body}
+              {body}
             </p>
           )
         ) : null}
@@ -136,6 +158,8 @@ export default function LeadDetailPanel({
   canCall,
   hasActiveCall,
   phonesRedacted = false,
+  workflowTagLookup = {},
+  preferShortLabels = true,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -149,7 +173,6 @@ export default function LeadDetailPanel({
   const [breakdownDraft, setBreakdownDraft] = useState(lead?.breakdown || "");
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingBreakdown, setSavingBreakdown] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
   const [activeTab, setActiveTab] = useState("activity");
 
   const loadUpdates = useCallback(async () => {
@@ -265,20 +288,6 @@ export default function LeadDetailPanel({
     }
   }
 
-  async function onStatusChange(nextStatus) {
-    if (nextStatus === lead.status || statusBusy) return;
-    setStatusBusy(true);
-    setError(null);
-    try {
-      await patchLead({ status: nextStatus });
-      await loadUpdates();
-    } catch (e) {
-      setError(e.message || "Failed to update status");
-    } finally {
-      setStatusBusy(false);
-    }
-  }
-
   async function downloadRecording(callId, url) {
     if (!url) return;
     setDownloadingId(callId);
@@ -372,12 +381,18 @@ export default function LeadDetailPanel({
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <StatusBadge status={lead.status} />
+            <WorkflowHeaderBadge lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
             {!phonesRedacted && onCallLead ? (
               <IconTooltipButton
                 title={calling ? "Calling…" : "Call lead"}
                 variant="primary"
-                disabled={calling || !canCall || hasActiveCall || lead.status === "dnc"}
+                disabled={
+                  calling ||
+                  !canCall ||
+                  hasActiveCall ||
+                  lead.status === "dnc" ||
+                  lead.leadPhase === "cancelled"
+                }
                 onClick={async () => {
                   await onCallLead?.(lead);
                   await loadCalls();
@@ -390,29 +405,14 @@ export default function LeadDetailPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
-          <section className="mb-6">
-            <label className={labelClass}>Status</label>
-            <div className="flex flex-wrap gap-2">
-              {LEAD_STATUSES.map((s) => {
-                const active = lead.status === s.value;
-                return (
-                  <button
-                    key={s.value}
-                    type="button"
-                    disabled={statusBusy}
-                    onClick={() => void onStatusChange(s.value)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
-                      active
-                        ? STATUS_BADGE_CLASS[s.tone]
-                        : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          <LeadWorkflowSection
+            lead={lead}
+            onPatch={patchLead}
+            onReloadActivity={loadUpdates}
+            setError={setError}
+            workflowTagLookup={workflowTagLookup}
+            preferShortLabels={preferShortLabels}
+          />
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
             <RichTextField
@@ -582,12 +582,17 @@ export default function LeadDetailPanel({
                 <p className="text-sm text-zinc-500">Loading activity…</p>
               ) : updates.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600">
-                  No activity yet. Change status or add a comment to start the timeline.
+                  No activity yet. Update lead status or add a comment to start the timeline.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
                   {updates.map((u) => (
-                    <ActivityItem key={u.id} update={u} />
+                    <ActivityItem
+                      key={u.id}
+                      update={u}
+                      workflowTagLookup={workflowTagLookup}
+                      preferShortLabels={preferShortLabels}
+                    />
                   ))}
                 </ul>
               )

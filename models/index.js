@@ -15,6 +15,7 @@ const userFileModelFactory = require("./UserFile");
 const userFileEditAccessModelFactory = require("./UserFileEditAccess");
 const userActivityModelFactory = require("./UserActivity");
 const leaveApplicationModelFactory = require("./LeaveApplication");
+const workflowTagModelFactory = require("./WorkflowTag");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -76,6 +77,7 @@ db.UserFile = userFileModelFactory(sequelize, Sequelize.DataTypes);
 db.UserFileEditAccess = userFileEditAccessModelFactory(sequelize, Sequelize.DataTypes);
 db.UserActivity = userActivityModelFactory(sequelize, Sequelize.DataTypes);
 db.LeaveApplication = leaveApplicationModelFactory(sequelize, Sequelize.DataTypes);
+db.WorkflowTag = workflowTagModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

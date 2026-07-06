@@ -4,7 +4,7 @@ import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
-import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
+import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
 import { hasLeadMonitorAccess } from "@/lib/leadRoles";
 import {
   andWhereClause,
@@ -14,6 +14,25 @@ import {
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import {
+  LEAD_CONTACT_TAG_VALUES,
+  LEAD_PROGRESS_MISSING_FILTERS,
+  LEAD_PROGRESS_MISSING_VALUES,
+  LEAD_PROGRESS_TAG_VALUES,
+} from "@/lib/leadWorkflow";
+import { Sequelize } from "sequelize";
+
+function progressTagContainsLiteral(tag) {
+  return Sequelize.literal(
+    `JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+  );
+}
+
+function progressTagMissingLiteral(tag) {
+  return Sequelize.literal(
+    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+  );
+}
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -35,6 +54,26 @@ function parseDateOnly(value) {
   const v = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   return v;
+}
+
+function parseLeadsDateField(value) {
+  const field = String(value || "").trim().toLowerCase();
+  if (!field || field === "created") return "createdAt";
+  if (field === "updated") return "updatedAt";
+  return undefined;
+}
+
+function resolveLeadListDateRange({ fromDate, toDate, leadPhase, dateFieldRaw }) {
+  if (!fromDate || !toDate) return { clause: null };
+  const parsed = parseLeadsDateField(dateFieldRaw);
+  if (dateFieldRaw && parsed === undefined) {
+    return { error: "Invalid dateField" };
+  }
+  let field = parsed;
+  if (!field) {
+    field = leadPhase === "closed" || leadPhase === "cancelled" ? "updatedAt" : "createdAt";
+  }
+  return { clause: dateRangeWhereOn(field, fromDate, toDate), field };
 }
 
 function parseLeadsOrder(searchParams) {
@@ -101,13 +140,59 @@ export async function GET(req) {
   if (fromDate && toDate && fromDate > toDate) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
+
+  const leadPhase = searchParams.get("leadPhase");
+  if (leadPhase) {
+    const allowed = new Set(["active", "closed", "cancelled"]);
+    if (!allowed.has(leadPhase)) {
+      return NextResponse.json({ error: "Invalid leadPhase" }, { status: 400 });
+    }
+  }
+
   if (fromDate && toDate) {
-    where = andWhereClause(where, dateRangeWhere(fromDate, toDate));
+    const { clause, field, error } = resolveLeadListDateRange({
+      fromDate,
+      toDate,
+      leadPhase,
+      dateFieldRaw: searchParams.get("dateField"),
+    });
+    if (error) {
+      return NextResponse.json({ error }, { status: 400 });
+    }
+    where = andWhereClause(where, clause);
   }
 
   const page = parsePositiveInt(searchParams.get("page"), 1);
   const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 25), 100);
   const offset = (page - 1) * pageSize;
+
+  if (leadPhase) {
+    where.leadPhase = leadPhase;
+  }
+
+  const leadContactTag = searchParams.get("leadContactTag");
+  if (leadContactTag) {
+    if (!LEAD_CONTACT_TAG_VALUES.has(leadContactTag)) {
+      return NextResponse.json({ error: "Invalid leadContactTag" }, { status: 400 });
+    }
+    where.leadContactTag = leadContactTag;
+  }
+
+  const leadProgressTag = searchParams.get("leadProgressTag");
+  if (leadProgressTag) {
+    if (LEAD_PROGRESS_TAG_VALUES.has(leadProgressTag)) {
+      where = andWhereClause(where, progressTagContainsLiteral(leadProgressTag));
+    } else if (LEAD_PROGRESS_MISSING_VALUES.has(leadProgressTag)) {
+      const spec = LEAD_PROGRESS_MISSING_FILTERS.find((f) => f.value === leadProgressTag);
+      where.leadPhase = "active";
+      if (spec?.requiresProcessing) {
+        where.leadProcessedRequired = true;
+      }
+      where = andWhereClause(where, progressTagMissingLiteral(spec.tagKey));
+    } else {
+      return NextResponse.json({ error: "Invalid leadProgressTag" }, { status: 400 });
+    }
+  }
 
   const { rows: leads, count } = await db.Lead.findAndCountAll({
     where,

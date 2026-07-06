@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import {
-  serializeLeaveApplication,
-  updateLeaveApplicationReason,
-} from "@/server/leave/userLeave";
+import { requestLeaveCancellation, serializeLeaveApplication } from "@/server/leave/userLeave";
+import { buildLeaveCancellationRequestAlert } from "@/server/leave/buildLeaveCancellationRequestAlert";
+import { sendWeb3Forms } from "@/lib/sendWeb3Forms";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 
 export const runtime = "nodejs";
 
-export async function PATCH(req, { params }) {
+export async function POST(req, { params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,29 +23,43 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "Invalid application id" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => null);
-
   try {
-    const application = await updateLeaveApplicationReason({
+    const application = await requestLeaveCancellation({
       applicationId,
       userId: authedUser.id,
-      reason: body?.reason,
     });
 
     await logUserActivity({
       req,
       userId: authedUser.id,
-      action: "leave_application_updated",
+      action: "leave_application_cancel_requested",
       entityType: "leave_application",
       entityId: application.id,
-      metadata: { reasonOnly: true },
+      metadata: {
+        startDate: application.startDate,
+        endDate: application.endDate,
+      },
     });
+
+    const adminAlert = buildLeaveCancellationRequestAlert({
+      userId: authedUser.id,
+      username: authedUser.username,
+      startDate: application.startDate,
+      endDate: application.endDate,
+      reason: application.reason,
+      applicationId: application.id,
+    });
+    if (adminAlert?.subject && adminAlert?.message) {
+      void sendWeb3Forms(adminAlert).catch((err) => {
+        console.warn("[leave-applications] cancel request alert failed", err?.message || err);
+      });
+    }
 
     return NextResponse.json({
       ok: true,
       application: serializeLeaveApplication(application, authedUser.username),
     });
   } catch (err) {
-    return NextResponse.json({ error: err.message || "Failed to update leave application" }, { status: 400 });
+    return NextResponse.json({ error: err.message || "Failed to request cancellation" }, { status: 400 });
   }
 }

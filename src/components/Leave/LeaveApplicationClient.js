@@ -13,7 +13,7 @@ function formatDateRange(startDate, endDate) {
   return `${startDate} – ${endDate}`;
 }
 
-function CancelConfirmDialog({ dateRange, cancelling, onConfirm, onClose }) {
+function RequestCancelDialog({ dateRange, requesting, onConfirm, onClose }) {
   return (
     <>
       <button
@@ -26,40 +26,40 @@ function CancelConfirmDialog({ dateRange, cancelling, onConfirm, onClose }) {
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="cancel-leave-title"
+          aria-labelledby="request-cancel-leave-title"
           className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl"
         >
           <div className="border-b border-zinc-200 px-5 py-4">
-            <h3 id="cancel-leave-title" className="text-base font-semibold text-zinc-900">
-              Cancel leave application?
+            <h3 id="request-cancel-leave-title" className="text-base font-semibold text-zinc-900">
+              Request cancellation?
             </h3>
             <p className="mt-2 text-sm text-zinc-600">
-              Are you sure you want to cancel your leave application
+              Send a cancellation request to admin
               {dateRange ? (
                 <>
                   {" "}
                   for <span className="font-medium text-zinc-800">{dateRange}</span>
                 </>
               ) : null}
-              ? This cannot be undone.
+              . An admin will review and cancel the leave if approved.
             </p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
             <button
               type="button"
               onClick={onClose}
-              disabled={cancelling}
+              disabled={requesting}
               className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Keep application
+              Keep leave
             </button>
             <button
               type="button"
               onClick={onConfirm}
-              disabled={cancelling}
+              disabled={requesting}
               className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {cancelling ? "Cancelling…" : "Yes, cancel"}
+              {requesting ? "Sending…" : "Send request"}
             </button>
           </div>
         </div>
@@ -80,8 +80,8 @@ export default function LeaveApplicationClient({ username }) {
   const [editingId, setEditingId] = useState(null);
   const [editReason, setEditReason] = useState("");
   const [savingEditId, setSavingEditId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
-  const [cancelTarget, setCancelTarget] = useState(null);
+  const [requestingCancelId, setRequestingCancelId] = useState(null);
+  const [requestCancelTarget, setRequestCancelTarget] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
@@ -174,30 +174,29 @@ export default function LeaveApplicationClient({ username }) {
     }
   }
 
-  async function confirmCancelApplication() {
-    if (!cancelTarget) return;
+  async function confirmRequestCancellation() {
+    if (!requestCancelTarget) return;
 
-    const appId = cancelTarget.id;
+    const appId = requestCancelTarget.id;
     setError(null);
     setSuccess(null);
-    setDeletingId(appId);
+    setRequestingCancelId(appId);
 
     try {
-      const res = await fetch(`/api/leave-applications/${appId}`, {
-        method: "DELETE",
+      const res = await fetch(`/api/leave-applications/${appId}/request-cancel`, {
+        method: "POST",
         credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to cancel application");
+      if (!res.ok) throw new Error(json?.error || "Failed to send cancellation request");
 
-      if (editingId === appId) cancelEdit();
-      setCancelTarget(null);
-      setSuccess("Leave application cancelled.");
+      setRequestCancelTarget(null);
+      setSuccess("Cancellation request sent to admin.");
       await loadApplications();
     } catch (err) {
-      setError(err.message || "Failed to cancel application");
+      setError(err.message || "Failed to send cancellation request");
     } finally {
-      setDeletingId(null);
+      setRequestingCancelId(null);
     }
   }
 
@@ -213,18 +212,18 @@ export default function LeaveApplicationClient({ username }) {
 
   return (
     <>
-      {cancelTarget ? (
-        <CancelConfirmDialog
-          dateRange={formatDateRange(cancelTarget.startDate, cancelTarget.endDate)}
-          cancelling={deletingId === cancelTarget.id}
-          onConfirm={() => void confirmCancelApplication()}
+      {requestCancelTarget ? (
+        <RequestCancelDialog
+          dateRange={formatDateRange(requestCancelTarget.startDate, requestCancelTarget.endDate)}
+          requesting={requestingCancelId === requestCancelTarget.id}
+          onConfirm={() => void confirmRequestCancellation()}
           onClose={() => {
-            if (deletingId !== cancelTarget.id) setCancelTarget(null);
+            if (requestingCancelId !== requestCancelTarget.id) setRequestCancelTarget(null);
           }}
         />
       ) : null}
 
-      <div className="relative flex min-h-dvh w-full flex-col bg-gradient-to-b from-zinc-100 via-zinc-50 to-white">
+    <div className="relative flex min-h-dvh w-full flex-col bg-gradient-to-b from-zinc-100 via-zinc-50 to-white">
       <div className="relative mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 py-10 sm:py-14">
         <div className="rounded-2xl border border-zinc-200/90 bg-white/90 p-8 shadow-lg shadow-zinc-200/50 ring-1 ring-zinc-950/5 backdrop-blur-sm">
           <div className="mb-6 flex items-start justify-between gap-4">
@@ -245,7 +244,7 @@ export default function LeaveApplicationClient({ username }) {
           </div>
 
           <p className="mb-6 text-sm text-zinc-600">
-            Apply for leave on specific dates. Leave blocks sign-in on those dates.
+            Apply for leave on specific dates. Leave blocks sign-in on those dates. Request cancellation and an admin will review it.
           </p>
 
           {error ? (
@@ -324,10 +323,15 @@ export default function LeaveApplicationClient({ username }) {
                 {applications.map((app) => (
                   <li
                     key={app.id}
-                    className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800"
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      app.status === "cancelled"
+                        ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                        : "border-zinc-200 bg-zinc-50 text-zinc-800"
+                    }`}
                   >
-                    <div className="min-w-0">
-                      <p className="font-medium">{formatDateRange(app.startDate, app.endDate)}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{formatDateRange(app.startDate, app.endDate)}</p>
                         {editingId === app.id ? (
                           <div className="mt-2 space-y-2">
                             <label className="block text-xs font-medium text-zinc-600" htmlFor={`edit-reason-${app.id}`}>
@@ -363,8 +367,18 @@ export default function LeaveApplicationClient({ username }) {
                         ) : (
                           <p className="mt-0.5 text-zinc-400">No reason provided</p>
                         )}
+                      </div>
+                      {app.status === "cancelled" ? (
+                        <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800">
+                          Cancelled
+                        </span>
+                      ) : app.cancelRequested ? (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                          Cancel requested
+                        </span>
+                      ) : null}
                     </div>
-                    {editingId !== app.id && (app.canEdit || app.canDelete) ? (
+                    {editingId !== app.id && (app.canEdit || app.canRequestCancel) ? (
                       <div className="mt-2 flex gap-3">
                         {app.canEdit ? (
                           <button
@@ -375,14 +389,14 @@ export default function LeaveApplicationClient({ username }) {
                             Edit reason
                           </button>
                         ) : null}
-                        {app.canDelete ? (
+                        {app.canRequestCancel ? (
                           <button
                             type="button"
-                            onClick={() => setCancelTarget(app)}
-                            disabled={deletingId === app.id}
+                            onClick={() => setRequestCancelTarget(app)}
+                            disabled={requestingCancelId === app.id}
                             className="text-sm font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-60"
                           >
-                            Cancel application
+                            Request cancellation
                           </button>
                         ) : null}
                       </div>
@@ -394,7 +408,7 @@ export default function LeaveApplicationClient({ username }) {
           </div>
         </div>
       </div>
-      </div>
+    </div>
     </>
   );
 }

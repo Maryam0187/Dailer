@@ -35,11 +35,15 @@ export function canUserEditLeaveReason(application) {
   return application?.status === "approved" && isLeaveNotYetStarted(application);
 }
 
-export function canUserDeleteLeaveApplication(application) {
-  return application?.status === "approved" && isLeaveNotYetStarted(application);
+export function canAdminCancelLeaveApplication(application) {
+  return application?.status === "approved";
 }
 
-export function serializeLeaveApplication(row, fallbackUsername = null) {
+export function canUserRequestLeaveCancellation(application) {
+  return application?.status === "approved" && !application?.cancelRequestedAt;
+}
+
+export function serializeLeaveApplication(row, fallbackUsername = null, { forAdmin = false } = {}) {
   return {
     id: row.id,
     userId: row.userId,
@@ -49,10 +53,13 @@ export function serializeLeaveApplication(row, fallbackUsername = null) {
     reason: row.reason,
     status: row.status,
     reviewedAt: row.reviewedAt ?? null,
+    cancelRequestedAt: row.cancelRequestedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    canEdit: canUserEditLeaveReason(row),
-    canDelete: canUserDeleteLeaveApplication(row),
+    canEdit: forAdmin ? false : canUserEditLeaveReason(row),
+    canCancel: forAdmin ? canAdminCancelLeaveApplication(row) : false,
+    canRequestCancel: forAdmin ? false : canUserRequestLeaveCancellation(row),
+    cancelRequested: Boolean(row.cancelRequestedAt),
   };
 }
 
@@ -129,17 +136,40 @@ export async function updateLeaveApplicationReason({ applicationId, userId, reas
   return row;
 }
 
-export async function deleteLeaveApplication({ applicationId, userId }) {
+export async function requestLeaveCancellation({ applicationId, userId }) {
   const row = await db.LeaveApplication.findByPk(applicationId);
   if (!row || row.userId !== userId) {
     throw new Error("Application not found.");
   }
 
-  if (!canUserDeleteLeaveApplication(row)) {
-    throw new Error("Leave can only be cancelled before it starts.");
+  if (!canUserRequestLeaveCancellation(row)) {
+    if (row.cancelRequestedAt) {
+      throw new Error("Cancellation has already been requested for this application.");
+    }
+    throw new Error("This leave application cannot be cancelled.");
   }
 
-  await row.destroy();
+  row.cancelRequestedAt = new Date();
+  await row.save();
+
+  return row;
+}
+
+export async function cancelLeaveApplication({ applicationId, cancelledBy }) {
+  const row = await db.LeaveApplication.findByPk(applicationId);
+  if (!row) {
+    throw new Error("Application not found.");
+  }
+
+  if (!canAdminCancelLeaveApplication(row)) {
+    throw new Error("Only active leave applications can be cancelled.");
+  }
+
+  row.status = "cancelled";
+  row.reviewedBy = cancelledBy ?? null;
+  row.reviewedAt = new Date();
+  await row.save();
+
   return row;
 }
 

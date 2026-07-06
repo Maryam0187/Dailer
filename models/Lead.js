@@ -90,6 +90,46 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "CallLogs", key: "id" },
       },
+      leadPhase: {
+        type: DataTypes.ENUM("active", "closed", "cancelled"),
+        allowNull: false,
+        defaultValue: "active",
+      },
+      leadProgressTags: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+      },
+      leadProcessedRequired: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      leadContactTag: {
+        type: DataTypes.ENUM("voicemail", "hangup", "no_response", "appointment", "sale_done"),
+        allowNull: true,
+      },
+      leadContactCounts: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: {},
+      },
+      leadAppointmentAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      leadAppointmentNote: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      leadPaymentMethod: {
+        type: DataTypes.ENUM("check_mail", "card", "pos_link"),
+        allowNull: true,
+      },
+      leadCancelReason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
     },
     {
       tableName: "Leads",
@@ -99,6 +139,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["assignedUserId"] },
         { fields: ["status"] },
         { fields: ["createdByUserId"] },
+        { fields: ["leadPhase"] },
       ],
     },
   );
