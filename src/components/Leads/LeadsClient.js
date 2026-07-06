@@ -5,12 +5,21 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
-import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
 import {
+  LEAD_CONTACT_TAGS,
+  LEAD_PHASES,
+  LEAD_PROGRESS_MISSING_FILTERS,
+  LEAD_PROGRESS_TAGS,
+  WORKFLOW_BADGE_CLASS,
+  WORKFLOW_SWATCH_CLASS,
+} from "@/lib/leadWorkflow";
+import {
+  ADMIN_SHORT_LABELS_STORAGE_KEY,
   buildWorkflowTagLookup,
-  formatLeadStatusShortWithTags,
-  formatLeadWorkflowSummaryWithTags,
-  workflowTagTone,
+  collectLeadWorkflowIndicators,
+  formatLeadWorkflowTooltipSummary,
+  resolvePreferShortLabels,
+  workflowTagDisplayLabel,
 } from "@/lib/workflowTagLabels";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
@@ -23,6 +32,7 @@ import LeadEditModal from "@/components/Leads/LeadEditModal";
 import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
+import WorkflowStatusLegend from "@/components/Leads/WorkflowStatusLegend";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
@@ -62,15 +72,76 @@ function getPresetRange(preset) {
   return { from: "", to: "" };
 }
 
-const SALE_PHASE_FILTERS = [
-  { id: "all", label: "All sales" },
-  { id: "active", label: "Active sales" },
-  { id: "closed", label: "Closed sales" },
-  { id: "cancelled", label: "Cancelled sales" },
-];
+function buildPhaseFilterOptions(tags) {
+  const options = buildWorkflowFilterOptions(tags, "phase", "All sales", LEAD_PHASES);
+  if (options[0]?.id === "all") {
+    options[0].shortLabel = "All";
+  }
+  return options;
+}
 
-function salePhaseFilterLabel(id) {
-  return SALE_PHASE_FILTERS.find((f) => f.id === id)?.label || "All sales";
+function workflowFilterDisplayLabel(options, id, preferShort) {
+  const option = options.find((f) => f.id === id) || options[0];
+  if (!option) return "All";
+  return preferShort ? option.shortLabel || option.label : option.label;
+}
+
+function buildWorkflowFilterOptions(tags, category, allLabel, fallback) {
+  const fromDb = (tags || [])
+    .filter((t) => t.category === category)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    .map((t) => ({ id: t.tagKey, label: t.fullLabel, shortLabel: t.shortLabel }));
+  const options = fromDb.length
+    ? fromDb
+    : fallback.map((t) => ({ id: t.value, label: t.label, shortLabel: t.label }));
+  return [{ id: "all", label: allLabel, shortLabel: allLabel }, ...options];
+}
+
+function buildProgressFilterOptions(tags) {
+  const base = buildWorkflowFilterOptions(tags, "progress", "All progress", LEAD_PROGRESS_TAGS);
+  const tagLabel = (tagKey, field) => {
+    const row = (tags || []).find((t) => t.category === "progress" && t.tagKey === tagKey);
+    if (row) return row[field];
+    return LEAD_PROGRESS_TAGS.find((t) => t.value === tagKey)?.label || tagKey;
+  };
+  const missing = LEAD_PROGRESS_MISSING_FILTERS.map((spec) => ({
+    id: spec.value,
+    label: spec.label,
+    shortLabel: `Need ${tagLabel(spec.tagKey, "shortLabel")}`,
+    missing: true,
+  }));
+  return [...base, ...missing];
+}
+
+function workflowFilterLabel(options, id) {
+  return options.find((f) => f.id === id)?.label || options[0]?.label || "All";
+}
+
+const FILTER_CHIP_ACTIVE_CLASS =
+  "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100";
+const FILTER_CHIP_CLASS =
+  "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800";
+
+function filterChipClass(active) {
+  return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${active ? FILTER_CHIP_ACTIVE_CLASS : FILTER_CHIP_CLASS}`;
+}
+
+function hasActiveLeadFilters({
+  supervisorFilter,
+  agentFilter,
+  leadPhaseFilter,
+  leadProgressTagFilter,
+  leadContactTagFilter,
+  rangePreset,
+}) {
+  return (
+    supervisorFilter !== "all" ||
+    agentFilter !== "all" ||
+    leadPhaseFilter !== "all" ||
+    leadProgressTagFilter !== "all" ||
+    leadContactTagFilter !== "all" ||
+    rangePreset !== "all"
+  );
 }
 
 function resolveLeadListDateField(leadPhaseFilter) {
@@ -91,7 +162,6 @@ function formatLeadName(lead) {
   return lead.fullName?.trim() || "—";
 }
 
-import { richTextPreview } from "@/lib/richText";
 
 function formatLeadLocation(lead) {
   return [lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—";
@@ -106,15 +176,36 @@ function inputClassForValidation(baseClass, isValid) {
   return `${baseClass} border-red-400 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/70`;
 }
 
-function StatusPill({ lead, workflowTagLookup, isAdmin }) {
-  const tone = workflowTagTone(workflowTagLookup, "phase", lead?.leadPhase || "active");
-  const summary = formatLeadWorkflowSummaryWithTags(lead, workflowTagLookup, isAdmin);
+function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
+  const indicators = collectLeadWorkflowIndicators(lead, workflowTagLookup, preferShortLabels);
+  const summary = formatLeadWorkflowTooltipSummary(lead, workflowTagLookup, preferShortLabels);
   return (
-    <span
-      title={summary}
-      className={`inline-flex max-w-[160px] truncate rounded-full border px-2 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[tone]}`}
-    >
-      {formatLeadStatusShortWithTags(lead, workflowTagLookup, isAdmin)}
+    <span className="inline-flex items-center gap-1" title={summary} aria-label={summary}>
+      {indicators.map((item) => {
+        if (item.category === "phase") {
+          const phaseLabel = workflowTagDisplayLabel(workflowTagLookup, "phase", item.tagKey, {
+            preferShort: preferShortLabels,
+            fallback: item.label,
+          });
+          return (
+            <span
+              key={`${item.category}-${item.tagKey}`}
+              title={item.label}
+              className={`inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${WORKFLOW_BADGE_CLASS[item.tone] || WORKFLOW_BADGE_CLASS.zinc}`}
+            >
+              {phaseLabel}
+            </span>
+          );
+        }
+        return (
+          <span
+            key={`${item.category}-${item.tagKey}`}
+            title={item.label}
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 shrink-0 rounded-full border ${WORKFLOW_SWATCH_CLASS[item.tone] || WORKFLOW_SWATCH_CLASS.zinc}`}
+          />
+        );
+      })}
     </span>
   );
 }
@@ -154,6 +245,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
+  const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
+  const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [saveError, setSaveError] = useState(null);
@@ -175,14 +268,29 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     hasPrev: false,
   });
   const [workflowTags, setWorkflowTags] = useState([]);
+  const [adminShortLabels, setAdminShortLabels] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(ADMIN_SHORT_LABELS_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
+  const phaseFilterOptions = useMemo(() => buildPhaseFilterOptions(workflowTags), [workflowTags]);
+  const progressFilterOptions = useMemo(() => buildProgressFilterOptions(workflowTags), [workflowTags]);
+  const contactFilterOptions = useMemo(
+    () => buildWorkflowFilterOptions(workflowTags, "contact", "All outcomes", LEAD_CONTACT_TAGS),
+    [workflowTags],
+  );
 
   const showLeadStats = canViewLeadStats(userRole);
   const isAdmin = userRole === "admin";
+  const preferShortLabels = resolvePreferShortLabels(isAdmin, adminShortLabels);
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
   const phonesRedacted = shouldRedactLeadPhones(userRole);
-  const colSpan = showLeadFilters ? 8 : 7;
+  const colSpan = showLeadFilters ? 7 : 6;
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
@@ -198,6 +306,30 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     if (entry.role === "supervisor") return `${entry.username} (Supervisor)`;
     if (entry.supervisorName) return `${entry.username} (${entry.supervisorName})`;
     return entry.username;
+  }
+
+  function setAdminLabelPreference(preferShort) {
+    setAdminShortLabels(preferShort);
+    try {
+      localStorage.setItem(ADMIN_SHORT_LABELS_STORAGE_KEY, String(preferShort));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  function salePhaseFilterChipLabel(option) {
+    if (option.id === "all") return preferShortLabels ? option.shortLabel || option.label : option.label;
+    return preferShortLabels ? option.shortLabel || option.label : option.label;
+  }
+
+  function progressFilterChipLabel(option) {
+    if (option.id === "all") return option.label;
+    return preferShortLabels ? option.shortLabel || option.label : option.label;
+  }
+
+  function contactFilterChipLabel(option) {
+    if (option.id === "all") return option.label;
+    return preferShortLabels ? option.shortLabel || option.label : option.label;
   }
 
   const canStartCall =
@@ -229,6 +361,12 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
       if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
+      if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
+        params.set("leadProgressTag", leadProgressTagFilter);
+      }
+      if (leadContactTagFilter && leadContactTagFilter !== "all") {
+        params.set("leadContactTag", leadContactTagFilter);
+      }
       if (appliedFrom && appliedTo) {
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
@@ -267,7 +405,17 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         setLoading(false);
       }
     }
-  }, [agentFilter, supervisorFilter, leadPhaseFilter, appliedFrom, appliedTo, sortBy, page]);
+  }, [
+    agentFilter,
+    supervisorFilter,
+    leadPhaseFilter,
+    leadProgressTagFilter,
+    leadContactTagFilter,
+    appliedFrom,
+    appliedTo,
+    sortBy,
+    page,
+  ]);
 
   useEffect(() => {
     void loadLeads();
@@ -453,7 +601,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   return (
     <div className="flex flex-col gap-6">
       {showLeadStats ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setActiveView("list")}
@@ -487,6 +636,32 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           >
             Tag labels
           </button>
+          </div>
+          {isAdmin ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Show labels
+              </span>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Workflow label display">
+                <button
+                  type="button"
+                  onClick={() => setAdminLabelPreference(false)}
+                  className={filterChipClass(!adminShortLabels)}
+                  aria-pressed={!adminShortLabels}
+                >
+                  Full
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminLabelPreference(true)}
+                  className={filterChipClass(adminShortLabels)}
+                  aria-pressed={adminShortLabels}
+                >
+                  Short
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -678,21 +853,82 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         <div className="mb-4">
           <label className={labelClass}>Sale status</label>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by sale status">
-            {SALE_PHASE_FILTERS.map((option) => (
+            {phaseFilterOptions.map((option) => (
               <button
                 key={option.id}
                 type="button"
+                title={option.label}
                 onClick={() => {
                   setLeadPhaseFilter(option.id);
                   setPage(1);
                 }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  leadPhaseFilter === option.id
-                    ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
+                className={filterChipClass(leadPhaseFilter === option.id)}
               >
-                {option.label}
+                {salePhaseFilterChipLabel(option)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className={labelClass}>Progress</label>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by progress">
+            {progressFilterOptions
+              .filter((option) => !option.missing)
+              .map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  title={option.label}
+                  onClick={() => {
+                    setLeadProgressTagFilter(option.id);
+                    setPage(1);
+                  }}
+                  className={filterChipClass(leadProgressTagFilter === option.id)}
+                >
+                  {progressFilterChipLabel(option)}
+                </button>
+              ))}
+          </div>
+          <p className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            Missing on active sales
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Filter by missing progress">
+            {progressFilterOptions
+              .filter((option) => option.missing)
+              .map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  title={option.label}
+                  onClick={() => {
+                    setLeadProgressTagFilter(option.id);
+                    setLeadPhaseFilter("active");
+                    setPage(1);
+                  }}
+                  className={filterChipClass(leadProgressTagFilter === option.id)}
+                >
+                  {progressFilterChipLabel(option)}
+                </button>
+              ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className={labelClass}>Call outcome</label>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by call outcome">
+            {contactFilterOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                title={option.label}
+                onClick={() => {
+                  setLeadContactTagFilter(option.id);
+                  setPage(1);
+                }}
+                className={filterChipClass(leadContactTagFilter === option.id)}
+              >
+                {contactFilterChipLabel(option)}
               </button>
             ))}
           </div>
@@ -776,7 +1012,20 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             {appliedFrom && appliedTo ? (
               <>
-                Showing <span className="font-medium">{salePhaseFilterLabel(leadPhaseFilter)}</span>{" "}
+                Showing{" "}
+                <span className="font-medium">
+                  {[
+                    workflowFilterDisplayLabel(phaseFilterOptions, leadPhaseFilter, preferShortLabels),
+                    leadProgressTagFilter !== "all"
+                      ? workflowFilterLabel(progressFilterOptions, leadProgressTagFilter)
+                      : null,
+                    leadContactTagFilter !== "all"
+                      ? workflowFilterLabel(contactFilterOptions, leadContactTagFilter)
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>{" "}
                 {dateRangeHint(leadPhaseFilter)}{" "}
                 <span className="font-medium">
                   {appliedFrom} — {appliedTo}
@@ -784,8 +1033,21 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               </>
             ) : (
               <>
-                Showing <span className="font-medium">{salePhaseFilterLabel(leadPhaseFilter)}</span> across all
-                dates.
+                Showing{" "}
+                <span className="font-medium">
+                  {[
+                    workflowFilterDisplayLabel(phaseFilterOptions, leadPhaseFilter, preferShortLabels),
+                    leadProgressTagFilter !== "all"
+                      ? workflowFilterLabel(progressFilterOptions, leadProgressTagFilter)
+                      : null,
+                    leadContactTagFilter !== "all"
+                      ? workflowFilterLabel(contactFilterOptions, leadContactTagFilter)
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>{" "}
+                across all dates.
               </>
             )}
           </p>
@@ -911,6 +1173,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       </div>
 
+      <WorkflowStatusLegend workflowTags={workflowTags} preferShortLabels={preferShortLabels} />
+
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <table className="w-full min-w-[760px] table-fixed text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
@@ -918,9 +1182,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className={`${tableHeadClass} min-w-[120px] max-w-[140px] px-3`}>Name</th>
               <th className={tableHeadClass}>Phone</th>
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
-              <th className={`${tableHeadClass} max-w-[120px]`}>Status</th>
+              <th className={`${tableHeadClass} max-w-[100px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
-              <th className={`${tableHeadClass} max-w-[90px]`}>Notes</th>
               {showLeadFilters ? <th className={`${tableHeadClass} max-w-[100px]`}>Created by</th> : null}
               <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
@@ -935,7 +1198,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             ) : leads.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
-                  {supervisorFilter !== "all" || agentFilter !== "all" || leadPhaseFilter !== "all" || rangePreset !== "all"
+                  {hasActiveLeadFilters({
+                    supervisorFilter,
+                    agentFilter,
+                    leadPhaseFilter,
+                    leadProgressTagFilter,
+                    leadContactTagFilter,
+                    rangePreset,
+                  })
                     ? "No leads match the selected filters."
                     : "No leads yet. Add your first lead above."}
                 </td>
@@ -944,7 +1214,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               leads.map((lead) => {
                 const serviceLabel = formatLeadService(lead);
                 const locationLabel = formatLeadLocation(lead);
-                const notesLabel = richTextPreview(lead.notes);
                 return (
                 <tr
                   key={lead.id}
@@ -972,20 +1241,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   >
                     {serviceLabel}
                   </td>
-                  <td className={`${tableCellClass} max-w-[120px]`}>
-                    <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} isAdmin={isAdmin} />
+                  <td className={`${tableCellClass} max-w-[100px]`}>
+                    <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
                   </td>
                   <td
                     className={`${tableCellClass} max-w-[100px] truncate text-zinc-600 dark:text-zinc-400`}
                     title={locationLabel !== "—" ? locationLabel : undefined}
                   >
                     {locationLabel}
-                  </td>
-                  <td
-                    className={`${tableCellClass} max-w-[90px] truncate text-zinc-600 dark:text-zinc-400`}
-                    title={lead.notes || undefined}
-                  >
-                    {notesLabel}
                   </td>
                   {showLeadFilters ? (
                     <td
@@ -1040,7 +1303,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           canCall={canStartCall}
           hasActiveCall={Boolean(session)}
           workflowTagLookup={workflowTagLookup}
-          isAdmin={isAdmin}
+          preferShortLabels={preferShortLabels}
         />
       ) : null}
 

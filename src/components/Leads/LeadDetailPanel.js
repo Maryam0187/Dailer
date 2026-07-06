@@ -12,8 +12,8 @@ import { formatDuration } from "@/lib/formatDuration";
 import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
 import {
   formatActivityBodyWithTags,
+  formatLeadWorkflowTooltipSummary,
   formatLeadStatusShortWithTags,
-  formatLeadWorkflowSummaryWithTags,
   workflowTagTone,
 } from "@/lib/workflowTagLabels";
 import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
@@ -36,16 +36,16 @@ function formatWhen(iso) {
   });
 }
 
-function WorkflowHeaderBadge({ lead, workflowTagLookup, isAdmin }) {
+function WorkflowHeaderBadge({ lead, workflowTagLookup, preferShortLabels }) {
   const phase = lead?.leadPhase || "active";
   const tone = workflowTagTone(workflowTagLookup, "phase", phase);
-  const detail = formatLeadWorkflowSummaryWithTags(lead, workflowTagLookup, isAdmin);
+  const detail = formatLeadWorkflowTooltipSummary(lead, workflowTagLookup, preferShortLabels);
   return (
     <span
       title={detail}
       className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${WORKFLOW_BADGE_CLASS[tone]}`}
     >
-      {formatLeadStatusShortWithTags(lead, workflowTagLookup, isAdmin)}
+      {formatLeadStatusShortWithTags(lead, workflowTagLookup, preferShortLabels)}
     </span>
   );
 }
@@ -116,10 +116,10 @@ function activityTitle(update) {
   return "Update";
 }
 
-function ActivityItem({ update, workflowTagLookup, isAdmin }) {
+function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
   const body =
     update.type === "lead_phase_change"
-      ? formatActivityBodyWithTags(update.body, workflowTagLookup, isAdmin)
+      ? formatActivityBodyWithTags(update.body, workflowTagLookup, preferShortLabels)
       : update.body;
   return (
     <li className="flex gap-3">
@@ -159,7 +159,7 @@ export default function LeadDetailPanel({
   hasActiveCall,
   phonesRedacted = false,
   workflowTagLookup = {},
-  isAdmin = false,
+  preferShortLabels = true,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -381,7 +381,7 @@ export default function LeadDetailPanel({
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <WorkflowHeaderBadge lead={lead} workflowTagLookup={workflowTagLookup} isAdmin={isAdmin} />
+            <WorkflowHeaderBadge lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
             {!phonesRedacted && onCallLead ? (
               <IconTooltipButton
                 title={calling ? "Calling…" : "Call lead"}
@@ -411,7 +411,7 @@ export default function LeadDetailPanel({
             onReloadActivity={loadUpdates}
             setError={setError}
             workflowTagLookup={workflowTagLookup}
-            isAdmin={isAdmin}
+            preferShortLabels={preferShortLabels}
           />
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
@@ -591,7 +591,7 @@ export default function LeadDetailPanel({
                       key={u.id}
                       update={u}
                       workflowTagLookup={workflowTagLookup}
-                      isAdmin={isAdmin}
+                      preferShortLabels={preferShortLabels}
                     />
                   ))}
                 </ul>

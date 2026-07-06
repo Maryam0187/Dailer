@@ -82,7 +82,7 @@ export default function LeadWorkflowSection({
   onReloadActivity,
   setError,
   workflowTagLookup = {},
-  isAdmin = false,
+  preferShortLabels = true,
 }) {
   const [busy, setBusy] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -93,7 +93,7 @@ export default function LeadWorkflowSection({
 
   const phase = lead?.leadPhase || "active";
   const phaseTone = workflowTagTone(workflowTagLookup, "phase", phase);
-  const phaseLabel = workflowTagDisplayLabel(workflowTagLookup, "phase", phase, { isAdmin, fallback: "Active" });
+  const phaseLabel = workflowTagDisplayLabel(workflowTagLookup, "phase", phase, { preferShort: preferShortLabels, fallback: "Active" });
   const tagsLocked = phase !== "active";
   const paymentLocked = phase === "cancelled";
   const progressTags = lead?.leadProgressTags || [];
@@ -107,17 +107,17 @@ export default function LeadWorkflowSection({
     const missing = [];
     if (missingVerified) {
       missing.push(
-        workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { isAdmin: true, fallback: "Verified" }),
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { preferShort: preferShortLabels, fallback: "Verified" }),
       );
     }
     if (missingProcessed) {
       missing.push(
-        workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { isAdmin: true, fallback: "Processed" }),
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { preferShort: preferShortLabels, fallback: "Processed" }),
       );
     }
     if (missingSaleDone) {
       missing.push(
-        workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { isAdmin: true, fallback: "Sale done" }),
+        workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { preferShort: preferShortLabels, fallback: "Sale done" }),
       );
     }
     if (!missing.length) return "";
@@ -224,7 +224,7 @@ export default function LeadWorkflowSection({
     const count = counts[tagDef.value] || 0;
     const active = lead?.leadContactTag === tagDef.value;
     const label = workflowTagDisplayLabel(workflowTagLookup, "contact", tagDef.value, {
-      isAdmin,
+      preferShort: preferShortLabels,
       fallback: tagDef.value,
     });
     if (active && count > 1) return `${label} ×${count}`;
@@ -256,7 +256,7 @@ export default function LeadWorkflowSection({
             aria-pressed={progressTags.includes("verified")}
           >
             <ChipLabel active={progressTags.includes("verified")}>
-              {workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { isAdmin, fallback: "Verified" })}
+              {workflowTagDisplayLabel(workflowTagLookup, "progress", "verified", { preferShort: preferShortLabels, fallback: "Verified" })}
             </ChipLabel>
           </button>
           {processedRequired ? (
@@ -268,7 +268,7 @@ export default function LeadWorkflowSection({
               aria-pressed={progressTags.includes("processed")}
             >
               <ChipLabel active={progressTags.includes("processed")}>
-                {workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { isAdmin, fallback: "Processed" })}
+                {workflowTagDisplayLabel(workflowTagLookup, "progress", "processed", { preferShort: preferShortLabels, fallback: "Processed" })}
               </ChipLabel>
             </button>
           ) : null}
@@ -284,7 +284,7 @@ export default function LeadWorkflowSection({
             aria-pressed={progressTags.includes("sale_done")}
           >
             <ChipLabel active={progressTags.includes("sale_done")}>
-              {workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { isAdmin, fallback: "Sale done" })}
+              {workflowTagDisplayLabel(workflowTagLookup, "progress", "sale_done", { preferShort: preferShortLabels, fallback: "Sale done" })}
             </ChipLabel>
           </button>
         </div>
@@ -361,7 +361,7 @@ export default function LeadWorkflowSection({
             >
               <ChipLabel active={active}>
                 {workflowTagDisplayLabel(workflowTagLookup, "payment", method.value, {
-                  isAdmin,
+                  preferShort: preferShortLabels,
                   fallback: method.label,
                 })}
               </ChipLabel>
@@ -383,7 +383,7 @@ export default function LeadWorkflowSection({
               onClick={() => void closeSale()}
               className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-900 disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
             >
-              {workflowTagDisplayLabel(workflowTagLookup, "phase", "closed", { isAdmin, fallback: "Sale close" })}
+              {workflowTagDisplayLabel(workflowTagLookup, "phase", "closed", { preferShort: preferShortLabels, fallback: "Sale close" })}
             </button>
             {saleDoneBlocked ? (
               <span

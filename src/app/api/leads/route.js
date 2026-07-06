@@ -14,6 +14,25 @@ import {
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import {
+  LEAD_CONTACT_TAG_VALUES,
+  LEAD_PROGRESS_MISSING_FILTERS,
+  LEAD_PROGRESS_MISSING_VALUES,
+  LEAD_PROGRESS_TAG_VALUES,
+} from "@/lib/leadWorkflow";
+import { Sequelize } from "sequelize";
+
+function progressTagContainsLiteral(tag) {
+  return Sequelize.literal(
+    `JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+  );
+}
+
+function progressTagMissingLiteral(tag) {
+  return Sequelize.literal(
+    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+  );
+}
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -153,11 +172,26 @@ export async function GET(req) {
 
   const leadContactTag = searchParams.get("leadContactTag");
   if (leadContactTag) {
-    const allowed = new Set(["voicemail", "hangup", "no_response", "appointment"]);
-    if (!allowed.has(leadContactTag)) {
+    if (!LEAD_CONTACT_TAG_VALUES.has(leadContactTag)) {
       return NextResponse.json({ error: "Invalid leadContactTag" }, { status: 400 });
     }
     where.leadContactTag = leadContactTag;
+  }
+
+  const leadProgressTag = searchParams.get("leadProgressTag");
+  if (leadProgressTag) {
+    if (LEAD_PROGRESS_TAG_VALUES.has(leadProgressTag)) {
+      where = andWhereClause(where, progressTagContainsLiteral(leadProgressTag));
+    } else if (LEAD_PROGRESS_MISSING_VALUES.has(leadProgressTag)) {
+      const spec = LEAD_PROGRESS_MISSING_FILTERS.find((f) => f.value === leadProgressTag);
+      where.leadPhase = "active";
+      if (spec?.requiresProcessing) {
+        where.leadProcessedRequired = true;
+      }
+      where = andWhereClause(where, progressTagMissingLiteral(spec.tagKey));
+    } else {
+      return NextResponse.json({ error: "Invalid leadProgressTag" }, { status: 400 });
+    }
   }
 
   const { rows: leads, count } = await db.Lead.findAndCountAll({

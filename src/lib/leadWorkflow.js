@@ -10,6 +10,13 @@ export const LEAD_PROGRESS_TAGS = [
   { value: "sale_done", label: "Sale done", tone: "emerald" },
 ];
 
+/** Progress list filters for leads missing a required tag (active sales only). */
+export const LEAD_PROGRESS_MISSING_FILTERS = [
+  { value: "missing_verified", tagKey: "verified", label: "Needs verification" },
+  { value: "missing_sale_done", tagKey: "sale_done", label: "Needs sale done" },
+  { value: "missing_processed", tagKey: "processed", label: "Needs processing", requiresProcessing: true },
+];
+
 export const LEAD_CONTACT_TAGS = [
   { value: "voicemail", label: "Voicemail", tone: "amber" },
   { value: "hangup", label: "Hangup", tone: "red" },
@@ -25,6 +32,11 @@ export const LEAD_PAYMENT_METHODS = [
 
 export const LEAD_PHASE_VALUES = new Set(LEAD_PHASES.map((p) => p.value));
 export const LEAD_PROGRESS_TAG_VALUES = new Set(LEAD_PROGRESS_TAGS.map((t) => t.value));
+export const LEAD_PROGRESS_MISSING_VALUES = new Set(LEAD_PROGRESS_MISSING_FILTERS.map((t) => t.value));
+export const LEAD_PROGRESS_FILTER_VALUES = new Set([
+  ...LEAD_PROGRESS_TAG_VALUES,
+  ...LEAD_PROGRESS_MISSING_VALUES,
+]);
 export const LEAD_CONTACT_TAG_VALUES = new Set(LEAD_CONTACT_TAGS.map((t) => t.value));
 export const LEAD_PAYMENT_METHOD_VALUES = new Set(LEAD_PAYMENT_METHODS.map((m) => m.value));
 
@@ -44,6 +56,16 @@ export const WORKFLOW_BADGE_CLASS = {
   amber:
     "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100",
   sky: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
+};
+
+export const WORKFLOW_SWATCH_CLASS = {
+  emerald: "border-emerald-400 bg-emerald-500 dark:border-emerald-500 dark:bg-emerald-400",
+  zinc: "border-zinc-400 bg-zinc-400 dark:border-zinc-500 dark:bg-zinc-300",
+  red: "border-red-400 bg-red-500 dark:border-red-500 dark:bg-red-400",
+  blue: "border-blue-400 bg-blue-500 dark:border-blue-500 dark:bg-blue-400",
+  violet: "border-violet-400 bg-violet-500 dark:border-violet-500 dark:bg-violet-400",
+  amber: "border-amber-400 bg-amber-500 dark:border-amber-500 dark:bg-amber-400",
+  sky: "border-sky-400 bg-sky-500 dark:border-sky-500 dark:bg-sky-400",
 };
 
 export function emptyContactCounts() {
