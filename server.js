@@ -15,7 +15,7 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
   try {
-    const { ensureShiftSettingsLoaded } = await import("./src/server/auth/shiftSettings.js");
+    const { ensureShiftSettingsLoaded } = require("./src/server/auth/shiftSettings.boot.cjs");
     await ensureShiftSettingsLoaded();
   } catch (err) {
     console.error("[shift] failed to load settings on boot:", err?.message || err);
