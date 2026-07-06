@@ -5,6 +5,8 @@ const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const db = require("./models");
 const { isLoginAllowed, isSessionValidForToday } = require("./src/server/auth/loginWindow.core.cjs");
+const { isUserOnApprovedLeave } = require("./src/server/leave/userLeave.boot.cjs");
+const { userHasActiveCall } = require("./src/server/calls/userActiveCall.boot.cjs");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
@@ -73,7 +75,6 @@ app.prepare().then(async () => {
         return nextSocket(new Error("Unauthorized"));
       }
 
-      const { isUserOnApprovedLeave } = await import("./src/server/leave/userLeave.js");
       const { hasAfterShiftGrant } = require("./src/server/auth/loginWindow.core.cjs");
 
       if (
@@ -84,7 +85,6 @@ app.prepare().then(async () => {
         return nextSocket(new Error("Unauthorized"));
       }
       if (!isLoginAllowed(user)) {
-        const { userHasActiveCall } = await import("./src/server/calls/userActiveCall.js");
         if (!(await userHasActiveCall(userId))) {
           return nextSocket(new Error("Unauthorized"));
         }
