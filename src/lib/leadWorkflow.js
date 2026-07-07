@@ -1,11 +1,11 @@
 export const LEAD_PHASES = [
   { value: "active", label: "Active", tone: "emerald" },
-  { value: "closed", label: "Sale close", tone: "zinc" },
+  { value: "closed", label: "Sale close", tone: "slate" },
   { value: "cancelled", label: "Cancelled", tone: "red" },
 ];
 
 export const LEAD_PROGRESS_TAGS = [
-  { value: "verified", label: "Verified", tone: "blue" },
+  { value: "verified", label: "Verified", tone: "yellow" },
   { value: "processed", label: "Processed", tone: "violet" },
   { value: "sale_done", label: "Sale done", tone: "emerald" },
 ];
@@ -19,15 +19,15 @@ export const LEAD_PROGRESS_MISSING_FILTERS = [
 
 export const LEAD_CONTACT_TAGS = [
   { value: "voicemail", label: "Voicemail", tone: "amber" },
-  { value: "hangup", label: "Hangup", tone: "red" },
+  { value: "hangup", label: "Hangup", tone: "rose" },
   { value: "no_response", label: "No response", tone: "zinc" },
   { value: "appointment", label: "Appointment", tone: "sky" },
 ];
 
 export const LEAD_PAYMENT_METHODS = [
-  { value: "check_mail", label: "Check mail", tone: "emerald" },
-  { value: "card", label: "Card", tone: "blue" },
-  { value: "pos_link", label: "POS Link", tone: "violet" },
+  { value: "check_mail", label: "Check mail", tone: "teal" },
+  { value: "card", label: "Card", tone: "indigo" },
+  { value: "pos_link", label: "POS Link", tone: "fuchsia" },
 ];
 
 export const LEAD_PHASE_VALUES = new Set(LEAD_PHASES.map((p) => p.value));
@@ -55,7 +55,18 @@ export const WORKFLOW_BADGE_CLASS = {
     "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-100",
   amber:
     "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100",
+  yellow:
+    "border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-100",
   sky: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
+  lime: "border-lime-200 bg-lime-50 text-lime-900 dark:border-lime-800 dark:bg-lime-950/50 dark:text-lime-100",
+  rose: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-100",
+  slate:
+    "border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+  teal: "border-teal-200 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-100",
+  indigo:
+    "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-100",
+  fuchsia:
+    "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 dark:border-fuchsia-800 dark:bg-fuchsia-950/50 dark:text-fuchsia-100",
 };
 
 export const WORKFLOW_SWATCH_CLASS = {
@@ -65,7 +76,31 @@ export const WORKFLOW_SWATCH_CLASS = {
   blue: "border-blue-400 bg-blue-500 dark:border-blue-500 dark:bg-blue-400",
   violet: "border-violet-400 bg-violet-500 dark:border-violet-500 dark:bg-violet-400",
   amber: "border-amber-400 bg-amber-500 dark:border-amber-500 dark:bg-amber-400",
+  yellow: "border-yellow-400 bg-yellow-500 dark:border-yellow-500 dark:bg-yellow-400",
   sky: "border-sky-400 bg-sky-500 dark:border-sky-500 dark:bg-sky-400",
+  lime: "border-lime-400 bg-lime-500 dark:border-lime-500 dark:bg-lime-400",
+  rose: "border-rose-400 bg-rose-500 dark:border-rose-500 dark:bg-rose-400",
+  slate: "border-slate-400 bg-slate-500 dark:border-slate-500 dark:bg-slate-400",
+  teal: "border-teal-400 bg-teal-500 dark:border-teal-500 dark:bg-teal-400",
+  indigo: "border-indigo-400 bg-indigo-500 dark:border-indigo-500 dark:bg-indigo-400",
+  fuchsia: "border-fuchsia-400 bg-fuchsia-500 dark:border-fuchsia-500 dark:bg-fuchsia-400",
+};
+
+export const WORKFLOW_ICON_CLASS = {
+  emerald: "text-emerald-500 dark:text-emerald-400",
+  zinc: "text-zinc-500 dark:text-zinc-400",
+  red: "text-red-500 dark:text-red-400",
+  blue: "text-blue-500 dark:text-blue-400",
+  violet: "text-violet-500 dark:text-violet-400",
+  amber: "text-amber-500 dark:text-amber-400",
+  yellow: "text-yellow-500 dark:text-yellow-400",
+  sky: "text-sky-500 dark:text-sky-400",
+  lime: "text-lime-500 dark:text-lime-400",
+  rose: "text-rose-500 dark:text-rose-400",
+  slate: "text-slate-500 dark:text-slate-400",
+  teal: "text-teal-500 dark:text-teal-400",
+  indigo: "text-indigo-500 dark:text-indigo-400",
+  fuchsia: "text-fuchsia-500 dark:text-fuchsia-400",
 };
 
 export function emptyContactCounts() {

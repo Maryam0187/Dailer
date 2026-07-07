@@ -99,6 +99,44 @@ export async function getLeadFilterCreators(authedUser) {
   return [];
 }
 
+/** All active users an admin may assign leads to. */
+export async function getAdminAssignableUsers() {
+  return db.User.findAll({
+    where: { isActive: true },
+    attributes: ["id", "username", "role", "supervisorId"],
+    order: [
+      ["role", "ASC"],
+      ["username", "ASC"],
+    ],
+  });
+}
+
+/** Serialized assignable users for admin assignment UI. */
+export async function getAdminAssignableUsersForAssignment() {
+  const users = await getAdminAssignableUsers();
+  const supervisorIds = [
+    ...new Set(
+      users
+        .filter((u) => u.role === "agent" && u.supervisorId)
+        .map((u) => Number(u.supervisorId)),
+    ),
+  ];
+  const supervisors =
+    supervisorIds.length > 0
+      ? await db.User.findAll({
+          where: { id: { [Op.in]: supervisorIds } },
+          attributes: ["id", "username"],
+        })
+      : [];
+  const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.username]));
+  return users.map((u) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    supervisorName: u.supervisorId ? supervisorNameById.get(Number(u.supervisorId)) ?? null : null,
+  }));
+}
+
 export async function canFilterLeadsByCreator(authedUser, userId) {
   if (!Number.isInteger(userId) || userId <= 0) return false;
   const creators = await getLeadFilterCreators(authedUser);
@@ -151,6 +189,13 @@ export async function canFilterLeadsBySupervisor(authedUser, supervisorId) {
 
 export async function canAssignLeadToAgent(authedUser, agentUserId) {
   if (!Number.isInteger(agentUserId) || agentUserId <= 0) return false;
+  if (authedUser.role === "admin") {
+    const user = await db.User.findOne({
+      where: { id: agentUserId, isActive: true },
+      attributes: ["id"],
+    });
+    return Boolean(user);
+  }
   const agents = await getAssignableAgents(authedUser);
   return agents.some((a) => a.id === agentUserId);
 }
@@ -198,7 +243,10 @@ export function andWhereClause(baseWhere, extra) {
  * - no creator filter: whole team (supervisor + their agents) or all (admin)
  * - creator filter: only that person's created leads
  */
-export async function resolveLeadsListWhere(authedUser, { creatorId = null, supervisorId = null } = {}) {
+export async function resolveLeadsListWhere(
+  authedUser,
+  { creatorId = null, supervisorId = null, assignedScope = null } = {},
+) {
   const role = authedUser.role;
 
   if (role === "agent") {
@@ -208,24 +256,40 @@ export async function resolveLeadsListWhere(authedUser, { creatorId = null, supe
   }
 
   if (role === "supervisor") {
-    const agentIds = await getSupervisedAgentUserIds(authedUser.id);
-    const teamIds = teamCreatorIds(authedUser.id, agentIds);
-    if (creatorId) {
-      if (!teamIds.includes(creatorId)) return null;
-      return { createdByUserId: creatorId };
+    if (assignedScope === "other_team") {
+      const agentIds = await getSupervisedAgentUserIds(authedUser.id);
+      const teamIds = teamCreatorIds(authedUser.id, agentIds);
+      return {
+        assignedUserId: authedUser.id,
+        createdByUserId: { [Op.notIn]: teamIds },
+      };
     }
-    return { createdByUserId: { [Op.in]: teamIds } };
+    const visible = {
+      [Op.or]: [{ createdByUserId: authedUser.id }, { assignedUserId: authedUser.id }],
+    };
+    if (creatorId) {
+      return andWhereClause({ createdByUserId: creatorId }, visible);
+    }
+    return visible;
   }
 
   if (hasFullLeadAccess(role)) {
     if (supervisorId) {
       const agentIds = await getSupervisedAgentUserIds(supervisorId);
       const teamIds = teamCreatorIds(supervisorId, agentIds);
+      if (assignedScope === "other_team") {
+        return {
+          assignedUserId: supervisorId,
+          createdByUserId: { [Op.notIn]: teamIds },
+        };
+      }
       if (creatorId) {
         if (!teamIds.includes(creatorId)) return null;
         return { createdByUserId: creatorId };
       }
-      return { createdByUserId: { [Op.in]: teamIds } };
+      return {
+        [Op.or]: [{ createdByUserId: { [Op.in]: teamIds } }, { assignedUserId: supervisorId }],
+      };
     }
     if (creatorId) {
       return { createdByUserId: creatorId };
@@ -242,9 +306,7 @@ export async function canAccessLead(lead, authedUser) {
   }
 
   if (authedUser.role === "supervisor") {
-    const agentIds = await getSupervisedAgentUserIds(authedUser.id);
-    const teamIds = teamCreatorIds(authedUser.id, agentIds);
-    return teamIds.includes(Number(lead.createdByUserId));
+    return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
   }
 
   return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
