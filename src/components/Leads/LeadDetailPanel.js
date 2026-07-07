@@ -36,6 +36,17 @@ function formatWhen(iso) {
   });
 }
 
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function WorkflowHeaderBadge({ lead, workflowTagLookup, preferShortLabels }) {
   const phase = lead?.leadPhase || "active";
   const tone = workflowTagTone(workflowTagLookup, "phase", phase);
@@ -366,6 +377,14 @@ export default function LeadDetailPanel({
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Supervisor:</span>{" "}
                   {lead.assignedUsername || "—"}
+                </p>
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
+                  <time dateTime={lead.createdAt}>{formatDateTime(lead.createdAt)}</time>
+                </p>
+                <p className="text-zinc-600 dark:text-zinc-400">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Last updated:</span>{" "}
+                  <time dateTime={lead.updatedAt}>{formatDateTime(lead.updatedAt)}</time>
                 </p>
               </div>
             </div>

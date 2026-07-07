@@ -144,12 +144,14 @@ function hasActiveLeadFilters({
   );
 }
 
-function resolveLeadListDateField(leadPhaseFilter) {
+function resolveLeadListDateField(leadPhaseFilter, sortBy) {
+  if (sortBy === "updatedAt") return "updated";
   if (leadPhaseFilter === "closed" || leadPhaseFilter === "cancelled") return "updated";
   return "created";
 }
 
-function dateRangeHint(leadPhaseFilter) {
+function dateRangeHint(leadPhaseFilter, sortBy) {
+  if (sortBy === "updatedAt") return "updated in";
   if (leadPhaseFilter === "closed") return "closed in";
   if (leadPhaseFilter === "cancelled") return "cancelled in";
   return "created in";
@@ -180,7 +182,7 @@ function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
   const indicators = collectLeadWorkflowIndicators(lead, workflowTagLookup, preferShortLabels);
   const summary = formatLeadWorkflowTooltipSummary(lead, workflowTagLookup, preferShortLabels);
   return (
-    <span className="inline-flex items-center gap-1" title={summary} aria-label={summary}>
+    <span className="flex flex-wrap items-center gap-1" title={summary} aria-label={summary}>
       {indicators.map((item) => {
         if (item.category === "phase") {
           const phaseLabel = workflowTagDisplayLabel(workflowTagLookup, "phase", item.tagKey, {
@@ -258,6 +260,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [sortBy, setSortBy] = useState("createdAt");
+  const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -370,10 +373,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (appliedFrom && appliedTo) {
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
-        params.set("dateField", resolveLeadListDateField(leadPhaseFilter));
+        params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
       }
       params.set("sortBy", sortBy);
-      params.set("sortDir", "desc");
+      params.set("sortDir", sortDir);
       params.set("page", String(resolvedPage));
       params.set("pageSize", String(LEADS_PAGE_SIZE));
       const qs = params.toString() ? `?${params.toString()}` : "";
@@ -414,6 +417,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     appliedFrom,
     appliedTo,
     sortBy,
+    sortDir,
     page,
   ]);
 
@@ -1026,7 +1030,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     .filter(Boolean)
                     .join(" · ")}
                 </span>{" "}
-                {dateRangeHint(leadPhaseFilter)}{" "}
+                {dateRangeHint(leadPhaseFilter, sortBy)}{" "}
                 <span className="font-medium">
                   {appliedFrom} — {appliedTo}
                 </span>
@@ -1120,6 +1124,39 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     {option.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+                    setPage(1);
+                  }}
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl border ${
+                    sortDir === "asc"
+                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                  aria-pressed={sortDir === "asc"}
+                  aria-label={sortDir === "asc" ? "Sorting ascending (oldest first)" : "Sorting descending (newest first)"}
+                  title={sortDir === "asc" ? "Ascending (oldest first)" : "Descending (newest first)"}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  >
+                    {sortDir === "asc" ? (
+                      <path d="M12 19V5M5 12l7-7 7 7" />
+                    ) : (
+                      <path d="M12 5v14M19 12l-7 7-7-7" />
+                    )}
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
@@ -1182,9 +1219,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className={`${tableHeadClass} min-w-[120px] max-w-[140px] px-3`}>Name</th>
               <th className={tableHeadClass}>Phone</th>
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
-              <th className={`${tableHeadClass} max-w-[100px]`}>Status</th>
+              <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
-              {showLeadFilters ? <th className={`${tableHeadClass} max-w-[100px]`}>Created by</th> : null}
+              {showLeadFilters ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
               <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -1241,7 +1278,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   >
                     {serviceLabel}
                   </td>
-                  <td className={`${tableCellClass} max-w-[100px]`}>
+                  <td className={`${tableCellClass} max-w-[140px] overflow-hidden`}>
                     <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
                   </td>
                   <td
@@ -1252,7 +1289,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   </td>
                   {showLeadFilters ? (
                     <td
-                      className={`${tableCellClass} max-w-[100px] truncate font-medium text-zinc-700 dark:text-zinc-300`}
+                      className={`${tableCellClass} max-w-[56px] truncate font-medium text-zinc-700 dark:text-zinc-300`}
                       title={lead.createdByUsername || undefined}
                     >
                       {lead.createdByUsername || "—"}
