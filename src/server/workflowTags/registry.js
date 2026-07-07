@@ -14,6 +14,12 @@ function seedMap() {
   return byCategory;
 }
 
+function withSeedTone(entry) {
+  const seed = seedMap()[entry.category]?.[entry.tagKey];
+  if (!seed?.tone) return entry;
+  return { ...entry, tone: seed.tone };
+}
+
 function buildRegistry(rows) {
   const registry = seedMap();
   for (const row of rows) {
@@ -21,7 +27,7 @@ function buildRegistry(rows) {
     const category = plain.category;
     const tagKey = plain.tagKey;
     if (!registry[category]) registry[category] = {};
-    registry[category][tagKey] = {
+    registry[category][tagKey] = withSeedTone({
       id: plain.id,
       category,
       tagKey,
@@ -29,7 +35,7 @@ function buildRegistry(rows) {
       shortLabel: plain.shortLabel,
       tone: plain.tone,
       sortOrder: plain.sortOrder,
-    };
+    });
   }
   return registry;
 }
@@ -69,7 +75,7 @@ export function workflowTagTone(registry, category, tagKey, fallback = "zinc") {
 
 export function serializeWorkflowTagRow(row) {
   const plain = row.get ? row.get({ plain: true }) : row;
-  return {
+  return withSeedTone({
     id: plain.id,
     category: plain.category,
     tagKey: plain.tagKey,
@@ -78,7 +84,7 @@ export function serializeWorkflowTagRow(row) {
     tone: plain.tone,
     sortOrder: plain.sortOrder,
     updatedAt: plain.updatedAt,
-  };
+  });
 }
 
 export async function listWorkflowTags() {

@@ -11,7 +11,6 @@ import {
   LEAD_PROGRESS_MISSING_FILTERS,
   LEAD_PROGRESS_TAGS,
   WORKFLOW_BADGE_CLASS,
-  WORKFLOW_SWATCH_CLASS,
 } from "@/lib/leadWorkflow";
 import {
   ADMIN_SHORT_LABELS_STORAGE_KEY,
@@ -33,6 +32,7 @@ import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
 import WorkflowStatusLegend from "@/components/Leads/WorkflowStatusLegend";
+import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
@@ -200,11 +200,11 @@ function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
           );
         }
         return (
-          <span
+          <WorkflowSwatch
             key={`${item.category}-${item.tagKey}`}
+            category={item.category}
+            tone={item.tone}
             title={item.label}
-            aria-hidden="true"
-            className={`h-3.5 w-3.5 shrink-0 rounded-full border ${WORKFLOW_SWATCH_CLASS[item.tone] || WORKFLOW_SWATCH_CLASS.zinc}`}
           />
         );
       })}

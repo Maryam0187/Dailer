@@ -1,6 +1,7 @@
 "use client";
 
-import { WORKFLOW_BADGE_CLASS, WORKFLOW_SWATCH_CLASS } from "@/lib/leadWorkflow";
+import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
+import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
 import { WORKFLOW_TAG_CATEGORY_LABELS } from "@/lib/workflowTagLabels";
 
 const CATEGORY_ORDER = ["phase", "progress", "contact", "payment"];
@@ -38,10 +39,7 @@ function LegendItem({ tag, category, preferShortLabels }) {
 
   return (
     <span className="inline-flex items-center gap-1" title={tooltipLabel}>
-      <span
-        aria-hidden="true"
-        className={`h-3.5 w-3.5 shrink-0 rounded-full border ${WORKFLOW_SWATCH_CLASS[tone] || WORKFLOW_SWATCH_CLASS.zinc}`}
-      />
+      <WorkflowSwatch category={category} tone={tone} title={tooltipLabel} />
       <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{displayLabel}</span>
     </span>
   );
