@@ -129,6 +129,7 @@ function filterChipClass(active) {
 function hasActiveLeadFilters({
   supervisorFilter,
   agentFilter,
+  assignedScopeFilter,
   leadPhaseFilter,
   leadProgressTagFilter,
   leadContactTagFilter,
@@ -137,6 +138,7 @@ function hasActiveLeadFilters({
   return (
     supervisorFilter !== "all" ||
     agentFilter !== "all" ||
+    assignedScopeFilter !== "all" ||
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
@@ -246,6 +248,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [notes, setNotes] = useState("");
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
+  const [assignedScopeFilter, setAssignedScopeFilter] = useState("all");
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
@@ -292,6 +295,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const preferShortLabels = resolvePreferShortLabels(isAdmin, adminShortLabels);
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
+  const isSupervisor = userRole === "supervisor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const colSpan = showLeadFilters ? 7 : 6;
 
@@ -363,6 +367,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       const params = new URLSearchParams();
       if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
       if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+      if (assignedScopeFilter !== "all" && (isSupervisor || supervisorFilter !== "all")) {
+        params.set("assignedScope", assignedScopeFilter);
+      }
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
         params.set("leadProgressTag", leadProgressTagFilter);
@@ -411,6 +418,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }, [
     agentFilter,
     supervisorFilter,
+    assignedScopeFilter,
+    isSupervisor,
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
@@ -482,6 +491,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
     setAgentFilter("all");
+    if (nextSupervisorId === "all") setAssignedScopeFilter("all");
     setPage(1);
   }
 
@@ -1100,6 +1110,42 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </select>
               </div>
             ) : null}
+            {isSupervisor ? (
+              <div>
+                <label className={labelClass}>Assignment</label>
+                <select
+                  value={assignedScopeFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setAssignedScopeFilter(next);
+                    if (next !== "all") setAgentFilter("all");
+                    setPage(1);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="all">All my leads</option>
+                  <option value="other_team">Assigned (other team)</option>
+                </select>
+              </div>
+            ) : null}
+            {showSupervisorFilter && supervisorFilter !== "all" ? (
+              <div>
+                <label className={labelClass}>Assignment</label>
+                <select
+                  value={assignedScopeFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setAssignedScopeFilter(next);
+                    if (next !== "all") setAgentFilter("all");
+                    setPage(1);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="all">Team + assigned</option>
+                  <option value="other_team">Assigned (other team)</option>
+                </select>
+              </div>
+            ) : null}
             <div className="sm:col-span-2 lg:col-span-3">
               <span className={labelClass}>Sort by</span>
               <div className="flex flex-wrap gap-2" role="group" aria-label="Sort leads">
@@ -1238,6 +1284,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   {hasActiveLeadFilters({
                     supervisorFilter,
                     agentFilter,
+                    assignedScopeFilter,
                     leadPhaseFilter,
                     leadProgressTagFilter,
                     leadContactTagFilter,
@@ -1341,6 +1388,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           hasActiveCall={Boolean(session)}
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
+          canAssignLead={isAdmin}
         />
       ) : null}
 

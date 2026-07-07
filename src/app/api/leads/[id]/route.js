@@ -157,11 +157,30 @@ export async function PATCH(req, { params }) {
     }
     if (nextAssignee !== lead.assignedUserId) {
       update.assignedUserId = nextAssignee;
+      const previousAssigneeId = lead.assignedUserId;
+      const lookupIds = [nextAssignee];
+      if (previousAssigneeId) lookupIds.push(previousAssigneeId);
+      const users = await db.User.findAll({
+        where: { id: lookupIds },
+        attributes: ["id", "username"],
+      });
+      const usernameById = new Map(users.map((u) => [u.id, u.username]));
+      const assigneeUsername = usernameById.get(nextAssignee) ?? null;
+      const assigneeName = assigneeUsername ?? `user #${nextAssignee}`;
+      const previousAssigneeUsername = previousAssigneeId ? usernameById.get(previousAssigneeId) ?? null : null;
+      const previousAssigneeName = previousAssigneeId
+        ? previousAssigneeUsername ?? `user #${previousAssigneeId}`
+        : null;
+      const activityBody = previousAssigneeName
+        ? `Assigned to ${assigneeName} (from ${previousAssigneeName})`
+        : `Assigned to ${assigneeName}`;
       activity.push({
         type: "assigned",
-        body: `Assigned to user #${nextAssignee}`,
+        body: activityBody,
         assignedUserId: nextAssignee,
-        previousAssignedUserId: lead.assignedUserId,
+        assignedUsername: assigneeUsername,
+        previousAssignedUserId: previousAssigneeId,
+        previousAssignedUsername: previousAssigneeUsername,
       });
     }
   }
@@ -210,7 +229,9 @@ export async function PATCH(req, { params }) {
         metadata: {
           leadName,
           assignedUserId: entry.assignedUserId,
+          assignedUsername: entry.assignedUsername,
           previousAssignedUserId: entry.previousAssignedUserId,
+          previousAssignedUsername: entry.previousAssignedUsername,
         },
       });
     } else {

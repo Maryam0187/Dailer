@@ -47,8 +47,18 @@ function formatActivityDetails(metadata, entityType, entityId) {
   if (metadata.previousStatus && metadata.newStatus) {
     parts.push(`${metadata.previousStatus} → ${metadata.newStatus}`);
   }
-  if (metadata.assignedUserId != null) {
-    parts.push(`assigned to user #${metadata.assignedUserId}`);
+  if (metadata.assignedUsername) {
+    if (metadata.previousAssignedUsername) {
+      parts.push(`reassigned from ${metadata.previousAssignedUsername} to ${metadata.assignedUsername}`);
+    } else {
+      parts.push(`assigned to ${metadata.assignedUsername}`);
+    }
+  } else if (metadata.assignedUserId != null) {
+    if (metadata.previousAssignedUserId != null) {
+      parts.push(`reassigned from user #${metadata.previousAssignedUserId} to user #${metadata.assignedUserId}`);
+    } else {
+      parts.push(`assigned to user #${metadata.assignedUserId}`);
+    }
   }
   if (metadata.summary) parts.push(stripHtml(metadata.summary));
   if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));

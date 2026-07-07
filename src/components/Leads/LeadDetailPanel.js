@@ -17,6 +17,7 @@ import {
   workflowTagTone,
 } from "@/lib/workflowTagLabels";
 import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
+import AssigneePicker from "@/components/Leads/AssigneePicker";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -171,6 +172,7 @@ export default function LeadDetailPanel({
   phonesRedacted = false,
   workflowTagLookup = {},
   preferShortLabels = true,
+  canAssignLead = false,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -185,6 +187,9 @@ export default function LeadDetailPanel({
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingBreakdown, setSavingBreakdown] = useState(false);
   const [activeTab, setActiveTab] = useState("activity");
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [loadingAssignableUsers, setLoadingAssignableUsers] = useState(false);
+  const [savingAssignee, setSavingAssignee] = useState(false);
 
   const loadUpdates = useCallback(async () => {
     if (!lead?.id) return;
@@ -234,6 +239,33 @@ export default function LeadDetailPanel({
     window.addEventListener("call-ended", onCallEnded);
     return () => window.removeEventListener("call-ended", onCallEnded);
   }, [loadCalls]);
+
+  useEffect(() => {
+    if (!canAssignLead) {
+      setAssignableUsers([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setLoadingAssignableUsers(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/leads/assignable-users", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load users");
+        if (!cancelled) setAssignableUsers(json.users || []);
+      } catch (e) {
+        if (!cancelled) {
+          setAssignableUsers([]);
+          setError(e.message || "Failed to load users");
+        }
+      } finally {
+        if (!cancelled) setLoadingAssignableUsers(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canAssignLead]);
 
   async function patchLead(payload) {
     const res = await fetch(`/api/leads/${lead.id}`, {
@@ -296,6 +328,19 @@ export default function LeadDetailPanel({
       setError(e.message || "Failed to save breakdown");
     } finally {
       setSavingBreakdown(false);
+    }
+  }
+
+  async function onAssigneeChange(userId) {
+    setSavingAssignee(true);
+    setError(null);
+    try {
+      await patchLead({ assignedUserId: Number(userId) });
+      await loadUpdates();
+    } catch (e) {
+      setError(e.message || "Failed to assign lead");
+    } finally {
+      setSavingAssignee(false);
     }
   }
 
@@ -374,9 +419,19 @@ export default function LeadDetailPanel({
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Agent:</span>{" "}
                   {lead.createdByUsername || "—"}
                 </p>
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Supervisor:</span>{" "}
-                  {lead.assignedUsername || "—"}
+                <p className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Assigned to:</span>{" "}
+                  <span>{savingAssignee ? "Saving…" : lead.assignedUsername || "—"}</span>
+                  {canAssignLead ? (
+                    <AssigneePicker
+                      assignedUserId={lead.assignedUserId}
+                      assignedUsername={lead.assignedUsername}
+                      users={assignableUsers}
+                      loading={loadingAssignableUsers}
+                      saving={savingAssignee}
+                      onSelect={onAssigneeChange}
+                    />
+                  ) : null}
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}

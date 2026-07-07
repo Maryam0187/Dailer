@@ -5,7 +5,7 @@ import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
-import { hasLeadMonitorAccess } from "@/lib/leadRoles";
+import { hasFullLeadAccess, hasLeadMonitorAccess } from "@/lib/leadRoles";
 import {
   andWhereClause,
   canAssignLeadToAgent,
@@ -103,8 +103,20 @@ export async function GET(req) {
   const toDate = parseDateOnly(searchParams.get("toDate"));
   const creatorId = agentIdRaw ? Number(agentIdRaw) : null;
   const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
+  const assignedScopeRaw = searchParams.get("assignedScope");
 
   let where;
+
+  if (assignedScopeRaw && assignedScopeRaw !== "other_team") {
+    return NextResponse.json({ error: "Invalid assignedScope" }, { status: 400 });
+  }
+  const isFullAccessRole = hasFullLeadAccess(authedUser.role);
+  if (assignedScopeRaw && authedUser.role !== "supervisor" && !isFullAccessRole) {
+    return NextResponse.json({ error: "Invalid assignedScope" }, { status: 403 });
+  }
+  if (assignedScopeRaw && isFullAccessRole && !supervisorIdRaw) {
+    return NextResponse.json({ error: "assignedScope requires a supervisor" }, { status: 400 });
+  }
 
   if (agentIdRaw && (!Number.isInteger(creatorId) || creatorId <= 0)) {
     return NextResponse.json({ error: "Invalid agentId" }, { status: 400 });
@@ -128,6 +140,7 @@ export async function GET(req) {
   where = await resolveLeadsListWhere(authedUser, {
     creatorId,
     supervisorId: authedUser.role === "supervisor" ? null : supervisorId,
+    assignedScope: assignedScopeRaw,
   });
 
   if (!where) {
