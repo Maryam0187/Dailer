@@ -256,8 +256,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
-  const initialRange = getPresetRange("all");
-  const [rangePreset, setRangePreset] = useState("all");
+  const initialRange = getPresetRange("today");
+  const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
@@ -288,6 +288,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const contactFilterOptions = useMemo(
     () => buildWorkflowFilterOptions(workflowTags, "contact", "All outcomes", LEAD_CONTACT_TAGS),
     [workflowTags],
+  );
+  const visibleMissingProgressOptions = useMemo(
+    () =>
+      progressFilterOptions.filter(
+        (option) => option.missing && !(leadPhaseFilter === "closed" && option.id === "missing_sale_done"),
+      ),
+    [progressFilterOptions, leadPhaseFilter],
   );
 
   const showLeadStats = canViewLeadStats(userRole);
@@ -487,6 +494,12 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       setAgentFilter("all");
     }
   }, [agentFilter, filteredAgents, assignableAgents.length]);
+
+  useEffect(() => {
+    if (leadPhaseFilter === "closed" && leadProgressTagFilter === "missing_sale_done") {
+      setLeadProgressTagFilter("all");
+    }
+  }, [leadPhaseFilter, leadProgressTagFilter]);
 
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
@@ -904,20 +917,15 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </button>
               ))}
           </div>
-          <p className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-            Missing on active sales
-          </p>
+          <p className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Missing progress</p>
           <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Filter by missing progress">
-            {progressFilterOptions
-              .filter((option) => option.missing)
-              .map((option) => (
+            {visibleMissingProgressOptions.map((option) => (
                 <button
                   key={option.id}
                   type="button"
                   title={option.label}
                   onClick={() => {
                     setLeadProgressTagFilter(option.id);
-                    setLeadPhaseFilter("active");
                     setPage(1);
                   }}
                   className={filterChipClass(leadProgressTagFilter === option.id)}
