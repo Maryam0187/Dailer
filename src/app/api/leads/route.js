@@ -197,7 +197,6 @@ export async function GET(req) {
       where = andWhereClause(where, progressTagContainsLiteral(leadProgressTag));
     } else if (LEAD_PROGRESS_MISSING_VALUES.has(leadProgressTag)) {
       const spec = LEAD_PROGRESS_MISSING_FILTERS.find((f) => f.value === leadProgressTag);
-      where.leadPhase = "active";
       if (spec?.requiresProcessing) {
         where.leadProcessedRequired = true;
       }

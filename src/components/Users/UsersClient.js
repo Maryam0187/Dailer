@@ -25,6 +25,8 @@ function activityActionLabel(action) {
   if (action === "login_success") return "Login";
   if (action === "login_failed") return "Login failed";
   if (action === "logout") return "Logout";
+  if (action === "leave_application_submitted") return "Leave submitted";
+  if (action === "leave_application_created") return "Leave marked by admin";
   if (action === "lead_created") return "Lead created";
   if (action === "lead_updated") return "Lead updated";
   if (action === "lead_status_change") return "Lead status changed";
@@ -111,6 +113,18 @@ function formatLastActive(value) {
   return date.toLocaleString();
 }
 
+function todayIsoDate() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function formatLeaveRange(leave) {
+  if (!leave?.startDate || !leave?.endDate) return "On leave";
+  if (leave.startDate === leave.endDate) return leave.startDate;
+  return `${leave.startDate} - ${leave.endDate}`;
+}
+
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
 
@@ -150,6 +164,21 @@ function ActiveBadge({ active }) {
   ) : (
     <span className="inline-flex rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200">
       Inactive
+    </span>
+  );
+}
+
+function LeaveBadge({ leave }) {
+  if (!leave) {
+    return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
+  }
+
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        On leave
+      </span>
+      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{formatLeaveRange(leave)}</span>
     </span>
   );
 }
@@ -393,6 +422,7 @@ function UserRowActionsMenu({
   onDeactivate,
   onGrantAfterShift,
   onRevokeAfterShift,
+  onMarkLeave,
 }) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
@@ -465,6 +495,11 @@ function UserRowActionsMenu({
         <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onEdit)}>
           Edit
         </button>
+        {isAdmin && user.role !== "admin" && active ? (
+          <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onMarkLeave)}>
+            Mark leave
+          </button>
+        ) : null}
         {!isSelf ? (
           active ? (
             <button
@@ -877,6 +912,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
 
   const presence = normalizePresence(user.presence ?? detail?.presence);
   const lastActiveAt = detail?.lastActiveAt ?? user.lastActiveAt ?? null;
+  const currentLeave = detail?.currentLeave ?? user.currentLeave ?? null;
   const createdByLabel =
     detail?.createdByUsername ??
     user.createdByUsername ??
@@ -914,6 +950,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 <RoleBadge value={user.role} />
                 <PresenceBadge status={presence} />
                 <ActiveBadge active={user.isActive !== false} />
+                <LeaveBadge leave={currentLeave} />
               </div>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 Last active:{" "}
@@ -1475,6 +1512,10 @@ function EditUserModal({
   const [fileOptions, setFileOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [leaveStartDate, setLeaveStartDate] = useState(() => user.currentLeave?.startDate ?? todayIsoDate());
+  const [leaveEndDate, setLeaveEndDate] = useState(() => user.currentLeave?.endDate ?? todayIsoDate());
+  const [leaveReason, setLeaveReason] = useState(() => user.currentLeave?.reason ?? "");
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
 
   useEffect(() => {
     setUsername(user.username);
@@ -1486,6 +1527,9 @@ function EditUserModal({
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
+    setLeaveStartDate(user.currentLeave?.startDate ?? todayIsoDate());
+    setLeaveEndDate(user.currentLeave?.endDate ?? todayIsoDate());
+    setLeaveReason(user.currentLeave?.reason ?? "");
     setError(null);
   }, [user]);
 
@@ -1613,6 +1657,32 @@ function EditUserModal({
     }
   }
 
+  async function onMarkLeave() {
+    setError(null);
+    setLeaveSubmitting(true);
+    try {
+      const res = await fetch("/api/leave-applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userId: user.id,
+          startDate: leaveStartDate,
+          endDate: leaveEndDate,
+          reason: leaveReason,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to mark leave");
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to mark leave");
+    } finally {
+      setLeaveSubmitting(false);
+    }
+  }
+
   const showManager = isAdmin && (editRole === "agent" || editRole === "supervisor");
   const showSupervisor = isAdmin && editRole === "agent";
   const filteredSupervisors =
@@ -1632,7 +1702,7 @@ function EditUserModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-user-title"
-        className="relative z-10 w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <h2 id="edit-user-title" className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
           Edit user
@@ -1640,6 +1710,62 @@ function EditUserModal({
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{user.username}</p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
+          {isAdmin && user.role !== "admin" && user.isActive !== false ? (
+            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+              <div>
+                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Mark on leave</p>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  Creates an approved leave record and blocks sign-in during those dates.
+                </p>
+              </div>
+              {user.currentLeave ? (
+                <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                  Current leave: {formatLeaveRange(user.currentLeave)}
+                </p>
+              ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  Start date
+                  <input
+                    type="date"
+                    className={`${inputClass} mt-1.5`}
+                    value={leaveStartDate}
+                    onChange={(e) => setLeaveStartDate(e.target.value)}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                  End date
+                  <input
+                    type="date"
+                    className={`${inputClass} mt-1.5`}
+                    value={leaveEndDate}
+                    onChange={(e) => setLeaveEndDate(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Reason <span className="font-normal text-zinc-500">(optional)</span>
+                <input
+                  type="text"
+                  className={`${inputClass} mt-1.5`}
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  placeholder="Optional leave note"
+                />
+              </label>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={leaveSubmitting}
+                  onClick={() => void onMarkLeave()}
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {leaveSubmitting ? "Marking…" : "Mark on leave"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div>
             <label htmlFor="edit-username" className={labelClass}>
               Username
@@ -1872,6 +1998,8 @@ function normalizeUsersList(list) {
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
     afterShiftAccessExpiresAt: u.afterShiftAccessExpiresAt ?? null,
     afterShiftGrantDurationMinutes: u.afterShiftGrantDurationMinutes ?? null,
+    isOnLeave: Boolean(u.currentLeave ?? u.isOnLeave),
+    currentLeave: u.currentLeave ?? null,
     presence: normalizePresence(u.presence),
     lastActiveAt: u.lastActiveAt ?? null,
   }));
@@ -2144,13 +2272,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         ? "Agents and supervisors assigned to you."
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
+  const showLeaveColumn = true;
   const showAfterShiftColumn = role === "admin";
-  const showIpColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
       : supervisorOptions.filter((s) => Number(s.managerId) === Number(managerId));
   const visibleUsersCount = displayUsers.length;
+  const visibleUsersOnLeaveCount = displayUsers.filter((u) => Boolean(u.currentLeave)).length;
 
   return (
     <div className="flex flex-col gap-8 lg:gap-10">
@@ -2379,6 +2508,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               {users.length > 0
                 ? ` ${visibleUsersCount} ${visibleUsersCount === 1 ? "person" : "people"} in this list.`
                 : null}
+              {visibleUsersOnLeaveCount > 0
+                ? ` ${visibleUsersOnLeaveCount} currently on leave.`
+                : null}
             </p>
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
@@ -2457,8 +2589,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Role</th>
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
-                    {showIpColumn ? <th className="px-4 py-3.5">IP address</th> : null}
                     <th className="px-4 py-3.5">Status</th>
+                    {showLeaveColumn ? <th className="px-4 py-3.5">Leave</th> : null}
                     {showAfterShiftColumn ? (
                       <th className="px-4 py-3.5">After shift</th>
                     ) : null}
@@ -2495,14 +2627,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
                           {formatLastActive(u.lastActiveAt)}
                         </td>
-                        {showIpColumn ? (
-                          <td className="px-4 py-3.5 font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                            {u.lastIpAddress ?? "—"}
-                          </td>
-                        ) : null}
                         <td className="px-4 py-3.5">
                           <ActiveBadge active={active} />
                         </td>
+                        {showLeaveColumn ? (
+                          <td className="px-4 py-3.5">
+                            <LeaveBadge leave={u.currentLeave} />
+                          </td>
+                        ) : null}
                         {showAfterShiftColumn ? (
                           <td className="px-4 py-3.5">
                             {u.role === "admin" ? (
@@ -2541,6 +2673,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             onActivate={() => toggleActive(u, true)}
                             onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}
                             onRevokeAfterShift={() => setAfterShiftAccessForUser(u, "none")}
+                            onMarkLeave={() => setEditingUser(u)}
                           />
                         </td>
                       </tr>

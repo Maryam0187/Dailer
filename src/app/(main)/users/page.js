@@ -6,6 +6,7 @@ import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
+import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
@@ -74,7 +75,7 @@ export default async function UsersPage() {
       : [],
   ]);
 
-  const nowMs = Date.now();
+  const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(usersRows.map((r) => r.id));
   const lastIpByUserId =
     authedUser.role === "admin"
       ? await getLastIpAddressesByUserId(usersRows.map((r) => r.id))
@@ -86,7 +87,6 @@ export default async function UsersPage() {
         activeSessionId: r.activeSessionId,
         activeSessionLastSeenAt: r.activeSessionLastSeenAt,
       },
-      nowMs,
     );
     return {
       id: r.id,
@@ -107,6 +107,8 @@ export default async function UsersPage() {
             lastIpAddress: lastIpByUserId?.get(r.id) ?? null,
           }
         : {}),
+      isOnLeave: currentLeaveByUserId.has(r.id),
+      currentLeave: currentLeaveByUserId.get(r.id) ?? null,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     };

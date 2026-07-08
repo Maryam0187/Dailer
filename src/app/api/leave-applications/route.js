@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
   createLeaveApplication,
@@ -45,14 +46,34 @@ export async function POST(req) {
   const startDate = parseLeaveDateInput(body?.startDate);
   const endDate = parseLeaveDateInput(body?.endDate);
   const reason = body?.reason;
+  const requestedUserId = body?.userId;
 
   if (!startDate || !endDate) {
     return NextResponse.json({ error: "Start and end dates are required (YYYY-MM-DD)." }, { status: 400 });
   }
 
+  let leaveUser = authedUser;
+  if (authedUser.role === "admin" && requestedUserId !== undefined && requestedUserId !== null && requestedUserId !== "") {
+    const parsedUserId = Number(requestedUserId);
+    if (!Number.isInteger(parsedUserId) || parsedUserId < 1) {
+      return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+    }
+
+    const targetUser = await db.User.findByPk(parsedUserId, {
+      attributes: ["id", "username", "role", "isActive"],
+    });
+    if (!targetUser || targetUser.role === "admin") {
+      return NextResponse.json({ error: "Admin can only mark non-admin users on leave" }, { status: 400 });
+    }
+    if (targetUser.isActive === false) {
+      return NextResponse.json({ error: "Cannot mark an inactive user on leave" }, { status: 400 });
+    }
+    leaveUser = targetUser;
+  }
+
   try {
     const application = await createLeaveApplication({
-      userId: authedUser.id,
+      userId: leaveUser.id,
       startDate,
       endDate,
       reason,
@@ -61,15 +82,21 @@ export async function POST(req) {
     await logUserActivity({
       req,
       userId: authedUser.id,
-      action: "leave_application_submitted",
+      action: authedUser.id === leaveUser.id ? "leave_application_submitted" : "leave_application_created",
       entityType: "leave_application",
       entityId: application.id,
-      metadata: { startDate, endDate, status: "approved" },
+      metadata: {
+        startDate,
+        endDate,
+        status: "approved",
+        targetUserId: leaveUser.id,
+        username: leaveUser.username,
+      },
     });
 
     const adminAlert = buildLeaveApplicationAlert({
-      userId: authedUser.id,
-      username: authedUser.username,
+      userId: leaveUser.id,
+      username: leaveUser.username,
       startDate,
       endDate,
       reason,
@@ -83,7 +110,7 @@ export async function POST(req) {
 
     return NextResponse.json({
       ok: true,
-      application: serializeLeaveApplication(application, authedUser.username),
+      application: serializeLeaveApplication(application, leaveUser.username),
     });
   } catch (err) {
     return NextResponse.json({ error: err.message || "Failed to submit leave application" }, { status: 400 });

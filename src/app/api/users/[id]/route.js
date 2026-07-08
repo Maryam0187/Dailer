@@ -12,6 +12,7 @@ import {
   parseGrantDurationMinutes,
   resolveGrantDurationMinutes,
 } from "@/server/auth/afterShiftGrant.cjs";
+import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -65,6 +66,7 @@ export async function GET(_req, { params }) {
     activeSessionId: target.activeSessionId,
     activeSessionLastSeenAt: target.activeSessionLastSeenAt,
   });
+  const currentLeave = (await getCurrentApprovedLeaveByUserIds([target.id])).get(target.id) ?? null;
 
   return NextResponse.json({
     user: {
@@ -86,6 +88,8 @@ export async function GET(_req, { params }) {
         authedUser.role === "admin" ? target.afterShiftAccessExpiresAt ?? null : undefined,
       afterShiftGrantDurationMinutes:
         authedUser.role === "admin" ? target.afterShiftGrantDurationMinutes ?? null : undefined,
+      isOnLeave: Boolean(currentLeave),
+      currentLeave,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
     },

@@ -26,6 +26,7 @@ export const LEAD_CONTACT_TAGS = [
 
 export const LEAD_PAYMENT_METHODS = [
   { value: "check_mail", label: "Check mail", tone: "teal" },
+  { value: "e_check", label: "E-check", tone: "yellow" },
   { value: "card", label: "Card", tone: "indigo" },
   { value: "pos_link", label: "POS Link", tone: "fuchsia" },
 ];

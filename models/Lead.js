@@ -123,7 +123,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       leadPaymentMethod: {
-        type: DataTypes.ENUM("check_mail", "card", "pos_link"),
+        type: DataTypes.ENUM("check_mail", "e_check", "card", "pos_link"),
         allowNull: true,
       },
       leadCancelReason: {
