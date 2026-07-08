@@ -10,6 +10,7 @@ export const WORKFLOW_TAG_SEEDS = [
   { category: "contact", tagKey: "no_response", fullLabel: "No response", shortLabel: "NR", tone: "zinc", sortOrder: 30 },
   { category: "contact", tagKey: "appointment", fullLabel: "Appointment", shortLabel: "Appt", tone: "sky", sortOrder: 40 },
   { category: "payment", tagKey: "check_mail", fullLabel: "Check mail", shortLabel: "CK", tone: "teal", sortOrder: 10 },
+  { category: "payment", tagKey: "e_check", fullLabel: "E-check", shortLabel: "ECK", tone: "yellow", sortOrder: 15 },
   { category: "payment", tagKey: "card", fullLabel: "Card", shortLabel: "Card", tone: "indigo", sortOrder: 20 },
   { category: "payment", tagKey: "pos_link", fullLabel: "POS Link", shortLabel: "POS", tone: "fuchsia", sortOrder: 30 },
 ];
