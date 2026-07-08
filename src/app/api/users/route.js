@@ -5,6 +5,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
+import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -33,7 +34,12 @@ const LIST_INCLUDE = [
 function serializeUserRow(
   row,
   now,
-  { includeShiftAccess = false, includeIpAddress = false, lastIpAddress = null } = {},
+  {
+    includeShiftAccess = false,
+    includeIpAddress = false,
+    lastIpAddress = null,
+    currentLeave = null,
+  } = {},
 ) {
   const presence = derivePresence(
     {
@@ -62,6 +68,8 @@ function serializeUserRow(
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),
+    isOnLeave: Boolean(currentLeave),
+    currentLeave,
     presence: presence.status,
     lastActiveAt: presence.lastActiveAt,
   };
@@ -78,6 +86,7 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
+    const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(rows.map((r) => r.id));
     const lastIpByUserId = await getLastIpAddressesByUserId(rows.map((r) => r.id));
     return NextResponse.json({
       users: sortUsersForDisplay(
@@ -86,6 +95,7 @@ export async function GET(req) {
             includeShiftAccess: true,
             includeIpAddress: true,
             lastIpAddress: lastIpByUserId.get(r.id) ?? null,
+            currentLeave: currentLeaveByUserId.get(r.id) ?? null,
           }),
         ),
       ),
@@ -100,8 +110,15 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
+    const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(rows.map((r) => r.id));
     return NextResponse.json({
-      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+      users: sortUsersForDisplay(
+        rows.map((r) =>
+          serializeUserRow(r, now, {
+            currentLeave: currentLeaveByUserId.get(r.id) ?? null,
+          }),
+        ),
+      ),
     });
   }
 
@@ -113,8 +130,15 @@ export async function GET(req) {
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
+    const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(rows.map((r) => r.id));
     return NextResponse.json({
-      users: sortUsersForDisplay(rows.map((r) => serializeUserRow(r, now))),
+      users: sortUsersForDisplay(
+        rows.map((r) =>
+          serializeUserRow(r, now, {
+            currentLeave: currentLeaveByUserId.get(r.id) ?? null,
+          }),
+        ),
+      ),
     });
   }
 

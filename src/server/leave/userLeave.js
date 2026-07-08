@@ -80,6 +80,33 @@ export async function isUserOnApprovedLeave(userId, date = new Date()) {
   return Boolean(row);
 }
 
+export async function getCurrentApprovedLeaveByUserIds(userIds, date = new Date()) {
+  const normalizedIds = [...new Set((userIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  if (normalizedIds.length === 0) return new Map();
+
+  const today = getSessionCalendarDate(date);
+  const rows = await db.LeaveApplication.findAll({
+    where: {
+      userId: { [Op.in]: normalizedIds },
+      status: "approved",
+      startDate: { [Op.lte]: today },
+      endDate: { [Op.gte]: today },
+    },
+    attributes: ["id", "userId", "startDate", "endDate", "reason", "status"],
+    order: [
+      ["startDate", "ASC"],
+      ["id", "ASC"],
+    ],
+  });
+
+  const leaveByUserId = new Map();
+  for (const row of rows) {
+    if (leaveByUserId.has(row.userId)) continue;
+    leaveByUserId.set(row.userId, serializeLeaveApplication(row));
+  }
+  return leaveByUserId;
+}
+
 export async function hasOverlappingLeaveApplication(userId, startDate, endDate, excludeId = null) {
   const where = {
     userId,
