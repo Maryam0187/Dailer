@@ -169,8 +169,11 @@ export async function POST(req) {
   }
 
   if (authedUser.role === "manager") {
-    if (role !== "agent" && role !== "supervisor") {
-      return NextResponse.json({ error: "Managers can only create agents or supervisors" }, { status: 403 });
+    if (role !== "agent" && role !== "supervisor" && role !== "processor" && role !== "lead_monitor") {
+      return NextResponse.json(
+        { error: "Managers can only create agents, supervisors, processors, or lead monitors" },
+        { status: 403 },
+      );
     }
 
     let supervisorIdToSet = null;
@@ -281,7 +284,8 @@ export async function POST(req) {
 
   let managerIdToSet = null;
   let supervisorIdToSet = null;
-  if (role === "agent" || role === "supervisor") {
+  const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+  if (rolesWithManager.includes(role)) {
     const parsed = managerId ? Number(managerId) : null;
     if (parsed && !Number.isNaN(parsed)) {
       const managerUser = await db.User.findOne({

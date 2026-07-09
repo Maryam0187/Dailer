@@ -1595,28 +1595,27 @@ function EditUserModal({
       if (password.trim()) payload.password = password.trim();
 
       if (isAdmin) {
+        const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
         if (editRole !== user.role) {
           payload.role = editRole;
-          if (editRole === "agent") {
-            payload.managerId = managerId === "" || managerId == null ? null : Number(managerId);
-            payload.supervisorId =
-              supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
-          } else if (editRole === "supervisor") {
+          if (rolesWithManager.includes(editRole)) {
             payload.managerId = managerId === "" || managerId == null ? null : Number(managerId);
           }
-        } else if (editRole === "agent") {
+          if (editRole === "agent") {
+            payload.supervisorId =
+              supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
+          }
+        } else if (rolesWithManager.includes(editRole)) {
           const mid = managerId === "" || managerId == null ? null : Number(managerId);
           const prev = user.managerId != null ? Number(user.managerId) : null;
           if (mid !== prev) {
             payload.managerId = mid;
           }
-          const sid = supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
-          const prevSid = user.supervisorId != null ? Number(user.supervisorId) : null;
-          if (sid !== prevSid) payload.supervisorId = sid;
-        } else if (editRole === "supervisor") {
-          const mid = managerId === "" || managerId == null ? null : Number(managerId);
-          const prev = user.managerId != null ? Number(user.managerId) : null;
-          if (mid !== prev) payload.managerId = mid;
+          if (editRole === "agent") {
+            const sid = supervisorId === "" || supervisorId == null ? null : Number(supervisorId);
+            const prevSid = user.supervisorId != null ? Number(user.supervisorId) : null;
+            if (sid !== prevSid) payload.supervisorId = sid;
+          }
         }
       }
 
@@ -1693,7 +1692,12 @@ function EditUserModal({
     }
   }
 
-  const showManager = isAdmin && (editRole === "agent" || editRole === "supervisor");
+  const showManager =
+    isAdmin &&
+    (editRole === "agent" ||
+      editRole === "supervisor" ||
+      editRole === "processor" ||
+      editRole === "lead_monitor");
   const showSupervisor = isAdmin && editRole === "agent";
   const filteredSupervisors =
     managerId == null || managerId === ""
@@ -2159,7 +2163,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   }
 
   useEffect(() => {
-    if (createRole !== "agent" && createRole !== "supervisor") return;
+    if (
+      createRole !== "agent" &&
+      createRole !== "supervisor" &&
+      createRole !== "processor" &&
+      createRole !== "lead_monitor"
+    ) {
+      return;
+    }
     const hasSelectedManager = managerOptions.some((m) => m.id === managerId);
     if (managerId != null && !hasSelectedManager) {
       setManagerId(null);
@@ -2189,9 +2200,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       };
       if (role === "admin") {
         payload.role = createRole;
-        if (createRole === "agent") payload.managerId = managerId;
+        if (
+          createRole === "agent" ||
+          createRole === "supervisor" ||
+          createRole === "processor" ||
+          createRole === "lead_monitor"
+        ) {
+          payload.managerId = managerId ?? null;
+        }
         if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
-        if (createRole === "supervisor") payload.managerId = managerId ?? null;
       } else if (role === "manager") {
         payload.role = createRole;
         if (createRole === "agent" && supervisorId != null) {
@@ -2273,7 +2290,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const isSupervisor = role === "supervisor";
   const showRoleSelector = role === "admin" || isManager;
   const showManagerSelector =
-    role === "admin" && (createRole === "agent" || createRole === "supervisor");
+    role === "admin" &&
+    (createRole === "agent" ||
+      createRole === "supervisor" ||
+      createRole === "processor" ||
+      createRole === "lead_monitor");
   const showSupervisorSelector = role === "admin" && createRole === "agent";
   const listHeading =
     role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
@@ -2281,7 +2302,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     role === "admin"
       ? "Everyone in the system."
       : isManager
-        ? "Agents and supervisors assigned to you."
+        ? "Agents, supervisors, processors, and lead monitors assigned to you."
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showLeaveColumn = true;
@@ -2342,9 +2363,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
                   {role === "admin"
-                    ? " Choose a role and, for agents or supervisors, optionally assign a manager."
+                    ? " Choose a role and, for agents, supervisors, processors, or lead monitors, optionally assign a manager."
                     : isManager
-                      ? " Create an agent or supervisor under your team."
+                      ? " Create an agent, supervisor, processor, or lead monitor under your team."
                       : " New accounts are created as your agents."}
                 </p>
               </div>
@@ -2412,7 +2433,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           <option value="admin">Admin</option>
                         </>
                       ) : (
-                        <option value="supervisor">Supervisor</option>
+                        <>
+                          <option value="supervisor">Supervisor</option>
+                          <option value="processor">Processor</option>
+                          <option value="lead_monitor">Lead Monitor</option>
+                        </>
                       )}
                     </select>
                   </div>
