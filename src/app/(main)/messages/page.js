@@ -10,16 +10,19 @@ export default async function MessagesPage() {
 
   return (
     <>
-      <div className="mb-6 border-b border-zinc-200/80 pb-5 dark:border-zinc-800">
+      <div className="mb-6 border-b border-sky-200/60 pb-5 dark:border-sky-900/40">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
           Messages
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Message any active teammate in real time. Open the inbox icon in the header for a quick
-          slide-over.
+          Chat with teammates in real time. Use the inbox icon in the header for a quick slide-over.
         </p>
       </div>
-      <Suspense fallback={<div className="h-[min(70vh,720px)] animate-pulse rounded-2xl bg-zinc-100 dark:bg-zinc-900" />}>
+      <Suspense
+        fallback={
+          <div className="h-[min(72vh,760px)] animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900" />
+        }
+      >
         <MessagesClient currentUserId={authedUser.id} />
       </Suspense>
     </>

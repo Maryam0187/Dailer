@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ConversationView from "@/components/Messaging/ConversationView";
-import { PresenceDot, formatMessageTime } from "@/components/Messaging/presence";
+import { UserAvatar, formatMessageTime } from "@/components/Messaging/presence";
 
 export default function MessageOversightClient({ currentUserId }) {
   const [conversations, setConversations] = useState([]);
@@ -37,7 +37,6 @@ export default function MessageOversightClient({ currentUserId }) {
     load();
   }, [load]);
 
-  // Live presence from MessagingProvider socket (admin is in presence:observers)
   useEffect(() => {
     function onPresence(event) {
       const userId = Number(event.detail?.userId);
@@ -95,87 +94,123 @@ export default function MessageOversightClient({ currentUserId }) {
   }
 
   return (
-    <div className="flex h-[min(75vh,760px)] min-h-0 overflow-hidden rounded-2xl border border-amber-200/80 bg-white shadow-sm dark:border-amber-900/40 dark:bg-zinc-950">
+    <div className="flex h-[min(75vh,760px)] min-h-0 overflow-hidden rounded-2xl border border-amber-200/80 bg-white shadow-sm shadow-amber-950/5 dark:border-amber-900/40 dark:bg-zinc-950 dark:shadow-none">
       <div
-        className={`flex w-full min-h-0 flex-col border-r border-zinc-200 dark:border-zinc-800 sm:w-[300px] sm:shrink-0 ${
+        className={`flex w-full min-h-0 flex-col border-r border-zinc-200/80 bg-amber-50/30 dark:border-zinc-800 dark:bg-amber-950/10 sm:w-[320px] sm:shrink-0 ${
           mobileShowThread && active ? "hidden sm:flex" : "flex"
         }`}
       >
-        <div className="border-b border-amber-100 bg-amber-50/80 px-3 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
+        <div className="border-b border-amber-200/70 px-3 py-3 dark:border-amber-900/40">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">
-              All chats
-            </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">
+                All chats
+              </h2>
+              <p className="text-[11px] text-amber-800/70 dark:text-amber-300/70">
+                {filtered.length} conversation{filtered.length === 1 ? "" : "s"}
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => void load()}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-950/60"
+              className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-950/60"
             >
               Refresh
             </button>
           </div>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search users or messages…"
-            className="mt-2 w-full rounded-lg border border-amber-200/80 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none ring-amber-400/40 placeholder:text-zinc-400 focus:ring-2 dark:border-amber-900/50 dark:bg-zinc-900 dark:text-zinc-50"
-          />
+          <div className="relative mt-2.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-amber-700/50 dark:text-amber-400/50"
+            >
+              <path
+                fillRule="evenodd"
+                d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search users or messages…"
+              className="w-full rounded-xl border border-amber-200/80 bg-white py-2 pl-9 pr-3 text-sm text-zinc-900 outline-none ring-amber-400/40 placeholder:text-zinc-400 focus:ring-2 dark:border-amber-900/50 dark:bg-zinc-900 dark:text-zinc-50"
+            />
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {loading ? (
-            <p className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-              Loading…
-            </p>
+            <div className="space-y-2 p-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex animate-pulse gap-3 rounded-xl p-2.5">
+                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-950/40" />
+                  <div className="min-w-0 flex-1 space-y-2 py-1">
+                    <div className="h-3 w-2/3 rounded bg-amber-100 dark:bg-amber-950/40" />
+                    <div className="h-2.5 w-full rounded bg-amber-50 dark:bg-amber-950/20" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : error ? (
             <p className="px-3 py-6 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
           ) : filtered.length === 0 ? (
-            <p className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="px-3 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
               No conversations found.
             </p>
           ) : (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <ul className="space-y-1">
               {filtered.map((conversation) => {
                 const selected = Number(activeId) === Number(conversation.id);
                 const preview = conversation.lastMessage?.body || "No messages yet";
+                const participants = Array.isArray(conversation.participants)
+                  ? conversation.participants.filter((p) => p?.id)
+                  : [];
                 return (
                   <li key={conversation.id}>
                     <button
                       type="button"
                       onClick={() => handleSelect(conversation.id)}
-                      className={`flex w-full flex-col gap-0.5 px-3 py-3 text-left transition-colors ${
+                      className={`flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors ${
                         selected
-                          ? "bg-amber-50 dark:bg-amber-950/40"
-                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
+                          ? "bg-white shadow-sm ring-1 ring-amber-200 dark:bg-zinc-900 dark:ring-amber-900/50"
+                          : "hover:bg-white/80 dark:hover:bg-zinc-900/60"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                          {conversation.peer?.username || "Unknown"}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500">
-                          {formatMessageTime(
-                            conversation.lastMessageAt || conversation.lastMessage?.createdAt,
-                          )}
-                        </span>
+                      <div className="relative mt-0.5 flex shrink-0">
+                        {participants[0] ? (
+                          <UserAvatar
+                            name={participants[0].username}
+                            presence={participants[0].presence}
+                            size="sm"
+                          />
+                        ) : null}
+                        {participants[1] ? (
+                          <UserAvatar
+                            name={participants[1].username}
+                            presence={participants[1].presence}
+                            size="sm"
+                            className="-ml-3"
+                          />
+                        ) : null}
                       </div>
-                      {Array.isArray(conversation.participants) ? (
-                        <div className="flex flex-wrap gap-2">
-                          {conversation.participants.map((p) =>
-                            p?.id ? (
-                              <span
-                                key={p.id}
-                                className="inline-flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400"
-                              >
-                                <PresenceDot status={p.presence} />
-                                {p.username}
-                              </span>
-                            ) : null,
-                          )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                            {conversation.peer?.username || "Unknown"}
+                          </span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                            {formatMessageTime(
+                              conversation.lastMessageAt || conversation.lastMessage?.createdAt,
+                            )}
+                          </span>
                         </div>
-                      ) : null}
-                      <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{preview}</p>
+                        <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                          {preview}
+                        </p>
+                      </div>
                     </button>
                   </li>
                 );
@@ -201,9 +236,12 @@ export default function MessageOversightClient({ currentUserId }) {
             className="min-h-0 flex-1"
           />
         ) : (
-          <div className="flex h-full flex-1 items-center justify-center p-6">
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Select a conversation to review.
+          <div className="flex h-full flex-1 flex-col items-center justify-center bg-gradient-to-b from-amber-50/40 to-white p-8 dark:from-amber-950/10 dark:to-zinc-950">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              Select a conversation to review
+            </p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Read-only oversight of teammate DMs
             </p>
           </div>
         )}

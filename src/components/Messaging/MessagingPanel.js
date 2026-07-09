@@ -20,6 +20,7 @@ export default function MessagingPanel({
     composeRecipientId,
     setActiveConversationId,
     setComposeRecipientId,
+    clearActiveConversation,
     markLocalRead,
     mergeConversation,
     refreshInbox,
@@ -86,8 +87,7 @@ export default function MessagingPanel({
   function handleBackToList() {
     setMobileShowThread(false);
     setShowCompose(false);
-    setActiveConversationId(null);
-    setComposeRecipientId(null);
+    clearActiveConversation();
   }
 
   const showThreadPane = showCompose || activeConversationId != null;
@@ -95,14 +95,14 @@ export default function MessagingPanel({
 
   return (
     <div
-      className={`flex min-h-0 overflow-hidden bg-white dark:bg-zinc-950 ${
+      className={`flex min-h-0 overflow-hidden ${
         isSlideOver
-          ? "h-full"
-          : "h-[min(70vh,720px)] rounded-2xl border border-zinc-200 dark:border-zinc-800"
+          ? "h-full bg-white dark:bg-zinc-950"
+          : "h-[min(72vh,760px)] rounded-2xl border border-zinc-200/90 bg-white shadow-sm shadow-zinc-950/5 dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
       } ${className}`}
     >
       <div
-        className={`w-full min-h-0 border-r border-zinc-200 dark:border-zinc-800 sm:w-[280px] sm:shrink-0 ${
+        className={`w-full min-h-0 border-r border-zinc-200/80 dark:border-zinc-800 sm:w-[300px] sm:shrink-0 ${
           mobileShowThread && showThreadPane ? "hidden sm:flex sm:flex-col" : "flex flex-col"
         }`}
       >
@@ -149,19 +149,29 @@ export default function MessagingPanel({
             className="min-h-0 flex-1"
           />
         ) : (
-          <div className="hidden h-full flex-1 items-center justify-center p-6 sm:flex">
-            <div className="text-center">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Select a conversation or start a new message.
-              </p>
-              <button
-                type="button"
-                onClick={handleCompose}
-                className="mt-3 text-sm font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400"
-              >
-                New message
-              </button>
+          <div className="hidden h-full flex-1 flex-col items-center justify-center bg-gradient-to-b from-zinc-50 to-white p-8 sm:flex dark:from-zinc-900/40 dark:to-zinc-950">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-7 w-7">
+                <path
+                  fillRule="evenodd"
+                  d="M4.848 2.771A49.144 49.144 0 0112 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 01-3.476.383.39.39 0 00-.297.17l-2.755 4.133a.75.75 0 01-1.248 0l-2.755-4.133a.39.39 0 00-.297-.17 48.9 48.9 0 01-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97z"
+                  clipRule="evenodd"
+                />
+              </svg>
             </div>
+            <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+              Select a conversation
+            </p>
+            <p className="mt-1 max-w-xs text-center text-xs text-zinc-500 dark:text-zinc-400">
+              Pick someone from the inbox, or start a new message.
+            </p>
+            <button
+              type="button"
+              onClick={handleCompose}
+              className="mt-4 inline-flex items-center rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+            >
+              New message
+            </button>
           </div>
         )}
       </div>

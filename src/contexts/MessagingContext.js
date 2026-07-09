@@ -15,6 +15,53 @@ import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound
 
 const MessagingContext = createContext(undefined);
 
+const LAST_CONVERSATION_KEY = "dialer:messages:lastConversationId";
+const DRAFT_KEY_PREFIX = "dialer:messages:draft:";
+
+function readStoredConversationId() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(LAST_CONVERSATION_KEY);
+    const id = raw != null ? Number(raw) : null;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredConversationId(conversationId) {
+  if (typeof window === "undefined") return;
+  try {
+    if (conversationId == null) {
+      window.sessionStorage.removeItem(LAST_CONVERSATION_KEY);
+    } else {
+      window.sessionStorage.setItem(LAST_CONVERSATION_KEY, String(conversationId));
+    }
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function readMessageDraft(conversationId) {
+  if (typeof window === "undefined" || conversationId == null) return "";
+  try {
+    return window.sessionStorage.getItem(`${DRAFT_KEY_PREFIX}${conversationId}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeMessageDraft(conversationId, text) {
+  if (typeof window === "undefined" || conversationId == null) return;
+  try {
+    const key = `${DRAFT_KEY_PREFIX}${conversationId}`;
+    if (!text) window.sessionStorage.removeItem(key);
+    else window.sessionStorage.setItem(key, text);
+  } catch {
+    /* ignore */
+  }
+}
+
 function upsertConversation(list, conversation) {
   const without = list.filter((c) => Number(c.id) !== Number(conversation.id));
   return [conversation, ...without].sort((a, b) => {
@@ -68,12 +115,20 @@ export function MessagingProvider({ children }) {
   const [conversations, setConversations] = useState([]);
   const [totalUnread, setTotalUnread] = useState(0);
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [activeConversationId, setActiveConversationIdState] = useState(null);
   const [loadingInbox, setLoadingInbox] = useState(true);
   const [composeRecipientId, setComposeRecipientId] = useState(null);
+  const [restoredSession, setRestoredSession] = useState(false);
   const activeConversationIdRef = useRef(null);
   const inboxOpenRef = useRef(false);
   const onMessagesPageRef = useRef(false);
+
+  const setActiveConversationId = useCallback((id) => {
+    const next = id == null ? null : Number(id);
+    const value = Number.isInteger(next) && next > 0 ? next : null;
+    setActiveConversationIdState(value);
+    writeStoredConversationId(value);
+  }, []);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -92,17 +147,33 @@ export function MessagingProvider({ children }) {
       const res = await fetch("/api/messages/conversations", { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      setConversations(Array.isArray(data.conversations) ? data.conversations : []);
+      const list = Array.isArray(data.conversations) ? data.conversations : [];
+      setConversations(list);
       setTotalUnread(Number(data.totalUnread) || 0);
+      return list;
     } catch {
-      /* ignore network errors */
+      return null;
     } finally {
       setLoadingInbox(false);
     }
   }, []);
 
+  // Restore last open chat after inbox loads (and on /messages)
   useEffect(() => {
-    refreshInbox();
+    let cancelled = false;
+    (async () => {
+      const list = await refreshInbox();
+      if (cancelled) return;
+      const stored = readStoredConversationId();
+      if (stored && Array.isArray(list) && list.some((c) => Number(c.id) === stored)) {
+        setActiveConversationIdState(stored);
+        activeConversationIdRef.current = stored;
+      }
+      setRestoredSession(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [refreshInbox]);
 
   // Browsers block audio until a user gesture — unlock on first interaction.
@@ -138,8 +209,6 @@ export function MessagingProvider({ children }) {
       );
 
       // Only "focused" when the user can actually see the thread right now
-      // (slide-over open, or full /messages page). A stale activeConversationId
-      // after closing the inbox must not suppress the unread badge.
       const viewingThread =
         Number(activeConversationIdRef.current) === conversationId &&
         (inboxOpenRef.current || onMessagesPageRef.current);
@@ -176,8 +245,6 @@ export function MessagingProvider({ children }) {
       }
     });
 
-    // Same presence:update stream as the Users table (admin/manager/supervisor
-    // sockets join presence:observers on connect).
     socket.on("presence:update", (payload) => {
       const userId = Number(payload?.userId);
       if (!Number.isInteger(userId) || userId <= 0) return;
@@ -208,30 +275,42 @@ export function MessagingProvider({ children }) {
 
   const openInbox = useCallback((conversationId = null) => {
     setInboxOpen(true);
+    setComposeRecipientId(null);
     if (conversationId != null) {
       setActiveConversationId(Number(conversationId));
-      setComposeRecipientId(null);
+      return;
     }
-  }, []);
+    // Resume where the user left off
+    const stored = readStoredConversationId();
+    if (stored) {
+      setActiveConversationIdState(stored);
+      activeConversationIdRef.current = stored;
+    }
+  }, [setActiveConversationId]);
 
   const closeInbox = useCallback(() => {
     setInboxOpen(false);
-    // Clear selection so later realtime messages still bump the badge
-    setActiveConversationId(null);
     setComposeRecipientId(null);
+    // Keep activeConversationId so reopen resumes the same chat;
+    // unread still bumps because viewingThread requires inboxOpen.
   }, []);
 
   const openConversation = useCallback((conversationId) => {
     setActiveConversationId(Number(conversationId));
     setComposeRecipientId(null);
     setInboxOpen(true);
-  }, []);
+  }, [setActiveConversationId]);
 
   const startCompose = useCallback((recipientUserId = null) => {
     setActiveConversationId(null);
     setComposeRecipientId(recipientUserId != null ? Number(recipientUserId) : null);
     setInboxOpen(true);
-  }, []);
+  }, [setActiveConversationId]);
+
+  const clearActiveConversation = useCallback(() => {
+    setActiveConversationId(null);
+    setComposeRecipientId(null);
+  }, [setActiveConversationId]);
 
   const markLocalRead = useCallback((conversationId) => {
     const id = Number(conversationId);
@@ -265,11 +344,13 @@ export function MessagingProvider({ children }) {
       inboxOpen,
       activeConversationId,
       composeRecipientId,
+      restoredSession,
       refreshInbox,
       openInbox,
       closeInbox,
       openConversation,
       startCompose,
+      clearActiveConversation,
       setActiveConversationId,
       setComposeRecipientId,
       markLocalRead,
@@ -282,11 +363,14 @@ export function MessagingProvider({ children }) {
       inboxOpen,
       activeConversationId,
       composeRecipientId,
+      restoredSession,
       refreshInbox,
       openInbox,
       closeInbox,
       openConversation,
       startCompose,
+      clearActiveConversation,
+      setActiveConversationId,
       markLocalRead,
       mergeConversation,
     ],
