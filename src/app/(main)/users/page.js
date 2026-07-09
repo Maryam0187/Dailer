@@ -49,7 +49,7 @@ export default async function UsersPage() {
     usersWhere = undefined;
   } else if (authedUser.role === "manager") {
     usersWhere = {
-      role: { [Op.in]: ["agent", "supervisor"] },
+      role: { [Op.in]: ["agent", "supervisor", "processor", "lead_monitor"] },
       managerId: authedUser.id,
     };
   } else {

@@ -149,15 +149,19 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     updates.role = body.role;
-    if (body.role !== "agent" && body.role !== "supervisor") {
+    const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+    if (!rolesWithManager.includes(body.role)) {
       updates.managerId = null;
+      updates.supervisorId = null;
+    } else if (body.role !== "agent") {
       updates.supervisorId = null;
     }
   }
 
   const effectiveRole = updates.role ?? target.role;
+  const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
 
-  if (isAdmin && (effectiveRole === "agent" || effectiveRole === "supervisor")) {
+  if (isAdmin && rolesWithManager.includes(effectiveRole)) {
     if (body.managerId !== undefined) {
       const parsed = body.managerId != null ? Number(body.managerId) : null;
       if (effectiveRole === "agent" && (!parsed || Number.isNaN(parsed))) {
