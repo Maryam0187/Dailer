@@ -124,9 +124,9 @@ export default function LeadWorkflowSection({
       );
     }
     if (!missing.length) return "";
-    if (missing.length === 1) return `Mark ${missing[0]} before Sale close.`;
+    if (missing.length === 1) return `Mark ${missing[0]} before Sale Completed.`;
     const last = missing.pop();
-    return `Mark ${missing.join(", ")} and ${last} before Sale close.`;
+    return `Mark ${missing.join(", ")} and ${last} before Sale Completed.`;
   })();
 
   async function patch(payload) {
