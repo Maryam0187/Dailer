@@ -130,6 +130,7 @@ function hasActiveLeadFilters({
   supervisorFilter,
   agentFilter,
   assignedScopeFilter,
+  processorScopeFilter,
   leadPhaseFilter,
   leadProgressTagFilter,
   leadContactTagFilter,
@@ -139,6 +140,7 @@ function hasActiveLeadFilters({
     supervisorFilter !== "all" ||
     agentFilter !== "all" ||
     assignedScopeFilter !== "all" ||
+    processorScopeFilter !== "all" ||
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
@@ -214,7 +216,7 @@ function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
   );
 }
 
-export default function LeadsClient({ initialShowForm = false, userRole = "agent" }) {
+export default function LeadsClient({ initialShowForm = false, userRole = "agent", currentUserId = null }) {
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -249,6 +251,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignedScopeFilter, setAssignedScopeFilter] = useState("all");
+  const [processorScopeFilter, setProcessorScopeFilter] = useState("all");
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
@@ -303,6 +306,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
   const isSupervisor = userRole === "supervisor";
+  const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const colSpan = showLeadFilters ? 7 : 6;
 
@@ -377,6 +381,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (assignedScopeFilter !== "all" && (isSupervisor || supervisorFilter !== "all")) {
         params.set("assignedScope", assignedScopeFilter);
       }
+      if (processorScopeFilter !== "all" && isProcessor) {
+        params.set("processorScope", processorScopeFilter);
+      }
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
         params.set("leadProgressTag", leadProgressTagFilter);
@@ -426,7 +433,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     agentFilter,
     supervisorFilter,
     assignedScopeFilter,
+    processorScopeFilter,
     isSupervisor,
+    isProcessor,
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
@@ -1136,6 +1145,22 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </select>
               </div>
             ) : null}
+            {isProcessor ? (
+              <div>
+                <label className={labelClass}>Assignment</label>
+                <select
+                  value={processorScopeFilter}
+                  onChange={(e) => {
+                    setProcessorScopeFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className={inputClass}
+                >
+                  <option value="all">All my leads</option>
+                  <option value="assigned">Assigned for processing</option>
+                </select>
+              </div>
+            ) : null}
             {showSupervisorFilter && supervisorFilter !== "all" ? (
               <div>
                 <label className={labelClass}>Assignment</label>
@@ -1293,6 +1318,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     supervisorFilter,
                     agentFilter,
                     assignedScopeFilter,
+                    processorScopeFilter,
                     leadPhaseFilter,
                     leadProgressTagFilter,
                     leadContactTagFilter,
@@ -1397,6 +1423,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
           canAssignLead={isAdmin}
+          canAssignToSelf={isProcessor}
+          currentUserId={currentUserId}
         />
       ) : null}
 

@@ -24,7 +24,7 @@ export default async function MainLayout({ children }) {
   const shiftStatus = authedUser.role === "admin" ? await getLiveShiftStatus() : null;
 
   return (
-    <MainAppShell>
+    <MainAppShell currentUserId={authedUser.id} userRole={authedUser.role}>
       <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
         <Navbar role={authedUser.role} shiftStatus={shiftStatus} accessMode={authedUser.accessMode} />
         {authedUser.role !== "admin" ? <ShiftEndingSoonBanner /> : null}

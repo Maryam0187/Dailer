@@ -173,6 +173,8 @@ export default function LeadDetailPanel({
   workflowTagLookup = {},
   preferShortLabels = true,
   canAssignLead = false,
+  canAssignToSelf = false,
+  currentUserId = null,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -344,6 +346,11 @@ export default function LeadDetailPanel({
     }
   }
 
+  const alreadyAssignedToSelf =
+    currentUserId != null && Number(lead?.assignedUserId) === Number(currentUserId);
+  const showAssignToMe =
+    canAssignToSelf && currentUserId != null && !alreadyAssignedToSelf;
+
   async function downloadRecording(callId, url) {
     if (!url) return;
     setDownloadingId(callId);
@@ -431,6 +438,16 @@ export default function LeadDetailPanel({
                       saving={savingAssignee}
                       onSelect={onAssigneeChange}
                     />
+                  ) : null}
+                  {showAssignToMe ? (
+                    <button
+                      type="button"
+                      disabled={savingAssignee}
+                      onClick={() => void onAssigneeChange(currentUserId)}
+                      className="ml-1 rounded-md border border-emerald-500/60 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 outline-none transition-colors hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-500/25 disabled:opacity-50 dark:border-emerald-500/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
+                    >
+                      Assign to me
+                    </button>
                   ) : null}
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">

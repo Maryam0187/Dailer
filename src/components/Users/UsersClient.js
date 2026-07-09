@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
 import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import { useMessaging } from "@/contexts/MessagingContext";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -13,6 +14,7 @@ function roleLabel(role) {
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
   if (role === "lead_monitor") return "Lead Monitor";
+  if (role === "processor") return "Processor";
   return role;
 }
 
@@ -137,6 +139,7 @@ function RoleBadge({ value }) {
   const styles = {
     admin: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     lead_monitor: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
+    processor: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     manager: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
     supervisor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
     agent: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
@@ -144,6 +147,7 @@ function RoleBadge({ value }) {
   const palette =
     value === "admin" ||
     value === "lead_monitor" ||
+    value === "processor" ||
     value === "manager" ||
     value === "supervisor" ||
     value === "agent"
@@ -418,6 +422,7 @@ function UserRowActionsMenu({
   isAdmin,
   onView,
   onEdit,
+  onMessage,
   onActivate,
   onDeactivate,
   onGrantAfterShift,
@@ -495,6 +500,11 @@ function UserRowActionsMenu({
         <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onEdit)}>
           Edit
         </button>
+        {!isSelf && active && onMessage ? (
+          <button type="button" role="menuitem" className={menuViewClass} onClick={() => runAction(onMessage)}>
+            Message
+          </button>
+        ) : null}
         {isAdmin && user.role !== "admin" && active ? (
           <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onMarkLeave)}>
             Mark leave
@@ -1809,6 +1819,7 @@ function EditUserModal({
                   <option value="agent">Agent</option>
                   <option value="manager">Manager</option>
                   <option value="supervisor">Supervisor</option>
+                  <option value="processor">Processor</option>
                   <option value="lead_monitor">Lead Monitor</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -2006,6 +2017,7 @@ function normalizeUsersList(list) {
 }
 
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
+  const { startCompose } = useMessaging();
   const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
   const [defaultGrantDurationMinutes, setDefaultGrantDurationMinutes] = useState(120);
   const applyPresenceUpdateRef = useRef(null);
@@ -2395,6 +2407,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <>
                           <option value="manager">Manager</option>
                           <option value="supervisor">Supervisor</option>
+                          <option value="processor">Processor</option>
                           <option value="lead_monitor">Lead Monitor</option>
                           <option value="admin">Admin</option>
                         </>
@@ -2669,6 +2682,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             isAdmin={role === "admin"}
                             onView={() => setViewingUser(u)}
                             onEdit={() => setEditingUser(u)}
+                            onMessage={() => startCompose(u.id)}
                             onDeactivate={() => toggleActive(u, false)}
                             onActivate={() => toggleActive(u, true)}
                             onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}
