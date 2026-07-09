@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
 import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import { useMessaging } from "@/contexts/MessagingContext";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -421,6 +422,7 @@ function UserRowActionsMenu({
   isAdmin,
   onView,
   onEdit,
+  onMessage,
   onActivate,
   onDeactivate,
   onGrantAfterShift,
@@ -498,6 +500,11 @@ function UserRowActionsMenu({
         <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onEdit)}>
           Edit
         </button>
+        {!isSelf && active && onMessage ? (
+          <button type="button" role="menuitem" className={menuViewClass} onClick={() => runAction(onMessage)}>
+            Message
+          </button>
+        ) : null}
         {isAdmin && user.role !== "admin" && active ? (
           <button type="button" role="menuitem" className={menuEditClass} onClick={() => runAction(onMarkLeave)}>
             Mark leave
@@ -2010,6 +2017,7 @@ function normalizeUsersList(list) {
 }
 
 export default function UsersClient({ role, managers, supervisors, initialUsers, currentUserId }) {
+  const { startCompose } = useMessaging();
   const [users, setUsers] = useState(() => normalizeUsersList(initialUsers));
   const [defaultGrantDurationMinutes, setDefaultGrantDurationMinutes] = useState(120);
   const applyPresenceUpdateRef = useRef(null);
@@ -2674,6 +2682,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             isAdmin={role === "admin"}
                             onView={() => setViewingUser(u)}
                             onEdit={() => setEditingUser(u)}
+                            onMessage={() => startCompose(u.id)}
                             onDeactivate={() => toggleActive(u, false)}
                             onActivate={() => toggleActive(u, true)}
                             onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}

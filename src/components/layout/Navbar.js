@@ -7,6 +7,7 @@ import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
 import ShiftStatusBadge from "@/components/layout/ShiftStatusBadge";
+import NavbarMessagingButton from "@/components/Messaging/NavbarMessagingButton";
 
 const PALETTES = {
   dialer: {
@@ -84,6 +85,12 @@ function buildNavItems(role, pathname, accessMode = "full") {
 
   if (accessMode !== "limited" && role === "admin") {
     items.push(
+      {
+        href: "/message-oversight",
+        label: "Chat oversight",
+        active: pathname === "/message-oversight",
+        palette: "amber",
+      },
       {
         href: "/reports",
         label: "Reports",
@@ -235,6 +242,7 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
                 <ShiftStatusBadge initialShiftStatus={shiftStatus} />
               </span>
             ) : null}
+            <NavbarMessagingButton />
             <ThemeToggle />
             <LogoutButton />
           </div>
