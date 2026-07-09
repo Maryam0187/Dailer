@@ -28,13 +28,61 @@ const AVATAR_TONES = [
   "from-violet-500 to-violet-700",
   "from-cyan-500 to-cyan-700",
   "from-teal-500 to-teal-700",
+  "from-rose-500 to-rose-700",
+  "from-orange-500 to-orange-700",
 ];
 
-function avatarTone(seed) {
+/** High-contrast palette for oversight — avoid near neighbors (sky/cyan, etc.). */
+const NAME_COLORS = [
+  "text-emerald-600 dark:text-emerald-400",
+  "text-rose-600 dark:text-rose-400",
+  "text-violet-600 dark:text-violet-400",
+  "text-amber-600 dark:text-amber-400",
+  "text-sky-600 dark:text-sky-400",
+  "text-orange-600 dark:text-orange-400",
+  "text-fuchsia-600 dark:text-fuchsia-400",
+  "text-lime-700 dark:text-lime-400",
+];
+
+function hashSeed(seed) {
   const text = String(seed || "?");
   let hash = 0;
-  for (let i = 0; i < text.length; i += 1) hash = (hash + text.charCodeAt(i) * (i + 1)) % 997;
-  return AVATAR_TONES[hash % AVATAR_TONES.length];
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash + text.charCodeAt(i) * (i + 1)) % 997;
+  }
+  return hash;
+}
+
+function avatarTone(seed) {
+  return AVATAR_TONES[hashSeed(seed) % AVATAR_TONES.length];
+}
+
+/**
+ * Map participants in a conversation to clearly different colors.
+ * Index 0 vs 1 are always high-contrast (emerald vs rose), not similar blues.
+ */
+export function buildParticipantNameColors(participantsOrNames) {
+  const names = [];
+  for (const item of participantsOrNames || []) {
+    const name =
+      typeof item === "string"
+        ? item
+        : item?.username || item?.author?.username || null;
+    if (!name) continue;
+    if (!names.includes(name)) names.push(name);
+  }
+
+  const map = {};
+  names.forEach((name, index) => {
+    map[name] = NAME_COLORS[index % NAME_COLORS.length];
+  });
+  return map;
+}
+
+export function ColoredName({ name, colorClass = null, className = "" }) {
+  const label = name || "Unknown";
+  const color = colorClass || NAME_COLORS[hashSeed(label) % NAME_COLORS.length];
+  return <span className={`font-bold ${color} ${className}`}>{label}</span>;
 }
 
 export function initialsFromName(name) {

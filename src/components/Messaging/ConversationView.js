@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PresenceDot, UserAvatar, formatMessageTime, roleLabel } from "./presence";
+import {
+  ColoredName,
+  PresenceDot,
+  UserAvatar,
+  buildParticipantNameColors,
+  formatMessageTime,
+  roleLabel,
+} from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
 
 export default function ConversationView({
@@ -94,6 +101,18 @@ export default function ConversationView({
     () => conversation?.peer?.username || "Conversation",
     [conversation?.peer?.username],
   );
+
+  // Oversight: assign high-contrast colors per participant in this chat
+  const oversightNameColors = useMemo(() => {
+    if (!conversation?.isOversight) return {};
+    const fromParticipants = conversation.participants || [];
+    if (fromParticipants.length > 0) {
+      return buildParticipantNameColors(fromParticipants);
+    }
+    // Fallback from message authors if participants aren't loaded
+    const authors = messages.map((m) => m.author).filter(Boolean);
+    return buildParticipantNameColors(authors);
+  }, [conversation?.isOversight, conversation?.participants, messages]);
 
   async function handleSend(event) {
     event.preventDefault();
@@ -228,8 +247,11 @@ export default function ConversationView({
                   }`}
                 >
                   {conversation.isOversight && message.author?.username ? (
-                    <p className="mb-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
-                      {message.author.username}
+                    <p className="mb-1 text-xs">
+                      <ColoredName
+                        name={message.author.username}
+                        colorClass={oversightNameColors[message.author.username]}
+                      />
                     </p>
                   ) : null}
                   <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
