@@ -19,7 +19,11 @@ export default async function LeadsPage({ searchParams }) {
           Supervisors handle team leads and can create and close their own as well.
         </p>
       </div>
-      <LeadsClient initialShowForm={initialShowForm} userRole={authedUser.role} />
+      <LeadsClient
+        initialShowForm={initialShowForm}
+        userRole={authedUser.role}
+        currentUserId={authedUser.id}
+      />
     </>
   );
 }

@@ -13,6 +13,7 @@ function roleLabel(role) {
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
   if (role === "lead_monitor") return "Lead Monitor";
+  if (role === "processor") return "Processor";
   return role;
 }
 
@@ -137,6 +138,7 @@ function RoleBadge({ value }) {
   const styles = {
     admin: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     lead_monitor: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
+    processor: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     manager: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
     supervisor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
     agent: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
@@ -144,6 +146,7 @@ function RoleBadge({ value }) {
   const palette =
     value === "admin" ||
     value === "lead_monitor" ||
+    value === "processor" ||
     value === "manager" ||
     value === "supervisor" ||
     value === "agent"
@@ -1809,6 +1812,7 @@ function EditUserModal({
                   <option value="agent">Agent</option>
                   <option value="manager">Manager</option>
                   <option value="supervisor">Supervisor</option>
+                  <option value="processor">Processor</option>
                   <option value="lead_monitor">Lead Monitor</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -2395,6 +2399,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <>
                           <option value="manager">Manager</option>
                           <option value="supervisor">Supervisor</option>
+                          <option value="processor">Processor</option>
                           <option value="lead_monitor">Lead Monitor</option>
                           <option value="admin">Admin</option>
                         </>

@@ -104,15 +104,22 @@ export async function GET(req) {
   const creatorId = agentIdRaw ? Number(agentIdRaw) : null;
   const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
   const assignedScopeRaw = searchParams.get("assignedScope");
+  const processorScopeRaw = searchParams.get("processorScope");
 
   let where;
 
   if (assignedScopeRaw && assignedScopeRaw !== "other_team") {
     return NextResponse.json({ error: "Invalid assignedScope" }, { status: 400 });
   }
+  if (processorScopeRaw && processorScopeRaw !== "assigned") {
+    return NextResponse.json({ error: "Invalid processorScope" }, { status: 400 });
+  }
   const isFullAccessRole = hasFullLeadAccess(authedUser.role);
   if (assignedScopeRaw && authedUser.role !== "supervisor" && !isFullAccessRole) {
     return NextResponse.json({ error: "Invalid assignedScope" }, { status: 403 });
+  }
+  if (processorScopeRaw && authedUser.role !== "processor") {
+    return NextResponse.json({ error: "Invalid processorScope" }, { status: 403 });
   }
   if (assignedScopeRaw && isFullAccessRole && !supervisorIdRaw) {
     return NextResponse.json({ error: "assignedScope requires a supervisor" }, { status: 400 });
@@ -141,6 +148,7 @@ export async function GET(req) {
     creatorId,
     supervisorId: authedUser.role === "supervisor" ? null : supervisorId,
     assignedScope: assignedScopeRaw,
+    processorScope: processorScopeRaw,
   });
 
   if (!where) {

@@ -245,13 +245,26 @@ export function andWhereClause(baseWhere, extra) {
  */
 export async function resolveLeadsListWhere(
   authedUser,
-  { creatorId = null, supervisorId = null, assignedScope = null } = {},
+  { creatorId = null, supervisorId = null, assignedScope = null, processorScope = null } = {},
 ) {
   const role = authedUser.role;
 
   if (role === "agent") {
     return {
       [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+    };
+  }
+
+  if (role === "processor") {
+    if (processorScope === "assigned") {
+      return { processorUserId: authedUser.id };
+    }
+    return {
+      [Op.or]: [
+        { assignedUserId: authedUser.id },
+        { createdByUserId: authedUser.id },
+        { processorUserId: authedUser.id },
+      ],
     };
   }
 
@@ -307,6 +320,14 @@ export async function canAccessLead(lead, authedUser) {
 
   if (authedUser.role === "supervisor") {
     return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
+  }
+
+  if (authedUser.role === "processor") {
+    return (
+      lead.assignedUserId === authedUser.id ||
+      lead.createdByUserId === authedUser.id ||
+      lead.processorUserId === authedUser.id
+    );
   }
 
   return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;

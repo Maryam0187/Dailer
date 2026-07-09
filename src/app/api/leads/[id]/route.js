@@ -147,12 +147,21 @@ export async function PATCH(req, { params }) {
     }
   }
 
-  if (body?.assignedUserId != null && (hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor")) {
+  if (body?.assignedUserId != null) {
     const nextAssignee = Number(body.assignedUserId);
     if (!Number.isInteger(nextAssignee) || nextAssignee <= 0) {
       return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
     }
-    if (!(await canAssignLeadToAgent(authedUser, nextAssignee))) {
+
+    const canReassign =
+      hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor";
+    const processorSelfAssign =
+      authedUser.role === "processor" && nextAssignee === Number(authedUser.id);
+
+    if (!canReassign && !processorSelfAssign) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (canReassign && !(await canAssignLeadToAgent(authedUser, nextAssignee))) {
       return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
     }
     if (nextAssignee !== lead.assignedUserId) {
@@ -182,6 +191,51 @@ export async function PATCH(req, { params }) {
         previousAssignedUserId: previousAssigneeId,
         previousAssignedUsername: previousAssigneeUsername,
       });
+    }
+  }
+
+  if (body?.processorUserId !== undefined) {
+    if (body.processorUserId === null || body.processorUserId === "") {
+      if (lead.processorUserId != null) {
+        update.processorUserId = null;
+        activity.push({
+          type: "lead_phase_change",
+          body: "Processor cleared",
+        });
+      }
+    } else {
+      const nextProcessorId = Number(body.processorUserId);
+      if (!Number.isInteger(nextProcessorId) || nextProcessorId <= 0) {
+        return NextResponse.json({ error: "Invalid processorUserId" }, { status: 400 });
+      }
+      const processorUser = await db.User.findOne({
+        where: { id: nextProcessorId, role: "processor", isActive: true },
+        attributes: ["id", "username"],
+      });
+      if (!processorUser) {
+        return NextResponse.json({ error: "Invalid processor" }, { status: 400 });
+      }
+      if (nextProcessorId !== lead.processorUserId) {
+        const previousProcessorId = lead.processorUserId;
+        const lookupIds = [nextProcessorId];
+        if (previousProcessorId) lookupIds.push(previousProcessorId);
+        const users = await db.User.findAll({
+          where: { id: lookupIds },
+          attributes: ["id", "username"],
+        });
+        const usernameById = new Map(users.map((u) => [u.id, u.username]));
+        const processorName = usernameById.get(nextProcessorId) ?? `user #${nextProcessorId}`;
+        const previousProcessorName = previousProcessorId
+          ? usernameById.get(previousProcessorId) ?? `user #${previousProcessorId}`
+          : null;
+        update.processorUserId = nextProcessorId;
+        activity.push({
+          type: "lead_phase_change",
+          body: previousProcessorName
+            ? `Processor set to ${processorName} (from ${previousProcessorName})`
+            : `Processor set to ${processorName}`,
+        });
+      }
     }
   }
 

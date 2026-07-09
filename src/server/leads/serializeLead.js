@@ -23,7 +23,14 @@ export const leadCreatedByInclude = {
   required: false,
 };
 
-export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude];
+export const leadProcessorUserInclude = {
+  model: db.User,
+  as: "processorUser",
+  attributes: ["id", "username", "role"],
+  required: false,
+};
+
+export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude, leadProcessorUserInclude];
 
 export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
@@ -63,6 +70,8 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     assignedUsername: lead.assignedUser?.username ?? null,
     assignedUserRole: lead.assignedUser?.role ?? null,
     supervisorUsername: lead.assignedUser?.supervisor?.username ?? null,
+    processorUserId: lead.processorUserId,
+    processorUsername: lead.processorUser?.username ?? null,
     createdByUserId: lead.createdByUserId,
     createdByUsername: lead.createdBy?.username ?? null,
     createdByUserRole: lead.createdBy?.role ?? null,

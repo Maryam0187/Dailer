@@ -274,7 +274,7 @@ export async function POST(req) {
   }
 
   // Admin can create any role.
-  const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_monitor"];
+  const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_monitor", "processor"];
   if (!allowedRoles.includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }

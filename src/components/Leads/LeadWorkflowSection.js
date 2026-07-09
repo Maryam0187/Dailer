@@ -9,6 +9,7 @@ import {
 } from "@/lib/leadWorkflow";
 import { workflowTagDisplayLabel, workflowTagTone } from "@/lib/workflowTagLabels";
 import { InfoIcon } from "@/components/Leads/IconTooltipButton";
+import ProcessorPicker from "@/components/Leads/ProcessorPicker";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -99,6 +100,8 @@ export default function LeadWorkflowSection({
   const progressTags = lead?.leadProgressTags || [];
   const counts = normalizeContactCounts(lead?.leadContactCounts);
   const processedRequired = Boolean(lead?.leadProcessedRequired);
+  const processorUserId = lead?.processorUserId ?? null;
+  const processorUsername = lead?.processorUsername ?? null;
   const missingVerified = !progressTags.includes("verified");
   const missingProcessed = processedRequired && !progressTags.includes("processed");
   const missingSaleDone = !progressTags.includes("sale_done");
@@ -154,11 +157,20 @@ export default function LeadWorkflowSection({
       const nextTags = progressTags.filter((t) => t !== "processed");
       await patch({
         leadProcessedRequired: false,
+        processorUserId: null,
         ...(nextTags.length !== progressTags.length ? { leadProgressTags: nextTags } : {}),
       });
       return;
     }
     await patch({ leadProcessedRequired: true });
+  }
+
+  async function onProcessorChange(nextId) {
+    if (busy || tagsLocked) return;
+    if (nextId != null && (!Number.isInteger(nextId) || nextId <= 0)) return;
+    if (Number(nextId) === Number(processorUserId)) return;
+    if (nextId == null && processorUserId == null) return;
+    await patch({ processorUserId: nextId });
   }
 
   async function setCallOutcome(tag) {
@@ -295,12 +307,26 @@ export default function LeadWorkflowSection({
 
       <div className="mb-4">
         <label className={labelClass}>Processing</label>
-        <ToggleSwitch
-          checked={processedRequired}
-          disabled={busy || tagsLocked}
-          label="Processing required"
-          onChange={() => void toggleProcessingRequired()}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <ToggleSwitch
+            checked={processedRequired}
+            disabled={busy || tagsLocked}
+            label="Required"
+            onChange={() => void toggleProcessingRequired()}
+          />
+          {processedRequired ? (
+            <p className="flex items-center gap-1 text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="font-semibold text-zinc-700 dark:text-zinc-300">Processor:</span>
+              <span>{busy ? "Saving…" : processorUsername || "Select"}</span>
+              <ProcessorPicker
+                processorUserId={processorUserId}
+                saving={busy}
+                disabled={tagsLocked}
+                onSelect={onProcessorChange}
+              />
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="mb-4">
