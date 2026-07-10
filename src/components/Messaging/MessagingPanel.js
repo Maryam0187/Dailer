@@ -28,6 +28,8 @@ export default function MessagingPanel({
 
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const [openUnreadSeed, setOpenUnreadSeed] = useState({ id: null, count: 0 });
+  const [activeNewCount, setActiveNewCount] = useState(0);
 
   useEffect(() => {
     if (composeRecipientId != null) {
@@ -37,24 +39,47 @@ export default function MessagingPanel({
   }, [composeRecipientId]);
 
   useEffect(() => {
-    if (activeConversationId != null) {
-      setShowCompose(false);
-      setMobileShowThread(true);
-      markLocalRead(activeConversationId);
+    if (activeConversationId == null) {
+      setActiveNewCount(0);
+      return;
     }
+    // Capture unread before mark-read clears it (for WhatsApp-style divider)
+    setOpenUnreadSeed((prev) => {
+      if (prev.id === activeConversationId) return prev;
+      const conv = conversations.find((c) => Number(c.id) === Number(activeConversationId));
+      return { id: activeConversationId, count: Number(conv?.unreadCount) || 0 };
+    });
+    setShowCompose(false);
+    setMobileShowThread(true);
+    markLocalRead(activeConversationId);
+    // Only re-run when the open conversation changes — not when unread is cleared
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, markLocalRead]);
+
+  useEffect(() => {
+    if (activeConversationId == null) return;
+    if (openUnreadSeed.id === activeConversationId) {
+      setActiveNewCount(Number(openUnreadSeed.count) || 0);
+    }
+  }, [activeConversationId, openUnreadSeed]);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => Number(c.id) === Number(activeConversationId)) || null,
     [conversations, activeConversationId],
   );
 
+  const initialUnreadCount =
+    openUnreadSeed.id === activeConversationId ? openUnreadSeed.count : 0;
+
   function handleSelect(id) {
+    const conv = conversations.find((c) => Number(c.id) === Number(id));
+    const count = Number(conv?.unreadCount) || 0;
+    setOpenUnreadSeed({ id: Number(id), count });
+    setActiveNewCount(count);
     setActiveConversationId(id);
     setComposeRecipientId(null);
     setShowCompose(false);
     setMobileShowThread(true);
-    markLocalRead(id);
   }
 
   function handleCompose() {
@@ -87,6 +112,7 @@ export default function MessagingPanel({
   function handleBackToList() {
     setMobileShowThread(false);
     setShowCompose(false);
+    setActiveNewCount(0);
     clearActiveConversation();
   }
 
@@ -122,6 +148,7 @@ export default function MessagingPanel({
           conversations={conversations}
           loading={loadingInbox}
           activeConversationId={activeConversationId}
+          activeNewCount={activeNewCount}
           onSelect={handleSelect}
           onCompose={handleCompose}
           className="min-h-0 flex-1"
@@ -144,8 +171,10 @@ export default function MessagingPanel({
           <ConversationView
             conversation={activeConversation}
             currentUserId={currentUserId}
+            initialUnreadCount={initialUnreadCount}
             onBack={handleBackToList}
             onMessageSent={handleMessageSent}
+            onNewMessageCountChange={setActiveNewCount}
             className="min-h-0 flex-1"
           />
         ) : (

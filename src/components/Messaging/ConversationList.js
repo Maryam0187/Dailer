@@ -33,10 +33,17 @@ export default function ConversationList({
   conversations,
   loading = false,
   activeConversationId = null,
+  activeNewCount = 0,
   onSelect,
   onCompose,
   className = "",
 }) {
+  const listUnreadTotal = conversations.reduce((sum, c) => {
+    const active = Number(activeConversationId) === Number(c.id);
+    const count = active ? Number(activeNewCount) || 0 : Number(c.unreadCount) || 0;
+    return sum + count;
+  }, 0);
+
   return (
     <div className={`flex h-full min-h-0 flex-col bg-zinc-50/80 dark:bg-zinc-950 ${className}`}>
       <div className="flex items-center justify-between gap-2 border-b border-zinc-200/80 px-3 py-3 dark:border-zinc-800">
@@ -46,6 +53,7 @@ export default function ConversationList({
           </h2>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
             {conversations.length} conversation{conversations.length === 1 ? "" : "s"}
+            {listUnreadTotal > 0 ? ` · ${listUnreadTotal} unread` : ""}
           </p>
         </div>
         <button
@@ -82,7 +90,10 @@ export default function ConversationList({
           <ul className="space-y-1 p-2">
             {conversations.map((conversation) => {
               const active = Number(activeConversationId) === Number(conversation.id);
-              const unread = Number(conversation.unreadCount) > 0;
+              const badgeCount = active
+                ? Number(activeNewCount) || 0
+                : Number(conversation.unreadCount) || 0;
+              const hasUnread = badgeCount > 0;
               const preview = conversation.lastMessage?.body || "No messages yet";
               const name = conversation.peer?.username || "Unknown";
               return (
@@ -93,22 +104,37 @@ export default function ConversationList({
                     className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors ${
                       active
                         ? "bg-white shadow-sm ring-1 ring-sky-200/80 dark:bg-zinc-900 dark:ring-sky-900/60"
-                        : "hover:bg-white/80 dark:hover:bg-zinc-900/70"
+                        : hasUnread
+                          ? "bg-sky-50/90 hover:bg-sky-50 dark:bg-sky-950/30 dark:hover:bg-sky-950/45"
+                          : "hover:bg-white/80 dark:hover:bg-zinc-900/70"
                     }`}
                   >
                     <UserAvatar name={name} presence={conversation.peer?.presence} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className={`truncate text-sm ${
+                              hasUnread
+                                ? "font-bold text-sky-800 dark:text-sky-300"
+                                : "font-medium text-zinc-800 dark:text-zinc-100"
+                            }`}
+                          >
+                            {name}
+                          </span>
+                          {hasUnread ? (
+                            <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-sky-600 px-1.5 text-[10px] font-bold text-white">
+                              {badgeCount > 99 ? "99+" : badgeCount}
+                            </span>
+                          ) : null}
+                        </span>
                         <span
-                          className={`truncate text-sm ${
-                            unread
-                              ? "font-semibold text-zinc-950 dark:text-zinc-50"
-                              : "font-medium text-zinc-800 dark:text-zinc-100"
+                          className={`shrink-0 text-[11px] tabular-nums ${
+                            hasUnread
+                              ? "font-semibold text-sky-700 dark:text-sky-400"
+                              : "text-zinc-400 dark:text-zinc-500"
                           }`}
                         >
-                          {name}
-                        </span>
-                        <span className="shrink-0 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
                           {formatMessageTime(
                             conversation.lastMessageAt || conversation.lastMessage?.createdAt,
                           )}
@@ -117,18 +143,14 @@ export default function ConversationList({
                       <div className="mt-0.5 flex items-center gap-2">
                         <p
                           className={`min-w-0 flex-1 truncate text-xs ${
-                            unread
-                              ? "font-medium text-zinc-700 dark:text-zinc-200"
+                            hasUnread
+                              ? "font-semibold text-zinc-800 dark:text-zinc-100"
                               : "text-zinc-500 dark:text-zinc-400"
                           }`}
                         >
                           {preview}
                         </p>
-                        {unread ? (
-                          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-sky-600 px-1.5 text-[10px] font-bold text-white">
-                            {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
-                          </span>
-                        ) : conversation.peer?.role ? (
+                        {!hasUnread && conversation.peer?.role ? (
                           <span className="hidden shrink-0 capitalize text-[10px] text-zinc-400 sm:inline dark:text-zinc-500">
                             {roleLabel(conversation.peer.role)}
                           </span>
