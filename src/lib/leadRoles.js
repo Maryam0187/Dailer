@@ -17,3 +17,17 @@ export function canViewLeadStats(role) {
 export function canUseLeadFilters(role) {
   return hasFullLeadAccess(role) || role === "supervisor";
 }
+
+/** Processors must not see agent lead notes on leads assigned for processing. */
+export function shouldHideLeadNotes(viewerRole, lead) {
+  if (viewerRole !== "processor") return false;
+  return lead?.processorUserId != null || Boolean(lead?.leadProcessedRequired);
+}
+
+/** Processors only see their own lead activity on processing leads. */
+export function shouldRestrictProcessorLeadActivity(viewerRole, lead) {
+  return shouldHideLeadNotes(viewerRole, lead);
+}
+
+/** @deprecated Use shouldRestrictProcessorLeadActivity */
+export const shouldHideAgentLeadActivity = shouldRestrictProcessorLeadActivity;

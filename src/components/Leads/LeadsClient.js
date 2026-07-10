@@ -1424,8 +1424,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
           canAssignLead={isAdmin}
-          canAssignToSelf={isProcessor}
-          currentUserId={currentUserId}
         />
       ) : null}
 

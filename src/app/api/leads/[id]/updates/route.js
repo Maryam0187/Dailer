@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { canAccessLead } from "@/server/leads/leadAccess";
-import { createLeadUpdate, fetchLeadUpdates } from "@/server/leads/leadUpdates";
+import {
+  createLeadUpdate,
+  fetchLeadUpdates,
+  filterLeadUpdatesForViewer,
+} from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 
 export async function GET(req, { params }) {
@@ -21,7 +25,7 @@ export async function GET(req, { params }) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const updates = await fetchLeadUpdates(id);
+  const updates = filterLeadUpdatesForViewer(await fetchLeadUpdates(id), authedUser, lead);
   return NextResponse.json({ updates });
 }
 
@@ -65,7 +69,7 @@ export async function POST(req, { params }) {
     },
   });
 
-  const rows = await fetchLeadUpdates(id);
+  const rows = filterLeadUpdatesForViewer(await fetchLeadUpdates(id), authedUser, lead);
   const created = rows.find((u) => u.id === update.id) || rows[0];
   return NextResponse.json({ ok: true, update: created }, { status: 201 });
 }

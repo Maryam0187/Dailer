@@ -62,10 +62,15 @@ export async function applyLeadWorkflowPatch(lead, body) {
         body: update.leadProcessedRequired ? "Processed required" : "Processed not required",
       });
       if (!update.leadProcessedRequired && lead.processorUserId != null) {
+        const previousProcessorId = lead.processorUserId;
         update.processorUserId = null;
         activity.push({
-          type: "lead_phase_change",
+          type: "processor_assigned",
           body: "Processor cleared",
+          processorUserId: null,
+          processorUsername: null,
+          previousProcessorUserId: previousProcessorId,
+          previousProcessorUsername: null,
         });
       }
     }

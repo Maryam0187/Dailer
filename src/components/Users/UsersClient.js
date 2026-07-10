@@ -36,6 +36,7 @@ function activityActionLabel(action) {
   if (action === "lead_breakdown_edit") return "Lead breakdown edited";
   if (action === "lead_comment") return "Lead comment";
   if (action === "lead_assigned") return "Lead assigned";
+  if (action === "lead_processor_assigned") return "Processor assigned";
   if (action === "after_shift_access_granted") return "After-shift access granted";
   if (action === "after_shift_access_revoked") return "After-shift access revoked";
   return String(action || "Unknown").replace(/_/g, " ");
@@ -63,6 +64,29 @@ function formatActivityDetails(metadata, entityType, entityId) {
     } else {
       parts.push(`assigned to user #${metadata.assignedUserId}`);
     }
+  }
+  if (metadata.processorUsername) {
+    if (metadata.previousProcessorUsername) {
+      parts.push(
+        `processor reassigned from ${metadata.previousProcessorUsername} to ${metadata.processorUsername}`,
+      );
+    } else {
+      parts.push(`processor assigned to ${metadata.processorUsername}`);
+    }
+  } else if (metadata.processorUserId != null) {
+    if (metadata.previousProcessorUserId != null) {
+      parts.push(
+        `processor reassigned from user #${metadata.previousProcessorUserId} to user #${metadata.processorUserId}`,
+      );
+    } else {
+      parts.push(`processor assigned to user #${metadata.processorUserId}`);
+    }
+  } else if (metadata.previousProcessorUserId != null || metadata.previousProcessorUsername) {
+    parts.push(
+      metadata.previousProcessorUsername
+        ? `processor cleared (was ${metadata.previousProcessorUsername})`
+        : "processor cleared",
+    );
   }
   if (metadata.summary) parts.push(stripHtml(metadata.summary));
   if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));
