@@ -507,7 +507,7 @@ export default function LeadDetailPanel({
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
             <RichTextField
-              label="Breakdown"
+              label="Breakdown / Processing Notes"
               labelClass={labelClass}
               value={breakdownDraft}
               onChange={setBreakdownDraft}

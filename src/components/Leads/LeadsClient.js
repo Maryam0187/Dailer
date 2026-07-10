@@ -857,7 +857,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <RichTextField
-                label="Breakdown"
+                label="Breakdown / Processing Notes"
                 labelClass={labelClass}
                 value={breakdown}
                 onChange={setBreakdown}
