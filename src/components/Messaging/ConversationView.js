@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ColoredName,
   PresenceDot,
@@ -11,11 +11,32 @@ import {
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
 
+function NewMessagesDivider({ count, onDismiss }) {
+  if (!count || count <= 0) return null;
+  return (
+    <div
+      className="flex cursor-default items-center gap-2 py-2"
+      role="separator"
+      aria-label={`${count} new messages`}
+      onPointerEnter={onDismiss}
+      onClick={onDismiss}
+    >
+      <div className="h-px flex-1 bg-sky-300/90 dark:bg-sky-700/80" />
+      <span className="shrink-0 rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/70 dark:text-sky-300">
+        {count} new message{count === 1 ? "" : "s"}
+      </span>
+      <div className="h-px flex-1 bg-sky-300/90 dark:bg-sky-700/80" />
+    </div>
+  );
+}
+
 export default function ConversationView({
   conversation,
   currentUserId,
+  initialUnreadCount = 0,
   onBack = null,
   onMessageSent,
+  onNewMessageCountChange = null,
   className = "",
 }) {
   const [messages, setMessages] = useState([]);
@@ -23,19 +44,58 @@ export default function ConversationView({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
+  // WhatsApp-style: show a divider before this message id
+  const [dividerBeforeId, setDividerBeforeId] = useState(null);
+  const [nearBottom, setNearBottom] = useState(true);
   const bottomRef = useRef(null);
+  const listRef = useRef(null);
+  const dividerRef = useRef(null);
   const textareaRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
   const skipDraftPersistRef = useRef(false);
 
-  // Restore unsent draft when opening / switching chats
+  function isNearBottom(el) {
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  function setNearBottomState(value) {
+    nearBottomRef.current = value;
+    setNearBottom(value);
+  }
+
+  function scrollToBottom(smooth = true) {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    setNearBottomState(true);
+  }
+
+  function clearNewDivider() {
+    setDividerBeforeId(null);
+  }
+
+  function jumpToNewMessages() {
+    clearNewDivider();
+    scrollToBottom(true);
+  }
+
+  function onListScroll() {
+    const el = listRef.current;
+    setNearBottomState(isNearBottom(el));
+    // Keep the new-messages line until hover, send, or jump-to-new click
+  }
+
+  // Capture unread seed for this open + restore draft
   useEffect(() => {
     if (!conversationId) return;
+    unreadOnOpenRef.current = Number(initialUnreadCount) || 0;
+    setDividerBeforeId(null);
     skipDraftPersistRef.current = true;
     setDraft(readMessageDraft(conversationId));
-  }, [conversationId]);
+    setNearBottomState(true);
+  }, [conversationId, initialUnreadCount]);
 
-  // Persist draft (skip the restore write so we don't clobber another chat)
   useEffect(() => {
     if (!conversationId) return;
     if (skipDraftPersistRef.current) {
@@ -58,7 +118,23 @@ export default function ConversationView({
         setError(data.error || "Failed to load messages");
         return;
       }
-      setMessages(Array.isArray(data.messages) ? data.messages : []);
+      const rows = Array.isArray(data.messages) ? data.messages : [];
+      setMessages(rows);
+
+      const unread = unreadOnOpenRef.current;
+      if (unread > 0 && rows.length > 0) {
+        const startIdx = Math.max(0, rows.length - unread);
+        const firstNewId = rows[startIdx]?.id ?? null;
+        setDividerBeforeId(firstNewId);
+        // Scroll to the new-messages line (WhatsApp-style)
+        requestAnimationFrame(() => {
+          dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
+          setNearBottomState(isNearBottom(listRef.current));
+        });
+      } else {
+        setDividerBeforeId(null);
+        requestAnimationFrame(() => scrollToBottom(false));
+      }
     } catch {
       setError("Failed to load messages");
     } finally {
@@ -79,37 +155,56 @@ export default function ConversationView({
   }, [conversationId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
     function onRealtime(event) {
       const detail = event.detail;
       if (!detail || Number(detail.conversationId) !== Number(conversationId)) return;
       const message = detail.message;
       if (!message?.id) return;
+
+      const fromOther = Number(message.userId) !== Number(currentUserId);
+      const wasNearBottom = nearBottomRef.current;
+
       setMessages((prev) => {
         if (prev.some((m) => m.id === message.id)) return prev;
         return [...prev, message];
       });
+
+      // Incoming message while this chat is open → WhatsApp-style new-messages line
+      if (fromOther && !detail.self) {
+        setDividerBeforeId((current) => current ?? message.id);
+      }
+
+      if (wasNearBottom) {
+        requestAnimationFrame(() => scrollToBottom(true));
+      }
     }
     window.addEventListener("dialer:message:new", onRealtime);
     return () => window.removeEventListener("dialer:message:new", onRealtime);
-  }, [conversationId]);
+  }, [conversationId, currentUserId]);
 
   const peerLabel = useMemo(
     () => conversation?.peer?.username || "Conversation",
     [conversation?.peer?.username],
   );
 
-  // Oversight: assign high-contrast colors per participant in this chat
+  const newMessageCount = useMemo(() => {
+    if (!dividerBeforeId) return 0;
+    const idx = messages.findIndex((m) => Number(m.id) === Number(dividerBeforeId));
+    if (idx < 0) return 0;
+    return messages.length - idx;
+  }, [messages, dividerBeforeId]);
+
+  useEffect(() => {
+    if (loading) return;
+    onNewMessageCountChange?.(newMessageCount);
+  }, [loading, newMessageCount, onNewMessageCountChange]);
+
   const oversightNameColors = useMemo(() => {
     if (!conversation?.isOversight) return {};
     const fromParticipants = conversation.participants || [];
     if (fromParticipants.length > 0) {
       return buildParticipantNameColors(fromParticipants);
     }
-    // Fallback from message authors if participants aren't loaded
     const authors = messages.map((m) => m.author).filter(Boolean);
     return buildParticipantNameColors(authors);
   }, [conversation?.isOversight, conversation?.participants, messages]);
@@ -142,6 +237,9 @@ export default function ConversationView({
       }
       setDraft("");
       writeMessageDraft(conversationId, "");
+      clearNewDivider();
+      setNearBottomState(true);
+      requestAnimationFrame(() => scrollToBottom(true));
       textareaRef.current?.focus();
     } catch {
       setError("Failed to send");
@@ -210,64 +308,92 @@ export default function ConversationView({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-zinc-50/80 to-white px-3 py-4 dark:from-zinc-900/40 dark:to-zinc-950">
-        {loading ? (
-          <div className="space-y-3 py-4">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}
-              >
-                <div className="h-12 w-2/5 animate-pulse rounded-2xl bg-zinc-200/80 dark:bg-zinc-800" />
-              </div>
-            ))}
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center py-10 text-center">
-            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">No messages yet</p>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Say hello to start the conversation.
-            </p>
-          </div>
-        ) : (
-          messages.map((message) => {
-            const mine =
-              !conversation.isOversight &&
-              Number(message.userId) === Number(currentUserId);
-            return (
-              <div
-                key={message.id}
-                className={`flex ${mine ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
-                    mine
-                      ? "rounded-br-md bg-sky-600 text-white shadow-sky-600/20"
-                      : "rounded-bl-md border border-zinc-200/80 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                  }`}
-                >
-                  {conversation.isOversight && message.author?.username ? (
-                    <p className="mb-1 text-xs">
-                      <ColoredName
-                        name={message.author.username}
-                        colorClass={oversightNameColors[message.author.username]}
-                      />
-                    </p>
-                  ) : null}
-                  <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
-                  <p
-                    className={`mt-1.5 text-[10px] tabular-nums ${
-                      mine ? "text-sky-100/90" : "text-zinc-400 dark:text-zinc-500"
-                    }`}
-                  >
-                    {formatMessageTime(message.createdAt)}
-                  </p>
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={listRef}
+          onScroll={onListScroll}
+          className="h-full space-y-3 overflow-y-auto bg-gradient-to-b from-zinc-50/80 to-white px-3 py-4 dark:from-zinc-900/40 dark:to-zinc-950"
+        >
+          {loading ? (
+            <div className="space-y-3 py-4">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}>
+                  <div className="h-12 w-2/5 animate-pulse rounded-2xl bg-zinc-200/80 dark:bg-zinc-800" />
                 </div>
-              </div>
-            );
-          })
-        )}
-        <div ref={bottomRef} />
+              ))}
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center py-10 text-center">
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">No messages yet</p>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Say hello to start the conversation.
+              </p>
+            </div>
+          ) : (
+            messages.map((message) => {
+              const mine =
+                !conversation.isOversight &&
+                Number(message.userId) === Number(currentUserId);
+              const showDivider = Number(dividerBeforeId) === Number(message.id);
+              return (
+                <Fragment key={message.id}>
+                  {showDivider ? (
+                    <div ref={dividerRef}>
+                      <NewMessagesDivider count={newMessageCount} onDismiss={clearNewDivider} />
+                    </div>
+                  ) : null}
+                  <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
+                        mine
+                          ? "rounded-br-md bg-sky-600 text-white shadow-sky-600/20"
+                          : "rounded-bl-md border border-zinc-200/80 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      }`}
+                    >
+                      {conversation.isOversight && message.author?.username ? (
+                        <p className="mb-1 text-xs">
+                          <ColoredName
+                            name={message.author.username}
+                            colorClass={oversightNameColors[message.author.username]}
+                          />
+                        </p>
+                      ) : null}
+                      <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
+                      <p
+                        className={`mt-1.5 text-[10px] tabular-nums ${
+                          mine ? "text-sky-100/90" : "text-zinc-400 dark:text-zinc-500"
+                        }`}
+                      >
+                        {formatMessageTime(message.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                </Fragment>
+              );
+            })
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {newMessageCount > 0 && !nearBottom ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+            <button
+              type="button"
+              onClick={jumpToNewMessages}
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-sky-600/30 hover:bg-sky-500"
+              aria-label={`${newMessageCount} new messages`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                <path
+                  fillRule="evenodd"
+                  d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              {newMessageCount} new
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {error ? (
