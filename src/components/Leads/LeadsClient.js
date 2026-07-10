@@ -308,7 +308,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const isSupervisor = userRole === "supervisor";
   const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
-  const colSpan = showLeadFilters ? 7 : 6;
+  const showAgentColumn = showLeadFilters || isProcessor;
+  const colSpan = showAgentColumn ? 7 : 6;
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
@@ -1300,7 +1301,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
-              {showLeadFilters ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
+              {showAgentColumn ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
               <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -1368,7 +1369,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   >
                     {locationLabel}
                   </td>
-                  {showLeadFilters ? (
+                  {showAgentColumn ? (
                     <td
                       className={`${tableCellClass} max-w-[56px] truncate font-medium text-zinc-700 dark:text-zinc-300`}
                       title={lead.createdByUsername || undefined}
