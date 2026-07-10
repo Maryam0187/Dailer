@@ -9,6 +9,10 @@ function isLeaveNotYetStarted(application, today = getSessionCalendarDate()) {
   return Boolean(application?.startDate && application.startDate >= today);
 }
 
+function isLeaveStillActiveOrUpcoming(application, today = getSessionCalendarDate()) {
+  return Boolean(application?.endDate && application.endDate >= today);
+}
+
 export function parseLeaveDateInput(value) {
   const trimmed = String(value || "").trim();
   if (!DATE_RE.test(trimmed)) return null;
@@ -36,11 +40,15 @@ export function canUserEditLeaveReason(application) {
 }
 
 export function canAdminCancelLeaveApplication(application) {
-  return application?.status === "approved";
+  return application?.status === "approved" && isLeaveStillActiveOrUpcoming(application);
 }
 
 export function canUserRequestLeaveCancellation(application) {
-  return application?.status === "approved" && !application?.cancelRequestedAt;
+  return (
+    application?.status === "approved" &&
+    !application?.cancelRequestedAt &&
+    isLeaveStillActiveOrUpcoming(application)
+  );
 }
 
 export function serializeLeaveApplication(row, fallbackUsername = null, { forAdmin = false } = {}) {
@@ -189,7 +197,7 @@ export async function cancelLeaveApplication({ applicationId, cancelledBy }) {
   }
 
   if (!canAdminCancelLeaveApplication(row)) {
-    throw new Error("Only active leave applications can be cancelled.");
+    throw new Error("Only current or upcoming leave applications can be cancelled.");
   }
 
   row.status = "cancelled";

@@ -154,7 +154,7 @@ function RoleBadge({ value }) {
       ? styles[value]
       : "bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200";
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${palette}`}>
+    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${palette}`}>
       {roleLabel(value)}
     </span>
   );
@@ -172,17 +172,19 @@ function ActiveBadge({ active }) {
   );
 }
 
-function LeaveBadge({ leave }) {
+function LeaveBadge({ leave, showDates = true }) {
   if (!leave) {
     return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
   }
 
   return (
-    <span className="inline-flex flex-col gap-0.5">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
         On leave
       </span>
-      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{formatLeaveRange(leave)}</span>
+      {showDates ? (
+        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{formatLeaveRange(leave)}</span>
+      ) : null}
     </span>
   );
 }
@@ -1744,7 +1746,12 @@ function EditUserModal({
                     type="date"
                     className={`${inputClass} mt-1.5`}
                     value={leaveStartDate}
-                    onChange={(e) => setLeaveStartDate(e.target.value)}
+                    min={todayIsoDate()}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setLeaveStartDate(next);
+                      if (leaveEndDate && next && leaveEndDate < next) setLeaveEndDate(next);
+                    }}
                   />
                 </label>
                 <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
@@ -1753,6 +1760,11 @@ function EditUserModal({
                     type="date"
                     className={`${inputClass} mt-1.5`}
                     value={leaveEndDate}
+                    min={
+                      leaveStartDate && leaveStartDate > todayIsoDate()
+                        ? leaveStartDate
+                        : todayIsoDate()
+                    }
                     onChange={(e) => setLeaveEndDate(e.target.value)}
                   />
                 </label>
@@ -2670,7 +2682,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         </td>
                         {showLeaveColumn ? (
                           <td className="px-4 py-3.5">
-                            <LeaveBadge leave={u.currentLeave} />
+                            <LeaveBadge leave={u.currentLeave} showDates={false} />
                           </td>
                         ) : null}
                         {showAfterShiftColumn ? (

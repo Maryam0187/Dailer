@@ -8,6 +8,12 @@ const inputClass =
 
 const labelClass = "mb-1.5 block text-sm font-medium text-zinc-800";
 
+function todayIsoDate() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
 function formatDateRange(startDate, endDate) {
   if (startDate === endDate) return startDate;
   return `${startDate} – ${endDate}`;
@@ -70,6 +76,7 @@ function RequestCancelDialog({ dateRange, requesting, onConfirm, onClose }) {
 
 export default function LeaveApplicationClient({ username }) {
   const router = useRouter();
+  const today = todayIsoDate();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
@@ -270,7 +277,12 @@ export default function LeaveApplicationClient({ username }) {
                   type="date"
                   className={inputClass}
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  min={today}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setStartDate(next);
+                    if (endDate && next && endDate < next) setEndDate(next);
+                  }}
                   required
                 />
               </div>
@@ -283,6 +295,7 @@ export default function LeaveApplicationClient({ username }) {
                   type="date"
                   className={inputClass}
                   value={endDate}
+                  min={startDate && startDate > today ? startDate : today}
                   onChange={(e) => setEndDate(e.target.value)}
                   required
                 />
