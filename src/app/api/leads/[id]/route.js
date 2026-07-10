@@ -3,7 +3,7 @@ import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { hasLeadMonitorAccess } from "@/lib/leadRoles";
+import { hasLeadMonitorAccess, shouldHideLeadNotes } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
@@ -96,6 +96,9 @@ export async function PATCH(req, { params }) {
   }
 
   if (body?.notes !== undefined) {
+    if (shouldHideLeadNotes(authedUser.role, lead)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const nextNotes = trimField(body.notes, 65535);
     const prevNotes = lead.notes || "";
     if ((nextNotes || "") !== (prevNotes || "")) {
@@ -155,10 +158,8 @@ export async function PATCH(req, { params }) {
 
     const canReassign =
       hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor";
-    const processorSelfAssign =
-      authedUser.role === "processor" && nextAssignee === Number(authedUser.id);
 
-    if (!canReassign && !processorSelfAssign) {
+    if (!canReassign) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (canReassign && !(await canAssignLeadToAgent(authedUser, nextAssignee))) {
@@ -197,10 +198,22 @@ export async function PATCH(req, { params }) {
   if (body?.processorUserId !== undefined) {
     if (body.processorUserId === null || body.processorUserId === "") {
       if (lead.processorUserId != null) {
+        const previousProcessorId = lead.processorUserId;
+        const previousProcessor = await db.User.findOne({
+          where: { id: previousProcessorId },
+          attributes: ["id", "username"],
+        });
+        const previousProcessorUsername = previousProcessor?.username ?? null;
         update.processorUserId = null;
         activity.push({
-          type: "lead_phase_change",
-          body: "Processor cleared",
+          type: "processor_assigned",
+          body: previousProcessorUsername
+            ? `Processor cleared (was ${previousProcessorUsername})`
+            : "Processor cleared",
+          processorUserId: null,
+          processorUsername: null,
+          previousProcessorUserId: previousProcessorId,
+          previousProcessorUsername,
         });
       }
     } else {
@@ -224,16 +237,25 @@ export async function PATCH(req, { params }) {
           attributes: ["id", "username"],
         });
         const usernameById = new Map(users.map((u) => [u.id, u.username]));
-        const processorName = usernameById.get(nextProcessorId) ?? `user #${nextProcessorId}`;
+        const processorUsername = usernameById.get(nextProcessorId) ?? null;
+        const processorName = processorUsername ?? `user #${nextProcessorId}`;
+        const previousProcessorUsername = previousProcessorId
+          ? usernameById.get(previousProcessorId) ?? null
+          : null;
         const previousProcessorName = previousProcessorId
-          ? usernameById.get(previousProcessorId) ?? `user #${previousProcessorId}`
+          ? previousProcessorUsername ?? `user #${previousProcessorId}`
           : null;
         update.processorUserId = nextProcessorId;
+        const activityBody = previousProcessorName
+          ? `Processor assigned to ${processorName} (from ${previousProcessorName})`
+          : `Processor assigned to ${processorName}`;
         activity.push({
-          type: "lead_phase_change",
-          body: previousProcessorName
-            ? `Processor set to ${processorName} (from ${previousProcessorName})`
-            : `Processor set to ${processorName}`,
+          type: "processor_assigned",
+          body: activityBody,
+          processorUserId: nextProcessorId,
+          processorUsername,
+          previousProcessorUserId: previousProcessorId,
+          previousProcessorUsername,
         });
       }
     }
@@ -265,10 +287,11 @@ export async function PATCH(req, { params }) {
   const leadName = update.fullName ?? lead.fullName;
 
   for (const entry of activity) {
+    const isAssignment = entry.type === "assigned" || entry.type === "processor_assigned";
     await createLeadUpdate({
       leadId: lead.id,
       userId: authedUser.id,
-      type: entry.type === "assigned" ? "lead_edit" : entry.type,
+      type: isAssignment ? "lead_edit" : entry.type,
       body: entry.body,
       previousStatus: entry.previousStatus,
       newStatus: entry.newStatus,
@@ -286,6 +309,20 @@ export async function PATCH(req, { params }) {
           assignedUsername: entry.assignedUsername,
           previousAssignedUserId: entry.previousAssignedUserId,
           previousAssignedUsername: entry.previousAssignedUsername,
+        },
+      });
+    } else if (entry.type === "processor_assigned") {
+      await logLeadUserActivity({
+        req,
+        userId: authedUser.id,
+        action: "lead_processor_assigned",
+        leadId: lead.id,
+        metadata: {
+          leadName,
+          processorUserId: entry.processorUserId,
+          processorUsername: entry.processorUsername,
+          previousProcessorUserId: entry.previousProcessorUserId,
+          previousProcessorUsername: entry.previousProcessorUsername,
         },
       });
     } else {

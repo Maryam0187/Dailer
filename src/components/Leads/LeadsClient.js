@@ -251,7 +251,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignedScopeFilter, setAssignedScopeFilter] = useState("all");
-  const [processorScopeFilter, setProcessorScopeFilter] = useState("all");
+  const [processorScopeFilter, setProcessorScopeFilter] = useState("own");
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
@@ -308,7 +308,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const isSupervisor = userRole === "supervisor";
   const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
-  const colSpan = showLeadFilters ? 7 : 6;
+  const showAgentColumn = showLeadFilters || isProcessor;
+  const colSpan = showAgentColumn ? 7 : 6;
 
   const filteredAgents = useMemo(() => {
     if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
@@ -1145,22 +1146,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </select>
               </div>
             ) : null}
-            {isProcessor ? (
-              <div>
-                <label className={labelClass}>Assignment</label>
-                <select
-                  value={processorScopeFilter}
-                  onChange={(e) => {
-                    setProcessorScopeFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="all">All my leads</option>
-                  <option value="assigned">Assigned for processing</option>
-                </select>
-              </div>
-            ) : null}
             {showSupervisorFilter && supervisorFilter !== "all" ? (
               <div>
                 <label className={labelClass}>Assignment</label>
@@ -1289,6 +1274,33 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       </div>
 
+      {isProcessor ? (
+        <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Processor lead views">
+          {[
+            { id: "own", label: "My leads" },
+            { id: "assigned", label: "Assigned for processing" },
+            { id: "all", label: "All" },
+          ].map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => {
+                setProcessorScopeFilter(option.id);
+                setPage(1);
+              }}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                processorScopeFilter === option.id
+                  ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }`}
+              aria-pressed={processorScopeFilter === option.id}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <WorkflowStatusLegend workflowTags={workflowTags} preferShortLabels={preferShortLabels} />
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -1300,7 +1312,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
-              {showLeadFilters ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
+              {showAgentColumn ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
               <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -1368,7 +1380,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   >
                     {locationLabel}
                   </td>
-                  {showLeadFilters ? (
+                  {showAgentColumn ? (
                     <td
                       className={`${tableCellClass} max-w-[56px] truncate font-medium text-zinc-700 dark:text-zinc-300`}
                       title={lead.createdByUsername || undefined}
@@ -1423,8 +1435,6 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
           canAssignLead={isAdmin}
-          canAssignToSelf={isProcessor}
-          currentUserId={currentUserId}
         />
       ) : null}
 

@@ -1,5 +1,6 @@
 import db from "@/server/db";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
+import { shouldHideLeadNotes } from "@/lib/leadRoles";
 
 export const leadAssignedUserInclude = {
   model: db.User,
@@ -34,6 +35,7 @@ export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude, 
 
 export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
+  const notesHidden = shouldHideLeadNotes(viewerRole, lead);
   return {
     id: lead.id,
     phone: phonesRedacted ? maskPhoneLastFour(lead.phone) : lead.phone,
@@ -53,7 +55,8 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     cableName: lead.cableName,
     streamName: lead.streamName,
     breakdown: lead.breakdown,
-    notes: lead.notes,
+    notes: notesHidden ? null : lead.notes,
+    notesHidden,
     status: lead.status,
     source: lead.source,
     leadPhase: lead.leadPhase || "active",

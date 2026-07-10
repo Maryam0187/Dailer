@@ -173,8 +173,6 @@ export default function LeadDetailPanel({
   workflowTagLookup = {},
   preferShortLabels = true,
   canAssignLead = false,
-  canAssignToSelf = false,
-  currentUserId = null,
 }) {
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
@@ -346,11 +344,6 @@ export default function LeadDetailPanel({
     }
   }
 
-  const alreadyAssignedToSelf =
-    currentUserId != null && Number(lead?.assignedUserId) === Number(currentUserId);
-  const showAssignToMe =
-    canAssignToSelf && currentUserId != null && !alreadyAssignedToSelf;
-
   async function downloadRecording(callId, url) {
     if (!url) return;
     setDownloadingId(callId);
@@ -439,16 +432,6 @@ export default function LeadDetailPanel({
                       onSelect={onAssigneeChange}
                     />
                   ) : null}
-                  {showAssignToMe ? (
-                    <button
-                      type="button"
-                      disabled={savingAssignee}
-                      onClick={() => void onAssigneeChange(currentUserId)}
-                      className="ml-1 rounded-md border border-emerald-500/60 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 outline-none transition-colors hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-500/25 disabled:opacity-50 dark:border-emerald-500/50 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
-                    >
-                      Assign to me
-                    </button>
-                  ) : null}
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
@@ -531,31 +514,33 @@ export default function LeadDetailPanel({
             ) : null}
           </section>
 
-          <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
-            <RichTextField
-              label="Lead notes"
-              labelClass={labelClass}
-              value={notesDraft}
-              onChange={setNotesDraft}
-              disabled={savingNotes}
-              placeholder="Add context about this lead…"
-              actions={
-                notesDirty ? (
-                  <button
-                    type="button"
-                    disabled={savingNotes}
-                    onClick={() => void onSaveNotes()}
-                    className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                  >
-                    {savingNotes ? "Saving…" : "Save notes"}
-                  </button>
-                ) : null
-              }
-            />
-            {isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
-              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
-            ) : null}
-          </section>
+          {!lead.notesHidden ? (
+            <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+              <RichTextField
+                label="Lead notes"
+                labelClass={labelClass}
+                value={notesDraft}
+                onChange={setNotesDraft}
+                disabled={savingNotes}
+                placeholder="Add context about this lead…"
+                actions={
+                  notesDirty ? (
+                    <button
+                      type="button"
+                      disabled={savingNotes}
+                      onClick={() => void onSaveNotes()}
+                      className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {savingNotes ? "Saving…" : "Save notes"}
+                    </button>
+                  ) : null
+                }
+              />
+              {isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
+                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
+              ) : null}
+            </section>
+          ) : null}
 
           <form
             onSubmit={onPostComment}
