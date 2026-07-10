@@ -111,7 +111,7 @@ export async function GET(req) {
   if (assignedScopeRaw && assignedScopeRaw !== "other_team") {
     return NextResponse.json({ error: "Invalid assignedScope" }, { status: 400 });
   }
-  if (processorScopeRaw && processorScopeRaw !== "assigned") {
+  if (processorScopeRaw && processorScopeRaw !== "assigned" && processorScopeRaw !== "own") {
     return NextResponse.json({ error: "Invalid processorScope" }, { status: 400 });
   }
   const isFullAccessRole = hasFullLeadAccess(authedUser.role);

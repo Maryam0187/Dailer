@@ -52,7 +52,7 @@ export function filterLeadUpdatesForViewer(updates, viewer, lead) {
       });
   }
   if (shouldRestrictProcessorLeadActivity(viewerRole, lead) && viewerId != null) {
-    next = next.filter((u) => Number(u.userId) === viewerId);
+    next = next.filter((u) => u.type === "comment" || Number(u.userId) === viewerId);
   }
   return next;
 }

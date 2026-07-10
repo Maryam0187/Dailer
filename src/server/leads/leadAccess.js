@@ -259,6 +259,11 @@ export async function resolveLeadsListWhere(
     if (processorScope === "assigned") {
       return { processorUserId: authedUser.id };
     }
+    if (processorScope === "own") {
+      return {
+        [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+      };
+    }
     return {
       [Op.or]: [
         { assignedUserId: authedUser.id },
