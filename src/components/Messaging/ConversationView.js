@@ -6,10 +6,25 @@ import {
   PresenceDot,
   UserAvatar,
   buildParticipantNameColors,
-  formatMessageTime,
+  formatMessageClock,
+  formatMessageDateLabel,
+  messageDayKey,
   roleLabel,
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
+
+function DateSeparator({ label }) {
+  if (!label) return null;
+  return (
+    <div className="flex items-center gap-2 py-2" role="separator" aria-label={label}>
+      <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+      <span className="shrink-0 rounded-full bg-zinc-100 px-2.5 py-0.5 text-[11px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+    </div>
+  );
+}
 
 function NewMessagesDivider({ count, onDismiss }) {
   if (!count || count <= 0) return null;
@@ -37,6 +52,7 @@ export default function ConversationView({
   onBack = null,
   onMessageSent,
   onNewMessageCountChange = null,
+  onExpandInbox = null,
   className = "",
 }) {
   const [messages, setMessages] = useState([]);
@@ -261,6 +277,23 @@ export default function ConversationView({
   return (
     <div className={`flex h-full min-h-0 flex-col bg-white dark:bg-zinc-950 ${className}`}>
       <div className="flex items-center gap-2 border-b border-zinc-200/80 bg-white/90 px-3 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+        {onExpandInbox ? (
+          <button
+            type="button"
+            onClick={onExpandInbox}
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-600 hover:bg-zinc-100 sm:inline-flex dark:text-zinc-300 dark:hover:bg-zinc-800"
+            aria-label="Show inbox"
+            title="Show inbox"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path
+                fillRule="evenodd"
+                d="M4.21 2.47a.75.75 0 011.06-.06l5.26 5.99a.75.75 0 010 .99l-5.26 5.99a.75.75 0 11-1.12-.99L8.94 9 4.15 3.53a.75.75 0 01.06-1.06zm7 0a.75.75 0 011.06-.06l5.26 5.99a.75.75 0 010 .99l-5.26 5.99a.75.75 0 11-1.12-.99L15.94 9l-4.79-5.47a.75.75 0 01.06-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        ) : null}
         {onBack ? (
           <button
             type="button"
@@ -330,13 +363,19 @@ export default function ConversationView({
               </p>
             </div>
           ) : (
-            messages.map((message) => {
+            messages.map((message, index) => {
               const mine =
                 !conversation.isOversight &&
                 Number(message.userId) === Number(currentUserId);
               const showDivider = Number(dividerBeforeId) === Number(message.id);
+              const dayKey = messageDayKey(message.createdAt);
+              const prevDayKey = index > 0 ? messageDayKey(messages[index - 1]?.createdAt) : null;
+              const showDateSeparator = Boolean(dayKey) && dayKey !== prevDayKey;
               return (
                 <Fragment key={message.id}>
+                  {showDateSeparator ? (
+                    <DateSeparator label={formatMessageDateLabel(message.createdAt)} />
+                  ) : null}
                   {showDivider ? (
                     <div ref={dividerRef}>
                       <NewMessagesDivider count={newMessageCount} onDismiss={clearNewDivider} />
@@ -364,7 +403,7 @@ export default function ConversationView({
                           mine ? "text-sky-100/90" : "text-zinc-400 dark:text-zinc-500"
                         }`}
                       >
-                        {formatMessageTime(message.createdAt)}
+                        {formatMessageClock(message.createdAt)}
                       </p>
                     </div>
                   </div>
