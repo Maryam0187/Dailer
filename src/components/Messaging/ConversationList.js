@@ -36,6 +36,7 @@ export default function ConversationList({
   activeNewCount = 0,
   onSelect,
   onCompose,
+  onCollapse = null,
   className = "",
 }) {
   const listUnreadTotal = conversations.reduce((sum, c) => {
@@ -47,7 +48,7 @@ export default function ConversationList({
   return (
     <div className={`flex h-full min-h-0 flex-col bg-zinc-50/80 dark:bg-zinc-950 ${className}`}>
       <div className="flex items-center justify-between gap-2 border-b border-zinc-200/80 px-3 py-3 dark:border-zinc-800">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Inbox
           </h2>
@@ -56,16 +57,35 @@ export default function ConversationList({
             {listUnreadTotal > 0 ? ` · ${listUnreadTotal} unread` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onCompose}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-sky-600/20 hover:bg-sky-500"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-            <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-          </svg>
-          New
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {onCollapse ? (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="hidden h-8 w-8 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-200/80 hover:text-zinc-800 sm:inline-flex dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Collapse inbox"
+              title="Collapse inbox"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path
+                  fillRule="evenodd"
+                  d="M15.79 2.47a.75.75 0 01.06 1.06L11.06 9l4.79 5.47a.75.75 0 11-1.12.99L9.47 9.53a.75.75 0 010-.99l5.26-5.99a.75.75 0 011.06-.08zM8.79 2.47a.75.75 0 01.06 1.06L4.06 9l4.79 5.47a.75.75 0 11-1.12.99L2.47 9.53a.75.75 0 010-.99l5.26-5.99a.75.75 0 011.06-.08z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onCompose}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-sky-600/20 hover:bg-sky-500"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+              <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+            </svg>
+            New
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
