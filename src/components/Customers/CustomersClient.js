@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatLandline } from "@/lib/phoneFormat";
 import { formatLeadService } from "@/lib/leadService";
 import {
@@ -28,6 +28,68 @@ const btnSecondary =
   "rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 const btnPage =
   "rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
+
+const SEARCH_BY_OPTIONS = [
+  { value: "phone", label: "Phone", placeholder: "Phone number" },
+  { value: "name", label: "Name", placeholder: "Customer name" },
+  { value: "last4", label: "Last 4", placeholder: "Card last 4 digits" },
+];
+
+const SALE_FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "closed", label: "Closed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+const PAYMENT_FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "card", label: "Card" },
+  { value: "pos_link", label: "Link" },
+  { value: "check_mail", label: "Check mail" },
+  { value: "e_check", label: "E-check" },
+];
+
+const DATE_RANGE_OPTIONS = [
+  { value: "all", label: "All time" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "week", label: "Last 7 days" },
+  { value: "month", label: "This month" },
+  { value: "custom", label: "Custom" },
+];
+
+function formatDateInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getPresetRange(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "today") {
+    const d = formatDateInput(today);
+    return { from: d, to: d };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const d = formatDateInput(y);
+    return { from: d, to: d };
+  }
+  if (preset === "week") {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 6);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  if (preset === "month") {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: formatDateInput(from), to: formatDateInput(today) };
+  }
+  return { from: "", to: "" };
+}
 
 const PAYMENT_TYPES = [
   { value: "card", label: "Card" },
@@ -177,6 +239,14 @@ export default function CustomersClient() {
   });
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [searchBy, setSearchBy] = useState("phone");
+  const [saleFilter, setSaleFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
+  const [rangePreset, setRangePreset] = useState("all");
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  const [appliedFrom, setAppliedFrom] = useState("");
+  const [appliedTo, setAppliedTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -192,6 +262,7 @@ export default function CustomersClient() {
   const [editingLead, setEditingLead] = useState(null);
   const [loadingLeadId, setLoadingLeadId] = useState(null);
   const [workflowTags, setWorkflowTags] = useState([]);
+  const loadRequestIdRef = useRef(0);
   const [adminShortLabels, setAdminShortLabels] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -204,39 +275,62 @@ export default function CustomersClient() {
   const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
   const preferShortLabels = resolvePreferShortLabels(true, adminShortLabels);
 
-  const loadCustomers = useCallback(async (page = 1, query = q) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(CUSTOMERS_PAGE_SIZE),
-      });
-      if (query.trim()) params.set("q", query.trim());
-      const res = await fetch(`/api/customers?${params}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to load customers");
-      setCustomers(json.customers || []);
-      setPagination(
-        json.pagination || {
-          page: 1,
-          pageSize: CUSTOMERS_PAGE_SIZE,
-          total: 0,
-          totalPages: 1,
-          hasNext: false,
-          hasPrev: false,
-        },
-      );
-    } catch (err) {
-      setError(err.message || "Failed to load customers");
-      setCustomers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [q]);
+  const loadCustomers = useCallback(
+    async (
+      page = 1,
+      {
+        query = q,
+        by = searchBy,
+        sale = saleFilter,
+        payment = paymentFilter,
+        from = appliedFrom,
+        to = appliedTo,
+      } = {},
+    ) => {
+      const requestId = ++loadRequestIdRef.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(CUSTOMERS_PAGE_SIZE),
+          searchBy: by,
+        });
+        if (query.trim()) params.set("q", query.trim());
+        if (sale && sale !== "all") params.set("saleFilter", sale);
+        if (payment && payment !== "all") params.set("paymentFilter", payment);
+        if (from && to) {
+          params.set("fromDate", from);
+          params.set("toDate", to);
+        }
+        const res = await fetch(`/api/customers?${params}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (requestId !== loadRequestIdRef.current) return;
+        if (!res.ok) throw new Error(json?.error || "Failed to load customers");
+        setCustomers(json.customers || []);
+        setPagination(
+          json.pagination || {
+            page: 1,
+            pageSize: CUSTOMERS_PAGE_SIZE,
+            total: 0,
+            totalPages: 1,
+            hasNext: false,
+            hasPrev: false,
+          },
+        );
+      } catch (err) {
+        if (requestId !== loadRequestIdRef.current) return;
+        setError(err.message || "Failed to load customers");
+        setCustomers([]);
+      } finally {
+        if (requestId === loadRequestIdRef.current) setLoading(false);
+      }
+    },
+    [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo],
+  );
 
   const loadDetail = useCallback(async (id) => {
     if (!id) {
@@ -262,8 +356,8 @@ export default function CustomersClient() {
   }, []);
 
   useEffect(() => {
-    void loadCustomers(1, q);
-  }, [q, loadCustomers]);
+    void loadCustomers(1);
+  }, [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo, loadCustomers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -304,19 +398,69 @@ export default function CustomersClient() {
 
   function onSearch(e) {
     e.preventDefault();
+    if (rangePreset === "custom") {
+      if (!rangeFrom || !rangeTo) {
+        setError("From date and to date are required");
+        return;
+      }
+      if (rangeFrom > rangeTo) {
+        setError("From date must be on or before to date");
+        return;
+      }
+      setAppliedFrom(rangeFrom);
+      setAppliedTo(rangeTo);
+    }
     setQ(searchInput.trim());
     setSelectedId(null);
   }
 
+  function onRangePresetChange(preset) {
+    setRangePreset(preset);
+    setSelectedId(null);
+    setError(null);
+    if (preset === "custom") return;
+    const next = getPresetRange(preset);
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
+  }
+
+  function clearFilters() {
+    setSearchInput("");
+    setQ("");
+    setSearchBy("phone");
+    setSaleFilter("all");
+    setPaymentFilter("all");
+    setRangePreset("all");
+    setRangeFrom("");
+    setRangeTo("");
+    setAppliedFrom("");
+    setAppliedTo("");
+    setSelectedId(null);
+    setError(null);
+  }
+
+  const hasActiveFilters =
+    Boolean(q) ||
+    searchBy !== "phone" ||
+    saleFilter !== "all" ||
+    paymentFilter !== "all" ||
+    rangePreset !== "all" ||
+    Boolean(appliedFrom && appliedTo);
+
   function onPrevPage() {
     if (!pagination.hasPrev || loading) return;
-    void loadCustomers(pagination.page - 1, q);
+    void loadCustomers(pagination.page - 1);
   }
 
   function onNextPage() {
     if (!pagination.hasNext || loading) return;
-    void loadCustomers(pagination.page + 1, q);
+    void loadCustomers(pagination.page + 1);
   }
+
+  const searchPlaceholder =
+    SEARCH_BY_OPTIONS.find((opt) => opt.value === searchBy)?.placeholder || "Search";
 
   function customerName() {
     return detail?.customer?.fullName || detail?.customer?.displayName || "";
@@ -406,7 +550,7 @@ export default function CustomersClient() {
       setPaymentForm(newPaymentForm());
       setEditingPaymentId(null);
       await loadDetail(selectedId);
-      await loadCustomers(pagination.page, q);
+      await loadCustomers(pagination.page);
     } catch (err) {
       setPaymentError(err.message || "Failed to save payment method");
     } finally {
@@ -433,7 +577,7 @@ export default function CustomersClient() {
         setViewingPayment(null);
       }
       await loadDetail(selectedId);
-      await loadCustomers(pagination.page, q);
+      await loadCustomers(pagination.page);
     } catch (err) {
       setPaymentError(err.message || "Failed to delete");
     }
@@ -491,35 +635,151 @@ export default function CustomersClient() {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={onSearch} className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[220px] flex-1">
-          <label htmlFor="customer-search" className={labelClass}>
-            Search by phone
-          </label>
-          <input
-            id="customer-search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className={inputClass}
-            placeholder="Phone number"
-          />
-        </div>
-        <button type="submit" className={btnPrimary}>
-          Search
-        </button>
-        {q ? (
-          <button
-            type="button"
-            className={btnSecondary}
-            onClick={() => {
-              setSearchInput("");
-              setQ("");
-            }}
-          >
-            Clear
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <form onSubmit={onSearch} className="flex flex-wrap items-end gap-3">
+          <div className="w-full sm:w-36">
+            <label htmlFor="customer-search-by" className={labelClass}>
+              Search by
+            </label>
+            <select
+              id="customer-search-by"
+              value={searchBy}
+              onChange={(e) => {
+                setSearchBy(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              {SEARCH_BY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <label htmlFor="customer-search" className={labelClass}>
+              {searchBy === "last4" ? "Last 4 digits" : searchBy === "name" ? "Name" : "Phone"}
+            </label>
+            <input
+              id="customer-search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className={inputClass}
+              placeholder={searchPlaceholder}
+              inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+            />
+          </div>
+          <div className="w-full sm:min-w-[200px] sm:flex-1">
+            <label htmlFor="customer-sale-filter" className={labelClass}>
+              Sale status
+            </label>
+            <select
+              id="customer-sale-filter"
+              value={saleFilter}
+              onChange={(e) => {
+                setSaleFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              {SALE_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[200px] sm:flex-1">
+            <label htmlFor="customer-payment-filter" className={labelClass}>
+              Payment
+            </label>
+            <select
+              id="customer-payment-filter"
+              value={paymentFilter}
+              onChange={(e) => {
+                setPaymentFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              {PAYMENT_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[180px] sm:w-44">
+            <label htmlFor="customer-date-range" className={labelClass}>
+              Date range
+            </label>
+            <select
+              id="customer-date-range"
+              value={rangePreset}
+              onChange={(e) => onRangePresetChange(e.target.value)}
+              className={inputClass}
+            >
+              {DATE_RANGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {rangePreset === "custom" ? (
+            <>
+              <div className="w-full sm:w-40">
+                <label htmlFor="customer-from-date" className={labelClass}>
+                  From
+                </label>
+                <input
+                  id="customer-from-date"
+                  type="date"
+                  value={rangeFrom}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeFrom(e.target.value);
+                  }}
+                  className={inputClass}
+                />
+              </div>
+              <div className="w-full sm:w-40">
+                <label htmlFor="customer-to-date" className={labelClass}>
+                  To
+                </label>
+                <input
+                  id="customer-to-date"
+                  type="date"
+                  value={rangeTo}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeTo(e.target.value);
+                  }}
+                  className={inputClass}
+                />
+              </div>
+            </>
+          ) : null}
+          <button type="submit" className={btnPrimary}>
+            Search
           </button>
+          {hasActiveFilters ? (
+            <button type="button" className={btnSecondary} onClick={clearFilters}>
+              Clear filters
+            </button>
+          ) : null}
+        </form>
+        {appliedFrom && appliedTo ? (
+          <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+            Lead activity{" "}
+            {saleFilter === "closed" || saleFilter === "cancelled" ? "updated" : "created"}{" "}
+            in <span className="font-medium">{appliedFrom}</span>
+            {" — "}
+            <span className="font-medium">{appliedTo}</span>
+          </p>
         ) : null}
-      </form>
+      </section>
 
       {error ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
