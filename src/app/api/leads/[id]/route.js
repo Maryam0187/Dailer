@@ -21,6 +21,27 @@ function trimField(value, maxLen) {
 const ALLOWED_STATUSES = new Set(["new", "contacted", "callback", "qualified", "closed", "dnc"]);
 const ALLOWED_SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
 
+export async function GET(_req, { params }) {
+  const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
+  if (errorResponse) return errorResponse;
+
+  const { id: rawId } = await params;
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "Invalid lead id" }, { status: 400 });
+  }
+
+  const lead = await db.Lead.findByPk(id, { include: leadListIncludes });
+  if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  if (!(await canAccessLead(lead, authedUser))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return NextResponse.json({
+    lead: serializeLead(lead, null, authedUser.role),
+  });
+}
+
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
   if (errorResponse) return errorResponse;

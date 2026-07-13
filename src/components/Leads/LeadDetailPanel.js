@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
-import IconTooltipButton, { CallIcon, CloseIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
+import IconTooltipButton, { CallIcon, CloseIcon, EditIcon, ExpandIcon } from "@/components/Leads/IconTooltipButton";
 import RichTextField from "@/components/Leads/RichTextField";
 import { RichHtmlContent } from "@/components/Leads/RichTextEditor";
 import { isEmptyRichText } from "@/lib/richText";
@@ -173,7 +174,9 @@ export default function LeadDetailPanel({
   workflowTagLookup = {},
   preferShortLabels = true,
   canAssignLead = false,
+  variant = "drawer",
 }) {
+  const isPage = variant === "page";
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
   const [loadingUpdates, setLoadingUpdates] = useState(true);
@@ -378,15 +381,22 @@ export default function LeadDetailPanel({
   const notesDirty = (notesDraft || "") !== (lead.notes || "");
   const breakdownDirty = (breakdownDraft || "") !== (lead.breakdown || "");
 
+  const shellClass = isPage
+    ? "flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950"
+    : "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950";
+  const Shell = isPage ? "div" : "aside";
+
   return (
     <>
-      <button
-        type="button"
-        className="fixed inset-0 z-40 bg-zinc-950/40 backdrop-blur-[2px]"
-        aria-label="Close lead details"
-        onClick={onClose}
-      />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+      {!isPage ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-zinc-950/40 backdrop-blur-[2px]"
+          aria-label="Close lead details"
+          onClick={onClose}
+        />
+      ) : null}
+      <Shell className={shellClass}>
         <div className="border-b border-zinc-200 bg-gradient-to-r from-emerald-50/80 to-white px-5 py-4 dark:border-zinc-800 dark:from-emerald-950/30 dark:to-zinc-950">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -449,9 +459,30 @@ export default function LeadDetailPanel({
                   <EditIcon />
                 </IconTooltipButton>
               ) : null}
-              <IconTooltipButton title="Close" onClick={onClose}>
-                <CloseIcon />
-              </IconTooltipButton>
+              {!isPage ? (
+                <Link
+                  href={`/leads/${lead.id}`}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  title="Open full page"
+                  aria-label="Open full page"
+                >
+                  <ExpandIcon className="h-4 w-4" />
+                </Link>
+              ) : null}
+              {isPage ? (
+                <Link
+                  href="/leads"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  title="Back to leads"
+                  aria-label="Back to leads"
+                >
+                  <CloseIcon />
+                </Link>
+              ) : (
+                <IconTooltipButton title="Close" onClick={onClose}>
+                  <CloseIcon />
+                </IconTooltipButton>
+              )}
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -675,7 +706,7 @@ export default function LeadDetailPanel({
             )}
           </section>
         </div>
-      </aside>
+      </Shell>
     </>
   );
 }
