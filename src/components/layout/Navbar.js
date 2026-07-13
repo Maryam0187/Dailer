@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import LogoutButton from "@/components/LogoutButton";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
@@ -47,6 +48,36 @@ function linkClass(active, palette, extra = "") {
   return `inline-flex shrink-0 items-center rounded-xl border font-semibold transition-colors ${colors} ${extra}`;
 }
 
+function buildAdminDropdownItems(pathname) {
+  return [
+    {
+      href: "/customers",
+      label: "Customers",
+      active: pathname === "/customers" || pathname?.startsWith("/customers/"),
+    },
+    {
+      href: "/message-oversight",
+      label: "Chat oversight",
+      active: pathname === "/message-oversight",
+    },
+    {
+      href: "/reports",
+      label: "Reports",
+      active: pathname === "/reports",
+    },
+    {
+      href: "/billing",
+      label: "Billing",
+      active: pathname === "/billing",
+    },
+    {
+      href: "/shift",
+      label: "Shift",
+      active: pathname === "/shift",
+    },
+  ];
+}
+
 function buildNavItems(role, pathname, accessMode = "full") {
   const items = [
     {
@@ -84,32 +115,15 @@ function buildNavItems(role, pathname, accessMode = "full") {
   }
 
   if (accessMode !== "limited" && role === "admin") {
-    items.push(
-      {
-        href: "/message-oversight",
-        label: "Chat oversight",
-        active: pathname === "/message-oversight",
-        palette: "amber",
-      },
-      {
-        href: "/reports",
-        label: "Reports",
-        active: pathname === "/reports",
-        palette: "amber",
-      },
-      {
-        href: "/billing",
-        label: "Billing",
-        active: pathname === "/billing",
-        palette: "violet",
-      },
-      {
-        href: "/shift",
-        label: "Shift",
-        active: pathname === "/shift",
-        palette: "amber",
-      },
-    );
+    const adminChildren = buildAdminDropdownItems(pathname);
+    items.push({
+      type: "dropdown",
+      id: "admin",
+      label: "Admin",
+      palette: "violet",
+      active: adminChildren.some((child) => child.active),
+      children: adminChildren,
+    });
   }
 
   return items;
@@ -147,6 +161,144 @@ function NavLink({ item, onNavigate, className = "" }) {
   );
 }
 
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
+      aria-hidden
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function AdminDropdown({ item, onNavigate }) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  function updateMenuPosition() {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuStyle({
+      position: "fixed",
+      top: Math.round(rect.bottom + 6),
+      left: Math.round(rect.left),
+      minWidth: Math.max(Math.round(rect.width), 192),
+      zIndex: 100,
+    });
+  }
+
+  function close() {
+    setOpen(false);
+    setMenuStyle(null);
+  }
+
+  function toggleOpen() {
+    if (open) {
+      close();
+      return;
+    }
+    updateMenuPosition();
+    setOpen(true);
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    updateMenuPosition();
+    return undefined;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function onPointerDown(event) {
+      const target = event.target;
+      if (rootRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(`[data-admin-menu="${menuId}"]`)) return;
+      close();
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") close();
+    }
+    function onReposition() {
+      updateMenuPosition();
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, menuId]);
+
+  const menu =
+    open && mounted && menuStyle ? (
+      <div
+        data-admin-menu={menuId}
+        role="menu"
+        style={menuStyle}
+        className="rounded-xl border border-zinc-200 bg-white py-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-950"
+      >
+        {item.children.map((child) => (
+          <Link
+            key={child.href}
+            href={child.href}
+            role="menuitem"
+            onClick={() => {
+              close();
+              onNavigate?.();
+            }}
+            className={`block px-3.5 py-2 text-sm font-semibold transition-colors ${
+              child.active
+                ? "bg-violet-50 text-violet-950 dark:bg-violet-950/50 dark:text-violet-100"
+                : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            }`}
+            aria-current={child.active ? "page" : undefined}
+          >
+            {child.label}
+          </Link>
+        ))}
+      </div>
+    ) : null;
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={linkClass(item.active || open, item.palette, "gap-1.5 px-3 py-2 text-sm lg:text-base")}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={toggleOpen}
+      >
+        <span>{item.label}</span>
+        <ChevronIcon open={open} />
+      </button>
+      {mounted && menu ? createPortal(menu, document.body) : null}
+    </div>
+  );
+}
+
 function MenuIcon({ open }) {
   if (open) {
     return (
@@ -174,11 +326,13 @@ function MenuIcon({ open }) {
 export default function Navbar({ role, shiftStatus = null, accessMode = "full" }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
   const navItems = buildNavItems(role, pathname, accessMode);
   const mobileItems = navItems.filter((item) => !item.brand);
 
   useEffect(() => {
     setMenuOpen(false);
+    setMobileAdminOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -201,13 +355,17 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b-2 border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 backdrop-blur-md dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
-      <div className="relative mx-auto max-w-6xl px-3 sm:px-4">
-        <div className="flex h-14 items-center gap-2 sm:h-16 sm:gap-3">
-          <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-x-auto lg:flex lg:gap-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {navItems.map((item) => (
-              <NavLink key={item.href} item={item} onNavigate={closeMenu} />
-            ))}
+    <header className="sticky top-0 z-50 overflow-visible border-b-2 border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 backdrop-blur-md dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
+      <div className="relative mx-auto max-w-6xl overflow-visible px-3 sm:px-4">
+        <div className="flex h-14 items-center gap-2 overflow-visible sm:h-16 sm:gap-3">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-visible lg:flex lg:gap-3">
+            {navItems.map((item) =>
+              item.type === "dropdown" ? (
+                <AdminDropdown key={item.id} item={item} onNavigate={closeMenu} />
+              ) : (
+                <NavLink key={item.href} item={item} onNavigate={closeMenu} />
+              ),
+            )}
           </div>
 
           <div className="flex min-w-0 items-center gap-2 lg:hidden">
@@ -266,14 +424,55 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
                 </div>
               ) : null}
               <div className="flex flex-col gap-2">
-                {mobileItems.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    onNavigate={closeMenu}
-                    className="w-full justify-center py-2.5"
-                  />
-                ))}
+                {mobileItems.map((item) => {
+                  if (item.type === "dropdown") {
+                    return (
+                      <div key={item.id} className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          className={linkClass(
+                            item.active || mobileAdminOpen,
+                            item.palette,
+                            "w-full justify-between gap-2 px-3 py-2.5 text-sm",
+                          )}
+                          aria-expanded={mobileAdminOpen}
+                          onClick={() => setMobileAdminOpen((open) => !open)}
+                        >
+                          <span>{item.label}</span>
+                          <ChevronIcon open={mobileAdminOpen} />
+                        </button>
+                        {mobileAdminOpen ? (
+                          <div className="ml-2 flex flex-col gap-1.5 border-l-2 border-violet-200 pl-2 dark:border-violet-800">
+                            {item.children.map((child) => (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                onClick={closeMenu}
+                                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                                  child.active
+                                    ? "bg-violet-50 text-violet-950 dark:bg-violet-950/50 dark:text-violet-100"
+                                    : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                                }`}
+                                aria-current={child.active ? "page" : undefined}
+                              >
+                                {child.label}
+                              </Link>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      onNavigate={closeMenu}
+                      className="w-full justify-center py-2.5"
+                    />
+                  );
+                })}
               </div>
             </nav>
           </>
