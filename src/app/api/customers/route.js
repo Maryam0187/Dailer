@@ -33,9 +33,18 @@ export async function GET(req) {
     where[Op.or] = or;
   }
 
+  const lastLeadCreatedAt = `(
+    SELECT MAX(\`createdAt\`) FROM \`Leads\` AS \`l\`
+    WHERE \`l\`.\`customerId\` = \`Customer\`.\`id\`
+  )`;
+
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
-    order: [["updatedAt", "DESC"]],
+    order: [
+      [db.sequelize.literal(`${lastLeadCreatedAt} IS NULL`), "ASC"],
+      [db.sequelize.literal(lastLeadCreatedAt), "DESC"],
+      ["id", "DESC"],
+    ],
     offset,
     limit: pageSize,
   });
