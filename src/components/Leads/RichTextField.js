@@ -5,10 +5,10 @@ import RichTextEditor, { RichHtmlContent } from "@/components/Leads/RichTextEdit
 import { isEmptyRichText, normalizeRichHtml, plainTextFromHtml, toRichEditorHtml } from "@/lib/richText";
 
 const previewBoxClass =
-  "min-h-[100px] rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-sm shadow-sm dark:border-zinc-600 dark:bg-zinc-950";
+  "min-h-[200px] rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-sm shadow-sm dark:border-zinc-600 dark:bg-zinc-950";
 
 const textareaClass =
-  "min-h-[100px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+  "min-h-[200px] w-full resize-y rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 export default function RichTextField({
   label,
@@ -19,6 +19,7 @@ export default function RichTextField({
   placeholder = "Start typing…",
   expandLabel = "Full editor",
   actions = null,
+  rows = 8,
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -70,6 +71,7 @@ export default function RichTextField({
             value={plainTextFromHtml(value)}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
+            rows={rows}
             className={textareaClass}
           />
         )}

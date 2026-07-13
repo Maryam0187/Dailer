@@ -55,6 +55,14 @@ export function CloseIcon({ className = "h-4 w-4" }) {
   );
 }
 
+export function ExpandIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden>
+      <path d="M13.75 3.5a.75.75 0 000 1.5h1.19l-4.72 4.72a.75.75 0 101.06 1.06l4.72-4.72v1.19a.75.75 0 001.5 0v-3a.75.75 0 00-.75-.75h-3zM6.25 16.5a.75.75 0 000-1.5H5.06l4.72-4.72a.75.75 0 10-1.06-1.06L4 13.94v-1.19a.75.75 0 00-1.5 0v3c0 .414.336.75.75.75h3z" />
+    </svg>
+  );
+}
+
 export function DeleteIcon() {
   return (
     <Icon>

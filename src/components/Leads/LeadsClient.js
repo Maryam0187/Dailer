@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
@@ -25,7 +26,7 @@ import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone"
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
-import IconTooltipButton, { CallIcon, EditIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
+import IconTooltipButton, { CallIcon, EditIcon, ExpandIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 import RichTextField from "@/components/Leads/RichTextField";
@@ -1396,6 +1397,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                       <IconTooltipButton title="View" onClick={() => setSelectedLeadId(lead.id)}>
                         <ViewIcon />
                       </IconTooltipButton>
+                      <Link
+                        href={`/leads/${lead.id}`}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        title="Open full page"
+                        aria-label="Open full page"
+                      >
+                        <ExpandIcon className="h-4 w-4" />
+                      </Link>
                       {!phonesRedacted ? (
                         <IconTooltipButton
                           title={callingId === lead.id ? "Calling…" : "Call"}
