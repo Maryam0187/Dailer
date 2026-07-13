@@ -86,6 +86,12 @@ function buildNavItems(role, pathname, accessMode = "full") {
   if (accessMode !== "limited" && role === "admin") {
     items.push(
       {
+        href: "/customers",
+        label: "Customers",
+        active: pathname === "/customers" || pathname?.startsWith("/customers/"),
+        palette: "violet",
+      },
+      {
         href: "/message-oversight",
         label: "Chat oversight",
         active: pathname === "/message-oversight",

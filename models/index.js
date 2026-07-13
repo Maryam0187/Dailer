@@ -19,6 +19,8 @@ const workflowTagModelFactory = require("./WorkflowTag");
 const conversationModelFactory = require("./Conversation");
 const conversationParticipantModelFactory = require("./ConversationParticipant");
 const messageModelFactory = require("./Message");
+const customerModelFactory = require("./Customer");
+const customerPaymentMethodModelFactory = require("./CustomerPaymentMethod");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -84,6 +86,8 @@ db.WorkflowTag = workflowTagModelFactory(sequelize, Sequelize.DataTypes);
 db.Conversation = conversationModelFactory(sequelize, Sequelize.DataTypes);
 db.ConversationParticipant = conversationParticipantModelFactory(sequelize, Sequelize.DataTypes);
 db.Message = messageModelFactory(sequelize, Sequelize.DataTypes);
+db.Customer = customerModelFactory(sequelize, Sequelize.DataTypes);
+db.CustomerPaymentMethod = customerPaymentMethodModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];
