@@ -175,6 +175,7 @@ export default function LeadDetailPanel({
   preferShortLabels = true,
   canAssignLead = false,
   variant = "drawer",
+  showFullPageLink = true,
 }) {
   const isPage = variant === "page";
   const [updates, setUpdates] = useState([]);
@@ -459,7 +460,7 @@ export default function LeadDetailPanel({
                   <EditIcon />
                 </IconTooltipButton>
               ) : null}
-              {!isPage ? (
+              {!isPage && showFullPageLink ? (
                 <Link
                   href={`/leads/${lead.id}`}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"

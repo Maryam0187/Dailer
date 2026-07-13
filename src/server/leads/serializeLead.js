@@ -79,6 +79,8 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     createdByUsername: lead.createdBy?.username ?? null,
     createdByUserRole: lead.createdBy?.role ?? null,
     createdFromCallLogId: lead.createdFromCallLogId,
+    customerId: lead.customerId ?? null,
+    customerPaymentMethodId: lead.customerPaymentMethodId ?? null,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,

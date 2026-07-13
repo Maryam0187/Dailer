@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatLandline } from "@/lib/phoneFormat";
 import { formatLeadService } from "@/lib/leadService";
 import {
@@ -8,6 +8,14 @@ import {
   getLeadPhaseMeta,
   WORKFLOW_BADGE_CLASS,
 } from "@/lib/leadWorkflow";
+import {
+  ADMIN_SHORT_LABELS_STORAGE_KEY,
+  buildWorkflowTagLookup,
+  resolvePreferShortLabels,
+} from "@/lib/workflowTagLabels";
+import IconTooltipButton, { ViewIcon } from "@/components/Leads/IconTooltipButton";
+import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import LeadEditModal from "@/components/Leads/LeadEditModal";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -180,6 +188,21 @@ export default function CustomersClient() {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [linkingLeadId, setLinkingLeadId] = useState(null);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [editingLead, setEditingLead] = useState(null);
+  const [loadingLeadId, setLoadingLeadId] = useState(null);
+  const [workflowTags, setWorkflowTags] = useState([]);
+  const [adminShortLabels, setAdminShortLabels] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(ADMIN_SHORT_LABELS_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
+  const preferShortLabels = resolvePreferShortLabels(true, adminShortLabels);
 
   const loadCustomers = useCallback(async (page = 1, query = q) => {
     setLoading(true);
@@ -241,6 +264,22 @@ export default function CustomersClient() {
   useEffect(() => {
     void loadCustomers(1, q);
   }, [q, loadCustomers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/workflow-tags", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setWorkflowTags(json.tags || []);
+      } catch {
+        // ignore — panel falls back to built-in labels
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
@@ -421,6 +460,29 @@ export default function CustomersClient() {
     } finally {
       setLinkingLeadId(null);
     }
+  }
+
+  async function openLeadSidebar(leadId) {
+    if (!leadId) return;
+    setLoadingLeadId(leadId);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, { credentials: "include", cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load lead");
+      setSelectedLead(json.lead || null);
+    } catch (err) {
+      setSelectedLead(null);
+      setPaymentError(err.message || "Failed to load lead");
+    } finally {
+      setLoadingLeadId(null);
+    }
+  }
+
+  function handleLeadUpdated(updated) {
+    setSelectedLead((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
+    setEditingLead((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
+    if (selectedId) void loadDetail(selectedId);
   }
 
   const customer = detail?.customer;
@@ -994,9 +1056,18 @@ export default function CustomersClient() {
                             <span className="font-medium text-zinc-900 dark:text-zinc-100">
                               {lead.fullName}
                             </span>
-                            <span className="text-xs text-zinc-500">
-                              {formatWhen(lead.createdAt)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-500">
+                                {formatWhen(lead.createdAt)}
+                              </span>
+                              <IconTooltipButton
+                                title={loadingLeadId === lead.id ? "Loading…" : "View lead"}
+                                disabled={loadingLeadId === lead.id}
+                                onClick={() => void openLeadSidebar(lead.id)}
+                              >
+                                <ViewIcon />
+                              </IconTooltipButton>
+                            </div>
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                             <span
@@ -1052,6 +1123,30 @@ export default function CustomersClient() {
           )}
         </div>
       </div>
+
+      {selectedLead ? (
+        <LeadDetailPanel
+          lead={selectedLead}
+          onClose={() => setSelectedLead(null)}
+          onLeadUpdated={handleLeadUpdated}
+          onEdit={() => setEditingLead(selectedLead)}
+          showFullPageLink={false}
+          workflowTagLookup={workflowTagLookup}
+          preferShortLabels={preferShortLabels}
+          canAssignLead
+        />
+      ) : null}
+
+      {editingLead ? (
+        <LeadEditModal
+          lead={editingLead}
+          onClose={() => setEditingLead(null)}
+          onSaved={(updated) => {
+            handleLeadUpdated(updated);
+            setEditingLead(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

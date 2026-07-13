@@ -95,6 +95,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "CallLogs", key: "id" },
       },
+      customerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Customers", key: "id" },
+      },
+      customerPaymentMethodId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "CustomerPaymentMethods", key: "id" },
+      },
       leadPhase: {
         type: DataTypes.ENUM("active", "closed", "cancelled"),
         allowNull: false,
@@ -155,6 +165,11 @@ module.exports = (sequelize, DataTypes) => {
     Lead.belongsTo(models.User, { as: "processorUser", foreignKey: "processorUserId" });
     Lead.belongsTo(models.User, { as: "createdBy", foreignKey: "createdByUserId" });
     Lead.belongsTo(models.CallLog, { as: "createdFromCall", foreignKey: "createdFromCallLogId" });
+    Lead.belongsTo(models.Customer, { as: "customer", foreignKey: "customerId" });
+    Lead.belongsTo(models.CustomerPaymentMethod, {
+      as: "customerPaymentMethod",
+      foreignKey: "customerPaymentMethodId",
+    });
     Lead.hasMany(models.CallLog, { foreignKey: "leadId", as: "callLogs" });
     Lead.hasMany(models.LeadUpdate, { foreignKey: "leadId", as: "updates" });
   };
