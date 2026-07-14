@@ -888,82 +888,104 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="mb-4">
-          <label className={labelClass}>Sale status</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by sale status">
-            {phaseFilterOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                title={option.label}
-                onClick={() => {
-                  setLeadPhaseFilter(option.id);
-                  setPage(1);
-                }}
-                className={filterChipClass(leadPhaseFilter === option.id)}
-              >
-                {salePhaseFilterChipLabel(option)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mb-4">
-          <label className={labelClass}>Progress</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by progress">
-            {progressFilterOptions
-              .filter((option) => !option.missing)
-              .map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  title={option.label}
-                  onClick={() => {
-                    setLeadProgressTagFilter(option.id);
-                    setPage(1);
-                  }}
-                  className={filterChipClass(leadProgressTagFilter === option.id)}
-                >
-                  {progressFilterChipLabel(option)}
-                </button>
+        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label htmlFor="leads-sale-status-filter" className={labelClass}>
+              Sale status
+            </label>
+            <select
+              id="leads-sale-status-filter"
+              value={leadPhaseFilter}
+              onChange={(e) => {
+                setLeadPhaseFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by sale status"
+            >
+              {phaseFilterOptions.map((option) => (
+                <option key={option.id} value={option.id} title={option.label}>
+                  {salePhaseFilterChipLabel(option)}
+                </option>
               ))}
+            </select>
           </div>
-          <p className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Missing progress</p>
-          <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Filter by missing progress">
-            {visibleMissingProgressOptions.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  title={option.label}
-                  onClick={() => {
-                    setLeadProgressTagFilter(option.id);
-                    setPage(1);
-                  }}
-                  className={filterChipClass(leadProgressTagFilter === option.id)}
-                >
-                  {progressFilterChipLabel(option)}
-                </button>
-              ))}
-          </div>
-        </div>
 
-        <div className="mb-4">
-          <label className={labelClass}>Call outcome</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by call outcome">
-            {contactFilterOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                title={option.label}
-                onClick={() => {
-                  setLeadContactTagFilter(option.id);
-                  setPage(1);
-                }}
-                className={filterChipClass(leadContactTagFilter === option.id)}
-              >
-                {contactFilterChipLabel(option)}
-              </button>
-            ))}
+          <div>
+            <label htmlFor="leads-progress-filter" className={labelClass}>
+              Progress
+            </label>
+            <select
+              id="leads-progress-filter"
+              value={
+                progressFilterOptions.some((o) => o.id === leadProgressTagFilter && !o.missing)
+                  ? leadProgressTagFilter
+                  : "all"
+              }
+              onChange={(e) => {
+                setLeadProgressTagFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by progress"
+            >
+              {progressFilterOptions
+                .filter((option) => !option.missing)
+                .map((option) => (
+                  <option key={option.id} value={option.id} title={option.label}>
+                    {progressFilterChipLabel(option)}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="leads-missing-progress-filter" className={labelClass}>
+              Missing progress
+            </label>
+            <select
+              id="leads-missing-progress-filter"
+              value={
+                visibleMissingProgressOptions.some((o) => o.id === leadProgressTagFilter)
+                  ? leadProgressTagFilter
+                  : "all"
+              }
+              onChange={(e) => {
+                setLeadProgressTagFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by missing progress"
+            >
+              <option value="all">All</option>
+              {visibleMissingProgressOptions.map((option) => (
+                <option key={option.id} value={option.id} title={option.label}>
+                  {progressFilterChipLabel(option)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="leads-call-outcome-filter" className={labelClass}>
+              Call outcome
+            </label>
+            <select
+              id="leads-call-outcome-filter"
+              value={leadContactTagFilter}
+              onChange={(e) => {
+                setLeadContactTagFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by call outcome"
+            >
+              {contactFilterOptions.map((option) => (
+                <option key={option.id} value={option.id} title={option.label}>
+                  {contactFilterChipLabel(option)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
