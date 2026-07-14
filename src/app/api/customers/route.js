@@ -7,7 +7,7 @@ import {
   PAYMENT_METHOD_TYPES,
   serializeCustomer,
 } from "@/server/customers/serializeCustomer";
-import { LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
+import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
 
@@ -50,17 +50,18 @@ function leadDateBetweenSql(salePhase, fromDate, toDate) {
 }
 
 /**
- * Build one EXISTS so sale status, payment, and date range apply to the same lead
- * when those filters are combined.
+ * Build one EXISTS so sale status, payment type, charge status, and date range
+ * apply to the same lead when those filters are combined.
  */
-function buildLeadFilterLiteral({ salePhase, paymentType, fromDate, toDate }) {
+function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate }) {
   const hasSale = Boolean(salePhase && LEAD_PHASE_VALUES.has(salePhase));
   const hasPay = Boolean(paymentType && PAYMENT_FILTER_VALUES.has(paymentType));
+  const hasCharge = Boolean(chargeStatus && LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeStatus));
   const hasDate = Boolean(fromDate && toDate);
-  if (!hasSale && !hasPay && !hasDate) return null;
+  if (!hasSale && !hasPay && !hasCharge && !hasDate) return null;
 
-  // Payment alone (no sale/date): also include customers with that saved PM type.
-  if (hasPay && !hasSale && !hasDate) {
+  // Payment alone (no sale/charge/date): also include customers with that saved PM type.
+  if (hasPay && !hasSale && !hasCharge && !hasDate) {
     const payEsc = db.sequelize.escape(paymentType);
     return db.sequelize.literal(`(
       EXISTS (
@@ -97,6 +98,12 @@ function buildLeadFilterLiteral({ salePhase, paymentType, fromDate, toDate }) {
     )`);
   }
 
+  if (hasCharge) {
+    clauses.push(
+      `\`l\`.\`leadPaymentChargeStatus\` = ${db.sequelize.escape(chargeStatus)}`,
+    );
+  }
+
   if (hasDate) {
     clauses.push(leadDateBetweenSql(hasSale ? salePhase : null, fromDate, toDate));
   }
@@ -126,6 +133,7 @@ export async function GET(req) {
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
+  const chargeFilter = String(searchParams.get("chargeFilter") || "").trim().toLowerCase();
   const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
@@ -252,24 +260,20 @@ export async function GET(req) {
 
   const salePhase = SALE_FILTER_MAP[saleFilter] || null;
   const paymentType = PAYMENT_FILTER_VALUES.has(paymentFilter) ? paymentFilter : null;
+  const chargeStatus = LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeFilter) ? chargeFilter : null;
   const leadFilter = buildLeadFilterLiteral({
     salePhase,
     paymentType,
+    chargeStatus,
     fromDate,
     toDate,
   });
   if (leadFilter) pushAnd(where, leadFilter);
 
-  const lastLeadCreatedAt = `(
-    SELECT MAX(\`createdAt\`) FROM \`Leads\` AS \`l\`
-    WHERE \`l\`.\`customerId\` = \`Customer\`.\`id\`
-  )`;
-
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
     order: [
-      [db.sequelize.literal(`${lastLeadCreatedAt} IS NULL`), "ASC"],
-      [db.sequelize.literal(lastLeadCreatedAt), "DESC"],
+      ["updatedAt", "DESC"],
       ["id", "DESC"],
     ],
     offset,

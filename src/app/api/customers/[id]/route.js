@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
+import { isAdminOnlyPaymentChargeActivityBody } from "@/lib/leadRoles";
 import {
+  buildPaymentChargeLogGroups,
   serializeCustomer,
   serializeCustomerLead,
+  serializePaymentChargeLog,
   serializePaymentMethod,
 } from "@/server/customers/serializeCustomer";
 import { leadAssignedUserInclude, leadCreatedByInclude } from "@/server/leads/serializeLead";
@@ -53,6 +57,29 @@ export async function GET(_req, { params }) {
     }),
   ]);
 
+  const leadIds = leads.map((lead) => lead.id);
+  const paymentLogsByLeadId = new Map();
+  if (leadIds.length > 0) {
+    const updateRows = await db.LeadUpdate.findAll({
+      where: { leadId: { [Op.in]: leadIds } },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: db.User,
+          as: "author",
+          attributes: ["id", "username"],
+          required: false,
+        },
+      ],
+    });
+    for (const row of updateRows) {
+      if (!isAdminOnlyPaymentChargeActivityBody(row.body)) continue;
+      const list = paymentLogsByLeadId.get(row.leadId) || [];
+      list.push(serializePaymentChargeLog(row));
+      paymentLogsByLeadId.set(row.leadId, list);
+    }
+  }
+
   const latestLead = leads[0] || null;
 
   return NextResponse.json({
@@ -63,7 +90,15 @@ export async function GET(_req, { params }) {
       lastLeadAt: leadAgg?.lastLeadAt || null,
       paymentMethodCount: paymentMethods.length,
     }),
-    leads: leads.map(serializeCustomerLead),
+    leads: leads.map((lead) =>
+      serializeCustomerLead(lead, {
+        paymentChargeLogGroups: buildPaymentChargeLogGroups(
+          paymentLogsByLeadId.get(lead.id) || [],
+          paymentMethods,
+          lead,
+        ),
+      }),
+    ),
     paymentMethods: paymentMethods.map(serializePaymentMethod),
   });
 }
