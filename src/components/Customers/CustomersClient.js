@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { US_STATES } from "@/lib/usStates";
 import { formatLeadService } from "@/lib/leadService";
 import {
   getLeadPaymentMethodMeta,
@@ -245,6 +246,7 @@ export default function CustomersClient() {
   const [searchError, setSearchError] = useState(null);
   const [saleFilter, setSaleFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [rangePreset, setRangePreset] = useState("all");
   const [rangeFrom, setRangeFrom] = useState("");
   const [rangeTo, setRangeTo] = useState("");
@@ -286,6 +288,7 @@ export default function CustomersClient() {
         by = searchBy,
         sale = saleFilter,
         payment = paymentFilter,
+        state = stateFilter,
         from = appliedFrom,
         to = appliedTo,
       } = {},
@@ -304,6 +307,7 @@ export default function CustomersClient() {
         }
         if (sale && sale !== "all") params.set("saleFilter", sale);
         if (payment && payment !== "all") params.set("paymentFilter", payment);
+        if (state && state !== "all") params.set("state", state);
         // Date range applies only when not doing a phone/name/last4 search
         if (!query.trim() && from && to) {
           params.set("fromDate", from);
@@ -335,7 +339,7 @@ export default function CustomersClient() {
         if (requestId === loadRequestIdRef.current) setLoading(false);
       }
     },
-    [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo],
+    [q, searchBy, saleFilter, paymentFilter, stateFilter, appliedFrom, appliedTo],
   );
 
   const loadDetail = useCallback(async (id) => {
@@ -363,7 +367,7 @@ export default function CustomersClient() {
 
   useEffect(() => {
     void loadCustomers(1);
-  }, [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo, loadCustomers]);
+  }, [q, searchBy, saleFilter, paymentFilter, stateFilter, appliedFrom, appliedTo, loadCustomers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -451,6 +455,7 @@ export default function CustomersClient() {
     setSearchError(null);
     setSaleFilter("all");
     setPaymentFilter("all");
+    setStateFilter("all");
     setRangePreset("all");
     setRangeFrom("");
     setRangeTo("");
@@ -465,6 +470,7 @@ export default function CustomersClient() {
     searchBy !== "all" ||
     saleFilter !== "all" ||
     paymentFilter !== "all" ||
+    stateFilter !== "all" ||
     rangePreset !== "all" ||
     Boolean(appliedFrom && appliedTo);
 
@@ -679,7 +685,7 @@ export default function CustomersClient() {
               ))}
             </select>
           </div>
-          <div className="min-w-[180px] flex-1">
+          <div className="relative min-w-[180px] flex-1">
             <label htmlFor="customer-search" className={labelClass}>
               {searchBy === "last4"
                 ? "Phone last 4"
@@ -712,7 +718,9 @@ export default function CustomersClient() {
               aria-invalid={Boolean(searchError)}
             />
             {searchError ? (
-              <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{searchError}</p>
+              <p className="pointer-events-none absolute left-0 top-full z-10 mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                {searchError}
+              </p>
             ) : null}
           </div>
           <div className="w-full sm:min-w-[200px] sm:flex-1">
@@ -751,6 +759,27 @@ export default function CustomersClient() {
               {PAYMENT_FILTER_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[180px] sm:flex-1">
+            <label htmlFor="customer-state-filter" className={labelClass}>
+              State
+            </label>
+            <select
+              id="customer-state-filter"
+              value={stateFilter}
+              onChange={(e) => {
+                setStateFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              <option value="all">All states</option>
+              {US_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name} ({s.code})
                 </option>
               ))}
             </select>

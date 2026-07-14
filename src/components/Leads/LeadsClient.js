@@ -26,6 +26,7 @@ import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/le
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import { US_STATES } from "@/lib/usStates";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import IconTooltipButton, { CallIcon, EditIcon, ExpandIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
@@ -143,6 +144,7 @@ function hasActiveLeadFilters({
   leadPhaseFilter,
   leadProgressTagFilter,
   leadContactTagFilter,
+  stateFilter,
   rangePreset,
   q,
 }) {
@@ -154,6 +156,7 @@ function hasActiveLeadFilters({
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
+    stateFilter !== "all" ||
     rangePreset !== "all" ||
     Boolean(q)
   );
@@ -181,7 +184,14 @@ function formatLeadName(lead) {
 
 
 function formatLeadLocation(lead) {
-  return [lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—";
+  const city = lead.city?.trim();
+  const state = lead.state?.trim();
+  const zip = lead.zipCode?.trim();
+  const stateZip = [state, zip].filter(Boolean).join(" ");
+  if (city && stateZip) return `${city}, ${stateZip}`;
+  if (city) return city;
+  if (stateZip) return stateZip;
+  return "—";
 }
 
 const tableHeadClass = "whitespace-nowrap px-2.5 py-2.5 text-[11px] font-semibold uppercase tracking-wide";
@@ -266,6 +276,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [searchBy, setSearchBy] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchError, setSearchError] = useState(null);
@@ -280,7 +291,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
-  const [sortBy, setSortBy] = useState("createdAt");
+  const [sortBy, setSortBy] = useState("updatedAt");
   const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -407,6 +418,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
       }
+      if (stateFilter && stateFilter !== "all") {
+        params.set("state", stateFilter);
+      }
       if (q.trim()) {
         params.set("q", q.trim());
         params.set("searchBy", searchBy);
@@ -459,6 +473,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
+    stateFilter,
     q,
     searchBy,
     appliedFrom,
@@ -956,7 +971,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
-          <div className="min-w-[160px] flex-1">
+          <div className="relative min-w-[160px] flex-1">
             <label htmlFor="leads-search" className={labelClass}>
               {searchBy === "last4"
                 ? "Phone last 4"
@@ -990,7 +1005,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               }
               aria-invalid={Boolean(searchError)}
             />
-            {searchError ? <p className={fieldErrorClass}>{searchError}</p> : null}
+            {searchError ? (
+              <p className={`pointer-events-none absolute left-0 top-full z-10 mt-1 ${fieldErrorClass}`}>
+                {searchError}
+              </p>
+            ) : null}
           </div>
           <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-sale-status-filter" className={labelClass}>
@@ -1066,6 +1085,28 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
+            <label htmlFor="leads-state-filter" className={labelClass}>
+              State
+            </label>
+            <select
+              id="leads-state-filter"
+              value={stateFilter}
+              onChange={(e) => {
+                setStateFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by state"
+            >
+              <option value="all">All states</option>
+              {US_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="submit"
             disabled={loading}
@@ -1083,7 +1124,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         >
           <div>
             <label className={labelClass}>Date range (optional)</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {[
                 { id: "all", label: "All time" },
                 { id: "today", label: "Today" },
@@ -1096,7 +1137,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   key={p.id}
                   type="button"
                   onClick={() => applyRangePreset(p.id)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  className={`h-9 rounded-lg border px-3 text-sm font-semibold ${
                     rangePreset === p.id
                       ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1105,49 +1146,42 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   {p.label}
                 </button>
               ))}
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label htmlFor="leads-from-date" className={labelClass}>
-                From date
-              </label>
-              <input
-                id="leads-from-date"
-                type="date"
-                className={inputClass}
-                value={rangeFrom}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeFrom(e.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <label htmlFor="leads-to-date" className={labelClass}>
-                To date
-              </label>
-              <input
-                id="leads-to-date"
-                type="date"
-                className={inputClass}
-                value={rangeTo}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeTo(e.target.value);
-                }}
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading || rangePreset !== "custom"}
-                className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                Apply range
-              </button>
+              {rangePreset === "custom" ? (
+                <>
+                  <input
+                    id="leads-from-date"
+                    type="date"
+                    aria-label="From date"
+                    title="From date"
+                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    value={rangeFrom}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeFrom(e.target.value);
+                    }}
+                  />
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">to</span>
+                  <input
+                    id="leads-to-date"
+                    type="date"
+                    aria-label="To date"
+                    title="To date"
+                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    value={rangeTo}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeTo(e.target.value);
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -1443,6 +1477,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     leadPhaseFilter,
                     leadProgressTagFilter,
                     leadContactTagFilter,
+                    stateFilter,
                     rangePreset,
                     q,
                   })

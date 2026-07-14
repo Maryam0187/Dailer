@@ -22,6 +22,7 @@ import {
 } from "@/lib/leadWorkflow";
 import { Op, Sequelize } from "sequelize";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { getStateByCode } from "@/lib/usStates";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 
@@ -292,6 +293,14 @@ export async function GET(req) {
       return NextResponse.json({ error: searchWhere.error }, { status: 400 });
     }
     where = andWhereClause(where, searchWhere);
+  }
+
+  const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
+  if (stateRaw) {
+    if (!getStateByCode(stateRaw)) {
+      return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+    }
+    where.state = stateRaw;
   }
 
   const { rows: leads, count } = await db.Lead.findAndCountAll({

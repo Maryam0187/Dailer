@@ -9,6 +9,7 @@ import {
 } from "@/server/customers/serializeCustomer";
 import { LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { getStateByCode } from "@/lib/usStates";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
@@ -125,8 +126,13 @@ export async function GET(req) {
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
+  const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
+
+  if (stateRaw && !getStateByCode(stateRaw)) {
+    return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+  }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json(
@@ -229,6 +235,19 @@ export async function GET(req) {
       if (normalized) or.push({ phone: normalized });
       where[Op.or] = or;
     }
+  }
+
+  if (stateRaw) {
+    pushAnd(where, {
+      [Op.or]: [
+        { state: stateRaw },
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`Leads\` AS \`ln\`
+          WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+            AND \`ln\`.\`state\` = ${db.sequelize.escape(stateRaw)}
+        )`),
+      ],
+    });
   }
 
   const salePhase = SALE_FILTER_MAP[saleFilter] || null;
