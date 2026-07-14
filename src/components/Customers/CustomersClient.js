@@ -1,11 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatLandline } from "@/lib/phoneFormat";
+import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
+import {
+  formatCardNumberInput,
+  formatCvvInput,
+  formatExpDateInput,
+  validateCardNumber,
+  validateCvv,
+  validateExpDate,
+} from "@/lib/cardPaymentFormat";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { US_STATES } from "@/lib/usStates";
 import { formatLeadService } from "@/lib/leadService";
 import {
+  getLeadPaymentChargeStatusMeta,
   getLeadPaymentMethodMeta,
+  getLeadPaymentProcessorMeta,
   getLeadPhaseMeta,
+  LEAD_PAYMENT_CHARGE_STATUSES,
+  LEAD_PAYMENT_PROCESSORS,
   WORKFLOW_BADGE_CLASS,
 } from "@/lib/leadWorkflow";
 import {
@@ -30,9 +44,10 @@ const btnPage =
   "rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
 const SEARCH_BY_OPTIONS = [
+  { value: "all", label: "All", placeholder: "Phone, name, or last 4" },
   { value: "phone", label: "Phone", placeholder: "Phone number" },
   { value: "name", label: "Name", placeholder: "Customer name" },
-  { value: "last4", label: "Last 4", placeholder: "Card last 4 digits" },
+  { value: "last4", label: "Last 4", placeholder: "Phone last 4 digits" },
 ];
 
 const SALE_FILTER_OPTIONS = [
@@ -48,6 +63,13 @@ const PAYMENT_FILTER_OPTIONS = [
   { value: "pos_link", label: "Link" },
   { value: "check_mail", label: "Check mail" },
   { value: "e_check", label: "E-check" },
+];
+
+const CHARGE_FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "charged", label: "Charged" },
+  { value: "declined", label: "Declined" },
+  { value: "chargeback", label: "Chargeback" },
 ];
 
 const DATE_RANGE_OPTIONS = [
@@ -130,7 +152,7 @@ function paymentMethodOptionLabel(pm) {
   const type = paymentTypeLabel(pm.type);
   const summary = paymentSummary(pm);
   const def = pm.isDefault ? " · Default" : "";
-  return `#${pm.id} · ${type} · ${summary}${def}`;
+  return `${type} · ${summary}${def}`;
 }
 
 function maskTail(value, keep = 4) {
@@ -239,9 +261,12 @@ export default function CustomersClient() {
   });
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [searchBy, setSearchBy] = useState("phone");
+  const [searchBy, setSearchBy] = useState("all");
+  const [searchError, setSearchError] = useState(null);
   const [saleFilter, setSaleFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
+  const [chargeFilter, setChargeFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [rangePreset, setRangePreset] = useState("all");
   const [rangeFrom, setRangeFrom] = useState("");
   const [rangeTo, setRangeTo] = useState("");
@@ -254,10 +279,20 @@ export default function CustomersClient() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [paymentForm, setPaymentForm] = useState(emptyPaymentForm);
   const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [viewingPayment, setViewingPayment] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
+  const [cardFieldErrors, setCardFieldErrors] = useState({
+    cardNumber: "",
+    expDate: "",
+    cvv: "",
+  });
   const [linkingLeadId, setLinkingLeadId] = useState(null);
+  const [chargingLeadId, setChargingLeadId] = useState(null);
+  const [chargeModal, setChargeModal] = useState(null);
+  const [chargeProcessor, setChargeProcessor] = useState("");
+  const [declineReason, setDeclineReason] = useState("");
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [loadingLeadId, setLoadingLeadId] = useState(null);
@@ -283,6 +318,8 @@ export default function CustomersClient() {
         by = searchBy,
         sale = saleFilter,
         payment = paymentFilter,
+        charge = chargeFilter,
+        state = stateFilter,
         from = appliedFrom,
         to = appliedTo,
       } = {},
@@ -294,12 +331,17 @@ export default function CustomersClient() {
         const params = new URLSearchParams({
           page: String(page),
           pageSize: String(CUSTOMERS_PAGE_SIZE),
-          searchBy: by,
         });
-        if (query.trim()) params.set("q", query.trim());
+        if (query.trim()) {
+          params.set("q", query.trim());
+          params.set("searchBy", by);
+        }
         if (sale && sale !== "all") params.set("saleFilter", sale);
         if (payment && payment !== "all") params.set("paymentFilter", payment);
-        if (from && to) {
+        if (charge && charge !== "all") params.set("chargeFilter", charge);
+        if (state && state !== "all") params.set("state", state);
+        // Date range applies only when not doing a phone/name/last4 search
+        if (!query.trim() && from && to) {
           params.set("fromDate", from);
           params.set("toDate", to);
         }
@@ -329,7 +371,7 @@ export default function CustomersClient() {
         if (requestId === loadRequestIdRef.current) setLoading(false);
       }
     },
-    [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo],
+    [q, searchBy, saleFilter, paymentFilter, chargeFilter, stateFilter, appliedFrom, appliedTo],
   );
 
   const loadDetail = useCallback(async (id) => {
@@ -357,7 +399,17 @@ export default function CustomersClient() {
 
   useEffect(() => {
     void loadCustomers(1);
-  }, [q, searchBy, saleFilter, paymentFilter, appliedFrom, appliedTo, loadCustomers]);
+  }, [
+    q,
+    searchBy,
+    saleFilter,
+    paymentFilter,
+    chargeFilter,
+    stateFilter,
+    appliedFrom,
+    appliedTo,
+    loadCustomers,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,13 +432,15 @@ export default function CustomersClient() {
     else setDetail(null);
     setViewingPayment(null);
     setEditingPaymentId(null);
+    setShowPaymentForm(false);
     setPaymentForm(emptyPaymentForm());
+    setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
     setPaymentError(null);
   }, [selectedId, loadDetail]);
 
   // Prefill name on card from customer when opening a new payment form
   useEffect(() => {
-    if (!detail?.customer || editingPaymentId || viewingPayment) return;
+    if (!detail?.customer || !showPaymentForm || editingPaymentId || viewingPayment) return;
     const name =
       detail.customer.fullName?.trim() || detail.customer.displayName?.trim() || "";
     if (!name) return;
@@ -394,10 +448,15 @@ export default function CustomersClient() {
       if (prev.nameOnCard) return prev;
       return { ...prev, nameOnCard: name };
     });
-  }, [detail, editingPaymentId, viewingPayment]);
+  }, [detail, showPaymentForm, editingPaymentId, viewingPayment]);
 
   function onSearch(e) {
     e.preventDefault();
+    const check = validateListSearchQuery(searchBy, searchInput);
+    if (!check.isValid) {
+      setSearchError(check.message);
+      return;
+    }
     if (rangePreset === "custom") {
       if (!rangeFrom || !rangeTo) {
         setError("From date and to date are required");
@@ -410,7 +469,14 @@ export default function CustomersClient() {
       setAppliedFrom(rangeFrom);
       setAppliedTo(rangeTo);
     }
-    setQ(searchInput.trim());
+    setSearchError(null);
+    setError(null);
+    setQ(check.normalized);
+    if (check.normalized && searchBy === "phone") {
+      setSearchInput(formatLandline(check.normalized));
+    } else {
+      setSearchInput(check.normalized);
+    }
     setSelectedId(null);
   }
 
@@ -429,9 +495,12 @@ export default function CustomersClient() {
   function clearFilters() {
     setSearchInput("");
     setQ("");
-    setSearchBy("phone");
+    setSearchBy("all");
+    setSearchError(null);
     setSaleFilter("all");
     setPaymentFilter("all");
+    setChargeFilter("all");
+    setStateFilter("all");
     setRangePreset("all");
     setRangeFrom("");
     setRangeTo("");
@@ -443,9 +512,11 @@ export default function CustomersClient() {
 
   const hasActiveFilters =
     Boolean(q) ||
-    searchBy !== "phone" ||
+    searchBy !== "all" ||
     saleFilter !== "all" ||
     paymentFilter !== "all" ||
+    chargeFilter !== "all" ||
+    stateFilter !== "all" ||
     rangePreset !== "all" ||
     Boolean(appliedFrom && appliedTo);
 
@@ -473,6 +544,7 @@ export default function CustomersClient() {
   function startViewPayment(pm) {
     setViewingPayment(pm);
     setEditingPaymentId(null);
+    setShowPaymentForm(false);
     setPaymentForm(newPaymentForm());
     setPaymentError(null);
   }
@@ -480,29 +552,57 @@ export default function CustomersClient() {
   function startEditPayment(pm) {
     setViewingPayment(null);
     setEditingPaymentId(pm.id);
+    setShowPaymentForm(true);
     setPaymentForm({
       type: pm.type,
       isDefault: Boolean(pm.isDefault),
       nameOnCard: pm.nameOnCard || customerName(),
       cardType: pm.cardType || "",
       brand: pm.brand || "",
-      cardNumber: pm.cardNumber || "",
-      expDate: pm.expDate || "",
-      cvv: pm.cvv || "",
+      cardNumber: formatCardNumberInput(pm.cardNumber || ""),
+      expDate: formatExpDateInput(pm.expDate || ""),
+      cvv: formatCvvInput(pm.cvv || ""),
       routingNumber: pm.routingNumber || "",
       accountNumber: pm.accountNumber || "",
       checkNumber: pm.checkNumber || "",
       bankName: pm.bankName || "",
       notes: pm.notes || "",
     });
+    setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
     setPaymentError(null);
   }
 
   function startAddPayment() {
     setViewingPayment(null);
     setEditingPaymentId(null);
+    setShowPaymentForm(true);
     setPaymentForm(newPaymentForm());
+    setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
     setPaymentError(null);
+  }
+
+  function closePaymentForm() {
+    setShowPaymentForm(false);
+    setEditingPaymentId(null);
+    setPaymentForm(newPaymentForm());
+    setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
+    setPaymentError(null);
+  }
+
+  function validateCardFieldsForSave() {
+    if (paymentForm.type !== "card") {
+      setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
+      return true;
+    }
+    const numberResult = validateCardNumber(paymentForm.cardNumber);
+    const expResult = validateExpDate(paymentForm.expDate);
+    const cvvResult = validateCvv(paymentForm.cvv);
+    setCardFieldErrors({
+      cardNumber: numberResult.ok ? "" : numberResult.error,
+      expDate: expResult.ok ? "" : expResult.error,
+      cvv: cvvResult.ok ? "" : cvvResult.error,
+    });
+    return numberResult.ok && expResult.ok && cvvResult.ok;
   }
 
   function onPaymentTypeChange(nextType) {
@@ -517,18 +617,30 @@ export default function CustomersClient() {
   async function savePayment(e) {
     e.preventDefault();
     if (!selectedId) return;
-    setSavingPayment(true);
     setPaymentError(null);
+    if (!validateCardFieldsForSave()) {
+      setPaymentError("Fix the card number, exp date, and CVV before saving");
+      return;
+    }
+    setSavingPayment(true);
     try {
+      const numberResult =
+        paymentForm.type === "card" ? validateCardNumber(paymentForm.cardNumber) : null;
+      const expResult = paymentForm.type === "card" ? validateExpDate(paymentForm.expDate) : null;
+      const cvvResult = paymentForm.type === "card" ? validateCvv(paymentForm.cvv) : null;
       const payload = {
         type: paymentForm.type,
         isDefault: paymentForm.isDefault,
         nameOnCard: paymentForm.nameOnCard || null,
         cardType: paymentForm.cardType || null,
         brand: paymentForm.brand || null,
-        cardNumber: paymentForm.cardNumber || null,
-        expDate: paymentForm.expDate || null,
-        cvv: paymentForm.cvv || null,
+        cardNumber:
+          paymentForm.type === "card"
+            ? numberResult?.digits || null
+            : paymentForm.cardNumber || null,
+        expDate:
+          paymentForm.type === "card" ? expResult?.expDate || null : paymentForm.expDate || null,
+        cvv: paymentForm.type === "card" ? cvvResult?.cvv || null : paymentForm.cvv || null,
         routingNumber: paymentForm.routingNumber || null,
         accountNumber: paymentForm.accountNumber || null,
         checkNumber: paymentForm.checkNumber || null,
@@ -549,6 +661,7 @@ export default function CustomersClient() {
       if (!res.ok) throw new Error(json?.error || "Failed to save payment method");
       setPaymentForm(newPaymentForm());
       setEditingPaymentId(null);
+      setShowPaymentForm(false);
       await loadDetail(selectedId);
       await loadCustomers(pagination.page);
     } catch (err) {
@@ -571,6 +684,7 @@ export default function CustomersClient() {
       if (!res.ok) throw new Error(json?.error || "Failed to delete");
       if (editingPaymentId === pmId) {
         setEditingPaymentId(null);
+        setShowPaymentForm(false);
         setPaymentForm(newPaymentForm());
       }
       if (viewingPayment?.id === pmId) {
@@ -604,6 +718,66 @@ export default function CustomersClient() {
     } finally {
       setLinkingLeadId(null);
     }
+  }
+
+  async function setLeadChargeStatus(leadId, status, { reason = null, processor = null } = {}) {
+    if (!selectedId || !leadId) return;
+    setChargingLeadId(leadId);
+    setPaymentError(null);
+    try {
+      const payload = {
+        leadPaymentChargeStatus: status,
+        leadPaymentProcessor: processor,
+      };
+      if (status === "declined") payload.leadPaymentDeclineReason = reason;
+      const res = await fetch(`/api/customers/${selectedId}/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update charge status");
+      setChargeModal(null);
+      setChargeProcessor("");
+      setDeclineReason("");
+      await loadDetail(selectedId);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to update charge status");
+    } finally {
+      setChargingLeadId(null);
+    }
+  }
+
+  function openChargeModal(lead, status) {
+    setChargeProcessor(lead?.leadPaymentProcessor || "");
+    setDeclineReason("");
+    setChargeModal({ lead, status });
+  }
+
+  function closeChargeModal() {
+    setChargeModal(null);
+    setChargeProcessor("");
+    setDeclineReason("");
+  }
+
+  async function submitChargeModal() {
+    if (!chargeModal) return;
+    const processor = chargeProcessor.trim();
+    if (!processor) {
+      setPaymentError("Payment processor is required");
+      return;
+    }
+    if (chargeModal.status === "declined") {
+      const reason = declineReason.trim();
+      if (!reason) {
+        setPaymentError("Decline reason is required");
+        return;
+      }
+      await setLeadChargeStatus(chargeModal.lead.id, "declined", { reason, processor });
+      return;
+    }
+    await setLeadChargeStatus(chargeModal.lead.id, chargeModal.status, { processor });
   }
 
   async function openLeadSidebar(leadId) {
@@ -646,7 +820,10 @@ export default function CustomersClient() {
               value={searchBy}
               onChange={(e) => {
                 setSearchBy(e.target.value);
+                setSearchError(null);
+                setSearchInput("");
                 setSelectedId(null);
+                if (q) setQ("");
               }}
               className={inputClass}
             >
@@ -657,18 +834,43 @@ export default function CustomersClient() {
               ))}
             </select>
           </div>
-          <div className="min-w-[180px] flex-1">
+          <div className="relative min-w-[180px] flex-1">
             <label htmlFor="customer-search" className={labelClass}>
-              {searchBy === "last4" ? "Last 4 digits" : searchBy === "name" ? "Name" : "Phone"}
+              {searchBy === "last4"
+                ? "Phone last 4"
+                : searchBy === "name"
+                  ? "Customer name"
+                  : searchBy === "phone"
+                    ? "Phone"
+                    : "Search"}
             </label>
             <input
               id="customer-search"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (searchBy === "phone") {
+                  setSearchInput(formatLandline(next));
+                } else if (searchBy === "last4") {
+                  setSearchInput(digitsOnly(next).slice(0, 4));
+                } else {
+                  setSearchInput(next);
+                }
+                if (searchError) setSearchError(null);
+              }}
               className={inputClass}
               placeholder={searchPlaceholder}
               inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+              maxLength={
+                searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
+              }
+              aria-invalid={Boolean(searchError)}
             />
+            {searchError ? (
+              <p className="pointer-events-none absolute left-0 top-full z-10 mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                {searchError}
+              </p>
+            ) : null}
           </div>
           <div className="w-full sm:min-w-[200px] sm:flex-1">
             <label htmlFor="customer-sale-filter" className={labelClass}>
@@ -706,6 +908,47 @@ export default function CustomersClient() {
               {PAYMENT_FILTER_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[200px] sm:flex-1">
+            <label htmlFor="customer-charge-filter" className={labelClass}>
+              Charge status
+            </label>
+            <select
+              id="customer-charge-filter"
+              value={chargeFilter}
+              onChange={(e) => {
+                setChargeFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              {CHARGE_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-36 shrink-0">
+            <label htmlFor="customer-state-filter" className={labelClass}>
+              State
+            </label>
+            <select
+              id="customer-state-filter"
+              value={stateFilter}
+              onChange={(e) => {
+                setStateFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              <option value="all">All states</option>
+              {US_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name} ({s.code})
                 </option>
               ))}
             </select>
@@ -1048,7 +1291,9 @@ export default function CustomersClient() {
                     </div>
                     <PaymentViewDetails pm={viewingPayment} />
                   </div>
-                ) : (
+                ) : null}
+
+                {showPaymentForm && !viewingPayment ? (
                 <form onSubmit={savePayment} className="mt-4 space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
                   <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                     {editingPaymentId ? "Edit payment method" : "New payment method"}
@@ -1126,38 +1371,96 @@ export default function CustomersClient() {
                       <label className={`${labelClass} sm:col-span-2`}>
                         Card number
                         <input
-                          className={inputClass}
+                          className={`${inputClass}${cardFieldErrors.cardNumber ? " border-red-400 focus:border-red-500 focus:ring-red-500/20" : ""}`}
                           value={paymentForm.cardNumber}
-                          onChange={(e) =>
-                            setPaymentForm((prev) => ({ ...prev, cardNumber: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            const next = formatCardNumberInput(e.target.value);
+                            setPaymentForm((prev) => ({ ...prev, cardNumber: next }));
+                            setCardFieldErrors((prev) => ({ ...prev, cardNumber: "" }));
+                          }}
+                          onBlur={() => {
+                            const result = validateCardNumber(paymentForm.cardNumber);
+                            setCardFieldErrors((prev) => ({
+                              ...prev,
+                              cardNumber: result.ok ? "" : result.error,
+                            }));
+                          }}
                           inputMode="numeric"
                           autoComplete="off"
+                          placeholder="•••• •••• •••• ••••"
+                          maxLength={23}
                         />
+                        {cardFieldErrors.cardNumber ? (
+                          <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                            {cardFieldErrors.cardNumber}
+                          </span>
+                        ) : null}
                       </label>
                       <label className={labelClass}>
                         Exp date
                         <input
-                          className={inputClass}
+                          className={`${inputClass}${cardFieldErrors.expDate ? " border-red-400 focus:border-red-500 focus:ring-red-500/20" : ""}`}
                           value={paymentForm.expDate}
-                          onChange={(e) =>
-                            setPaymentForm((prev) => ({ ...prev, expDate: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            const input = e.target;
+                            const next = formatExpDateInput(input.value, paymentForm.expDate);
+                            setPaymentForm((prev) => ({ ...prev, expDate: next }));
+                            setCardFieldErrors((prev) => ({ ...prev, expDate: "" }));
+                            // Keep caret after "MM/" when month auto-completes (e.g. 2 → 02/).
+                            requestAnimationFrame(() => {
+                              const pos = next.length;
+                              try {
+                                input.setSelectionRange(pos, pos);
+                              } catch {
+                                // ignore unsupported selection on some inputs
+                              }
+                            });
+                          }}
+                          onBlur={() => {
+                            const result = validateExpDate(paymentForm.expDate);
+                            setCardFieldErrors((prev) => ({
+                              ...prev,
+                              expDate: result.ok ? "" : result.error,
+                            }));
+                          }}
                           placeholder="MM/YY"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={5}
                         />
+                        {cardFieldErrors.expDate ? (
+                          <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                            {cardFieldErrors.expDate}
+                          </span>
+                        ) : null}
                       </label>
                       <label className={labelClass}>
                         CVV
                         <input
-                          className={inputClass}
+                          className={`${inputClass}${cardFieldErrors.cvv ? " border-red-400 focus:border-red-500 focus:ring-red-500/20" : ""}`}
                           value={paymentForm.cvv}
-                          onChange={(e) =>
-                            setPaymentForm((prev) => ({ ...prev, cvv: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            const next = formatCvvInput(e.target.value);
+                            setPaymentForm((prev) => ({ ...prev, cvv: next }));
+                            setCardFieldErrors((prev) => ({ ...prev, cvv: "" }));
+                          }}
+                          onBlur={() => {
+                            const result = validateCvv(paymentForm.cvv);
+                            setCardFieldErrors((prev) => ({
+                              ...prev,
+                              cvv: result.ok ? "" : result.error,
+                            }));
+                          }}
                           inputMode="numeric"
                           autoComplete="off"
+                          placeholder="•••"
                           maxLength={4}
                         />
+                        {cardFieldErrors.cvv ? (
+                          <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                            {cardFieldErrors.cvv}
+                          </span>
+                        ) : null}
                       </label>
                     </div>
                   ) : null}
@@ -1265,21 +1568,17 @@ export default function CustomersClient() {
                           ? "Update payment"
                           : "Save payment"}
                     </button>
-                    {editingPaymentId ? (
-                      <button
-                        type="button"
-                        className={btnSecondary}
-                        onClick={() => {
-                          setEditingPaymentId(null);
-                          setPaymentForm(newPaymentForm());
-                        }}
-                      >
-                        Cancel edit
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      className={btnSecondary}
+                      onClick={closePaymentForm}
+                      disabled={savingPayment}
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </form>
-                )}
+                ) : null}
               </section>
 
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
@@ -1287,7 +1586,7 @@ export default function CustomersClient() {
                   Lead history
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Link which saved payment method charged each lead.
+                  Link a saved payment method, then log Charged, Declined, or Chargeback.
                 </p>
                 <ul className="mt-3 space-y-2">
                   {leads.length === 0 ? (
@@ -1307,6 +1606,20 @@ export default function CustomersClient() {
                       const paymentTone = paymentMeta?.tone || "zinc";
                       const paymentBadgeClass =
                         WORKFLOW_BADGE_CLASS[paymentTone] || WORKFLOW_BADGE_CLASS.zinc;
+                      const chargeMeta = lead.leadPaymentChargeStatus
+                        ? getLeadPaymentChargeStatusMeta(lead.leadPaymentChargeStatus)
+                        : null;
+                      const chargeBadgeClass = chargeMeta
+                        ? WORKFLOW_BADGE_CLASS[chargeMeta.tone] || WORKFLOW_BADGE_CLASS.zinc
+                        : "";
+                      const processorMeta = lead.leadPaymentProcessor
+                        ? getLeadPaymentProcessorMeta(lead.leadPaymentProcessor)
+                        : null;
+                      const processorBadgeClass = processorMeta
+                        ? WORKFLOW_BADGE_CLASS[processorMeta.tone] || WORKFLOW_BADGE_CLASS.zinc
+                        : "";
+                      const chargeBusy =
+                        linkingLeadId === lead.id || chargingLeadId === lead.id;
                       return (
                         <li
                           key={lead.id}
@@ -1342,16 +1655,36 @@ export default function CustomersClient() {
                                 {paymentMeta.label}
                               </span>
                             ) : null}
+                            {chargeMeta ? (
+                              <span
+                                className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${chargeBadgeClass}`}
+                                title={
+                                  lead.leadPaymentChargeStatus === "declined" &&
+                                  lead.leadPaymentDeclineReason
+                                    ? lead.leadPaymentDeclineReason
+                                    : undefined
+                                }
+                              >
+                                {chargeMeta.label}
+                              </span>
+                            ) : null}
+                            {processorMeta ? (
+                              <span
+                                className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${processorBadgeClass}`}
+                              >
+                                {processorMeta.label}
+                              </span>
+                            ) : null}
                             <span>
                               {formatLeadService(lead)} · created by {lead.createdByUsername || "—"}
                             </span>
                           </div>
                           <label className={`${labelClass} mt-3`}>
-                            Charged payment method
+                            Linked payment method
                             <select
                               className={inputClass}
                               value={lead.customerPaymentMethodId || ""}
-                              disabled={linkingLeadId === lead.id || paymentMethods.length === 0}
+                              disabled={chargeBusy || paymentMethods.length === 0}
                               onChange={(e) => void linkLeadPayment(lead.id, e.target.value)}
                             >
                               <option value="">
@@ -1370,8 +1703,125 @@ export default function CustomersClient() {
                             <p className="mt-1 text-xs text-zinc-500">Saving…</p>
                           ) : linkedPm ? (
                             <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
-                              Linked: {paymentMethodOptionLabel(linkedPm)}
+                              {paymentMethodOptionLabel(linkedPm)}
                             </p>
+                          ) : null}
+                          {linkedPm ? (
+                            <div className="mt-3">
+                              <p className={`${labelClass} mb-1.5`}>Charge status</p>
+                              <div className="flex flex-wrap gap-2">
+                                {LEAD_PAYMENT_CHARGE_STATUSES.map((status) => {
+                                  const active = lead.leadPaymentChargeStatus === status.value;
+                                  const toneClass =
+                                    WORKFLOW_BADGE_CLASS[status.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                                  return (
+                                    <button
+                                      key={status.value}
+                                      type="button"
+                                      disabled={chargeBusy}
+                                      onClick={() => openChargeModal(lead, status.value)}
+                                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                                        active
+                                          ? toneClass
+                                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                      }`}
+                                      aria-pressed={active}
+                                    >
+                                      {status.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {processorMeta ? (
+                                <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                                  Latest processor: {processorMeta.label}
+                                </p>
+                              ) : null}
+                              {lead.leadPaymentChargeStatus === "declined" &&
+                              lead.leadPaymentDeclineReason ? (
+                                <p className="mt-1.5 text-xs text-red-700 dark:text-red-300">
+                                  Latest reason: {lead.leadPaymentDeclineReason}
+                                </p>
+                              ) : null}
+                              {chargingLeadId === lead.id ? (
+                                <p className="mt-1 text-xs text-zinc-500">Saving…</p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {(lead.paymentChargeLogGroups || []).length > 0 ? (
+                            <div className="mt-3 space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Payment logs by card
+                              </p>
+                              {lead.paymentChargeLogGroups.map((group) => {
+                                const groupKey = group.customerPaymentMethodId ?? "unknown";
+                                const highlighted = group.isCurrent || group.isCharged;
+                                return (
+                                  <div
+                                    key={groupKey}
+                                    className={`rounded-xl border px-3 py-2 ${
+                                      highlighted
+                                        ? group.isCharged
+                                          ? "border-emerald-400 bg-emerald-50/90 ring-1 ring-emerald-300/80 dark:border-emerald-600 dark:bg-emerald-950/40 dark:ring-emerald-700/60"
+                                          : "border-violet-400 bg-violet-50/90 ring-1 ring-violet-300/80 dark:border-violet-600 dark:bg-violet-950/40 dark:ring-violet-700/60"
+                                        : "border-zinc-200 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/50"
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p
+                                        className={`text-xs font-semibold ${
+                                          highlighted
+                                            ? group.isCharged
+                                              ? "text-emerald-900 dark:text-emerald-100"
+                                              : "text-violet-900 dark:text-violet-100"
+                                            : "text-zinc-800 dark:text-zinc-200"
+                                        }`}
+                                      >
+                                        {group.label}
+                                      </p>
+                                      {group.isCurrent ? (
+                                        <span className="inline-flex rounded-full border border-violet-300 bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900 dark:border-violet-700 dark:bg-violet-950/70 dark:text-violet-100">
+                                          Current
+                                        </span>
+                                      ) : null}
+                                      {group.isCharged ? (
+                                        <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-100">
+                                          Charged
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {group.logs.length === 0 ? (
+                                      <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                        No charge logs yet.
+                                      </p>
+                                    ) : (
+                                      <ul className="mt-2 space-y-2">
+                                        {group.logs.map((log) => (
+                                          <li
+                                            key={log.id}
+                                            className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300"
+                                          >
+                                            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                                              <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                                {log.body}
+                                              </span>
+                                              <time className="shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                                {formatWhen(log.createdAt)}
+                                              </time>
+                                            </div>
+                                            {log.username ? (
+                                              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                                by {log.username}
+                                              </p>
+                                            ) : null}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           ) : null}
                         </li>
                       );
@@ -1383,6 +1833,91 @@ export default function CustomersClient() {
           )}
         </div>
       </div>
+
+      {chargeModal ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[60] bg-zinc-950/50"
+            aria-label="Close charge form"
+            onClick={closeChargeModal}
+          />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+              <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                {chargeModal.status === "declined"
+                  ? "Payment declined"
+                  : chargeModal.status === "chargeback"
+                    ? "Payment chargeback"
+                    : "Payment charged"}
+              </h3>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Select the payment processor for {chargeModal.lead.fullName || "this lead"}.
+                {chargeModal.status === "declined"
+                  ? " You can log declines multiple times."
+                  : ""}
+              </p>
+              <label className={`${labelClass} mt-4`}>
+                Payment processor *
+                <select
+                  className={inputClass}
+                  value={chargeProcessor}
+                  onChange={(e) => setChargeProcessor(e.target.value)}
+                  autoFocus
+                >
+                  <option value="">Select processor…</option>
+                  {LEAD_PAYMENT_PROCESSORS.map((processor) => (
+                    <option key={processor.value} value={processor.value}>
+                      {processor.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {chargeModal.status === "declined" ? (
+                <label className={`${labelClass} mt-3`}>
+                  Decline reason *
+                  <textarea
+                    value={declineReason}
+                    onChange={(e) => setDeclineReason(e.target.value)}
+                    rows={4}
+                    className={`${inputClass} min-h-[96px] resize-y`}
+                    placeholder="Decline reason…"
+                  />
+                </label>
+              ) : null}
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={closeChargeModal} className={btnSecondary}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    chargingLeadId === chargeModal.lead.id ||
+                    !chargeProcessor ||
+                    (chargeModal.status === "declined" && !declineReason.trim())
+                  }
+                  onClick={() => void submitChargeModal()}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                    chargeModal.status === "declined"
+                      ? "bg-red-600 hover:bg-red-500"
+                      : chargeModal.status === "chargeback"
+                        ? "bg-amber-600 hover:bg-amber-500"
+                        : "bg-emerald-600 hover:bg-emerald-500"
+                  }`}
+                >
+                  {chargingLeadId === chargeModal.lead.id
+                    ? "Saving…"
+                    : chargeModal.status === "declined"
+                      ? "Save declined"
+                      : chargeModal.status === "chargeback"
+                        ? "Save chargeback"
+                        : "Save charged"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {selectedLead ? (
         <LeadDetailPanel

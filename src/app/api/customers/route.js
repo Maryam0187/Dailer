@@ -7,9 +7,11 @@ import {
   PAYMENT_METHOD_TYPES,
   serializeCustomer,
 } from "@/server/customers/serializeCustomer";
-import { LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
+import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { getStateByCode } from "@/lib/usStates";
 
-const SEARCH_BY_VALUES = new Set(["phone", "name", "last4"]);
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
 
 const SALE_FILTER_MAP = {
@@ -24,10 +26,6 @@ function parsePositiveInt(value, fallback) {
   return n;
 }
 
-function digitsOnly(value) {
-  return String(value || "").replace(/\D/g, "");
-}
-
 function parseDateOnly(value) {
   if (!value || typeof value !== "string") return null;
   const v = value.trim();
@@ -38,23 +36,6 @@ function parseDateOnly(value) {
 function pushAnd(where, clause) {
   if (!where[Op.and]) where[Op.and] = [];
   where[Op.and].push(clause);
-}
-
-async function findCustomerIdsByCardLast4(last4) {
-  const needle = digitsOnly(last4).slice(-4);
-  if (needle.length !== 4) return [];
-
-  const cards = await db.CustomerPaymentMethod.findAll({
-    where: { type: "card" },
-    attributes: ["customerId", "cardNumber"],
-  });
-
-  const ids = new Set();
-  for (const pm of cards) {
-    const num = digitsOnly(pm.cardNumber);
-    if (num && num.endsWith(needle)) ids.add(Number(pm.customerId));
-  }
-  return [...ids];
 }
 
 function leadDateColumn(salePhase) {
@@ -69,17 +50,18 @@ function leadDateBetweenSql(salePhase, fromDate, toDate) {
 }
 
 /**
- * Build one EXISTS so sale status, payment, and date range apply to the same lead
- * when those filters are combined.
+ * Build one EXISTS so sale status, payment type, charge status, and date range
+ * apply to the same lead when those filters are combined.
  */
-function buildLeadFilterLiteral({ salePhase, paymentType, fromDate, toDate }) {
+function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate }) {
   const hasSale = Boolean(salePhase && LEAD_PHASE_VALUES.has(salePhase));
   const hasPay = Boolean(paymentType && PAYMENT_FILTER_VALUES.has(paymentType));
+  const hasCharge = Boolean(chargeStatus && LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeStatus));
   const hasDate = Boolean(fromDate && toDate);
-  if (!hasSale && !hasPay && !hasDate) return null;
+  if (!hasSale && !hasPay && !hasCharge && !hasDate) return null;
 
-  // Payment alone (no sale/date): also include customers with that saved PM type.
-  if (hasPay && !hasSale && !hasDate) {
+  // Payment alone (no sale/charge/date): also include customers with that saved PM type.
+  if (hasPay && !hasSale && !hasCharge && !hasDate) {
     const payEsc = db.sequelize.escape(paymentType);
     return db.sequelize.literal(`(
       EXISTS (
@@ -116,6 +98,12 @@ function buildLeadFilterLiteral({ salePhase, paymentType, fromDate, toDate }) {
     )`);
   }
 
+  if (hasCharge) {
+    clauses.push(
+      `\`l\`.\`leadPaymentChargeStatus\` = ${db.sequelize.escape(chargeStatus)}`,
+    );
+  }
+
   if (hasDate) {
     clauses.push(leadDateBetweenSql(hasSale ? salePhase : null, fromDate, toDate));
   }
@@ -141,12 +129,18 @@ export async function GET(req) {
   const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 25), 100);
   const offset = (page - 1) * pageSize;
   const q = String(searchParams.get("q") || "").trim();
-  const searchByRaw = String(searchParams.get("searchBy") || "phone").trim();
-  const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "phone";
+  const searchByRaw = String(searchParams.get("searchBy") || "all").trim();
+  const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
+  const chargeFilter = String(searchParams.get("chargeFilter") || "").trim().toLowerCase();
+  const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
+
+  if (stateRaw && !getStateByCode(stateRaw)) {
+    return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+  }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json(
@@ -164,8 +158,13 @@ export async function GET(req) {
   const where = {};
 
   if (q) {
+    const check = validateListSearchQuery(searchBy, q);
+    if (!check.isValid) {
+      return NextResponse.json({ error: check.message }, { status: 400 });
+    }
+
     if (searchBy === "name") {
-      const like = `%${q}%`;
+      const like = `%${check.normalized}%`;
       pushAnd(where, {
         [Op.or]: [
           { fullName: { [Op.like]: like } },
@@ -177,40 +176,104 @@ export async function GET(req) {
         ],
       });
     } else if (searchBy === "last4") {
-      const ids = await findCustomerIdsByCardLast4(q);
-      where.id = { [Op.in]: ids.length > 0 ? ids : [-1] };
-    } else {
-      const phoneDigits = digitsOnly(q);
-      const or = [{ phone: { [Op.like]: `%${q}%` } }];
-      if (phoneDigits) {
-        or.push({ phone: { [Op.like]: `%${phoneDigits}%` } });
+      const last4 = check.normalized;
+      pushAnd(where, {
+        [Op.or]: [
+          { phone: { [Op.like]: `%${last4}` } },
+          db.sequelize.literal(`EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`ln\`
+            WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+              AND (
+                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+              )
+          )`),
+        ],
+      });
+    } else if (searchBy === "all") {
+      const like = `%${check.normalized}%`;
+      const digits = check.normalized.replace(/\D/g, "");
+      const or = [
+        { fullName: { [Op.like]: like } },
+        { phone: { [Op.like]: like } },
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`Leads\` AS \`ln\`
+          WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+            AND (
+              \`ln\`.\`fullName\` LIKE ${db.sequelize.escape(like)}
+              OR \`ln\`.\`phone\` LIKE ${db.sequelize.escape(like)}
+              OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(like)}
+            )
+        )`),
+      ];
+      if (digits) {
+        or.push({ phone: { [Op.like]: `%${digits}%` } });
+        or.push(
+          db.sequelize.literal(`EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`ln\`
+            WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+              AND (
+                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${digits}%`)}
+                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${digits}%`)}
+              )
+          )`),
+        );
+        if (digits.length >= 4) {
+          const last4 = digits.slice(-4);
+          or.push({ phone: { [Op.like]: `%${last4}` } });
+          or.push(
+            db.sequelize.literal(`EXISTS (
+              SELECT 1 FROM \`Leads\` AS \`ln\`
+              WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+                AND (
+                  \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                  OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                )
+            )`),
+          );
+        }
+        const normalized = normalizeToE164(digits);
+        if (normalized) or.push({ phone: normalized });
       }
-      const normalized = normalizeToE164(q);
+      pushAnd(where, { [Op.or]: or });
+    } else {
+      const phoneDigits = check.normalized;
+      const or = [{ phone: { [Op.like]: `%${phoneDigits}%` } }];
+      const normalized = normalizeToE164(phoneDigits);
       if (normalized) or.push({ phone: normalized });
       where[Op.or] = or;
     }
   }
 
+  if (stateRaw) {
+    pushAnd(where, {
+      [Op.or]: [
+        { state: stateRaw },
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`Leads\` AS \`ln\`
+          WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+            AND \`ln\`.\`state\` = ${db.sequelize.escape(stateRaw)}
+        )`),
+      ],
+    });
+  }
+
   const salePhase = SALE_FILTER_MAP[saleFilter] || null;
   const paymentType = PAYMENT_FILTER_VALUES.has(paymentFilter) ? paymentFilter : null;
+  const chargeStatus = LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeFilter) ? chargeFilter : null;
   const leadFilter = buildLeadFilterLiteral({
     salePhase,
     paymentType,
+    chargeStatus,
     fromDate,
     toDate,
   });
   if (leadFilter) pushAnd(where, leadFilter);
 
-  const lastLeadCreatedAt = `(
-    SELECT MAX(\`createdAt\`) FROM \`Leads\` AS \`l\`
-    WHERE \`l\`.\`customerId\` = \`Customer\`.\`id\`
-  )`;
-
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
     order: [
-      [db.sequelize.literal(`${lastLeadCreatedAt} IS NULL`), "ASC"],
-      [db.sequelize.literal(lastLeadCreatedAt), "DESC"],
+      ["updatedAt", "DESC"],
       ["id", "DESC"],
     ],
     offset,

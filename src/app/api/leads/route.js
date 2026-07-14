@@ -20,7 +20,11 @@ import {
   LEAD_PROGRESS_MISSING_VALUES,
   LEAD_PROGRESS_TAG_VALUES,
 } from "@/lib/leadWorkflow";
-import { Sequelize } from "sequelize";
+import { Op, Sequelize } from "sequelize";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { getStateByCode } from "@/lib/usStates";
+
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 
 function progressTagContainsLiteral(tag) {
   return Sequelize.literal(
@@ -38,6 +42,72 @@ function trimField(value, maxLen) {
   const s = String(value || "").trim();
   if (!s) return null;
   return s.slice(0, maxLen);
+}
+
+function leadPhoneMatchClauses(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  const or = [];
+  if (raw) {
+    or.push({ phone: { [Op.like]: `%${raw}%` } });
+    or.push({ cellNumber: { [Op.like]: `%${raw}%` } });
+  }
+  if (digits) {
+    or.push({ phone: { [Op.like]: `%${digits}%` } });
+    or.push({ cellNumber: { [Op.like]: `%${digits}%` } });
+    if (digits.length >= 4) {
+      const last4 = digits.slice(-4);
+      or.push({ phone: { [Op.like]: `%${last4}` } });
+      or.push({ cellNumber: { [Op.like]: `%${last4}` } });
+    }
+    const normalized = normalizeToE164(digits);
+    if (normalized) {
+      or.push({ phone: normalized });
+      or.push({ cellNumber: normalized });
+    }
+  }
+  return or;
+}
+
+function buildLeadSearchWhere(q, searchBy) {
+  const check = validateListSearchQuery(searchBy, q);
+  if (!check.isValid) {
+    return { error: check.message };
+  }
+  if (!check.normalized) return null;
+
+  if (searchBy === "name") {
+    return { fullName: { [Op.like]: `%${check.normalized}%` } };
+  }
+
+  if (searchBy === "last4") {
+    return {
+      [Op.or]: [
+        { phone: { [Op.like]: `%${check.normalized}` } },
+        { cellNumber: { [Op.like]: `%${check.normalized}` } },
+      ],
+    };
+  }
+
+  if (searchBy === "all") {
+    return {
+      [Op.or]: [
+        { fullName: { [Op.like]: `%${check.normalized}%` } },
+        ...leadPhoneMatchClauses(check.normalized),
+      ],
+    };
+  }
+
+  const phoneDigits = check.normalized;
+  const or = [
+    { phone: { [Op.like]: `%${phoneDigits}%` } },
+    { cellNumber: { [Op.like]: `%${phoneDigits}%` } },
+  ];
+  const normalized = normalizeToE164(phoneDigits);
+  if (normalized) {
+    or.push({ phone: normalized });
+    or.push({ cellNumber: normalized });
+  }
+  return { [Op.or]: or };
 }
 
 const SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
@@ -212,6 +282,25 @@ export async function GET(req) {
     } else {
       return NextResponse.json({ error: "Invalid leadProgressTag" }, { status: 400 });
     }
+  }
+
+  const q = String(searchParams.get("q") || "").trim();
+  const searchByRaw = String(searchParams.get("searchBy") || "all").trim();
+  const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
+  if (q) {
+    const searchWhere = buildLeadSearchWhere(q, searchBy);
+    if (searchWhere?.error) {
+      return NextResponse.json({ error: searchWhere.error }, { status: 400 });
+    }
+    where = andWhereClause(where, searchWhere);
+  }
+
+  const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
+  if (stateRaw) {
+    if (!getStateByCode(stateRaw)) {
+      return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+    }
+    where.state = stateRaw;
   }
 
   const { rows: leads, count } = await db.Lead.findAndCountAll({

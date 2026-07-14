@@ -6,6 +6,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import {
   LEAD_CONTACT_TAGS,
   LEAD_PHASES,
@@ -25,6 +26,7 @@ import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/le
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import { US_STATES } from "@/lib/usStates";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import IconTooltipButton, { CallIcon, EditIcon, ExpandIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
@@ -127,6 +129,13 @@ function filterChipClass(active) {
   return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${active ? FILTER_CHIP_ACTIVE_CLASS : FILTER_CHIP_CLASS}`;
 }
 
+const SEARCH_BY_OPTIONS = [
+  { value: "all", label: "All", placeholder: "Phone, name, or last 4" },
+  { value: "phone", label: "Phone", placeholder: "Phone number" },
+  { value: "name", label: "Name", placeholder: "Lead name" },
+  { value: "last4", label: "Last 4", placeholder: "Phone last 4 digits" },
+];
+
 function hasActiveLeadFilters({
   supervisorFilter,
   agentFilter,
@@ -135,7 +144,9 @@ function hasActiveLeadFilters({
   leadPhaseFilter,
   leadProgressTagFilter,
   leadContactTagFilter,
+  stateFilter,
   rangePreset,
+  q,
 }) {
   return (
     supervisorFilter !== "all" ||
@@ -145,7 +156,9 @@ function hasActiveLeadFilters({
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
-    rangePreset !== "all"
+    stateFilter !== "all" ||
+    rangePreset !== "all" ||
+    Boolean(q)
   );
 }
 
@@ -171,7 +184,14 @@ function formatLeadName(lead) {
 
 
 function formatLeadLocation(lead) {
-  return [lead.state, lead.city, lead.zipCode].filter(Boolean).join(", ") || "—";
+  const city = lead.city?.trim();
+  const state = lead.state?.trim();
+  const zip = lead.zipCode?.trim();
+  const stateZip = [state, zip].filter(Boolean).join(" ");
+  if (city && stateZip) return `${city}, ${stateZip}`;
+  if (city) return city;
+  if (stateZip) return stateZip;
+  return "—";
 }
 
 const tableHeadClass = "whitespace-nowrap px-2.5 py-2.5 text-[11px] font-semibold uppercase tracking-wide";
@@ -256,6 +276,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [searchBy, setSearchBy] = useState("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchError, setSearchError] = useState(null);
+  const [q, setQ] = useState("");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [saveError, setSaveError] = useState(null);
@@ -266,7 +291,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
-  const [sortBy, setSortBy] = useState("createdAt");
+  const [sortBy, setSortBy] = useState("updatedAt");
   const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -393,7 +418,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
       }
-      if (appliedFrom && appliedTo) {
+      if (stateFilter && stateFilter !== "all") {
+        params.set("state", stateFilter);
+      }
+      if (q.trim()) {
+        params.set("q", q.trim());
+        params.set("searchBy", searchBy);
+      } else if (appliedFrom && appliedTo) {
+        // Date range applies only when not doing a phone/name/last4 search
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
         params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
@@ -441,6 +473,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
+    stateFilter,
+    q,
+    searchBy,
     appliedFrom,
     appliedTo,
     sortBy,
@@ -545,6 +580,24 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setError(null);
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
+    setPage(1);
+  }
+
+  function onApplySearch(e) {
+    e?.preventDefault?.();
+    const check = validateListSearchQuery(searchBy, searchInput);
+    if (!check.isValid) {
+      setSearchError(check.message);
+      return;
+    }
+    setSearchError(null);
+    setError(null);
+    setQ(check.normalized);
+    if (check.normalized && searchBy === "phone") {
+      setSearchInput(formatLandline(check.normalized));
+    } else {
+      setSearchInput(check.normalized);
+    }
     setPage(1);
   }
 
@@ -888,94 +941,190 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="mb-4">
-          <label className={labelClass}>Sale status</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by sale status">
-            {phaseFilterOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                title={option.label}
-                onClick={() => {
-                  setLeadPhaseFilter(option.id);
+        <form
+          onSubmit={onApplySearch}
+          className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-200 pb-4 dark:border-zinc-700"
+        >
+          <div className="w-full sm:w-36">
+            <label htmlFor="leads-search-by" className={labelClass}>
+              Search by
+            </label>
+            <select
+              id="leads-search-by"
+              value={searchBy}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSearchBy(next);
+                setSearchError(null);
+                setSearchInput("");
+                if (q) {
+                  setQ("");
                   setPage(1);
-                }}
-                className={filterChipClass(leadPhaseFilter === option.id)}
-              >
-                {salePhaseFilterChipLabel(option)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mb-4">
-          <label className={labelClass}>Progress</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by progress">
-            {progressFilterOptions
-              .filter((option) => !option.missing)
-              .map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  title={option.label}
-                  onClick={() => {
-                    setLeadProgressTagFilter(option.id);
-                    setPage(1);
-                  }}
-                  className={filterChipClass(leadProgressTagFilter === option.id)}
-                >
-                  {progressFilterChipLabel(option)}
-                </button>
+                }
+              }}
+              className={inputClass}
+            >
+              {SEARCH_BY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
+            </select>
           </div>
-          <p className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Missing progress</p>
-          <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Filter by missing progress">
-            {visibleMissingProgressOptions.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  title={option.label}
-                  onClick={() => {
-                    setLeadProgressTagFilter(option.id);
-                    setPage(1);
-                  }}
-                  className={filterChipClass(leadProgressTagFilter === option.id)}
-                >
-                  {progressFilterChipLabel(option)}
-                </button>
+          <div className="relative min-w-[160px] flex-1">
+            <label htmlFor="leads-search" className={labelClass}>
+              {searchBy === "last4"
+                ? "Phone last 4"
+                : searchBy === "name"
+                  ? "Name"
+                  : searchBy === "phone"
+                    ? "Phone"
+                    : "Search"}
+            </label>
+            <input
+              id="leads-search"
+              value={searchInput}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (searchBy === "phone") {
+                  setSearchInput(formatLandline(next));
+                } else if (searchBy === "last4") {
+                  setSearchInput(digitsOnly(next).slice(0, 4));
+                } else {
+                  setSearchInput(next);
+                }
+                if (searchError) setSearchError(null);
+              }}
+              className={inputClass}
+              placeholder={
+                SEARCH_BY_OPTIONS.find((opt) => opt.value === searchBy)?.placeholder || "Search"
+              }
+              inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+              maxLength={
+                searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
+              }
+              aria-invalid={Boolean(searchError)}
+            />
+            {searchError ? (
+              <p className={`pointer-events-none absolute left-0 top-full z-10 mt-1 ${fieldErrorClass}`}>
+                {searchError}
+              </p>
+            ) : null}
+          </div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
+            <label htmlFor="leads-sale-status-filter" className={labelClass}>
+              Sale status
+            </label>
+            <select
+              id="leads-sale-status-filter"
+              value={leadPhaseFilter}
+              onChange={(e) => {
+                setLeadPhaseFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by sale status"
+            >
+              {phaseFilterOptions.map((option) => (
+                <option key={option.id} value={option.id} title={option.label}>
+                  {salePhaseFilterChipLabel(option)}
+                </option>
               ))}
+            </select>
           </div>
-        </div>
-
-        <div className="mb-4">
-          <label className={labelClass}>Call outcome</label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by call outcome">
-            {contactFilterOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                title={option.label}
-                onClick={() => {
-                  setLeadContactTagFilter(option.id);
-                  setPage(1);
-                }}
-                className={filterChipClass(leadContactTagFilter === option.id)}
-              >
-                {contactFilterChipLabel(option)}
-              </button>
-            ))}
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
+            <label htmlFor="leads-progress-filter" className={labelClass}>
+              Progress
+            </label>
+            <select
+              id="leads-progress-filter"
+              value={leadProgressTagFilter}
+              onChange={(e) => {
+                setLeadProgressTagFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by progress"
+            >
+              {progressFilterOptions
+                .filter((option) => !option.missing)
+                .map((option) => (
+                  <option key={option.id} value={option.id} title={option.label}>
+                    {progressFilterChipLabel(option)}
+                  </option>
+                ))}
+              {visibleMissingProgressOptions.length > 0 ? (
+                <optgroup label="Missing progress">
+                  {visibleMissingProgressOptions.map((option) => (
+                    <option key={option.id} value={option.id} title={option.label}>
+                      {progressFilterChipLabel(option)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
           </div>
-        </div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
+            <label htmlFor="leads-call-outcome-filter" className={labelClass}>
+              Call outcome
+            </label>
+            <select
+              id="leads-call-outcome-filter"
+              value={leadContactTagFilter}
+              onChange={(e) => {
+                setLeadContactTagFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by call outcome"
+            >
+              {contactFilterOptions.map((option) => (
+                <option key={option.id} value={option.id} title={option.label}>
+                  {contactFilterChipLabel(option)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
+            <label htmlFor="leads-state-filter" className={labelClass}>
+              State
+            </label>
+            <select
+              id="leads-state-filter"
+              value={stateFilter}
+              onChange={(e) => {
+                setStateFilter(e.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Filter by state"
+            >
+              <option value="all">All states</option>
+              {US_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            Search
+          </button>
+        </form>
 
         <form
-          className="grid gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-700"
+          className="grid gap-4"
           onSubmit={(e) => {
             void onApplyRange(e);
           }}
         >
           <div>
             <label className={labelClass}>Date range (optional)</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {[
                 { id: "all", label: "All time" },
                 { id: "today", label: "Today" },
@@ -988,7 +1137,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   key={p.id}
                   type="button"
                   onClick={() => applyRangePreset(p.id)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  className={`h-9 rounded-lg border px-3 text-sm font-semibold ${
                     rangePreset === p.id
                       ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -997,49 +1146,42 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   {p.label}
                 </button>
               ))}
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label htmlFor="leads-from-date" className={labelClass}>
-                From date
-              </label>
-              <input
-                id="leads-from-date"
-                type="date"
-                className={inputClass}
-                value={rangeFrom}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeFrom(e.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <label htmlFor="leads-to-date" className={labelClass}>
-                To date
-              </label>
-              <input
-                id="leads-to-date"
-                type="date"
-                className={inputClass}
-                value={rangeTo}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeTo(e.target.value);
-                }}
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading || rangePreset !== "custom"}
-                className="h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                Apply range
-              </button>
+              {rangePreset === "custom" ? (
+                <>
+                  <input
+                    id="leads-from-date"
+                    type="date"
+                    aria-label="From date"
+                    title="From date"
+                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    value={rangeFrom}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeFrom(e.target.value);
+                    }}
+                  />
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">to</span>
+                  <input
+                    id="leads-to-date"
+                    type="date"
+                    aria-label="To date"
+                    title="To date"
+                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    value={rangeTo}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeTo(e.target.value);
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -1335,7 +1477,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     leadPhaseFilter,
                     leadProgressTagFilter,
                     leadContactTagFilter,
+                    stateFilter,
                     rangePreset,
+                    q,
                   })
                     ? "No leads match the selected filters."
                     : "No leads yet. Add your first lead above."}

@@ -1,5 +1,9 @@
 import db from "@/server/db";
-import { shouldHideLeadNotes, shouldRestrictProcessorLeadActivity } from "@/lib/leadRoles";
+import {
+  isAdminOnlyPaymentChargeActivityBody,
+  shouldHideLeadNotes,
+  shouldRestrictProcessorLeadActivity,
+} from "@/lib/leadRoles";
 
 export function serializeLeadUpdate(row) {
   return {
@@ -40,7 +44,8 @@ export async function fetchLeadUpdates(leadId) {
 export function filterLeadUpdatesForViewer(updates, viewer, lead) {
   const viewerRole = viewer?.role;
   const viewerId = viewer?.id != null ? Number(viewer.id) : null;
-  let next = updates;
+  // Payment charge/link logs live on Customers → Lead history, not the lead timeline.
+  let next = updates.filter((u) => !isAdminOnlyPaymentChargeActivityBody(u.body));
   if (shouldHideLeadNotes(viewerRole, lead)) {
     next = next
       .filter((u) => u.type !== "note_edit")

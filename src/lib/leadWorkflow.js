@@ -31,6 +31,20 @@ export const LEAD_PAYMENT_METHODS = [
   { value: "pos_link", label: "POS Link", tone: "fuchsia" },
 ];
 
+/** Admin charge outcome for a linked customer payment method. */
+export const LEAD_PAYMENT_CHARGE_STATUSES = [
+  { value: "charged", label: "Charged", tone: "emerald" },
+  { value: "declined", label: "Declined", tone: "red" },
+  { value: "chargeback", label: "Chargeback", tone: "amber" },
+];
+
+/** Payment gateway used when charging a linked card. */
+export const LEAD_PAYMENT_PROCESSORS = [
+  { value: "auth", label: "PA", tone: "indigo" },
+  { value: "kurv", label: "PC", tone: "teal" },
+  { value: "cardpointe", label: "CP", tone: "sky" },
+];
+
 export const LEAD_PHASE_VALUES = new Set(LEAD_PHASES.map((p) => p.value));
 export const LEAD_PROGRESS_TAG_VALUES = new Set(LEAD_PROGRESS_TAGS.map((t) => t.value));
 export const LEAD_PROGRESS_MISSING_VALUES = new Set(LEAD_PROGRESS_MISSING_FILTERS.map((t) => t.value));
@@ -40,11 +54,17 @@ export const LEAD_PROGRESS_FILTER_VALUES = new Set([
 ]);
 export const LEAD_CONTACT_TAG_VALUES = new Set(LEAD_CONTACT_TAGS.map((t) => t.value));
 export const LEAD_PAYMENT_METHOD_VALUES = new Set(LEAD_PAYMENT_METHODS.map((m) => m.value));
+export const LEAD_PAYMENT_CHARGE_STATUS_VALUES = new Set(
+  LEAD_PAYMENT_CHARGE_STATUSES.map((s) => s.value),
+);
+export const LEAD_PAYMENT_PROCESSOR_VALUES = new Set(LEAD_PAYMENT_PROCESSORS.map((p) => p.value));
 
 const PHASE_MAP = Object.fromEntries(LEAD_PHASES.map((p) => [p.value, p]));
 const PROGRESS_MAP = Object.fromEntries(LEAD_PROGRESS_TAGS.map((t) => [t.value, t]));
 const CONTACT_MAP = Object.fromEntries(LEAD_CONTACT_TAGS.map((t) => [t.value, t]));
 const PAYMENT_MAP = Object.fromEntries(LEAD_PAYMENT_METHODS.map((m) => [m.value, m]));
+const CHARGE_STATUS_MAP = Object.fromEntries(LEAD_PAYMENT_CHARGE_STATUSES.map((s) => [s.value, s]));
+const PROCESSOR_MAP = Object.fromEntries(LEAD_PAYMENT_PROCESSORS.map((p) => [p.value, p]));
 
 export const WORKFLOW_BADGE_CLASS = {
   emerald:
@@ -134,6 +154,75 @@ export function getLeadPaymentMethodMeta(method) {
   return PAYMENT_MAP[String(method || "").toLowerCase()] || { value: method, label: method || "—", tone: "zinc" };
 }
 
+export function getLeadPaymentChargeStatusMeta(status) {
+  return (
+    CHARGE_STATUS_MAP[String(status || "").toLowerCase()] || {
+      value: status,
+      label: status || "—",
+      tone: "zinc",
+    }
+  );
+}
+
+export function normalizeLeadPaymentChargeStatus(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const value = String(raw).trim().toLowerCase();
+  return LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(value) ? value : undefined;
+}
+
+export function getLeadPaymentProcessorMeta(processor) {
+  return (
+    PROCESSOR_MAP[String(processor || "").toLowerCase()] || {
+      value: processor,
+      label: processor || "—",
+      tone: "zinc",
+    }
+  );
+}
+
+export function normalizeLeadPaymentProcessor(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const value = String(raw).trim().toLowerCase();
+  return LEAD_PAYMENT_PROCESSOR_VALUES.has(value) ? value : undefined;
+}
+
+/** Embed payment-method id so customer UI can group logs per card. */
+export function withPaymentMethodId(body, pmId) {
+  const text = String(body || "").trim();
+  const id = Number(pmId);
+  if (!text || !Number.isInteger(id) || id <= 0) return text;
+  return `${text} [pmid:${id}]`;
+}
+
+export function parsePaymentMethodIdFromActivityBody(body) {
+  const match = String(body || "").match(/\[pmid:(\d+)\]\s*$/i);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+export function stripPaymentMethodIdFromActivityBody(body) {
+  return String(body || "")
+    .replace(/\s*\[pmid:\d+\]\s*$/i, "")
+    .trim();
+}
+
+export function formatPaymentChargeActivity(status, declineReason, pmId, processor) {
+  const via = processor ? ` via ${getLeadPaymentProcessorMeta(processor).label}` : "";
+  let text = `Payment charge status cleared${via}`;
+  if (status === "charged") text = `Payment charged${via}`;
+  else if (status === "chargeback") text = `Payment chargeback${via}`;
+  else if (status === "declined") {
+    const reason = String(declineReason || "").trim();
+    text = reason ? `Payment declined${via}: ${reason}` : `Payment declined${via}`;
+  }
+  return withPaymentMethodId(text, pmId);
+}
+
+export function formatPaymentLinkActivity(linked, pmId) {
+  return withPaymentMethodId(linked ? "Payment method linked" : "Payment method unlinked", pmId);
+}
+
 export function parseLeadProgressTags(raw) {
   if (!Array.isArray(raw)) return null;
   return [...new Set(raw.map((v) => String(v).trim().toLowerCase()).filter((v) => LEAD_PROGRESS_TAG_VALUES.has(v)))];
@@ -151,14 +240,44 @@ export function normalizeLeadPaymentMethod(raw) {
   return LEAD_PAYMENT_METHOD_VALUES.has(value) ? value : undefined;
 }
 
-export function formatAppointmentActivity(at, note) {
-  const when = new Date(at).toLocaleString(undefined, {
+/** Format a datetime in a zone, including a short timezone name (e.g. PKT, EDT). */
+export function formatZonedDateTime(at, timeZone) {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const options = {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+    timeZoneName: "short",
+  };
+  if (timeZone) options.timeZone = timeZone;
+  try {
+    return d.toLocaleString("en-US", options);
+  } catch {
+    delete options.timeZone;
+    return d.toLocaleString("en-US", options);
+  }
+}
+
+/**
+ * Appointment activity line: agent/local zone, plus customer zone when available.
+ * @param {Date|string} at
+ * @param {string|null|undefined} note
+ * @param {string|undefined} agentTimeZone IANA zone (e.g. Asia/Karachi)
+ * @param {string|undefined} customerTimeZone IANA zone from lead state
+ */
+export function formatAppointmentActivity(at, note, agentTimeZone, customerTimeZone) {
+  const agentWhen = formatZonedDateTime(at, agentTimeZone);
+  let when = agentWhen;
+  if (customerTimeZone && customerTimeZone !== agentTimeZone) {
+    const customerWhen = formatZonedDateTime(at, customerTimeZone);
+    if (customerWhen && customerWhen !== agentWhen) {
+      when = `${agentWhen} · customer ${customerWhen}`;
+    }
+  }
   const base = `Appointment — ${when}`;
   const trimmed = String(note || "").trim();
   return trimmed ? `${base} — ${trimmed}` : base;

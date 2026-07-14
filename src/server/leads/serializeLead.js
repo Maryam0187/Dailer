@@ -1,6 +1,6 @@
 import db from "@/server/db";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { shouldHideLeadNotes } from "@/lib/leadRoles";
+import { canViewLeadPaymentChargeInfo, shouldHideLeadNotes } from "@/lib/leadRoles";
 
 export const leadAssignedUserInclude = {
   model: db.User,
@@ -36,6 +36,7 @@ export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude, 
 export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
   const notesHidden = shouldHideLeadNotes(viewerRole, lead);
+  const paymentChargeVisible = canViewLeadPaymentChargeInfo(viewerRole);
   return {
     id: lead.id,
     phone: phonesRedacted ? maskPhoneLastFour(lead.phone) : lead.phone,
@@ -67,6 +68,9 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     leadAppointmentAt: lead.leadAppointmentAt,
     leadAppointmentNote: lead.leadAppointmentNote,
     leadPaymentMethod: lead.leadPaymentMethod,
+    leadPaymentChargeStatus: paymentChargeVisible ? lead.leadPaymentChargeStatus || null : null,
+    leadPaymentDeclineReason: paymentChargeVisible ? lead.leadPaymentDeclineReason || null : null,
+    leadPaymentProcessor: paymentChargeVisible ? lead.leadPaymentProcessor || null : null,
     leadCancelReason: lead.leadCancelReason,
     nextCallbackAt: lead.nextCallbackAt,
     assignedUserId: lead.assignedUserId,
@@ -79,8 +83,8 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     createdByUsername: lead.createdBy?.username ?? null,
     createdByUserRole: lead.createdBy?.role ?? null,
     createdFromCallLogId: lead.createdFromCallLogId,
-    customerId: lead.customerId ?? null,
-    customerPaymentMethodId: lead.customerPaymentMethodId ?? null,
+    customerId: paymentChargeVisible ? lead.customerId ?? null : null,
+    customerPaymentMethodId: paymentChargeVisible ? lead.customerPaymentMethodId ?? null : null,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,

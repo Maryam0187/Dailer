@@ -9,6 +9,8 @@ import {
   normalizeLeadPaymentMethod,
   parseLeadProgressTags,
 } from "@/lib/leadWorkflow";
+import { getStateByCode } from "@/lib/usStates";
+import { getShiftSettings } from "@/server/auth/shiftSettings";
 import {
   getWorkflowTagRegistry,
   workflowTagFullLabel,
@@ -156,7 +158,9 @@ export async function applyLeadWorkflowPatch(lead, body) {
         nextAppointmentNote = note;
         contactChanged = true;
         const count = nextCounts.appointment;
-        const apptBody = formatAppointmentActivity(at, note);
+        const { timezone } = getShiftSettings();
+        const customerTimeZone = getStateByCode(lead.state)?.timeZone;
+        const apptBody = formatAppointmentActivity(at, note, timezone, customerTimeZone);
         activity.push({
           type: "lead_phase_change",
           body: count > 1 ? `${apptBody} (${count})` : apptBody,

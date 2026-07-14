@@ -13,6 +13,28 @@ export function canViewLeadStats(role) {
   return role === "admin";
 }
 
+/** Linked payment method + charge/decline/chargeback — admin only. */
+export function canViewLeadPaymentChargeInfo(role) {
+  return role === "admin";
+}
+
+/** Lead timeline bodies that expose admin-only payment charge / link info. */
+export function isAdminOnlyPaymentChargeActivityBody(body) {
+  const text = String(body || "").trim();
+  if (!text) return false;
+  return (
+    /^Payment charged\b/i.test(text) ||
+    /^Payment declined\b/i.test(text) ||
+    /^Payment chargeback\b/i.test(text) ||
+    /^Payment charge status cleared\b/i.test(text) ||
+    /^Payment method linked\b/i.test(text) ||
+    /^Payment method unlinked\b/i.test(text) ||
+    /^Linked payment method\b/i.test(text) ||
+    /^Charged with\b/i.test(text) ||
+    /^Charged payment method cleared\b/i.test(text)
+  );
+}
+
 /** Roles that see agent/supervisor filters on the leads page. */
 export function canUseLeadFilters(role) {
   return hasFullLeadAccess(role) || role === "supervisor";

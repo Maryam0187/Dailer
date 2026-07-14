@@ -141,6 +141,18 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM("check_mail", "e_check", "card", "pos_link"),
         allowNull: true,
       },
+      leadPaymentChargeStatus: {
+        type: DataTypes.ENUM("charged", "declined", "chargeback"),
+        allowNull: true,
+      },
+      leadPaymentDeclineReason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      leadPaymentProcessor: {
+        type: DataTypes.ENUM("auth", "kurv", "cardpointe"),
+        allowNull: true,
+      },
       leadCancelReason: {
         type: DataTypes.TEXT,
         allowNull: true,
@@ -156,6 +168,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["status"] },
         { fields: ["createdByUserId"] },
         { fields: ["leadPhase"] },
+        { fields: ["leadPaymentChargeStatus"] },
       ],
     },
   );
