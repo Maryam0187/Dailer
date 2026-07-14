@@ -8,8 +8,9 @@ import {
   serializeCustomer,
 } from "@/server/customers/serializeCustomer";
 import { LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
 
-const SEARCH_BY_VALUES = new Set(["phone", "name", "last4"]);
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
 
 const SALE_FILTER_MAP = {
@@ -24,10 +25,6 @@ function parsePositiveInt(value, fallback) {
   return n;
 }
 
-function digitsOnly(value) {
-  return String(value || "").replace(/\D/g, "");
-}
-
 function parseDateOnly(value) {
   if (!value || typeof value !== "string") return null;
   const v = value.trim();
@@ -38,23 +35,6 @@ function parseDateOnly(value) {
 function pushAnd(where, clause) {
   if (!where[Op.and]) where[Op.and] = [];
   where[Op.and].push(clause);
-}
-
-async function findCustomerIdsByCardLast4(last4) {
-  const needle = digitsOnly(last4).slice(-4);
-  if (needle.length !== 4) return [];
-
-  const cards = await db.CustomerPaymentMethod.findAll({
-    where: { type: "card" },
-    attributes: ["customerId", "cardNumber"],
-  });
-
-  const ids = new Set();
-  for (const pm of cards) {
-    const num = digitsOnly(pm.cardNumber);
-    if (num && num.endsWith(needle)) ids.add(Number(pm.customerId));
-  }
-  return [...ids];
 }
 
 function leadDateColumn(salePhase) {
@@ -141,8 +121,8 @@ export async function GET(req) {
   const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 25), 100);
   const offset = (page - 1) * pageSize;
   const q = String(searchParams.get("q") || "").trim();
-  const searchByRaw = String(searchParams.get("searchBy") || "phone").trim();
-  const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "phone";
+  const searchByRaw = String(searchParams.get("searchBy") || "all").trim();
+  const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
@@ -164,8 +144,13 @@ export async function GET(req) {
   const where = {};
 
   if (q) {
+    const check = validateListSearchQuery(searchBy, q);
+    if (!check.isValid) {
+      return NextResponse.json({ error: check.message }, { status: 400 });
+    }
+
     if (searchBy === "name") {
-      const like = `%${q}%`;
+      const like = `%${check.normalized}%`;
       pushAnd(where, {
         [Op.or]: [
           { fullName: { [Op.like]: like } },
@@ -177,15 +162,70 @@ export async function GET(req) {
         ],
       });
     } else if (searchBy === "last4") {
-      const ids = await findCustomerIdsByCardLast4(q);
-      where.id = { [Op.in]: ids.length > 0 ? ids : [-1] };
-    } else {
-      const phoneDigits = digitsOnly(q);
-      const or = [{ phone: { [Op.like]: `%${q}%` } }];
-      if (phoneDigits) {
-        or.push({ phone: { [Op.like]: `%${phoneDigits}%` } });
+      const last4 = check.normalized;
+      pushAnd(where, {
+        [Op.or]: [
+          { phone: { [Op.like]: `%${last4}` } },
+          db.sequelize.literal(`EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`ln\`
+            WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+              AND (
+                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+              )
+          )`),
+        ],
+      });
+    } else if (searchBy === "all") {
+      const like = `%${check.normalized}%`;
+      const digits = check.normalized.replace(/\D/g, "");
+      const or = [
+        { fullName: { [Op.like]: like } },
+        { phone: { [Op.like]: like } },
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`Leads\` AS \`ln\`
+          WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+            AND (
+              \`ln\`.\`fullName\` LIKE ${db.sequelize.escape(like)}
+              OR \`ln\`.\`phone\` LIKE ${db.sequelize.escape(like)}
+              OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(like)}
+            )
+        )`),
+      ];
+      if (digits) {
+        or.push({ phone: { [Op.like]: `%${digits}%` } });
+        or.push(
+          db.sequelize.literal(`EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`ln\`
+            WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+              AND (
+                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${digits}%`)}
+                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${digits}%`)}
+              )
+          )`),
+        );
+        if (digits.length >= 4) {
+          const last4 = digits.slice(-4);
+          or.push({ phone: { [Op.like]: `%${last4}` } });
+          or.push(
+            db.sequelize.literal(`EXISTS (
+              SELECT 1 FROM \`Leads\` AS \`ln\`
+              WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
+                AND (
+                  \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                  OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                )
+            )`),
+          );
+        }
+        const normalized = normalizeToE164(digits);
+        if (normalized) or.push({ phone: normalized });
       }
-      const normalized = normalizeToE164(q);
+      pushAnd(where, { [Op.or]: or });
+    } else {
+      const phoneDigits = check.normalized;
+      const or = [{ phone: { [Op.like]: `%${phoneDigits}%` } }];
+      const normalized = normalizeToE164(phoneDigits);
       if (normalized) or.push({ phone: normalized });
       where[Op.or] = or;
     }

@@ -6,6 +6,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import {
   LEAD_CONTACT_TAGS,
   LEAD_PHASES,
@@ -127,6 +128,13 @@ function filterChipClass(active) {
   return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${active ? FILTER_CHIP_ACTIVE_CLASS : FILTER_CHIP_CLASS}`;
 }
 
+const SEARCH_BY_OPTIONS = [
+  { value: "all", label: "All", placeholder: "Phone, name, or last 4" },
+  { value: "phone", label: "Phone", placeholder: "Phone number" },
+  { value: "name", label: "Name", placeholder: "Lead name" },
+  { value: "last4", label: "Last 4", placeholder: "Phone last 4 digits" },
+];
+
 function hasActiveLeadFilters({
   supervisorFilter,
   agentFilter,
@@ -136,6 +144,7 @@ function hasActiveLeadFilters({
   leadProgressTagFilter,
   leadContactTagFilter,
   rangePreset,
+  q,
 }) {
   return (
     supervisorFilter !== "all" ||
@@ -145,7 +154,8 @@ function hasActiveLeadFilters({
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
-    rangePreset !== "all"
+    rangePreset !== "all" ||
+    Boolean(q)
   );
 }
 
@@ -256,6 +266,10 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
+  const [searchBy, setSearchBy] = useState("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchError, setSearchError] = useState(null);
+  const [q, setQ] = useState("");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
   const [saveError, setSaveError] = useState(null);
@@ -393,7 +407,11 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
       }
-      if (appliedFrom && appliedTo) {
+      if (q.trim()) {
+        params.set("q", q.trim());
+        params.set("searchBy", searchBy);
+      } else if (appliedFrom && appliedTo) {
+        // Date range applies only when not doing a phone/name/last4 search
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
         params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
@@ -441,6 +459,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
+    q,
+    searchBy,
     appliedFrom,
     appliedTo,
     sortBy,
@@ -545,6 +565,24 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     setError(null);
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
+    setPage(1);
+  }
+
+  function onApplySearch(e) {
+    e?.preventDefault?.();
+    const check = validateListSearchQuery(searchBy, searchInput);
+    if (!check.isValid) {
+      setSearchError(check.message);
+      return;
+    }
+    setSearchError(null);
+    setError(null);
+    setQ(check.normalized);
+    if (check.normalized && searchBy === "phone") {
+      setSearchInput(formatLandline(check.normalized));
+    } else {
+      setSearchInput(check.normalized);
+    }
     setPage(1);
   }
 
@@ -888,8 +926,73 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
+        <form
+          onSubmit={onApplySearch}
+          className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-200 pb-4 dark:border-zinc-700"
+        >
+          <div className="w-full sm:w-36">
+            <label htmlFor="leads-search-by" className={labelClass}>
+              Search by
+            </label>
+            <select
+              id="leads-search-by"
+              value={searchBy}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSearchBy(next);
+                setSearchError(null);
+                setSearchInput("");
+                if (q) {
+                  setQ("");
+                  setPage(1);
+                }
+              }}
+              className={inputClass}
+            >
+              {SEARCH_BY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[160px] flex-1">
+            <label htmlFor="leads-search" className={labelClass}>
+              {searchBy === "last4"
+                ? "Phone last 4"
+                : searchBy === "name"
+                  ? "Name"
+                  : searchBy === "phone"
+                    ? "Phone"
+                    : "Search"}
+            </label>
+            <input
+              id="leads-search"
+              value={searchInput}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (searchBy === "phone") {
+                  setSearchInput(formatLandline(next));
+                } else if (searchBy === "last4") {
+                  setSearchInput(digitsOnly(next).slice(0, 4));
+                } else {
+                  setSearchInput(next);
+                }
+                if (searchError) setSearchError(null);
+              }}
+              className={inputClass}
+              placeholder={
+                SEARCH_BY_OPTIONS.find((opt) => opt.value === searchBy)?.placeholder || "Search"
+              }
+              inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+              maxLength={
+                searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
+              }
+              aria-invalid={Boolean(searchError)}
+            />
+            {searchError ? <p className={fieldErrorClass}>{searchError}</p> : null}
+          </div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-sale-status-filter" className={labelClass}>
               Sale status
             </label>
@@ -910,18 +1013,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
-
-          <div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-progress-filter" className={labelClass}>
               Progress
             </label>
             <select
               id="leads-progress-filter"
-              value={
-                progressFilterOptions.some((o) => o.id === leadProgressTagFilter && !o.missing)
-                  ? leadProgressTagFilter
-                  : "all"
-              }
+              value={leadProgressTagFilter}
               onChange={(e) => {
                 setLeadProgressTagFilter(e.target.value);
                 setPage(1);
@@ -936,37 +1034,18 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     {progressFilterChipLabel(option)}
                   </option>
                 ))}
+              {visibleMissingProgressOptions.length > 0 ? (
+                <optgroup label="Missing progress">
+                  {visibleMissingProgressOptions.map((option) => (
+                    <option key={option.id} value={option.id} title={option.label}>
+                      {progressFilterChipLabel(option)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
           </div>
-
-          <div>
-            <label htmlFor="leads-missing-progress-filter" className={labelClass}>
-              Missing progress
-            </label>
-            <select
-              id="leads-missing-progress-filter"
-              value={
-                visibleMissingProgressOptions.some((o) => o.id === leadProgressTagFilter)
-                  ? leadProgressTagFilter
-                  : "all"
-              }
-              onChange={(e) => {
-                setLeadProgressTagFilter(e.target.value);
-                setPage(1);
-              }}
-              className={inputClass}
-              aria-label="Filter by missing progress"
-            >
-              <option value="all">All</option>
-              {visibleMissingProgressOptions.map((option) => (
-                <option key={option.id} value={option.id} title={option.label}>
-                  {progressFilterChipLabel(option)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
+          <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-call-outcome-filter" className={labelClass}>
               Call outcome
             </label>
@@ -987,10 +1066,17 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
-        </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            Search
+          </button>
+        </form>
 
         <form
-          className="grid gap-4 border-t border-zinc-200 pt-4 dark:border-zinc-700"
+          className="grid gap-4"
           onSubmit={(e) => {
             void onApplyRange(e);
           }}
@@ -1358,6 +1444,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     leadProgressTagFilter,
                     leadContactTagFilter,
                     rangePreset,
+                    q,
                   })
                     ? "No leads match the selected filters."
                     : "No leads yet. Add your first lead above."}

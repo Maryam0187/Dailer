@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatLandline } from "@/lib/phoneFormat";
+import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { formatLeadService } from "@/lib/leadService";
 import {
   getLeadPaymentMethodMeta,
@@ -30,9 +31,10 @@ const btnPage =
   "rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
 const SEARCH_BY_OPTIONS = [
+  { value: "all", label: "All", placeholder: "Phone, name, or last 4" },
   { value: "phone", label: "Phone", placeholder: "Phone number" },
   { value: "name", label: "Name", placeholder: "Customer name" },
-  { value: "last4", label: "Last 4", placeholder: "Card last 4 digits" },
+  { value: "last4", label: "Last 4", placeholder: "Phone last 4 digits" },
 ];
 
 const SALE_FILTER_OPTIONS = [
@@ -239,7 +241,8 @@ export default function CustomersClient() {
   });
   const [q, setQ] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [searchBy, setSearchBy] = useState("phone");
+  const [searchBy, setSearchBy] = useState("all");
+  const [searchError, setSearchError] = useState(null);
   const [saleFilter, setSaleFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [rangePreset, setRangePreset] = useState("all");
@@ -294,12 +297,15 @@ export default function CustomersClient() {
         const params = new URLSearchParams({
           page: String(page),
           pageSize: String(CUSTOMERS_PAGE_SIZE),
-          searchBy: by,
         });
-        if (query.trim()) params.set("q", query.trim());
+        if (query.trim()) {
+          params.set("q", query.trim());
+          params.set("searchBy", by);
+        }
         if (sale && sale !== "all") params.set("saleFilter", sale);
         if (payment && payment !== "all") params.set("paymentFilter", payment);
-        if (from && to) {
+        // Date range applies only when not doing a phone/name/last4 search
+        if (!query.trim() && from && to) {
           params.set("fromDate", from);
           params.set("toDate", to);
         }
@@ -398,6 +404,11 @@ export default function CustomersClient() {
 
   function onSearch(e) {
     e.preventDefault();
+    const check = validateListSearchQuery(searchBy, searchInput);
+    if (!check.isValid) {
+      setSearchError(check.message);
+      return;
+    }
     if (rangePreset === "custom") {
       if (!rangeFrom || !rangeTo) {
         setError("From date and to date are required");
@@ -410,7 +421,14 @@ export default function CustomersClient() {
       setAppliedFrom(rangeFrom);
       setAppliedTo(rangeTo);
     }
-    setQ(searchInput.trim());
+    setSearchError(null);
+    setError(null);
+    setQ(check.normalized);
+    if (check.normalized && searchBy === "phone") {
+      setSearchInput(formatLandline(check.normalized));
+    } else {
+      setSearchInput(check.normalized);
+    }
     setSelectedId(null);
   }
 
@@ -429,7 +447,8 @@ export default function CustomersClient() {
   function clearFilters() {
     setSearchInput("");
     setQ("");
-    setSearchBy("phone");
+    setSearchBy("all");
+    setSearchError(null);
     setSaleFilter("all");
     setPaymentFilter("all");
     setRangePreset("all");
@@ -443,7 +462,7 @@ export default function CustomersClient() {
 
   const hasActiveFilters =
     Boolean(q) ||
-    searchBy !== "phone" ||
+    searchBy !== "all" ||
     saleFilter !== "all" ||
     paymentFilter !== "all" ||
     rangePreset !== "all" ||
@@ -646,7 +665,10 @@ export default function CustomersClient() {
               value={searchBy}
               onChange={(e) => {
                 setSearchBy(e.target.value);
+                setSearchError(null);
+                setSearchInput("");
                 setSelectedId(null);
+                if (q) setQ("");
               }}
               className={inputClass}
             >
@@ -659,16 +681,39 @@ export default function CustomersClient() {
           </div>
           <div className="min-w-[180px] flex-1">
             <label htmlFor="customer-search" className={labelClass}>
-              {searchBy === "last4" ? "Last 4 digits" : searchBy === "name" ? "Name" : "Phone"}
+              {searchBy === "last4"
+                ? "Phone last 4"
+                : searchBy === "name"
+                  ? "Customer name"
+                  : searchBy === "phone"
+                    ? "Phone"
+                    : "Search"}
             </label>
             <input
               id="customer-search"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (searchBy === "phone") {
+                  setSearchInput(formatLandline(next));
+                } else if (searchBy === "last4") {
+                  setSearchInput(digitsOnly(next).slice(0, 4));
+                } else {
+                  setSearchInput(next);
+                }
+                if (searchError) setSearchError(null);
+              }}
               className={inputClass}
               placeholder={searchPlaceholder}
               inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+              maxLength={
+                searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
+              }
+              aria-invalid={Boolean(searchError)}
             />
+            {searchError ? (
+              <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{searchError}</p>
+            ) : null}
           </div>
           <div className="w-full sm:min-w-[200px] sm:flex-1">
             <label htmlFor="customer-sale-filter" className={labelClass}>
