@@ -151,14 +151,44 @@ export function normalizeLeadPaymentMethod(raw) {
   return LEAD_PAYMENT_METHOD_VALUES.has(value) ? value : undefined;
 }
 
-export function formatAppointmentActivity(at, note) {
-  const when = new Date(at).toLocaleString(undefined, {
+/** Format a datetime in a zone, including a short timezone name (e.g. PKT, EDT). */
+export function formatZonedDateTime(at, timeZone) {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const options = {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+    timeZoneName: "short",
+  };
+  if (timeZone) options.timeZone = timeZone;
+  try {
+    return d.toLocaleString("en-US", options);
+  } catch {
+    delete options.timeZone;
+    return d.toLocaleString("en-US", options);
+  }
+}
+
+/**
+ * Appointment activity line: agent/local zone, plus customer zone when available.
+ * @param {Date|string} at
+ * @param {string|null|undefined} note
+ * @param {string|undefined} agentTimeZone IANA zone (e.g. Asia/Karachi)
+ * @param {string|undefined} customerTimeZone IANA zone from lead state
+ */
+export function formatAppointmentActivity(at, note, agentTimeZone, customerTimeZone) {
+  const agentWhen = formatZonedDateTime(at, agentTimeZone);
+  let when = agentWhen;
+  if (customerTimeZone && customerTimeZone !== agentTimeZone) {
+    const customerWhen = formatZonedDateTime(at, customerTimeZone);
+    if (customerWhen && customerWhen !== agentWhen) {
+      when = `${agentWhen} · customer ${customerWhen}`;
+    }
+  }
   const base = `Appointment — ${when}`;
   const trimmed = String(note || "").trim();
   return trimmed ? `${base} — ${trimmed}` : base;

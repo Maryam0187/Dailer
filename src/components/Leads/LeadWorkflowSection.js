@@ -4,16 +4,34 @@ import { useState } from "react";
 import {
   LEAD_CONTACT_TAGS,
   LEAD_PAYMENT_METHODS,
+  formatZonedDateTime,
   normalizeContactCounts,
   WORKFLOW_BADGE_CLASS,
 } from "@/lib/leadWorkflow";
+import { getStateByCode } from "@/lib/usStates";
 import { workflowTagDisplayLabel, workflowTagTone } from "@/lib/workflowTagLabels";
 import { InfoIcon } from "@/components/Leads/IconTooltipButton";
 import ProcessorPicker from "@/components/Leads/ProcessorPicker";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+const labelTextClass = "text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
   "w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
+
+function LabelWithInfo({ children, tip }) {
+  return (
+    <div className="mb-1.5 flex items-center gap-1.5">
+      <label className={labelTextClass}>{children}</label>
+      <span
+        title={tip}
+        aria-label={tip}
+        className="inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded text-zinc-500 dark:text-zinc-400"
+      >
+        <InfoIcon className="h-3.5 w-3.5" />
+      </span>
+    </div>
+  );
+}
 
 function chipClass(active, tone, disabled) {
   const base = active
@@ -66,15 +84,14 @@ function toDatetimeLocal(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function formatAppointmentWhen(iso) {
+function formatAppointmentWhen(iso, stateCode) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const localWhen = formatZonedDateTime(iso);
+  const customerTimeZone = getStateByCode(stateCode)?.timeZone;
+  if (!customerTimeZone) return localWhen;
+  const customerWhen = formatZonedDateTime(iso, customerTimeZone);
+  if (!customerWhen || customerWhen === localWhen) return localWhen;
+  return `${localWhen} · customer ${customerWhen}`;
 }
 
 export default function LeadWorkflowSection({
@@ -258,7 +275,7 @@ export default function LeadWorkflowSection({
       </div>
 
       <div className="mb-4">
-        <label className={labelClass}>Lead / sale progress</label>
+        <LabelWithInfo tip="Click to check; click again to uncheck.">Lead / sale progress</LabelWithInfo>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -300,9 +317,6 @@ export default function LeadWorkflowSection({
             </ChipLabel>
           </button>
         </div>
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Click to check; click again to uncheck.
-        </p>
       </div>
 
       <div className="mb-4">
@@ -330,7 +344,9 @@ export default function LeadWorkflowSection({
       </div>
 
       <div className="mb-4">
-        <label className={labelClass}>Call outcome</label>
+        <LabelWithInfo tip="Click to log call outcome; click the same outcome again to log another call. Use Clear to remove the current outcome.">
+          Call outcome
+        </LabelWithInfo>
         <div className="flex flex-wrap items-center gap-2">
           {LEAD_CONTACT_TAGS.map((tag) => {
             const active = lead?.leadContactTag === tag.value;
@@ -361,17 +377,14 @@ export default function LeadWorkflowSection({
         </div>
         {lead?.leadContactTag === "appointment" && lead?.leadAppointmentAt ? (
           <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-            {formatAppointmentWhen(lead.leadAppointmentAt)}
+            {formatAppointmentWhen(lead.leadAppointmentAt, lead?.state)}
             {lead.leadAppointmentNote ? ` — ${lead.leadAppointmentNote}` : ""}
           </p>
         ) : null}
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Click to log call outcome; click the same outcome again to log another call. Use Clear to remove the current outcome.
-        </p>
       </div>
 
       <div className="mb-4">
-        <label className={labelClass}>Payment collected</label>
+        <LabelWithInfo tip="Click to select; click again to clear.">Payment collected</LabelWithInfo>
         <div className="flex flex-wrap gap-2">
           {LEAD_PAYMENT_METHODS.map((method) => {
             const active = lead?.leadPaymentMethod === method.value;
@@ -395,9 +408,6 @@ export default function LeadWorkflowSection({
             );
           })}
         </div>
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          Click to select; click again to clear.
-        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
