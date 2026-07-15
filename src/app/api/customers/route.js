@@ -14,6 +14,21 @@ import { getStateByCode } from "@/lib/usStates";
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
 
+/** Explicit date columns for the customers date-range filter. */
+const DATE_FIELD_MAP = {
+  created: "createdAt",
+  createdat: "createdAt",
+  updated: "updatedAt",
+  updatedat: "updatedAt",
+  verified: "verifiedAt",
+  verifiedat: "verifiedAt",
+  processed: "processedAt",
+  processedat: "processedAt",
+  sale_done: "saleDoneAt",
+  saledone: "saleDoneAt",
+  saledoneat: "saleDoneAt",
+};
+
 const SALE_FILTER_MAP = {
   active: "active",
   closed: "closed",
@@ -38,22 +53,39 @@ function pushAnd(where, clause) {
   where[Op.and].push(clause);
 }
 
-function leadDateColumn(salePhase) {
-  return salePhase === "closed" || salePhase === "cancelled" ? "updatedAt" : "createdAt";
+function normalizeDateFieldKey(value) {
+  const raw = String(value || "updated").trim().toLowerCase();
+  if (DATE_FIELD_MAP[raw]) {
+    if (raw === "sale_done" || raw === "saledone" || raw === "saledoneat") return "sale_done";
+    if (raw.startsWith("created")) return "created";
+    if (raw.startsWith("updated")) return "updated";
+    if (raw.startsWith("verified")) return "verified";
+    if (raw.startsWith("processed")) return "processed";
+    return raw;
+  }
+  return "updated";
 }
 
-function leadDateBetweenSql(salePhase, fromDate, toDate) {
-  const field = leadDateColumn(salePhase);
-  const after = `${fromDate} 00:00:00`;
-  const before = `${toDate} 23:59:59`;
-  return `\`l\`.\`${field}\` BETWEEN ${db.sequelize.escape(after)} AND ${db.sequelize.escape(before)}`;
+/** Resolve which lead date column to filter on. Defaults to updatedAt. */
+function leadDateColumn(dateField) {
+  const key = normalizeDateFieldKey(dateField);
+  return DATE_FIELD_MAP[key] || "updatedAt";
+}
+
+function leadDateBetweenSql(dateField, fromDate, toDate) {
+  const field = leadDateColumn(dateField);
+  // Filter on the lead column (e.g. l.updatedAt), not Customer.updatedAt.
+  return (
+    `DATE(\`l\`.\`${field}\`) BETWEEN ` +
+    `${db.sequelize.escape(fromDate)} AND ${db.sequelize.escape(toDate)}`
+  );
 }
 
 /**
  * Build one EXISTS so sale status, payment type, charge status, and date range
  * apply to the same lead when those filters are combined.
  */
-function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate }) {
+function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate, dateField }) {
   const hasSale = Boolean(salePhase && LEAD_PHASE_VALUES.has(salePhase));
   const hasPay = Boolean(paymentType && PAYMENT_FILTER_VALUES.has(paymentType));
   const hasCharge = Boolean(chargeStatus && LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeStatus));
@@ -105,7 +137,7 @@ function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate
   }
 
   if (hasDate) {
-    clauses.push(leadDateBetweenSql(hasSale ? salePhase : null, fromDate, toDate));
+    clauses.push(leadDateBetweenSql(dateField, fromDate, toDate));
   }
 
   const join = needsPmJoin
@@ -135,6 +167,8 @@ export async function GET(req) {
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
   const chargeFilter = String(searchParams.get("chargeFilter") || "").trim().toLowerCase();
   const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
+  const dateFieldRaw = String(searchParams.get("dateField") || "updated").trim();
+  const dateField = normalizeDateFieldKey(dateFieldRaw);
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
 
@@ -267,15 +301,25 @@ export async function GET(req) {
     chargeStatus,
     fromDate,
     toDate,
+    dateField,
   });
   if (leadFilter) pushAnd(where, leadFilter);
 
+  // Newest first by the selected date field (default: lead updatedAt).
+  const sortColumn = leadDateColumn(dateField);
+  const order = [
+    [
+      db.sequelize.literal(
+        `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
+      ),
+      "DESC",
+    ],
+    ["id", "DESC"],
+  ];
+
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
-    order: [
-      ["updatedAt", "DESC"],
-      ["id", "DESC"],
-    ],
+    order,
     offset,
     limit: pageSize,
   });

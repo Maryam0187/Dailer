@@ -18,6 +18,7 @@ import {
   getLeadPaymentMethodMeta,
   getLeadPaymentProcessorMeta,
   getLeadPhaseMeta,
+  getLeadProgressTagMeta,
   LEAD_PAYMENT_CHARGE_STATUSES,
   LEAD_PAYMENT_PROCESSORS,
   WORKFLOW_BADGE_CLASS,
@@ -55,6 +56,14 @@ const SALE_FILTER_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "closed", label: "Closed" },
   { value: "cancelled", label: "Cancelled" },
+];
+
+const DATE_FIELD_OPTIONS = [
+  { value: "updated", label: "Updated" },
+  { value: "created", label: "Created" },
+  { value: "verified", label: "Verified" },
+  { value: "processed", label: "Processed" },
+  { value: "sale_done", label: "Sale done" },
 ];
 
 const PAYMENT_FILTER_OPTIONS = [
@@ -267,6 +276,7 @@ export default function CustomersClient() {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [chargeFilter, setChargeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [dateField, setDateField] = useState("updated");
   const [rangePreset, setRangePreset] = useState("all");
   const [rangeFrom, setRangeFrom] = useState("");
   const [rangeTo, setRangeTo] = useState("");
@@ -320,6 +330,7 @@ export default function CustomersClient() {
         payment = paymentFilter,
         charge = chargeFilter,
         state = stateFilter,
+        field = dateField,
         from = appliedFrom,
         to = appliedTo,
       } = {},
@@ -340,6 +351,7 @@ export default function CustomersClient() {
         if (payment && payment !== "all") params.set("paymentFilter", payment);
         if (charge && charge !== "all") params.set("chargeFilter", charge);
         if (state && state !== "all") params.set("state", state);
+        params.set("dateField", field || "updated");
         // Date range applies only when not doing a phone/name/last4 search
         if (!query.trim() && from && to) {
           params.set("fromDate", from);
@@ -371,7 +383,17 @@ export default function CustomersClient() {
         if (requestId === loadRequestIdRef.current) setLoading(false);
       }
     },
-    [q, searchBy, saleFilter, paymentFilter, chargeFilter, stateFilter, appliedFrom, appliedTo],
+    [
+      q,
+      searchBy,
+      saleFilter,
+      paymentFilter,
+      chargeFilter,
+      stateFilter,
+      dateField,
+      appliedFrom,
+      appliedTo,
+    ],
   );
 
   const loadDetail = useCallback(async (id) => {
@@ -406,6 +428,7 @@ export default function CustomersClient() {
     paymentFilter,
     chargeFilter,
     stateFilter,
+    dateField,
     appliedFrom,
     appliedTo,
     loadCustomers,
@@ -501,6 +524,7 @@ export default function CustomersClient() {
     setPaymentFilter("all");
     setChargeFilter("all");
     setStateFilter("all");
+    setDateField("updated");
     setRangePreset("all");
     setRangeFrom("");
     setRangeTo("");
@@ -517,6 +541,7 @@ export default function CustomersClient() {
     paymentFilter !== "all" ||
     chargeFilter !== "all" ||
     stateFilter !== "all" ||
+    dateField !== "updated" ||
     rangePreset !== "all" ||
     Boolean(appliedFrom && appliedTo);
 
@@ -954,6 +979,26 @@ export default function CustomersClient() {
             </select>
           </div>
           <div className="w-full sm:min-w-[180px] sm:w-44">
+            <label htmlFor="customer-date-field" className={labelClass}>
+              Date field
+            </label>
+            <select
+              id="customer-date-field"
+              value={dateField}
+              onChange={(e) => {
+                setDateField(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              {DATE_FIELD_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[180px] sm:w-44">
             <label htmlFor="customer-date-range" className={labelClass}>
               Date range
             </label>
@@ -1015,8 +1060,8 @@ export default function CustomersClient() {
         </form>
         {appliedFrom && appliedTo ? (
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Lead activity{" "}
-            {saleFilter === "closed" || saleFilter === "cancelled" ? "updated" : "created"}{" "}
+            Lead{" "}
+            {(DATE_FIELD_OPTIONS.find((o) => o.value === dateField)?.label || "Updated").toLowerCase()}{" "}
             in <span className="font-medium">{appliedFrom}</span>
             {" — "}
             <span className="font-medium">{appliedTo}</span>
@@ -1648,6 +1693,28 @@ export default function CustomersClient() {
                             >
                               {phaseMeta.label}
                             </span>
+                            {(lead.leadProgressTags || []).map((tag) => {
+                              const tagMeta = getLeadProgressTagMeta(tag);
+                              const tagClass =
+                                WORKFLOW_BADGE_CLASS[tagMeta.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                              const taggedAt =
+                                tag === "verified"
+                                  ? lead.verifiedAt
+                                  : tag === "processed"
+                                    ? lead.processedAt
+                                    : tag === "sale_done"
+                                      ? lead.saleDoneAt
+                                      : null;
+                              return (
+                                <span
+                                  key={tag}
+                                  className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${tagClass}`}
+                                  title={taggedAt ? `Tagged ${formatWhen(taggedAt)}` : undefined}
+                                >
+                                  {tagMeta.label}
+                                </span>
+                              );
+                            })}
                             {paymentMeta ? (
                               <span
                                 className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${paymentBadgeClass}`}

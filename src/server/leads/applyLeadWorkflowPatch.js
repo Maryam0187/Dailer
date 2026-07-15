@@ -88,6 +88,22 @@ export async function applyLeadWorkflowPatch(lead, body) {
       const added = [...next].filter((t) => !prev.has(t)).map((t) => `+${progressLabel(t)}`);
       const removed = [...prev].filter((t) => !next.has(t)).map((t) => `-${progressLabel(t)}`);
       update.leadProgressTags = tags;
+      const now = new Date();
+      if (next.has("verified") && !prev.has("verified")) {
+        update.verifiedAt = now;
+      } else if (!next.has("verified") && prev.has("verified")) {
+        update.verifiedAt = null;
+      }
+      if (next.has("processed") && !prev.has("processed")) {
+        update.processedAt = now;
+      } else if (!next.has("processed") && prev.has("processed")) {
+        update.processedAt = null;
+      }
+      if (next.has("sale_done") && !prev.has("sale_done")) {
+        update.saleDoneAt = now;
+      } else if (!next.has("sale_done") && prev.has("sale_done")) {
+        update.saleDoneAt = null;
+      }
       if (added.length || removed.length) {
         activity.push({
           type: "lead_phase_change",

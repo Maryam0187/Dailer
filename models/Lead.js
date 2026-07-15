@@ -115,6 +115,18 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: [],
       },
+      verifiedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      processedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      saleDoneAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       leadProcessedRequired: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
@@ -169,6 +181,9 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["createdByUserId"] },
         { fields: ["leadPhase"] },
         { fields: ["leadPaymentChargeStatus"] },
+        { fields: ["verifiedAt"] },
+        { fields: ["processedAt"] },
+        { fields: ["saleDoneAt"] },
       ],
     },
   );
