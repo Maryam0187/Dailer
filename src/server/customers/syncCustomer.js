@@ -72,5 +72,9 @@ export async function syncLeadCustomer(lead, changedFields = {}, { transaction }
   };
 
   const customer = await findOrCreateCustomerForLead(phone, merged, { transaction });
-  return customer?.id ?? null;
+  const customerId = customer?.id ?? null;
+  if (customerId != null && lead.customerId !== customerId) {
+    await lead.update({ customerId }, { transaction });
+  }
+  return customerId;
 }

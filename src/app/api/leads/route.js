@@ -23,6 +23,7 @@ import {
 import { Op, Sequelize } from "sequelize";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
+import { syncLeadCustomer } from "@/server/customers/syncCustomer";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
 
@@ -411,6 +412,8 @@ export async function POST(req) {
     createdByUserId: authedUser.id,
     createdFromCallLogId,
   });
+
+  await syncLeadCustomer(lead);
 
   const withUser = await db.Lead.findByPk(lead.id, {
     include: leadListIncludes,

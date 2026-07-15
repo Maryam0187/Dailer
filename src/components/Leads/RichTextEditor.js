@@ -9,10 +9,69 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { TableRow } from "@tiptap/extension-table-row";
 import TextAlign from "@tiptap/extension-text-align";
-import { TextStyleKit } from "@tiptap/extension-text-style";
+import { Color, TextStyleKit } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
-import { isEmptyRichText, normalizeRichHtml, sanitizeRichHtml, toRichEditorHtml } from "@/lib/richText";
+import { useTheme } from "@/components/theme/ThemeProvider";
+import {
+  isEmptyRichText,
+  isThemeDefaultTextColor,
+  normalizeRichHtml,
+  sanitizeRichHtml,
+  toRichEditorHtml,
+} from "@/lib/richText";
+
+/** Don't persist light/dark theme default colors into HTML (they become invisible on the other theme). */
+const ThemeAwareColor = Color.extend({
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          color: {
+            default: null,
+            parseHTML: (element) => {
+              const styleAttr = element.getAttribute("style");
+              if (!styleAttr) return null;
+              const match = styleAttr.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+              const value = (match?.[1] || element.style.color || "").trim().replace(/['"]+/g, "");
+              if (!value || isThemeDefaultTextColor(value)) return null;
+              return value;
+            },
+            renderHTML: (attributes) => {
+              if (!attributes.color || isThemeDefaultTextColor(attributes.color)) return {};
+              return { style: `color: ${attributes.color}` };
+            },
+          },
+        },
+      },
+    ];
+  },
+});
+
+function clearThemeDefaultColorMarks(editor) {
+  const { state } = editor;
+  const { tr, doc, schema } = state;
+  const textStyle = schema.marks.textStyle;
+  if (!textStyle) return;
+
+  let changed = false;
+  doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    const mark = node.marks.find((m) => m.type === textStyle && m.attrs.color);
+    if (!mark || !isThemeDefaultTextColor(mark.attrs.color)) return;
+
+    changed = true;
+    tr.removeMark(pos, pos + node.nodeSize, textStyle);
+    const nextAttrs = { ...mark.attrs, color: null };
+    const keep = Object.entries(nextAttrs).some(([, v]) => v != null && v !== "");
+    if (keep) {
+      tr.addMark(pos, pos + node.nodeSize, textStyle.create(nextAttrs));
+    }
+  });
+
+  if (changed) editor.view.dispatch(tr);
+}
 
 const toolbarBtnClass =
   "inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
@@ -195,8 +254,11 @@ function EditorToolbar({ editor, compact = false }) {
       : "p";
   const currentFont = editor.getAttributes("textStyle").fontFamily || "";
   const currentSize = editor.getAttributes("textStyle").fontSize || "16px";
-  const currentColor = editor.getAttributes("textStyle").color || "#171717";
+  const currentColor = editor.getAttributes("textStyle").color || "";
   const currentHighlightColor = editor.getAttributes("highlight").color || "#fef08a";
+  const colorPickerValue = currentColor.startsWith("#") && !isThemeDefaultTextColor(currentColor)
+    ? currentColor
+    : "#171717";
 
   const formatButtons = (
     <>
@@ -253,8 +315,15 @@ function EditorToolbar({ editor, compact = false }) {
         A
         <input
           type="color"
-          value={currentColor.startsWith("#") ? currentColor : "#171717"}
-          onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+          value={colorPickerValue}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (isThemeDefaultTextColor(next)) {
+              editor.chain().focus().unsetColor().run();
+              return;
+            }
+            editor.chain().focus().setColor(next).run();
+          }}
           className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0"
         />
       </label>
@@ -453,6 +522,8 @@ export default function RichTextEditor({
   stickyToolbar = false,
   embedded = false,
 }) {
+  const { theme } = useTheme();
+
   const editor = useEditor({
     immediatelyRender: false,
     editable,
@@ -469,7 +540,8 @@ export default function RichTextEditor({
       TableCell,
       Underline,
       Highlight.configure({ multicolor: true }),
-      TextStyleKit,
+      TextStyleKit.configure({ color: false }),
+      ThemeAwareColor,
       TextAlign.configure({
         types: ["heading", "paragraph", "tableCell", "tableHeader"],
       }),
@@ -482,7 +554,7 @@ export default function RichTextEditor({
     autofocus: autoFocus ? "end" : false,
     editorProps: {
       attributes: {
-        class: `tiptap-editor ${minHeightClass} text-sm leading-relaxed text-zinc-900 outline-none dark:text-zinc-100`,
+        class: `tiptap-editor ${minHeightClass} text-sm leading-relaxed outline-none`,
       },
     },
     onUpdate: ({ editor: currentEditor }) => {
@@ -497,7 +569,13 @@ export default function RichTextEditor({
     if (next !== current) {
       editor.commands.setContent(next || "", { emitUpdate: false });
     }
+    clearThemeDefaultColorMarks(editor);
   }, [editor, value]);
+
+  useEffect(() => {
+    if (!editor) return;
+    clearThemeDefaultColorMarks(editor);
+  }, [editor, theme]);
 
   useEffect(() => {
     if (!editor) return;
@@ -527,7 +605,7 @@ export default function RichTextEditor({
         </div>
       ) : null}
       {wordLayout ? (
-        <div className="bg-[#e8e8e8] px-3 py-4 dark:bg-zinc-900">
+        <div className="bg-zinc-100 px-3 py-4 dark:bg-zinc-900">
           <div className="word-page mx-auto max-w-[816px] rounded-sm bg-white px-10 py-8 shadow-md dark:bg-zinc-950 dark:shadow-black/40 sm:px-14 sm:py-10">
             <EditorContent editor={editor} />
           </div>
@@ -561,7 +639,7 @@ export function RichHtmlContent({ html, className = "", emptyText = "—" }) {
   }
   return (
     <div
-      className={`tiptap-readonly text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 ${className}`}
+      className={`tiptap-readonly text-sm leading-relaxed ${className}`}
       dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(html) }}
     />
   );
