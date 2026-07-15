@@ -32,6 +32,12 @@ body {
 .tiptap-editor,
 .tiptap-readonly {
   word-break: break-word;
+  color: #171717;
+}
+
+.dark .tiptap-editor,
+.dark .tiptap-readonly {
+  color: #f4f4f5 !important;
 }
 
 .tiptap-editor:focus {
@@ -119,6 +125,46 @@ body {
 
 .word-page .tiptap-editor {
   min-height: 360px;
+}
+
+/* Common baked-in black/near-black inline colors (font picker / paste) */
+.dark .tiptap-editor [style*="color: #000"],
+.dark .tiptap-editor [style*="color:#000"],
+.dark .tiptap-editor [style*="color: #000000"],
+.dark .tiptap-editor [style*="color:#000000"],
+.dark .tiptap-editor [style*="color: #171717"],
+.dark .tiptap-editor [style*="color:#171717"],
+.dark .tiptap-editor [style*="color: #18181b"],
+.dark .tiptap-editor [style*="color:#18181b"],
+.dark .tiptap-editor [style*="color: #09090b"],
+.dark .tiptap-editor [style*="color:#09090b"],
+.dark .tiptap-editor [style*="color: black"],
+.dark .tiptap-editor [style*="color:black"],
+.dark .tiptap-editor [style*="color: rgb(0, 0, 0)"],
+.dark .tiptap-editor [style*="color:rgb(0, 0, 0)"],
+.dark .tiptap-editor [style*="color: rgb(23, 23, 23)"],
+.dark .tiptap-editor [style*="color:rgb(23, 23, 23)"],
+.dark .tiptap-editor [style*="color: rgb(24, 24, 27)"],
+.dark .tiptap-editor [style*="color:rgb(24, 24, 27)"],
+.dark .tiptap-readonly [style*="color: #000"],
+.dark .tiptap-readonly [style*="color:#000"],
+.dark .tiptap-readonly [style*="color: #000000"],
+.dark .tiptap-readonly [style*="color:#000000"],
+.dark .tiptap-readonly [style*="color: #171717"],
+.dark .tiptap-readonly [style*="color:#171717"],
+.dark .tiptap-readonly [style*="color: #18181b"],
+.dark .tiptap-readonly [style*="color:#18181b"],
+.dark .tiptap-readonly [style*="color: #09090b"],
+.dark .tiptap-readonly [style*="color:#09090b"],
+.dark .tiptap-readonly [style*="color: black"],
+.dark .tiptap-readonly [style*="color:black"],
+.dark .tiptap-readonly [style*="color: rgb(0, 0, 0)"],
+.dark .tiptap-readonly [style*="color:rgb(0, 0, 0)"],
+.dark .tiptap-readonly [style*="color: rgb(23, 23, 23)"],
+.dark .tiptap-readonly [style*="color:rgb(23, 23, 23)"],
+.dark .tiptap-readonly [style*="color: rgb(24, 24, 27)"],
+.dark .tiptap-readonly [style*="color:rgb(24, 24, 27)"] {
+  color: #f4f4f5 !important;
 }
 
 .tiptap-editor mark:not([style*="background-color"]),
