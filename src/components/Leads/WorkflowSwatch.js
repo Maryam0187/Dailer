@@ -53,14 +53,68 @@ function WorkflowCardIcon({ tone }) {
   );
 }
 
+/** Paper check / cheque for check-by-mail. */
+function WorkflowCheckIcon({ tone }) {
+  return (
+    <svg {...svgProps} className={iconClass(tone)}>
+      <rect x="2" y="6" width="20" height="12" rx="1.5" />
+      <path d="M5 10h6M5 13h4M14 13h5" />
+      <path d="M16.5 8.5h2.5v2" />
+    </svg>
+  );
+}
+
+/** Paper check with an E badge for e-check. */
+function WorkflowECheckIcon({ tone }) {
+  return (
+    <svg {...svgProps} className={iconClass(tone)}>
+      <rect x="2" y="6" width="20" height="12" rx="1.5" />
+      <path d="M5 10h4M5 13h3" />
+      <text
+        x="16.5"
+        y="14.25"
+        textAnchor="middle"
+        fill="currentColor"
+        stroke="none"
+        fontSize="8"
+        fontWeight="700"
+        fontFamily="system-ui, sans-serif"
+      >
+        E
+      </text>
+    </svg>
+  );
+}
+
+/** Globe / URL icon for POS link. */
+function WorkflowGlobeIcon({ tone }) {
+  return (
+    <svg {...svgProps} className={iconClass(tone)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 010 18M12 3a14 14 0 000 18" />
+    </svg>
+  );
+}
+
 const CATEGORY_ICON = {
   progress: WorkflowTickIcon,
   contact: WorkflowPhoneIcon,
   payment: WorkflowCardIcon,
 };
 
-export default function WorkflowSwatch({ category, tone, title }) {
-  const Icon = CATEGORY_ICON[category] || WorkflowTickIcon;
+const PAYMENT_ICON = {
+  card: WorkflowCardIcon,
+  check_mail: WorkflowCheckIcon,
+  e_check: WorkflowECheckIcon,
+  pos_link: WorkflowGlobeIcon,
+};
+
+export default function WorkflowSwatch({ category, tone, title, tagKey }) {
+  const Icon =
+    category === "payment" && tagKey && PAYMENT_ICON[tagKey]
+      ? PAYMENT_ICON[tagKey]
+      : CATEGORY_ICON[category] || WorkflowTickIcon;
   return (
     <span title={title} className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
       <Icon tone={tone} />

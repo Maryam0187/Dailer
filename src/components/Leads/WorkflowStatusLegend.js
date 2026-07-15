@@ -39,7 +39,7 @@ function LegendItem({ tag, category, preferShortLabels }) {
 
   return (
     <span className="inline-flex items-center gap-1" title={tooltipLabel}>
-      <WorkflowSwatch category={category} tone={tone} title={tooltipLabel} />
+      <WorkflowSwatch category={category} tagKey={tag.tagKey} tone={tone} title={tooltipLabel} />
       <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{displayLabel}</span>
     </span>
   );
