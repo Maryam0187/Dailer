@@ -403,6 +403,9 @@ export default function LeadDetailPanel({
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                 Lead details
+                <span className="ml-2 font-mono normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
+                  #{lead.id}
+                </span>
               </p>
               <h2 className="mt-1 truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                 {formatLeadName(lead)}
