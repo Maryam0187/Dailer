@@ -36,6 +36,7 @@ import IconTooltipButton, {
 } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
+import PaymentProcessorsAdminPanel from "@/components/Customers/PaymentProcessorsAdminPanel";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -313,6 +314,14 @@ export default function CustomersClient() {
   const [loadingLeadId, setLoadingLeadId] = useState(null);
   const [copiedLeadId, setCopiedLeadId] = useState(null);
   const [workflowTags, setWorkflowTags] = useState([]);
+  const [paymentProcessors, setPaymentProcessors] = useState(LEAD_PAYMENT_PROCESSORS.map((p) => ({
+    code: p.value,
+    fullName: p.fullName || p.label,
+    shortCode: p.label,
+    tone: p.tone,
+    active: true,
+  })));
+  const [activeView, setActiveView] = useState("customers");
   const loadRequestIdRef = useRef(0);
   const [adminShortLabels, setAdminShortLabels] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -325,6 +334,25 @@ export default function CustomersClient() {
 
   const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
   const preferShortLabels = resolvePreferShortLabels(true, adminShortLabels);
+  const activePaymentProcessors = useMemo(
+    () => paymentProcessors.filter((p) => p.active !== false),
+    [paymentProcessors],
+  );
+
+  const loadPaymentProcessors = useCallback(async () => {
+    try {
+      const res = await fetch("/api/payment-processors", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(json.processors) && json.processors.length > 0) {
+        setPaymentProcessors(json.processors);
+      }
+    } catch {
+      // keep seed fallback
+    }
+  }, []);
 
   const loadCustomers = useCallback(
     async (
@@ -455,6 +483,10 @@ export default function CustomersClient() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    void loadPaymentProcessors();
+  }, [loadPaymentProcessors]);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
@@ -865,6 +897,33 @@ export default function CustomersClient() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: "customers", label: "Customers" },
+          { id: "processors", label: "Payment processors" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveView(tab.id)}
+            className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition-colors ${
+              activeView === tab.id
+                ? "bg-violet-600 text-white"
+                : "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            }`}
+            aria-pressed={activeView === tab.id}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeView === "processors" ? (
+        <PaymentProcessorsAdminPanel onProcessorsUpdated={loadPaymentProcessors} />
+      ) : null}
+
+      {activeView === "customers" ? (
+      <>
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <form onSubmit={onSearch} className="flex flex-wrap items-end gap-3">
           <div className="w-full sm:w-36">
@@ -1694,7 +1753,10 @@ export default function CustomersClient() {
                         ? WORKFLOW_BADGE_CLASS[chargeMeta.tone] || WORKFLOW_BADGE_CLASS.zinc
                         : "";
                       const processorMeta = lead.leadPaymentProcessor
-                        ? getLeadPaymentProcessorMeta(lead.leadPaymentProcessor)
+                        ? getLeadPaymentProcessorMeta(
+                            lead.leadPaymentProcessor,
+                            paymentProcessors,
+                          )
                         : null;
                       const processorBadgeClass = processorMeta
                         ? WORKFLOW_BADGE_CLASS[processorMeta.tone] || WORKFLOW_BADGE_CLASS.zinc
@@ -1984,9 +2046,9 @@ export default function CustomersClient() {
                   autoFocus
                 >
                   <option value="">Select processor…</option>
-                  {LEAD_PAYMENT_PROCESSORS.map((processor) => (
-                    <option key={processor.value} value={processor.value}>
-                      {processor.label}
+                  {activePaymentProcessors.map((processor) => (
+                    <option key={processor.code} value={processor.code}>
+                      {processor.shortCode}
                     </option>
                   ))}
                 </select>
@@ -2059,6 +2121,8 @@ export default function CustomersClient() {
             setEditingLead(null);
           }}
         />
+      ) : null}
+      </>
       ) : null}
     </div>
   );

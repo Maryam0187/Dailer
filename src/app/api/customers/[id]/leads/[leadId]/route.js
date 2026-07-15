@@ -7,10 +7,10 @@ import {
   formatPaymentLinkActivity,
   normalizeLeadPaymentChargeStatus,
   normalizeLeadPaymentMethod,
-  normalizeLeadPaymentProcessor,
 } from "@/lib/leadWorkflow";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
+import { resolvePaymentProcessor } from "@/server/paymentProcessors/registry";
 
 function trimReason(value, maxLen = 2000) {
   const s = String(value || "").trim();
@@ -24,7 +24,7 @@ function trimReason(value, maxLen = 2000) {
  *   { customerPaymentMethodId?: number|null, leadPaymentMethod?: string|null,
  *     leadPaymentChargeStatus?: 'charged'|'declined'|'chargeback'|null,
  *     leadPaymentDeclineReason?: string|null,
- *     leadPaymentProcessor?: 'auth'|'kurv'|'cardpointe' }
+ *     leadPaymentProcessor?: string }
  */
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await requireAdmin();
@@ -148,12 +148,16 @@ export async function PATCH(req, { params }) {
         activityBodies.push(formatPaymentChargeActivity(null, null, linkedPmId, null));
       }
     } else {
-      const processor = normalizeLeadPaymentProcessor(body.leadPaymentProcessor);
-      if (processor === undefined) {
-        return NextResponse.json({ error: "Invalid payment processor" }, { status: 400 });
-      }
-      if (!processor) {
-        return NextResponse.json({ error: "Payment processor is required" }, { status: 400 });
+      const resolved = await resolvePaymentProcessor(body.leadPaymentProcessor);
+      if (!resolved) {
+        return NextResponse.json(
+          {
+            error: body.leadPaymentProcessor
+              ? "Invalid payment processor"
+              : "Payment processor is required",
+          },
+          { status: 400 },
+        );
       }
 
       let declineReason = null;
@@ -169,8 +173,10 @@ export async function PATCH(req, { params }) {
       // Every submitted charge event is logged (declines/retries included).
       update.leadPaymentChargeStatus = status;
       update.leadPaymentDeclineReason = status === "declined" ? declineReason : null;
-      update.leadPaymentProcessor = processor;
-      activityBodies.push(formatPaymentChargeActivity(status, declineReason, linkedPmId, processor));
+      update.leadPaymentProcessor = resolved.code;
+      activityBodies.push(
+        formatPaymentChargeActivity(status, declineReason, linkedPmId, resolved.shortCode),
+      );
     }
   }
 

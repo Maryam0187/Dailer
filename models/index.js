@@ -21,6 +21,7 @@ const conversationParticipantModelFactory = require("./ConversationParticipant")
 const messageModelFactory = require("./Message");
 const customerModelFactory = require("./Customer");
 const customerPaymentMethodModelFactory = require("./CustomerPaymentMethod");
+const paymentProcessorModelFactory = require("./PaymentProcessor");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -88,6 +89,7 @@ db.ConversationParticipant = conversationParticipantModelFactory(sequelize, Sequ
 db.Message = messageModelFactory(sequelize, Sequelize.DataTypes);
 db.Customer = customerModelFactory(sequelize, Sequelize.DataTypes);
 db.CustomerPaymentMethod = customerPaymentMethodModelFactory(sequelize, Sequelize.DataTypes);
+db.PaymentProcessor = paymentProcessorModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];
