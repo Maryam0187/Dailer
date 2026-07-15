@@ -38,11 +38,11 @@ export const LEAD_PAYMENT_CHARGE_STATUSES = [
   { value: "chargeback", label: "Chargeback", tone: "amber" },
 ];
 
-/** Payment gateway used when charging a linked card. */
+/** Payment gateway used when charging a linked card (seed fallback; prefer DB table). */
 export const LEAD_PAYMENT_PROCESSORS = [
-  { value: "auth", label: "PA", tone: "indigo" },
-  { value: "kurv", label: "PC", tone: "teal" },
-  { value: "cardpointe", label: "CP", tone: "sky" },
+  { value: "auth", label: "PA", fullName: "Auth", tone: "indigo" },
+  { value: "kurv", label: "PC", fullName: "Kurv", tone: "teal" },
+  { value: "cardpointe", label: "CP", fullName: "Cardpointe", tone: "sky" },
 ];
 
 export const LEAD_PHASE_VALUES = new Set(LEAD_PHASES.map((p) => p.value));
@@ -170,20 +170,38 @@ export function normalizeLeadPaymentChargeStatus(raw) {
   return LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(value) ? value : undefined;
 }
 
-export function getLeadPaymentProcessorMeta(processor) {
+export function getLeadPaymentProcessorMeta(processor, processors = null) {
+  const code = String(processor || "").toLowerCase();
+  if (Array.isArray(processors) && processors.length > 0) {
+    const row = processors.find((p) => String(p.code || p.value || "").toLowerCase() === code);
+    if (row) {
+      return {
+        value: row.code || row.value,
+        label: row.shortCode || row.label || code,
+        fullName: row.fullName || row.label || code,
+        tone: row.tone || "zinc",
+      };
+    }
+  }
   return (
-    PROCESSOR_MAP[String(processor || "").toLowerCase()] || {
+    PROCESSOR_MAP[code] || {
       value: processor,
       label: processor || "—",
+      fullName: processor || "—",
       tone: "zinc",
     }
   );
 }
 
+/** Soft client-side check; server validates against PaymentProcessors table. */
 export function normalizeLeadPaymentProcessor(raw) {
   if (raw === null || raw === undefined || raw === "") return null;
   const value = String(raw).trim().toLowerCase();
-  return LEAD_PAYMENT_PROCESSOR_VALUES.has(value) ? value : undefined;
+  if (!value) return null;
+  if (LEAD_PAYMENT_PROCESSOR_VALUES.has(value)) return value;
+  // Allow unknown codes through for DB-backed processors; API resolves them.
+  if (/^[a-z0-9_]{1,64}$/.test(value)) return value;
+  return undefined;
 }
 
 /** Embed payment-method id so customer UI can group logs per card. */

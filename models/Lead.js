@@ -162,7 +162,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       leadPaymentProcessor: {
-        type: DataTypes.ENUM("auth", "kurv", "cardpointe"),
+        type: DataTypes.STRING(64),
         allowNull: true,
       },
       leadCancelReason: {
