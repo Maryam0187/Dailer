@@ -75,6 +75,11 @@ function buildAdminDropdownItems(pathname) {
       label: "Shift",
       active: pathname === "/shift",
     },
+    {
+      href: "/security",
+      label: "Security",
+      active: pathname === "/security",
+    },
   ];
 }
 

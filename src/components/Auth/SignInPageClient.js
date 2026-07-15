@@ -13,8 +13,10 @@ export default function SignInPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = useState("signin");
+  const [step, setStep] = useState("credentials");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -32,7 +34,18 @@ export default function SignInPageClient() {
     }
   }, [searchParams]);
 
-  async function onSubmit(e) {
+  async function finishLogin(json, isLeaveMode) {
+    if (!isLeaveMode && json.locationAlert?.subject && json.locationAlert?.message) {
+      void sendWeb3FormsClient({
+        subject: json.locationAlert.subject,
+        message: json.locationAlert.message,
+        replyTo: json.locationAlert.replyTo,
+      });
+    }
+    router.push(json.redirect || (isLeaveMode ? "/leave-application" : "/"));
+  }
+
+  async function onSubmitCredentials(e) {
     e.preventDefault();
     setError(null);
     setNotice(null);
@@ -54,15 +67,13 @@ export default function SignInPageClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Sign-in failed");
 
-      if (!isLeaveMode && json.locationAlert?.subject && json.locationAlert?.message) {
-        void sendWeb3FormsClient({
-          subject: json.locationAlert.subject,
-          message: json.locationAlert.message,
-          replyTo: json.locationAlert.replyTo,
-        });
+      if (json.requires2fa) {
+        setStep("totp");
+        setTotpCode("");
+        return;
       }
 
-      router.push(json.redirect || (isLeaveMode ? "/leave-application" : "/"));
+      await finishLogin(json, isLeaveMode);
     } catch (err) {
       setError(err.message || "Sign-in failed");
     } finally {
@@ -70,7 +81,33 @@ export default function SignInPageClient() {
     }
   }
 
+  async function onSubmitTotp(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const isLeaveMode = mode === "leave";
+
+    try {
+      const res = await fetch("/api/auth/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: totpCode.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Verification failed");
+
+      await finishLogin(json, isLeaveMode);
+    } catch (err) {
+      setError(err.message || "Verification failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const isLeaveMode = mode === "leave";
+  const isTotpStep = step === "totp";
 
   return (
     <div className="relative flex min-h-dvh w-full flex-col bg-gradient-to-b from-zinc-100 via-zinc-50 to-white">
@@ -99,43 +136,51 @@ export default function SignInPageClient() {
             <span>Dialer</span>
           </div>
 
-          <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-zinc-100 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setMode("signin");
-                setError(null);
-              }}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                !isLeaveMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-              }`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("leave");
-                setError(null);
-              }}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                isLeaveMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
-              }`}
-            >
-              Leave application
-            </button>
-          </div>
+          {!isTotpStep ? (
+            <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-zinc-100 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("signin");
+                  setError(null);
+                }}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  !isLeaveMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("leave");
+                  setError(null);
+                }}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  isLeaveMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                Leave application
+              </button>
+            </div>
+          ) : null}
 
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl">
-            {isLeaveMode ? "Apply for leave" : "Sign in"}
+            {isTotpStep
+              ? "Authenticator code"
+              : isLeaveMode
+                ? "Apply for leave"
+                : "Sign in"}
           </h1>
           <p className="mt-1.5 text-sm text-zinc-600 sm:text-base">
-            {isLeaveMode
-              ? "Sign in to submit a leave application. Only the application form will be available."
-              : "Enter your username and password to continue."}
+            {isTotpStep
+              ? "Enter the 6-digit code from Google Authenticator."
+              : isLeaveMode
+                ? "Sign in to submit a leave application. Only the application form will be available."
+                : "Enter your username and password to continue."}
           </p>
 
-          {notice ? (
+          {notice && !isTotpStep ? (
             <p
               className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
               role="status"
@@ -144,63 +189,118 @@ export default function SignInPageClient() {
             </p>
           ) : null}
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-5">
-            <div>
-              <label
-                htmlFor="signin-username"
-                className="mb-1.5 block text-sm font-medium text-zinc-800"
-              >
-                Username
-              </label>
-              <input
-                id="signin-username"
-                className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-red-600/20"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-              />
-            </div>
+          {isTotpStep ? (
+            <form onSubmit={onSubmitTotp} className="mt-8 space-y-5">
+              <div>
+                <label
+                  htmlFor="signin-totp"
+                  className="mb-1.5 block text-sm font-medium text-zinc-800"
+                >
+                  Authentication code
+                </label>
+                <input
+                  id="signin-totp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9 ]*"
+                  maxLength={8}
+                  className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3.5 text-center text-lg tracking-[0.35em] text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:tracking-normal placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-red-600/20"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/[^\d\s]/g, ""))}
+                  placeholder="000000"
+                  autoFocus
+                />
+              </div>
 
-            <div>
-              <label
-                htmlFor="signin-password"
-                className="mb-1.5 block text-sm font-medium text-zinc-800"
-              >
-                Password
-              </label>
-              <input
-                id="signin-password"
-                type="password"
-                className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-red-600/20"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
+              {error ? (
+                <p
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
 
-            {error ? (
-              <p
-                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
-                role="alert"
+              <button
+                type="submit"
+                disabled={loading || totpCode.replace(/\s/g, "").length < 6}
+                className="h-11 w-full rounded-lg bg-zinc-950 px-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {error}
-              </p>
-            ) : null}
+                {loading ? "Verifying…" : "Verify and continue"}
+              </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="h-11 w-full rounded-lg bg-zinc-950 px-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading
-                ? isLeaveMode
-                  ? "Continuing…"
-                  : "Signing in…"
-                : isLeaveMode
-                  ? "Continue to leave application"
-                  : "Sign in"}
-            </button>
-          </form>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  setStep("credentials");
+                  setTotpCode("");
+                  setError(null);
+                }}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                Back to sign in
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={onSubmitCredentials} className="mt-8 space-y-5">
+              <div>
+                <label
+                  htmlFor="signin-username"
+                  className="mb-1.5 block text-sm font-medium text-zinc-800"
+                >
+                  Username
+                </label>
+                <input
+                  id="signin-username"
+                  className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-red-600/20"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="signin-password"
+                  className="mb-1.5 block text-sm font-medium text-zinc-800"
+                >
+                  Password
+                </label>
+                <input
+                  id="signin-password"
+                  type="password"
+                  className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-red-600/20"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+
+              {error ? (
+                <p
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="h-11 w-full rounded-lg bg-zinc-950 px-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading
+                  ? isLeaveMode
+                    ? "Continuing…"
+                    : "Signing in…"
+                  : isLeaveMode
+                    ? "Continue to leave application"
+                    : "Sign in"}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

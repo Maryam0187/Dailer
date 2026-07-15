@@ -71,7 +71,7 @@ app.prepare().then(async () => {
       if (!isSessionValidForToday(payload)) {
         return nextSocket(new Error("Unauthorized"));
       }
-      if (payload?.purpose === "leave_application") {
+      if (payload?.purpose === "leave_application" || payload?.purpose === "totp_pending") {
         return nextSocket(new Error("Unauthorized"));
       }
 

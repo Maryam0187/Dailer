@@ -1552,6 +1552,8 @@ function EditUserModal({
   const [leaveEndDate, setLeaveEndDate] = useState(() => user.currentLeave?.endDate ?? todayIsoDate());
   const [leaveReason, setLeaveReason] = useState(() => user.currentLeave?.reason ?? "");
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [totpEnabled, setTotpEnabled] = useState(user.totpEnabled === true);
+  const [resettingTotp, setResettingTotp] = useState(false);
 
   useEffect(() => {
     setUsername(user.username);
@@ -1566,6 +1568,7 @@ function EditUserModal({
     setLeaveStartDate(user.currentLeave?.startDate ?? todayIsoDate());
     setLeaveEndDate(user.currentLeave?.endDate ?? todayIsoDate());
     setLeaveReason(user.currentLeave?.reason ?? "");
+    setTotpEnabled(user.totpEnabled === true);
     setError(null);
   }, [user]);
 
@@ -1843,6 +1846,48 @@ function EditUserModal({
               autoComplete="new-password"
             />
           </div>
+
+          {isAdmin && totpEnabled ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Two-factor authentication is enabled
+              </p>
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                Reset if this user lost access to their authenticator app. They can set it up again
+                from Security.
+              </p>
+              <button
+                type="button"
+                disabled={resettingTotp || loading}
+                onClick={async () => {
+                  if (!window.confirm(`Reset two-factor authentication for ${user.username}?`)) {
+                    return;
+                  }
+                  setError(null);
+                  setResettingTotp(true);
+                  try {
+                    const res = await fetch(`/api/users/${user.id}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ resetTotp: true }),
+                    });
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(json?.error || "Failed to reset 2FA");
+                    setTotpEnabled(false);
+                    await onSaved?.();
+                  } catch (err) {
+                    setError(err.message || "Failed to reset 2FA");
+                  } finally {
+                    setResettingTotp(false);
+                  }
+                }}
+                className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/40"
+              >
+                {resettingTotp ? "Resetting…" : "Reset 2FA"}
+              </button>
+            </div>
+          ) : null}
 
           {isAdmin ? (
             <>

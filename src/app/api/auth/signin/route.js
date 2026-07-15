@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import crypto from "node:crypto";
 import db from "@/server/db";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 import {
   isLoginAllowed,
-  getSessionCalendarDate,
   loginWindowErrorMessage,
   isLeaveDay,
   isManuallyActive,
@@ -14,6 +11,12 @@ import {
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
 import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
+import { isTotpRequiredAtLogin } from "@/server/auth/totp";
+import {
+  beginUserSession,
+  issueFullSessionResponse,
+  issueTotpPendingResponse,
+} from "@/server/auth/issueSession";
 
 export async function POST(req) {
   await getShiftSettingsRecord();
@@ -91,48 +94,33 @@ export async function POST(req) {
     }
   }
 
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
+  if (!process.env.JWT_SECRET) {
     return NextResponse.json({ error: "JWT_SECRET not configured" }, { status: 500 });
   }
 
-  const sid = crypto.randomUUID();
-  const sessionDay = getSessionCalendarDate();
-  await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
+  const { sid, sessionDay } = await beginUserSession(user);
 
-  const { locationAlert } = await logUserActivity({
-    req,
-    userId: user.id,
-    action: purpose === "leave_application" ? "leave_application_login" : "login_success",
-    sessionId: sid,
-    metadata: { username: user.username, sessionDay, purpose },
-  });
-
-  const tokenPayload = {
-    sub: user.id,
-    role: user.role,
-    sid,
-    sessionDay,
-  };
-  if (purpose === "leave_application") {
-    tokenPayload.purpose = "leave_application";
+  if (isTotpRequiredAtLogin(user)) {
+    await logUserActivity({
+      req,
+      userId: user.id,
+      action: "login_2fa_required",
+      sessionId: sid,
+      metadata: { username: user.username, sessionDay, purpose },
+    });
+    return issueTotpPendingResponse({
+      user,
+      sid,
+      sessionDay,
+      loginPurpose: purpose,
+    });
   }
 
-  const token = jwt.sign(tokenPayload, secret, {
-    expiresIn: "7d",
+  return issueFullSessionResponse({
+    req,
+    user,
+    sid,
+    sessionDay,
+    loginPurpose: purpose,
   });
-
-  const res = NextResponse.json({
-    ok: true,
-    redirect: purpose === "leave_application" ? "/leave-application" : "/",
-    locationAlert: purpose === "full" ? locationAlert || null : null,
-  });
-  res.cookies.set("token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 7 * 24 * 60 * 60,
-  });
-  return res;
 }

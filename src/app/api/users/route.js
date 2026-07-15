@@ -21,6 +21,8 @@ const LIST_ATTRIBUTES = [
   "afterShiftGrantDurationMinutes",
   "activeSessionId",
   "activeSessionLastSeenAt",
+  "totpEnabled",
+  "totpEnabledAt",
 ];
 
 const LIST_INCLUDE = [
@@ -65,6 +67,8 @@ function serializeUserRow(
           afterShiftLimitedFileId: row.afterShiftLimitedFileId ?? null,
           afterShiftAccessExpiresAt: row.afterShiftAccessExpiresAt ?? null,
           afterShiftGrantDurationMinutes: row.afterShiftGrantDurationMinutes ?? null,
+          totpEnabled: row.totpEnabled === true,
+          totpEnabledAt: row.totpEnabledAt ?? null,
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),
