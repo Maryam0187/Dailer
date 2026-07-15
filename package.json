@@ -40,8 +40,10 @@
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.14.5",
     "next": "16.2.1",
+    "otpauth": "^9.5.1",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.18.0",
+    "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-redux": "^9.2.0",
@@ -52,6 +54,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/qrcode": "^1.5.6",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "sequelize-cli": "^6.6.3",

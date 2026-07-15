@@ -13,6 +13,7 @@ import {
   resolveGrantDurationMinutes,
 } from "@/server/auth/afterShiftGrant.cjs";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
+import { clearTotpFields } from "@/server/auth/totp";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -40,6 +41,8 @@ export async function GET(_req, { params }) {
       "afterShiftGrantDurationMinutes",
       "activeSessionId",
       "activeSessionLastSeenAt",
+      "totpEnabled",
+      "totpEnabledAt",
     ],
     include: [
       {
@@ -92,6 +95,8 @@ export async function GET(_req, { params }) {
       currentLeave,
       presence: presence.status,
       lastActiveAt: presence.lastActiveAt,
+      totpEnabled: authedUser.role === "admin" ? target.totpEnabled === true : undefined,
+      totpEnabledAt: authedUser.role === "admin" ? target.totpEnabledAt ?? null : undefined,
     },
   });
 }
@@ -323,6 +328,10 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "Limited access requires a file" }, { status: 400 });
   }
 
+  if (isAdmin && body.resetTotp === true) {
+    Object.assign(updates, clearTotpFields());
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
@@ -362,6 +371,17 @@ export async function PATCH(req, { params }) {
     });
   }
 
+  if (isAdmin && body.resetTotp === true) {
+    await logUserActivity({
+      req,
+      userId: authedUser.id,
+      action: "2fa_reset_by_admin",
+      entityType: "user",
+      entityId: target.id,
+      metadata: { targetUsername: target.username },
+    });
+  }
+
   const fresh = await db.User.findByPk(id, {
     attributes: [
       "id",
@@ -375,6 +395,8 @@ export async function PATCH(req, { params }) {
       "afterShiftLimitedFileId",
       "afterShiftAccessExpiresAt",
       "afterShiftGrantDurationMinutes",
+      "totpEnabled",
+      "totpEnabledAt",
     ],
     include: [
       {

@@ -78,6 +78,11 @@ async function resolveAuthedUser() {
   const userId = payload?.sub;
   if (!userId) return { user: null, logoutReason: null };
 
+  // Password OK but TOTP not verified yet — not a full app session.
+  if (payload?.purpose === "totp_pending") {
+    return { user: null, logoutReason: null };
+  }
+
   let user = await db.User.findByPk(userId);
   if (!user || user.isActive === false) return { user: null, logoutReason: null };
 
