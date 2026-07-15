@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 import {
+  detectCardBrand,
   formatCardNumberInput,
   formatCvvInput,
   formatExpDateInput,
@@ -28,7 +29,11 @@ import {
   buildWorkflowTagLookup,
   resolvePreferShortLabels,
 } from "@/lib/workflowTagLabels";
-import IconTooltipButton, { ViewIcon } from "@/components/Leads/IconTooltipButton";
+import IconTooltipButton, {
+  CheckIcon,
+  CopyLinkIcon,
+  ViewIcon,
+} from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 
@@ -306,6 +311,7 @@ export default function CustomersClient() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [loadingLeadId, setLoadingLeadId] = useState(null);
+  const [copiedLeadId, setCopiedLeadId] = useState(null);
   const [workflowTags, setWorkflowTags] = useState([]);
   const loadRequestIdRef = useRef(0);
   const [adminShortLabels, setAdminShortLabels] = useState(() => {
@@ -820,6 +826,31 @@ export default function CustomersClient() {
     } finally {
       setLoadingLeadId(null);
     }
+  }
+
+  async function copyLeadLink(leadId) {
+    if (!leadId) return;
+    const url = `${window.location.origin}/leads/${leadId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+    setCopiedLeadId(leadId);
+    window.setTimeout(() => {
+      setCopiedLeadId((prev) => (prev === leadId ? null : prev));
+    }, 2000);
   }
 
   function handleLeadUpdated(updated) {
@@ -1420,7 +1451,12 @@ export default function CustomersClient() {
                           value={paymentForm.cardNumber}
                           onChange={(e) => {
                             const next = formatCardNumberInput(e.target.value);
-                            setPaymentForm((prev) => ({ ...prev, cardNumber: next }));
+                            const brand = detectCardBrand(next);
+                            setPaymentForm((prev) => ({
+                              ...prev,
+                              cardNumber: next,
+                              brand,
+                            }));
                             setCardFieldErrors((prev) => ({ ...prev, cardNumber: "" }));
                           }}
                           onBlur={() => {
@@ -1671,13 +1707,28 @@ export default function CustomersClient() {
                           className="rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                              {lead.fullName}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                                  #{lead.id}
+                                </span>
+                                <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                  {lead.fullName}
+                                </span>
+                              </div>
+                            </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-zinc-500">
                                 {formatWhen(lead.createdAt)}
                               </span>
+                              <IconTooltipButton
+                                title={
+                                  copiedLeadId === lead.id ? "Link copied!" : "Copy lead link"
+                                }
+                                onClick={() => void copyLeadLink(lead.id)}
+                              >
+                                {copiedLeadId === lead.id ? <CheckIcon /> : <CopyLinkIcon />}
+                              </IconTooltipButton>
                               <IconTooltipButton
                                 title={loadingLeadId === lead.id ? "Loading…" : "View lead"}
                                 disabled={loadingLeadId === lead.id}

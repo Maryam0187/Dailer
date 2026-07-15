@@ -13,6 +13,37 @@ export function formatCardNumberInput(value) {
 }
 
 /**
+ * Infer card brand from IIN/BIN prefixes.
+ * Returns a CARD_BRANDS value or "" when not enough digits / unknown.
+ */
+export function detectCardBrand(raw) {
+  const digits = digitsOnly(raw, 19);
+  if (!digits) return "";
+
+  if (digits.startsWith("4")) return "Visa";
+
+  if (digits.length >= 2) {
+    const two = Number(digits.slice(0, 2));
+    if (two === 34 || two === 37) return "Amex";
+    if (two >= 51 && two <= 55) return "Mastercard";
+    if (two === 65) return "Discover";
+  }
+
+  if (digits.length >= 4) {
+    const four = Number(digits.slice(0, 4));
+    if (four >= 2221 && four <= 2720) return "Mastercard";
+    if (four === 6011) return "Discover";
+  }
+
+  if (digits.length >= 3) {
+    const three = Number(digits.slice(0, 3));
+    if (three >= 644 && three <= 649) return "Discover";
+  }
+
+  return "";
+}
+
+/**
  * Format expiry as MM/YY while typing.
  * Typing 2–9 as the first month digit becomes 02/–09/ (ready for year).
  * 0 or 1 waits for the second month digit. Backspace can remove the slash.
