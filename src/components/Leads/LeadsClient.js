@@ -228,6 +228,7 @@ function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
           <WorkflowSwatch
             key={`${item.category}-${item.tagKey}`}
             category={item.category}
+            tagKey={item.tagKey}
             tone={item.tone}
             title={item.label}
           />

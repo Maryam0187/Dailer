@@ -12,6 +12,7 @@ import { getStateByCode } from "@/lib/usStates";
 import { workflowTagDisplayLabel, workflowTagTone } from "@/lib/workflowTagLabels";
 import { InfoIcon } from "@/components/Leads/IconTooltipButton";
 import ProcessorPicker from "@/components/Leads/ProcessorPicker";
+import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const labelTextClass = "text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -398,6 +399,12 @@ export default function LeadWorkflowSection({
               className={chipClass(active, tone, busy || paymentLocked)}
               aria-pressed={active}
             >
+              <WorkflowSwatch
+                category="payment"
+                tagKey={method.value}
+                tone={active ? tone : "zinc"}
+                title={method.label}
+              />
               <ChipLabel active={active}>
                 {workflowTagDisplayLabel(workflowTagLookup, "payment", method.value, {
                   preferShort: preferShortLabels,
