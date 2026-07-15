@@ -11,6 +11,18 @@ import { logLeadUpdateActivity, logLeadUserActivity } from "@/server/activity/lo
 import { applyLeadWorkflowPatch } from "@/server/leads/applyLeadWorkflowPatch";
 import { hasLeadWorkflowPatch } from "@/lib/leadWorkflow";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import { syncLeadCustomer } from "@/server/customers/syncCustomer";
+
+const CUSTOMER_SYNC_FIELDS = new Set([
+  "phone",
+  "fullName",
+  "city",
+  "state",
+  "zipCode",
+  "serviceType",
+  "cableName",
+  "streamName",
+]);
 
 function trimField(value, maxLen) {
   const s = String(value || "").trim();
@@ -304,6 +316,13 @@ export async function PATCH(req, { params }) {
   }
 
   await lead.update(update);
+
+  const customerFieldChanges = Object.fromEntries(
+    Object.entries(update).filter(([key]) => CUSTOMER_SYNC_FIELDS.has(key)),
+  );
+  if (Object.keys(customerFieldChanges).length > 0 || lead.customerId == null) {
+    await syncLeadCustomer(lead, customerFieldChanges);
+  }
 
   const leadName = update.fullName ?? lead.fullName;
 
