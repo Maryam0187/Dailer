@@ -12,6 +12,7 @@ import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
 import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
 import { isTotpRequiredAtLogin } from "@/server/auth/totp";
+import { hasValidTotpTrust } from "@/server/auth/totpTrust";
 import {
   beginUserSession,
   issueFullSessionResponse,
@@ -101,18 +102,29 @@ export async function POST(req) {
   const { sid, sessionDay } = await beginUserSession(user);
 
   if (isTotpRequiredAtLogin(user)) {
+    const trustedDevice = await hasValidTotpTrust(user);
+    if (!trustedDevice) {
+      await logUserActivity({
+        req,
+        userId: user.id,
+        action: "login_2fa_required",
+        sessionId: sid,
+        metadata: { username: user.username, sessionDay, purpose },
+      });
+      return issueTotpPendingResponse({
+        user,
+        sid,
+        sessionDay,
+        loginPurpose: purpose,
+      });
+    }
+
     await logUserActivity({
       req,
       userId: user.id,
-      action: "login_2fa_required",
+      action: "login_2fa_trusted_device",
       sessionId: sid,
       metadata: { username: user.username, sessionDay, purpose },
-    });
-    return issueTotpPendingResponse({
-      user,
-      sid,
-      sessionDay,
-      loginPurpose: purpose,
     });
   }
 

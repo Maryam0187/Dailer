@@ -3,6 +3,7 @@ import { logUserActivity } from "@/server/activity/logUserActivity";
 import { getTotpPendingUser } from "@/server/auth/getTotpPendingUser";
 import { issueFullSessionResponse } from "@/server/auth/issueSession";
 import { decryptSecret, verifyTotpCode } from "@/server/auth/totp";
+import { getTotpTrustDays, setTotpTrustCookie } from "@/server/auth/totpTrust";
 
 export async function POST(req) {
   const pending = await getTotpPendingUser();
@@ -12,6 +13,7 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const code = body?.code;
+  const rememberDevice = body?.rememberDevice === true;
 
   if (!code || typeof code !== "string") {
     return NextResponse.json({ error: "code is required" }, { status: 400 });
@@ -42,16 +44,26 @@ export async function POST(req) {
     userId: user.id,
     action: "2fa_success",
     sessionId: sid,
-    metadata: { username: user.username },
+    metadata: {
+      username: user.username,
+      rememberDevice,
+      trustDays: rememberDevice ? getTotpTrustDays() : null,
+    },
   });
 
   await user.update({ activeSessionLastSeenAt: new Date() });
 
-  return issueFullSessionResponse({
+  const res = await issueFullSessionResponse({
     req,
     user,
     sid,
     sessionDay,
     loginPurpose: pendingPurpose,
   });
+
+  if (rememberDevice) {
+    setTotpTrustCookie(res, user);
+  }
+
+  return res;
 }

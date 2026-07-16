@@ -17,6 +17,7 @@ export default function SignInPageClient() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(true);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -93,7 +94,10 @@ export default function SignInPageClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ code: totpCode.trim() }),
+        body: JSON.stringify({
+          code: totpCode.trim(),
+          rememberDevice,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Verification failed");
@@ -211,6 +215,21 @@ export default function SignInPageClient() {
                   autoFocus
                 />
               </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-red-600/30"
+                />
+                <span className="text-sm text-zinc-700">
+                  <span className="font-medium text-zinc-900">Remember this browser for 7 days</span>
+                  <span className="mt-0.5 block text-zinc-500">
+                    Skip the authenticator code on this device until then.
+                  </span>
+                </span>
+              </label>
 
               {error ? (
                 <p
