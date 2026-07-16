@@ -28,6 +28,9 @@ export function signInNoticeMessage(reason) {
   if (reason === "session_day_ended") {
     return "Your previous session ended. Please sign in again to start today's session.";
   }
+  if (reason === "session_ended") {
+    return "Your session ended. Please sign in again.";
+  }
   if (reason === "user_on_leave") {
     return "You are on approved leave today and cannot sign in to the dialer.";
   }

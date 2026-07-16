@@ -17,6 +17,8 @@ import {
  * request bumps the timestamp, but we skip the write when the existing value
  * is younger than this window so we don't hammer the DB on bursty traffic
  * (heartbeat-style page loads, polling components, etc.).
+ *
+ * Presence "away/offline" uses this timestamp — it does NOT log the user out.
  */
 const LAST_SEEN_REFRESH_MS = 30 * 1000;
 
@@ -56,10 +58,11 @@ async function revokeExpiredAfterShiftGrant(user) {
 }
 
 async function resolveAuthedUser() {
-  // Always sync shift bounds from DB before login-window checks. The status API
+  // Sync shift bounds from DB before login-window checks. The status API
   // already does this; using a stale boot-time cache here caused false shift_ended
   // logouts while /api/shift/status still reported the shift as active.
-  await getShiftSettingsRecord();
+  const shiftSettings = await getShiftSettingsRecord();
+  const shiftSettingsReliable = shiftSettings?.loadOk !== false;
 
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
@@ -88,8 +91,13 @@ async function resolveAuthedUser() {
 
   user = await revokeExpiredAfterShiftGrant(user);
 
-  if (payload.sid && user.activeSessionId !== payload.sid) {
+  // True replacement: another login minted a new sid.
+  if (payload.sid && user.activeSessionId && user.activeSessionId !== payload.sid) {
     return { user: null, logoutReason: "replaced" };
+  }
+  // Session was cleared earlier (shift/day/leave/logout) — not "signed in elsewhere".
+  if (payload.sid && !user.activeSessionId) {
+    return { user: null, logoutReason: "session_ended" };
   }
 
   if (!isSessionValidForToday(payload)) {
@@ -112,17 +120,36 @@ async function resolveAuthedUser() {
     };
   }
 
-  const onApprovedLeave = await isUserOnApprovedLeave(user.id);
+  let onApprovedLeave = false;
+  try {
+    onApprovedLeave = await isUserOnApprovedLeave(user.id);
+  } catch (err) {
+    // Fail open: a leave-table blip must not force sign-out mid-shift.
+    console.error("[auth] leave check failed:", err?.message || err);
+  }
   if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
     await clearUserSession(user.id);
     return { user: null, logoutReason: "user_on_leave" };
   }
 
   if (!isLoginAllowed(user)) {
-    const onActiveCall = await userHasActiveCall(user.id);
-    if (!onActiveCall) {
-      await clearUserSession(user.id);
-      return { user: null, logoutReason: "shift_ended" };
+    // Only force shift logout when settings were loaded successfully. A failed
+    // reload used to fall back to env defaults and clear sessions mid-shift.
+    if (!shiftSettingsReliable) {
+      console.warn(
+        "[auth] shift window denied login but settings reload failed; keeping session",
+      );
+    } else {
+      let onActiveCall = false;
+      try {
+        onActiveCall = await userHasActiveCall(user.id);
+      } catch (err) {
+        console.error("[auth] active-call check failed:", err?.message || err);
+      }
+      if (!onActiveCall) {
+        await clearUserSession(user.id);
+        return { user: null, logoutReason: "shift_ended" };
+      }
     }
   }
 

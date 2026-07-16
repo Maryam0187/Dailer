@@ -75,8 +75,9 @@ async function loadShiftSettingsFromDb() {
       startLocal: utcHhmmToZonedHhmm(applied.startUtc, applied.timezone),
       endLocal: utcHhmmToZonedHhmm(applied.endUtc, applied.timezone),
     };
-  } catch {
-    serializeShiftSettings(null);
+  } catch (err) {
+    // Do not wipe in-memory settings with env defaults on transient DB errors.
+    console.error("[shift] failed to load settings on boot:", err?.message || err);
     return getShiftSettings();
   }
 }

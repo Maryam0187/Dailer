@@ -36,6 +36,14 @@ const TIMEZONE_OPTIONS = [
 ];
 
 let loadPromise = null;
+/** @type {ReturnType<typeof buildShiftSettingsRecord> | null} */
+let lastRecord = null;
+let lastLoadedAt = 0;
+/** True when the last DB read succeeded (not a stale/env fallback). */
+let lastLoadOk = false;
+
+/** Reuse in-memory shift bounds briefly so auth polls don't hammer the DB. */
+const SETTINGS_TTL_MS = 10_000;
 
 function envDefaults() {
   return {
@@ -48,7 +56,7 @@ function envDefaults() {
   };
 }
 
-function serializeShiftSettings(row) {
+function buildShiftSettingsRecord(row) {
   const settings = row
     ? {
         enabled: readShiftEnabled(row.enabled, true),
@@ -82,7 +90,12 @@ function serializeShiftSettings(row) {
     ),
     updatedBy: row?.updatedBy ?? null,
     updatedAt: row?.updatedAt ?? null,
+    loadOk: true,
   };
+}
+
+function withLoadOk(record, loadOk) {
+  return { ...record, loadOk };
 }
 
 export async function getDefaultGrantDurationMinutes() {
@@ -106,9 +119,24 @@ async function loadShiftSettingsFromDb() {
         updatedBy: null,
       });
     }
-    return serializeShiftSettings(row);
-  } catch {
-    return serializeShiftSettings(null);
+    const record = buildShiftSettingsRecord(row);
+    lastRecord = record;
+    lastLoadedAt = Date.now();
+    lastLoadOk = true;
+    return record;
+  } catch (err) {
+    console.error("[shift] failed to reload settings:", err?.message || err);
+    // Keep last-known DB settings. Overwriting with env defaults caused false
+    // mid-shift logouts whenever a transient DB error hit an auth poll.
+    if (lastRecord) {
+      lastLoadOk = false;
+      return withLoadOk(lastRecord, false);
+    }
+    const fallback = withLoadOk(buildShiftSettingsRecord(null), false);
+    lastRecord = fallback;
+    lastLoadedAt = Date.now();
+    lastLoadOk = false;
+    return fallback;
   }
 }
 
@@ -124,7 +152,14 @@ export async function reloadShiftSettings() {
   return loadPromise;
 }
 
+/**
+ * Fresh enough for auth/shift checks. Returns `loadOk: false` when the latest
+ * DB read failed and callers should avoid forced shift_ended logouts.
+ */
 export async function getShiftSettingsRecord() {
+  if (lastRecord && Date.now() - lastLoadedAt < SETTINGS_TTL_MS) {
+    return withLoadOk(lastRecord, lastLoadOk);
+  }
   return reloadShiftSettings();
 }
 
