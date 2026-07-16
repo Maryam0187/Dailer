@@ -13,12 +13,32 @@ export function canViewLeadStats(role) {
   return role === "admin";
 }
 
-/** Linked payment method + charge/decline/chargeback — admin only. */
+/** Charged / declined / chargeback / processor — admin only. */
 export function canViewLeadPaymentChargeInfo(role) {
   return role === "admin";
 }
 
-/** Lead timeline bodies that expose admin-only payment charge / link info. */
+/**
+ * Reserved for cases where a payment method should be omitted entirely.
+ * Admins always see every method.
+ */
+export function shouldHideLeadPaymentMethodFromViewer(viewerRole, _creatorRole) {
+  if (viewerRole === "admin") return false;
+  return false;
+}
+
+/**
+ * Non-admins always see last-4 / masked payment digits (even for methods they added).
+ * Admins always see full payment method details.
+ */
+export function shouldLockLeadPaymentSensitiveFields(viewerRole, _leadPhase, _creatorRole = null) {
+  return viewerRole !== "admin";
+}
+
+/**
+ * Lead timeline bodies that non-admins must not see:
+ * charged / declined / chargeback / processor / payment-link audit lines.
+ */
 export function isAdminOnlyPaymentChargeActivityBody(body) {
   const text = String(body || "").trim();
   if (!text) return false;
@@ -31,7 +51,8 @@ export function isAdminOnlyPaymentChargeActivityBody(body) {
     /^Payment method unlinked\b/i.test(text) ||
     /^Linked payment method\b/i.test(text) ||
     /^Charged with\b/i.test(text) ||
-    /^Charged payment method cleared\b/i.test(text)
+    /^Charged payment method cleared\b/i.test(text) ||
+    /^Charge amount\b/i.test(text)
   );
 }
 

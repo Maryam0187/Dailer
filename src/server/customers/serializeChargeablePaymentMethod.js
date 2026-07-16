@@ -23,7 +23,7 @@ export function serializeChargeablePaymentMethod(row) {
     const parts = [row.bankName, row.checkNumber ? `#${row.checkNumber}` : null].filter(Boolean);
     summary = parts.join(" · ") || "Check mail";
   } else {
-    summary = row.notes?.slice(0, 60) || "POS";
+    summary = row.email || row.notes?.slice(0, 60) || "POS";
   }
 
   return {
@@ -35,6 +35,7 @@ export function serializeChargeablePaymentMethod(row) {
     cardType: row.cardType || null,
     brand: row.brand || null,
     bankName: row.bankName || null,
+    email: row.email || null,
     summary,
   };
 }

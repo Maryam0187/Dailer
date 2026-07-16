@@ -170,6 +170,32 @@ export function normalizeLeadPaymentChargeStatus(raw) {
   return LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(value) ? value : undefined;
 }
 
+/**
+ * Parse charge amount (how much is being charged).
+ * Returns null for empty, number for valid, undefined for invalid.
+ */
+export function normalizeLeadPaymentChargeAmount(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const cleaned = String(raw).trim().replace(/[$,\s]/g, "");
+  if (!cleaned) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return undefined;
+  const value = Number(cleaned);
+  if (!Number.isFinite(value) || value < 0 || value > 9999999999.99) return undefined;
+  return Math.round(value * 100) / 100;
+}
+
+export function formatLeadPaymentChargeAmount(amount) {
+  if (amount == null || amount === "") return null;
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return null;
+  return value.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function getLeadPaymentProcessorMeta(processor, processors = null) {
   const code = String(processor || "").toLowerCase();
   if (Array.isArray(processors) && processors.length > 0) {
@@ -239,6 +265,12 @@ export function formatPaymentChargeActivity(status, declineReason, pmId, process
 
 export function formatPaymentLinkActivity(linked, pmId) {
   return withPaymentMethodId(linked ? "Payment method linked" : "Payment method unlinked", pmId);
+}
+
+export function formatPaymentAmountActivity(amount) {
+  if (amount == null) return "Charge amount cleared";
+  const formatted = formatLeadPaymentChargeAmount(amount) || String(amount);
+  return `Charge amount set to ${formatted}`;
 }
 
 export function parseLeadProgressTags(raw) {
