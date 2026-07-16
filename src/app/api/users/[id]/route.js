@@ -329,7 +329,7 @@ export async function PATCH(req, { params }) {
   }
 
   if (isAdmin && body.resetTotp === true) {
-    Object.assign(updates, clearTotpFields());
+    Object.assign(updates, clearTotpFields(target));
   }
 
   if (Object.keys(updates).length === 0) {

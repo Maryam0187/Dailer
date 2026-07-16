@@ -8,6 +8,7 @@ import {
   decryptSecret,
   verifyTotpCode,
 } from "@/server/auth/totp";
+import { clearTotpTrustCookie } from "@/server/auth/totpTrust";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 
 export async function POST(req) {
@@ -60,7 +61,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Invalid authentication code" }, { status: 401 });
   }
 
-  await user.update(clearTotpFields());
+  await user.update(clearTotpFields(user));
 
   await logUserActivity({
     req,
@@ -69,5 +70,7 @@ export async function POST(req) {
     metadata: { username: user.username },
   });
 
-  return NextResponse.json({ ok: true, totpEnabled: false });
+  const res = NextResponse.json({ ok: true, totpEnabled: false });
+  clearTotpTrustCookie(res);
+  return res;
 }

@@ -62,10 +62,12 @@ export async function buildEnrollmentPayload({ secret, username }) {
   };
 }
 
-export function clearTotpFields() {
+/** Clear TOTP and bump trust version so remembered devices must verify again. */
+export function clearTotpFields(user = null) {
   return {
     totpSecretEncrypted: null,
     totpEnabled: false,
     totpEnabledAt: null,
+    totpTrustVersion: (Number(user?.totpTrustVersion) || 0) + 1,
   };
 }
