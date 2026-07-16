@@ -10,7 +10,15 @@ function isOnActiveCall(session) {
 
 async function checkSession() {
   const res = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
-  return res.json().catch(() => ({}));
+  if (!res.ok) {
+    // Network/proxy/5xx — do not treat as logged out (common after idle/sleep).
+    return { ok: true, unreachable: true };
+  }
+  const json = await res.json().catch(() => null);
+  if (!json || typeof json !== "object") {
+    return { ok: true, unreachable: true };
+  }
+  return json;
 }
 
 function redirectToSignIn(reason) {
@@ -41,14 +49,18 @@ export default function ShiftLogoutGuard() {
       redirectingRef.current = true;
       try {
         const json = await checkSession();
-        if (!json?.ok) {
+        if (json?.unreachable) {
+          redirectingRef.current = false;
+          return;
+        }
+        if (json?.ok === false) {
           redirectToSignIn(json?.reason || "shift_ended");
           return;
         }
         setPendingShiftLogout(false);
         redirectingRef.current = false;
       } catch {
-        redirectToSignIn("shift_ended");
+        redirectingRef.current = false;
       }
     }
 
@@ -60,7 +72,8 @@ export default function ShiftLogoutGuard() {
       if (!pendingShiftLogout) return;
       void (async () => {
         const json = await checkSession();
-        if (!json?.ok) {
+        if (json?.unreachable) return;
+        if (json?.ok === false) {
           redirectToSignIn(json?.reason || "shift_ended");
         } else {
           setPendingShiftLogout(false);
@@ -91,10 +104,13 @@ export default function ShiftLogoutGuard() {
     async function redirectForAuthExpiry() {
       try {
         const json = await checkSession();
-        if (json?.ok) return;
-        await handleAuthFailure(json?.reason || null);
+        // Only sign out when the server explicitly rejects the session.
+        // Idle tabs, laptop sleep, and transient errors used to look like "inactivity logout".
+        if (json?.ok === false) {
+          await handleAuthFailure(json?.reason || null);
+        }
       } catch {
-        await handleAuthFailure(null);
+        /* ignore network errors — keep the session */
       }
     }
 
