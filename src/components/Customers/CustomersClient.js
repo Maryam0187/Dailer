@@ -15,6 +15,7 @@ import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { US_STATES } from "@/lib/usStates";
 import { formatLeadService } from "@/lib/leadService";
 import {
+  formatLeadPaymentChargeAmount,
   getLeadPaymentChargeStatusMeta,
   getLeadPaymentMethodMeta,
   getLeadPaymentProcessorMeta,
@@ -193,7 +194,7 @@ function paymentSummary(pm) {
     const parts = [pm.bankName, pm.checkNumber ? `#${pm.checkNumber}` : null].filter(Boolean);
     return parts.join(" · ") || "Check mail";
   }
-  return pm.notes?.slice(0, 60) || "POS";
+  return pm.email || pm.notes?.slice(0, 60) || "POS";
 }
 
 function emptyPaymentForm(defaults = {}) {
@@ -210,6 +211,7 @@ function emptyPaymentForm(defaults = {}) {
     accountNumber: "",
     checkNumber: "",
     bankName: "",
+    email: "",
     notes: "",
     ...defaults,
   };
@@ -234,9 +236,9 @@ function PaymentViewDetails({ pm }) {
       {pm.type === "card" ? (
         <>
           <ViewField label="Name on card" value={pm.nameOnCard || "—"} />
+          <ViewField label="Card number" value={pm.cardNumber} />
           <ViewField label="Card type" value={pm.cardType} />
           <ViewField label="Brand" value={pm.brand} />
-          <ViewField label="Card number" value={pm.cardNumber} />
           <ViewField label="Exp date" value={pm.expDate} />
           <ViewField label="CVV" value={pm.cvv} />
         </>
@@ -255,6 +257,7 @@ function PaymentViewDetails({ pm }) {
           <ViewField label="Bank name" value={pm.bankName} />
         </>
       ) : null}
+      {pm.type === "pos_link" ? <ViewField label="Email" value={pm.email} /> : null}
       <div className="sm:col-span-2">
         <ViewField label="Notes" value={pm.notes} />
       </div>
@@ -309,6 +312,9 @@ export default function CustomersClient() {
   const [chargeModal, setChargeModal] = useState(null);
   const [chargeProcessor, setChargeProcessor] = useState("");
   const [declineReason, setDeclineReason] = useState("");
+  const [amountModalLead, setAmountModalLead] = useState(null);
+  const [amountDraft, setAmountDraft] = useState("");
+  const [savingAmountLeadId, setSavingAmountLeadId] = useState(null);
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [loadingLeadId, setLoadingLeadId] = useState(null);
@@ -629,6 +635,7 @@ export default function CustomersClient() {
       accountNumber: pm.accountNumber || "",
       checkNumber: pm.checkNumber || "",
       bankName: pm.bankName || "",
+      email: pm.email || "",
       notes: pm.notes || "",
     });
     setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
@@ -708,6 +715,7 @@ export default function CustomersClient() {
         accountNumber: paymentForm.accountNumber || null,
         checkNumber: paymentForm.checkNumber || null,
         bankName: paymentForm.bankName || null,
+        email: paymentForm.type === "pos_link" ? paymentForm.email || null : null,
         notes: paymentForm.notes || null,
       };
 
@@ -841,6 +849,43 @@ export default function CustomersClient() {
       return;
     }
     await setLeadChargeStatus(chargeModal.lead.id, chargeModal.status, { processor });
+  }
+
+  function openAmountModal(lead) {
+    setAmountDraft(
+      lead?.leadPaymentChargeAmount != null ? String(lead.leadPaymentChargeAmount) : "",
+    );
+    setAmountModalLead(lead);
+    setPaymentError(null);
+  }
+
+  function closeAmountModal() {
+    setAmountModalLead(null);
+    setAmountDraft("");
+  }
+
+  async function submitAmountModal() {
+    if (!selectedId || !amountModalLead?.id) return;
+    setSavingAmountLeadId(amountModalLead.id);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/customers/${selectedId}/leads/${amountModalLead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          leadPaymentChargeAmount: amountDraft.trim() === "" ? null : amountDraft.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update charge amount");
+      closeAmountModal();
+      await loadDetail(selectedId);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to update charge amount");
+    } finally {
+      setSavingAmountLeadId(null);
+    }
   }
 
   async function openLeadSidebar(leadId) {
@@ -1461,6 +1506,39 @@ export default function CustomersClient() {
                           placeholder="Name as printed on card"
                         />
                       </label>
+                      <label className={`${labelClass} sm:col-span-2`}>
+                        Card number
+                        <input
+                          className={`${inputClass}${cardFieldErrors.cardNumber ? " border-red-400 focus:border-red-500 focus:ring-red-500/20" : ""}`}
+                          value={paymentForm.cardNumber}
+                          onChange={(e) => {
+                            const next = formatCardNumberInput(e.target.value);
+                            const brand = detectCardBrand(next);
+                            setPaymentForm((prev) => ({
+                              ...prev,
+                              cardNumber: next,
+                              brand,
+                            }));
+                            setCardFieldErrors((prev) => ({ ...prev, cardNumber: "" }));
+                          }}
+                          onBlur={() => {
+                            const result = validateCardNumber(paymentForm.cardNumber);
+                            setCardFieldErrors((prev) => ({
+                              ...prev,
+                              cardNumber: result.ok ? "" : result.error,
+                            }));
+                          }}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          placeholder="•••• •••• •••• ••••"
+                          maxLength={23}
+                        />
+                        {cardFieldErrors.cardNumber ? (
+                          <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
+                            {cardFieldErrors.cardNumber}
+                          </span>
+                        ) : null}
+                      </label>
                       <label className={labelClass}>
                         Card type
                         <select
@@ -1502,39 +1580,6 @@ export default function CustomersClient() {
                             <option value={paymentForm.brand}>{paymentForm.brand}</option>
                           ) : null}
                         </select>
-                      </label>
-                      <label className={`${labelClass} sm:col-span-2`}>
-                        Card number
-                        <input
-                          className={`${inputClass}${cardFieldErrors.cardNumber ? " border-red-400 focus:border-red-500 focus:ring-red-500/20" : ""}`}
-                          value={paymentForm.cardNumber}
-                          onChange={(e) => {
-                            const next = formatCardNumberInput(e.target.value);
-                            const brand = detectCardBrand(next);
-                            setPaymentForm((prev) => ({
-                              ...prev,
-                              cardNumber: next,
-                              brand,
-                            }));
-                            setCardFieldErrors((prev) => ({ ...prev, cardNumber: "" }));
-                          }}
-                          onBlur={() => {
-                            const result = validateCardNumber(paymentForm.cardNumber);
-                            setCardFieldErrors((prev) => ({
-                              ...prev,
-                              cardNumber: result.ok ? "" : result.error,
-                            }));
-                          }}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          placeholder="•••• •••• •••• ••••"
-                          maxLength={23}
-                        />
-                        {cardFieldErrors.cardNumber ? (
-                          <span className="mt-1 block text-xs font-medium text-red-600 dark:text-red-400">
-                            {cardFieldErrors.cardNumber}
-                          </span>
-                        ) : null}
                       </label>
                       <label className={labelClass}>
                         Exp date
@@ -1675,6 +1720,22 @@ export default function CustomersClient() {
                         />
                       </label>
                     </div>
+                  ) : null}
+
+                  {paymentForm.type === "pos_link" ? (
+                    <label className={labelClass}>
+                      Email
+                      <input
+                        className={inputClass}
+                        type="email"
+                        value={paymentForm.email}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, email: e.target.value }))
+                        }
+                        placeholder="customer@example.com"
+                        autoComplete="off"
+                      />
+                    </label>
                   ) : null}
 
                   <label className={labelClass}>
@@ -1835,6 +1896,23 @@ export default function CustomersClient() {
                                 {paymentMeta.label}
                               </span>
                             ) : null}
+                            <span className="inline-flex items-center gap-1.5">
+                              {lead.leadPaymentChargeAmount != null ? (
+                                <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold tabular-nums text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100">
+                                  {formatLeadPaymentChargeAmount(lead.leadPaymentChargeAmount)}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-zinc-500">No amount</span>
+                              )}
+                              <button
+                                type="button"
+                                className="rounded-lg border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                disabled={savingAmountLeadId === lead.id}
+                                onClick={() => openAmountModal(lead)}
+                              >
+                                {savingAmountLeadId === lead.id ? "…" : "Change"}
+                              </button>
+                            </span>
                             {chargeMeta ? (
                               <span
                                 className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${chargeBadgeClass}`}
@@ -2099,6 +2177,51 @@ export default function CustomersClient() {
         </>
       ) : null}
 
+      {amountModalLead ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[60] bg-zinc-950/50"
+            aria-label="Close amount form"
+            onClick={closeAmountModal}
+          />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+              <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                Change charge amount
+              </h3>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Update the charge amount for {amountModalLead.fullName || `lead #${amountModalLead.id}`}.
+              </p>
+              <label className={`${labelClass} mt-4`}>
+                Charge amount
+                <input
+                  className={inputClass}
+                  value={amountDraft}
+                  onChange={(e) => setAmountDraft(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  autoFocus
+                />
+              </label>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={closeAmountModal} className={btnSecondary}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  disabled={savingAmountLeadId === amountModalLead.id}
+                  onClick={() => void submitAmountModal()}
+                  className={btnPrimary}
+                >
+                  {savingAmountLeadId === amountModalLead.id ? "Saving…" : "Save amount"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
+
       {selectedLead ? (
         <LeadDetailPanel
           lead={selectedLead}
@@ -2109,6 +2232,7 @@ export default function CustomersClient() {
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
           canAssignLead
+          canEditChargeAmount
         />
       ) : null}
 

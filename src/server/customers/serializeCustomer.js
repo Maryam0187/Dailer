@@ -24,6 +24,7 @@ export function serializePaymentMethod(row) {
     accountNumber: row.accountNumber,
     checkNumber: row.checkNumber,
     bankName: row.bankName,
+    email: row.email,
     notes: row.notes,
     createdByUserId: row.createdByUserId,
     createdByUsername: row.createdBy?.username ?? null,
@@ -77,6 +78,8 @@ export function serializeCustomerLead(lead, extras = {}) {
     leadPaymentChargeStatus: lead.leadPaymentChargeStatus || null,
     leadPaymentDeclineReason: lead.leadPaymentDeclineReason || null,
     leadPaymentProcessor: lead.leadPaymentProcessor || null,
+    leadPaymentChargeAmount:
+      lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null,
     paymentChargeLogGroups: Array.isArray(extras.paymentChargeLogGroups)
       ? extras.paymentChargeLogGroups
       : [],

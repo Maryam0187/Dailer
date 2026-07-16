@@ -165,6 +165,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(64),
         allowNull: true,
       },
+      leadPaymentChargeAmount: {
+        type: DataTypes.DECIMAL(12, 2),
+        allowNull: true,
+      },
       leadCancelReason: {
         type: DataTypes.TEXT,
         allowNull: true,

@@ -74,6 +74,8 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     leadPaymentChargeStatus: paymentChargeVisible ? lead.leadPaymentChargeStatus || null : null,
     leadPaymentDeclineReason: paymentChargeVisible ? lead.leadPaymentDeclineReason || null : null,
     leadPaymentProcessor: paymentChargeVisible ? lead.leadPaymentProcessor || null : null,
+    leadPaymentChargeAmount:
+      lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null,
     leadCancelReason: lead.leadCancelReason,
     nextCallbackAt: lead.nextCallbackAt,
     assignedUserId: lead.assignedUserId,
@@ -86,8 +88,10 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     createdByUsername: lead.createdBy?.username ?? null,
     createdByUserRole: lead.createdBy?.role ?? null,
     createdFromCallLogId: lead.createdFromCallLogId,
-    customerId: paymentChargeVisible ? lead.customerId ?? null : null,
-    customerPaymentMethodId: paymentChargeVisible ? lead.customerPaymentMethodId ?? null : null,
+    // Linked customer / payment method ids are visible to anyone who can open the lead.
+    // Charge outcome fields above stay admin-only.
+    customerId: lead.customerId ?? null,
+    customerPaymentMethodId: lead.customerPaymentMethodId ?? null,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,

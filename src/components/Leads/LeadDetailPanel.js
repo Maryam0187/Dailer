@@ -18,6 +18,7 @@ import {
   workflowTagTone,
 } from "@/lib/workflowTagLabels";
 import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
+import LeadPaymentSection from "@/components/Leads/LeadPaymentSection";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -174,6 +175,7 @@ export default function LeadDetailPanel({
   workflowTagLookup = {},
   preferShortLabels = true,
   canAssignLead = false,
+  canEditChargeAmount = false,
   variant = "drawer",
   showFullPageLink = true,
 }) {
@@ -521,6 +523,15 @@ export default function LeadDetailPanel({
             setError={setError}
             workflowTagLookup={workflowTagLookup}
             preferShortLabels={preferShortLabels}
+          />
+
+          <LeadPaymentSection
+            lead={lead}
+            onLeadUpdated={onLeadUpdated}
+            onReloadActivity={loadUpdates}
+            labelClass={labelClass}
+            inputClass={inputClass}
+            canEditChargeAmount={canEditChargeAmount}
           />
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">

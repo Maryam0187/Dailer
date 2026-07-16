@@ -168,6 +168,7 @@ export default function LeadPageClient({ leadId, userRole }) {
         workflowTagLookup={workflowTagLookup}
         preferShortLabels={preferShortLabels}
         canAssignLead={isAdmin}
+        canEditChargeAmount={isAdmin}
       />
       {editing ? (
         <LeadEditModal

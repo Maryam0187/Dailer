@@ -3,8 +3,10 @@ import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { serializeCustomerLead } from "@/server/customers/serializeCustomer";
 import {
+  formatPaymentAmountActivity,
   formatPaymentChargeActivity,
   formatPaymentLinkActivity,
+  normalizeLeadPaymentChargeAmount,
   normalizeLeadPaymentChargeStatus,
   normalizeLeadPaymentMethod,
 } from "@/lib/leadWorkflow";
@@ -19,12 +21,13 @@ function trimReason(value, maxLen = 2000) {
 }
 
 /**
- * Admin: link/unlink a saved payment method, and/or set charge outcome.
+ * Admin: link/unlink a saved payment method, set charge outcome, and/or charge amount.
  * Body:
  *   { customerPaymentMethodId?: number|null, leadPaymentMethod?: string|null,
  *     leadPaymentChargeStatus?: 'charged'|'declined'|'chargeback'|null,
  *     leadPaymentDeclineReason?: string|null,
- *     leadPaymentProcessor?: string }
+ *     leadPaymentProcessor?: string,
+ *     leadPaymentChargeAmount?: number|string|null }
  */
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await requireAdmin();
@@ -52,9 +55,13 @@ export async function PATCH(req, { params }) {
 
   const linking = body.customerPaymentMethodId !== undefined;
   const charging = body.leadPaymentChargeStatus !== undefined;
-  if (!linking && !charging) {
+  const changingAmount = body.leadPaymentChargeAmount !== undefined;
+  if (!linking && !charging && !changingAmount) {
     return NextResponse.json(
-      { error: "customerPaymentMethodId or leadPaymentChargeStatus is required" },
+      {
+        error:
+          "customerPaymentMethodId, leadPaymentChargeStatus, or leadPaymentChargeAmount is required",
+      },
       { status: 400 },
     );
   }
@@ -177,6 +184,19 @@ export async function PATCH(req, { params }) {
       activityBodies.push(
         formatPaymentChargeActivity(status, declineReason, linkedPmId, resolved.shortCode),
       );
+    }
+  }
+
+  if (changingAmount) {
+    const amount = normalizeLeadPaymentChargeAmount(body.leadPaymentChargeAmount);
+    if (amount === undefined) {
+      return NextResponse.json({ error: "Invalid charge amount" }, { status: 400 });
+    }
+    const prevAmount =
+      lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null;
+    if (prevAmount !== amount) {
+      update.leadPaymentChargeAmount = amount;
+      activityBodies.push(formatPaymentAmountActivity(amount));
     }
   }
 

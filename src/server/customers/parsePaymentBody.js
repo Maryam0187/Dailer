@@ -68,6 +68,15 @@ export function parsePaymentBody(body, { partial = false } = {}) {
   if (body?.checkNumber !== undefined) data.checkNumber = trimField(body.checkNumber, 32);
   if (body?.bankName !== undefined) data.bankName = trimField(body.bankName, 128);
 
+  if (body?.email !== undefined) {
+    const email = trimField(body.email, 255);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push("Invalid email");
+    } else {
+      data.email = email;
+    }
+  }
+
   return { data, errors };
 }
 
@@ -79,6 +88,7 @@ export function clearUnusedPaymentFields(type, data) {
     next.accountNumber = null;
     next.checkNumber = null;
     next.bankName = null;
+    next.email = null;
   } else if (type === "e_check") {
     next.nameOnCard = null;
     next.cardType = null;
@@ -86,6 +96,7 @@ export function clearUnusedPaymentFields(type, data) {
     next.cardNumber = null;
     next.expDate = null;
     next.cvv = null;
+    next.email = null;
   } else if (type === "check_mail") {
     next.nameOnCard = null;
     next.cardType = null;
@@ -95,6 +106,7 @@ export function clearUnusedPaymentFields(type, data) {
     next.cvv = null;
     next.routingNumber = null;
     next.accountNumber = null;
+    next.email = null;
   } else if (type === "pos_link") {
     next.nameOnCard = null;
     next.cardType = null;
