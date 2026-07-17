@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
@@ -162,6 +162,27 @@ function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
   );
 }
 
+function CommentItem({ update }) {
+  return (
+    <li className="flex gap-3">
+      <ActivityIcon type="comment" />
+      <div className="min-w-0 flex-1 rounded-xl border border-zinc-200/80 bg-zinc-50/80 px-3.5 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+            {update.username || "Unknown user"}
+          </p>
+          <time className="text-xs text-zinc-500 dark:text-zinc-400">{formatWhen(update.createdAt)}</time>
+        </div>
+        {update.body ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+            {update.body}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
 export default function LeadDetailPanel({
   lead,
   onClose,
@@ -302,7 +323,6 @@ export default function LeadDetailPanel({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to post comment");
       setComment("");
-      setActiveTab("activity");
       await loadUpdates();
     } catch (e) {
       setError(e.message || "Failed to post comment");
@@ -378,6 +398,15 @@ export default function LeadDetailPanel({
       setDownloadingId(null);
     }
   }
+
+  const comments = useMemo(
+    () => (updates || []).filter((u) => u.type === "comment"),
+    [updates],
+  );
+  const activityUpdates = useMemo(
+    () => (updates || []).filter((u) => u.type !== "comment"),
+    [updates],
+  );
 
   if (!lead) return null;
 
@@ -525,41 +554,6 @@ export default function LeadDetailPanel({
             preferShortLabels={preferShortLabels}
           />
 
-          <LeadPaymentSection
-            lead={lead}
-            onLeadUpdated={onLeadUpdated}
-            onReloadActivity={loadUpdates}
-            labelClass={labelClass}
-            inputClass={inputClass}
-            canEditChargeAmount={canEditChargeAmount}
-          />
-
-          <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
-            <RichTextField
-              label="Breakdown / Processing Notes"
-              labelClass={labelClass}
-              value={breakdownDraft}
-              onChange={setBreakdownDraft}
-              disabled={savingBreakdown}
-              placeholder="Add breakdown details…"
-              actions={
-                breakdownDirty ? (
-                  <button
-                    type="button"
-                    disabled={savingBreakdown}
-                    onClick={() => void onSaveBreakdown()}
-                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                  >
-                    {savingBreakdown ? "Saving…" : "Save breakdown"}
-                  </button>
-                ) : null
-              }
-            />
-            {isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
-              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
-            ) : null}
-          </section>
-
           {!lead.notesHidden ? (
             <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
               <RichTextField
@@ -588,9 +582,44 @@ export default function LeadDetailPanel({
             </section>
           ) : null}
 
+          <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
+            <RichTextField
+              label="Breakdown / Processing Notes"
+              labelClass={labelClass}
+              value={breakdownDraft}
+              onChange={setBreakdownDraft}
+              disabled={savingBreakdown}
+              placeholder="Add breakdown details…"
+              actions={
+                breakdownDirty ? (
+                  <button
+                    type="button"
+                    disabled={savingBreakdown}
+                    onClick={() => void onSaveBreakdown()}
+                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {savingBreakdown ? "Saving…" : "Save breakdown"}
+                  </button>
+                ) : null
+              }
+            />
+            {isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
+            ) : null}
+          </section>
+
+          <LeadPaymentSection
+            lead={lead}
+            onLeadUpdated={onLeadUpdated}
+            onReloadActivity={loadUpdates}
+            labelClass={labelClass}
+            inputClass={inputClass}
+            canEditChargeAmount={canEditChargeAmount}
+          />
+
           <form
             onSubmit={onPostComment}
-            className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-900/40"
+            className="mb-3 rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-900/40"
           >
             <label className={labelClass}>Add comment</label>
             <textarea
@@ -611,6 +640,30 @@ export default function LeadDetailPanel({
             </div>
           </form>
 
+          <section className="mb-6">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Comments</h3>
+              {comments.length > 0 ? (
+                <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
+                  {comments.length}
+                </span>
+              ) : null}
+            </div>
+            {loadingUpdates ? (
+              <p className="text-sm text-zinc-500">Loading comments…</p>
+            ) : comments.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-5 text-center text-sm text-zinc-500 dark:border-zinc-600">
+                No comments yet.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {comments.map((u) => (
+                  <CommentItem key={u.id} update={u} />
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section>
             <div className="mb-4 flex gap-1 rounded-xl border border-zinc-200 bg-zinc-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-900/60">
               <button
@@ -623,9 +676,9 @@ export default function LeadDetailPanel({
                 }`}
               >
                 Activity
-                {updates.length > 0 ? (
+                {activityUpdates.length > 0 ? (
                   <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
-                    {updates.length}
+                    {activityUpdates.length}
                   </span>
                 ) : null}
               </button>
@@ -702,13 +755,13 @@ export default function LeadDetailPanel({
             ) : (
               loadingUpdates ? (
                 <p className="text-sm text-zinc-500">Loading activity…</p>
-              ) : updates.length === 0 ? (
+              ) : activityUpdates.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600">
-                  No activity yet. Update lead status or add a comment to start the timeline.
+                  No activity yet. Update lead status to start the timeline.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {updates.map((u) => (
+                  {activityUpdates.map((u) => (
                     <ActivityItem
                       key={u.id}
                       update={u}
