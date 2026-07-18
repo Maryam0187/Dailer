@@ -18,6 +18,11 @@ const WEEKDAY_OPTIONS = [
   { value: 6, label: "Saturday" },
 ];
 
+const SHIFT_TABS = [
+  { key: "day", label: "Day shift", hint: "6:00 PM – 11:00 PM PKT" },
+  { key: "night", label: "Night shift", hint: "1:00 AM – 6:00 AM PKT" },
+];
+
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
@@ -39,7 +44,14 @@ function statusStyles(status) {
   return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300";
 }
 
+function defaultLocalForKey(key) {
+  return key === "night"
+    ? { startLocal: "01:00", endLocal: "06:00" }
+    : { startLocal: "18:00", endLocal: "23:00" };
+}
+
 export default function ShiftSettingsClient() {
+  const [activeKey, setActiveKey] = useState("day");
   const [enabled, setEnabled] = useState(true);
   const [startLocal, setStartLocal] = useState("18:00");
   const [endLocal, setEndLocal] = useState("23:00");
@@ -47,6 +59,7 @@ export default function ShiftSettingsClient() {
   const [timezoneOptions, setTimezoneOptions] = useState([]);
   const [windowLabel, setWindowLabel] = useState("");
   const [shiftStatus, setShiftStatus] = useState(null);
+  const [shiftStatuses, setShiftStatuses] = useState(null);
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(120);
   const [leaveDays, setLeaveDays] = useState([0]);
   const [manuallyActive, setManuallyActive] = useState(true);
@@ -55,6 +68,7 @@ export default function ShiftSettingsClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [shiftsCache, setShiftsCache] = useState(null);
 
   const timezoneLabel = useMemo(() => getTimezoneLabel(timezone), [timezone]);
   const utcPreview = useMemo(() => {
@@ -64,10 +78,16 @@ export default function ShiftSettingsClient() {
     return `${startUtc} – ${endUtc} UTC`;
   }, [startLocal, endLocal, timezone]);
 
-  function applySettings(settings, status) {
+  function applySettings(settings, status, allStatuses = null, allShifts = null) {
+    const key = settings?.key === "night" ? "night" : "day";
+    const defaults = defaultLocalForKey(key);
     setEnabled(settings.enabled !== false);
-    setStartLocal(settings.startLocal || utcHhmmToZonedHhmm(settings.startUtc, settings.timezone) || "18:00");
-    setEndLocal(settings.endLocal || utcHhmmToZonedHhmm(settings.endUtc, settings.timezone) || "23:00");
+    setStartLocal(
+      settings.startLocal || utcHhmmToZonedHhmm(settings.startUtc, settings.timezone) || defaults.startLocal,
+    );
+    setEndLocal(
+      settings.endLocal || utcHhmmToZonedHhmm(settings.endUtc, settings.timezone) || defaults.endLocal,
+    );
     setTimezone(settings.timezone || "Asia/Karachi");
     setGrantDurationMinutes(settings.afterShiftGrantDurationMinutes || 120);
     setLeaveDays(Array.isArray(settings.leaveDays) ? settings.leaveDays : [0]);
@@ -75,16 +95,38 @@ export default function ShiftSettingsClient() {
     setTimezoneOptions(settings.timezoneOptions || []);
     setWindowLabel(settings.windowLabel || "");
     setShiftStatus(status || null);
+    if (allStatuses) setShiftStatuses(allStatuses);
+    if (allShifts) setShiftsCache(allShifts);
   }
 
-  async function loadSettings() {
+  function selectShift(key, shifts = shiftsCache, statuses = shiftStatuses) {
+    setActiveKey(key);
+    setSaved(false);
+    setError(null);
+    const settings = shifts?.[key];
+    if (!settings) return;
+    applySettings(settings, statuses?.shifts?.[key] || statuses?.[key] || null, statuses, shifts);
+  }
+
+  async function loadSettings(preferredKey = activeKey) {
     setError(null);
     setLoading(true);
     try {
       const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load shift settings");
-      applySettings(json.settings || {}, json.shiftStatus);
+      const shifts = json.shifts || { day: json.settings, night: json.settings };
+      const statuses = json.shiftStatuses || null;
+      setShiftsCache(shifts);
+      setShiftStatuses(statuses);
+      const key = preferredKey === "night" ? "night" : "day";
+      applySettings(
+        shifts[key] || json.settings || {},
+        statuses?.shifts?.[key] || json.shiftStatus,
+        statuses,
+        shifts,
+      );
+      setActiveKey(key);
     } catch (err) {
       setError(err.message || "Failed to load shift settings");
     } finally {
@@ -93,7 +135,8 @@ export default function ShiftSettingsClient() {
   }
 
   useEffect(() => {
-    void loadSettings();
+    void loadSettings("day");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only
   }, []);
 
   function onTimezoneChange(nextTimezone) {
@@ -117,12 +160,15 @@ export default function ShiftSettingsClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ manuallyActive: nextActive }),
+        body: JSON.stringify({ manuallyActive: nextActive, shiftKey: activeKey }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to update shift status");
 
-      applySettings(json.settings || {}, json.shiftStatus);
+      const shifts = json.shifts || shiftsCache;
+      setShiftsCache(shifts);
+      setShiftStatuses(json.shiftStatuses || null);
+      applySettings(json.settings || {}, json.shiftStatus, json.shiftStatuses, shifts);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("shift-status-changed"));
       }
@@ -144,6 +190,7 @@ export default function ShiftSettingsClient() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
+          shiftKey: activeKey,
           enabled,
           startLocal,
           endLocal,
@@ -155,7 +202,10 @@ export default function ShiftSettingsClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save shift settings");
 
-      applySettings(json.settings || {}, json.shiftStatus);
+      const shifts = json.shifts || shiftsCache;
+      setShiftsCache(shifts);
+      setShiftStatuses(json.shiftStatuses || null);
+      applySettings(json.settings || {}, json.shiftStatus, json.shiftStatuses, shifts);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("shift-status-changed"));
       }
@@ -171,14 +221,42 @@ export default function ShiftSettingsClient() {
     return <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading shift settings…</p>;
   }
 
+  const activeTab = SHIFT_TABS.find((t) => t.key === activeKey) || SHIFT_TABS[0];
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        {SHIFT_TABS.map((tab) => {
+          const selected = tab.key === activeKey;
+          const status = shiftStatuses?.shifts?.[tab.key];
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => selectShift(tab.key)}
+              className={`rounded-xl border px-4 py-2.5 text-left transition ${
+                selected
+                  ? "border-sky-500 bg-sky-50 text-sky-950 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-100"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+              }`}
+            >
+              <span className="block text-sm font-semibold">{tab.label}</span>
+              <span className="mt-0.5 block text-xs opacity-80">
+                {status?.label || tab.hint}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="max-w-xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Shift active</p>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {activeTab.label} active
+            </p>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Turn off to end the shift immediately. It stays off until you turn it back on.
+              Turn off to end this shift immediately. It stays off until you turn it back on.
             </p>
           </div>
           <button
@@ -201,8 +279,8 @@ export default function ShiftSettingsClient() {
         </div>
         <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">
           {manuallyActive
-            ? "Agents can sign in during shift hours."
-            : "Shift is ended. Agents cannot sign in unless an admin granted after-shift access."}
+            ? `${activeTab.label} agents can sign in during their hours.`
+            : `${activeTab.label} is ended. Those agents cannot sign in unless an admin granted after-shift access.`}
         </p>
       </div>
 
@@ -231,10 +309,10 @@ export default function ShiftSettingsClient() {
           />
           <span>
             <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Enforce shift login window
+              Enforce {activeTab.label.toLowerCase()} login window
             </span>
             <span className="mt-0.5 block text-sm text-zinc-600 dark:text-zinc-400">
-              When off, agents can sign in any time. Admins and after-shift grants are unaffected.
+              When off, agents on this shift can sign in any time. Admins and after-shift grants are unaffected.
             </span>
           </span>
         </label>
@@ -300,7 +378,7 @@ export default function ShiftSettingsClient() {
         <div>
           <p className={labelClass}>Leave days</p>
           <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Agents cannot sign in on leave days unless an admin granted after-shift access. Admins are unaffected.
+            Agents on this shift cannot sign in on leave days unless an admin granted after-shift access.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             {WEEKDAY_OPTIONS.map((day) => {
@@ -353,7 +431,7 @@ export default function ShiftSettingsClient() {
             <option value={1440}>24 hours</option>
           </select>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Full and limited after-shift access auto-revoke after this time.
+            Full and limited after-shift access auto-revoke after this time (for this shift).
           </p>
         </div>
 
@@ -368,7 +446,9 @@ export default function ShiftSettingsClient() {
 
         {error ? <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p> : null}
         {saved ? (
-          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Shift settings saved.</p>
+          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+            {activeTab.label} settings saved.
+          </p>
         ) : null}
 
         <button
@@ -376,7 +456,7 @@ export default function ShiftSettingsClient() {
           disabled={saving}
           className="inline-flex h-11 items-center justify-center rounded-xl bg-sky-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Save shift settings"}
+          {saving ? "Saving…" : `Save ${activeTab.label.toLowerCase()} settings`}
         </button>
       </form>
     </div>

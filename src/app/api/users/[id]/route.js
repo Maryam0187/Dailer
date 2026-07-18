@@ -35,6 +35,7 @@ export async function GET(_req, { params }) {
       "createdBy",
       "createdAt",
       "isActive",
+      "shiftKey",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
       "afterShiftAccessExpiresAt",
@@ -82,6 +83,7 @@ export async function GET(_req, { params }) {
       createdByUsername: target.creator?.username ?? null,
       createdAt: target.createdAt,
       isActive: target.isActive !== false,
+      shiftKey: target.shiftKey === "night" ? "night" : "day",
       afterShiftAccess: authedUser.role === "admin" ? target.afterShiftAccess || "none" : undefined,
       afterShiftLimitedFileId:
         authedUser.role === "admin" ? target.afterShiftLimitedFileId ?? null : undefined,
@@ -160,6 +162,20 @@ export async function PATCH(req, { params }) {
       updates.supervisorId = null;
     } else if (body.role !== "agent") {
       updates.supervisorId = null;
+    }
+    if (body.role === "admin") {
+      updates.shiftKey = "day";
+    }
+  }
+
+  if (isAdmin && body.shiftKey !== undefined) {
+    const nextRole = updates.role ?? target.role;
+    if (nextRole === "admin") {
+      updates.shiftKey = "day";
+    } else if (body.shiftKey === "day" || body.shiftKey === "night") {
+      updates.shiftKey = body.shiftKey;
+    } else {
+      return NextResponse.json({ error: "Invalid shiftKey" }, { status: 400 });
     }
   }
 
@@ -347,7 +363,7 @@ export async function PATCH(req, { params }) {
 
   const accessRevoked =
     updates.afterShiftAccess === "none" || body.afterShiftFullAccess === false;
-  if (isAdmin && accessRevoked && !isWithinLoginWindow() && target.activeSessionId) {
+  if (isAdmin && accessRevoked && !isWithinLoginWindow(new Date(), target) && target.activeSessionId) {
     await db.User.update(
       { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: target.id } },

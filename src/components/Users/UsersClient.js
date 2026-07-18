@@ -984,6 +984,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               </h2>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <RoleBadge value={user.role} />
+                {user.role !== "admin" ? (
+                  <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200">
+                    {user.shiftKey === "night" ? "Night shift" : "Day shift"}
+                  </span>
+                ) : null}
                 <PresenceBadge status={presence} />
                 <ActiveBadge active={user.isActive !== false} />
                 <LeaveBadge leave={currentLeave} />
@@ -1537,6 +1542,7 @@ function EditUserModal({
   const [editRole, setEditRole] = useState(user.role);
   const [managerId, setManagerId] = useState(user.managerId ?? "");
   const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
+  const [shiftKey, setShiftKey] = useState(user.shiftKey === "night" ? "night" : "day");
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
@@ -1561,6 +1567,7 @@ function EditUserModal({
     setEditRole(user.role);
     setManagerId(user.managerId ?? "");
     setSupervisorId(user.supervisorId ?? "");
+    setShiftKey(user.shiftKey === "night" ? "night" : "day");
     setIsActive(user.isActive !== false);
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
@@ -1580,7 +1587,10 @@ function EditUserModal({
         const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) {
-          const globalDefault = json.settings?.afterShiftGrantDurationMinutes || 120;
+          const globalDefault =
+            json.shifts?.day?.afterShiftGrantDurationMinutes ||
+            json.settings?.afterShiftGrantDurationMinutes ||
+            120;
           setGrantDurationMinutes(
             user.afterShiftGrantDurationMinutes != null
               ? user.afterShiftGrantDurationMinutes
@@ -1645,6 +1655,12 @@ function EditUserModal({
             const prevSid = user.supervisorId != null ? Number(user.supervisorId) : null;
             if (sid !== prevSid) payload.supervisorId = sid;
           }
+        }
+
+        const nextShiftKey = editRole === "admin" ? "day" : shiftKey === "night" ? "night" : "day";
+        const prevShiftKey = user.shiftKey === "night" ? "night" : "day";
+        if (nextShiftKey !== prevShiftKey || (editRole === "admin" && prevShiftKey !== "day")) {
+          payload.shiftKey = nextShiftKey;
         }
       }
 
@@ -1955,6 +1971,22 @@ function EditUserModal({
                   </select>
                 </div>
               ) : null}
+              {editRole !== "admin" ? (
+                <div>
+                  <label htmlFor="edit-shift" className={labelClass}>
+                    Shift
+                  </label>
+                  <select
+                    id="edit-shift"
+                    className={inputClass}
+                    value={shiftKey}
+                    onChange={(e) => setShiftKey(e.target.value === "night" ? "night" : "day")}
+                  >
+                    <option value="day">Day (6:00 PM – 11:00 PM PKT)</option>
+                    <option value="night">Night (1:00 AM – 6:00 AM PKT)</option>
+                  </select>
+                </div>
+              ) : null}
             </>
           ) : null}
 
@@ -2090,6 +2122,7 @@ function normalizeUsersList(list) {
   return (list || []).map((u) => ({
     ...u,
     isActive: u.isActive !== false && u.isActive !== 0,
+    shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
     afterShiftAccessExpiresAt: u.afterShiftAccessExpiresAt ?? null,
@@ -2112,6 +2145,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [password, setPassword] = useState("");
 
   const [createRole, setCreateRole] = useState(role === "admin" ? "agent" : "agent");
+  const [createShiftKey, setCreateShiftKey] = useState("day");
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
 
@@ -2212,7 +2246,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         const res = await fetch("/api/shift/settings", { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) {
-          setDefaultGrantDurationMinutes(json.settings?.afterShiftGrantDurationMinutes || 120);
+          setDefaultGrantDurationMinutes(
+            json.shifts?.day?.afterShiftGrantDurationMinutes ||
+              json.settings?.afterShiftGrantDurationMinutes ||
+              120,
+          );
         }
       } catch {
         /* use default */
@@ -2290,11 +2328,17 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           payload.managerId = managerId ?? null;
         }
         if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
+        if (createRole !== "admin") {
+          payload.shiftKey = createShiftKey === "night" ? "night" : "day";
+        }
       } else if (role === "manager") {
         payload.role = createRole;
         if (createRole === "agent" && supervisorId != null) {
           payload.supervisorId = supervisorId;
         }
+        payload.shiftKey = createShiftKey === "night" ? "night" : "day";
+      } else if (role === "supervisor") {
+        payload.shiftKey = createShiftKey === "night" ? "night" : "day";
       }
 
       const res = await fetch("/api/users", {
@@ -2485,10 +2529,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               </div>
             </div>
 
-            {(showRoleSelector || showManagerSelector || showSupervisorSelector) && (
+            {(showRoleSelector ||
+              showManagerSelector ||
+              showSupervisorSelector ||
+              createRole !== "admin") && (
               <div
                 className={`grid gap-5 ${
-                  showRoleSelector && (showManagerSelector || showSupervisorSelector)
+                  showRoleSelector || showManagerSelector || showSupervisorSelector
                     ? "sm:grid-cols-2"
                     : ""
                 }`}
@@ -2567,6 +2614,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           {s.username}
                         </option>
                       ))}
+                    </select>
+                  </div>
+                ) : null}
+                {createRole !== "admin" ? (
+                  <div>
+                    <label htmlFor="new-user-shift" className={labelClass}>
+                      Shift
+                    </label>
+                    <select
+                      id="new-user-shift"
+                      className={inputClass}
+                      value={createShiftKey}
+                      onChange={(e) => setCreateShiftKey(e.target.value === "night" ? "night" : "day")}
+                    >
+                      <option value="day">Day (6:00 PM – 11:00 PM PKT)</option>
+                      <option value="night">Night (1:00 AM – 6:00 AM PKT)</option>
                     </select>
                   </div>
                 ) : null}
@@ -2706,6 +2769,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="px-4 py-3.5">Username</th>
                     <th className="px-4 py-3.5">Role</th>
+                    <th className="px-4 py-3.5">Shift</th>
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
@@ -2739,6 +2803,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge value={u.role} />
+                        </td>
+                        <td className="px-4 py-3.5 text-zinc-700 dark:text-zinc-300">
+                          {u.role === "admin"
+                            ? "—"
+                            : u.shiftKey === "night"
+                              ? "Night"
+                              : "Day"}
                         </td>
                         <td className="px-4 py-3.5">
                           <PresenceBadge status={u.presence} />

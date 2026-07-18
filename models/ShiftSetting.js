@@ -9,6 +9,17 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      key: {
+        type: DataTypes.STRING(16),
+        allowNull: false,
+        unique: true,
+        defaultValue: "day",
+      },
+      name: {
+        type: DataTypes.STRING(64),
+        allowNull: false,
+        defaultValue: "Day",
+      },
       enabled: {
         type: DataTypes.BOOLEAN,
         allowNull: false,

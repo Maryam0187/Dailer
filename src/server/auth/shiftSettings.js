@@ -7,16 +7,18 @@ import {
 } from "@/lib/shiftTime.cjs";
 import {
   applyShiftSettings,
-  DEFAULT_END_UTC,
   DEFAULT_LEAVE_DAYS,
-  DEFAULT_START_UTC,
+  DEFAULT_SHIFT_KEY,
   DEFAULT_TIMEZONE,
   formatLeaveDaysLabel,
+  getAllShiftSettings,
   getShiftSettings,
-  getShiftWindowLabel as getShiftWindowLabelFromStore,
   normalizeLeaveDays,
+  normalizeShiftKey,
   parseUtcTimeOfDay,
   readShiftEnabled,
+  SHIFT_DEFAULTS,
+  SHIFT_KEYS,
   WEEKDAY_LABELS,
 } from "@/server/auth/shiftSettingsStore.cjs";
 import {
@@ -24,7 +26,15 @@ import {
   normalizeGrantDurationMinutes,
 } from "@/server/auth/afterShiftGrant.cjs";
 
-export { getShiftSettings, getShiftWindowLabelFromStore as getShiftWindowLabel, parseUtcTimeOfDay, WEEKDAY_LABELS };
+export {
+  getShiftSettings,
+  getAllShiftSettings,
+  normalizeShiftKey,
+  SHIFT_KEYS,
+  DEFAULT_SHIFT_KEY,
+  WEEKDAY_LABELS,
+  parseUtcTimeOfDay,
+};
 
 const TIMEZONE_OPTIONS = [
   { value: "Asia/Karachi", label: "Pakistan (PKT)" },
@@ -36,29 +46,34 @@ const TIMEZONE_OPTIONS = [
 ];
 
 let loadPromise = null;
-/** @type {ReturnType<typeof buildShiftSettingsRecord> | null} */
-let lastRecord = null;
+/** @type {Record<string, ReturnType<typeof buildShiftSettingsRecord>> | null} */
+let lastRecords = null;
 let lastLoadedAt = 0;
-/** True when the last DB read succeeded (not a stale/env fallback). */
 let lastLoadOk = false;
 
-/** Reuse in-memory shift bounds briefly so auth polls don't hammer the DB. */
 const SETTINGS_TTL_MS = 10_000;
 
-function envDefaults() {
+function envDefaults(key = DEFAULT_SHIFT_KEY) {
+  const base = SHIFT_DEFAULTS[normalizeShiftKey(key)] || SHIFT_DEFAULTS.day;
   return {
+    key: base.key,
+    name: base.name,
     enabled: readShiftEnabled(process.env.LOGIN_WINDOW_ENABLED, true),
-    startUtc: String(process.env.LOGIN_WINDOW_START_UTC || DEFAULT_START_UTC).trim() || DEFAULT_START_UTC,
-    endUtc: String(process.env.LOGIN_WINDOW_END_UTC || DEFAULT_END_UTC).trim() || DEFAULT_END_UTC,
-    timezone: DEFAULT_TIMEZONE,
+    startUtc: base.startUtc,
+    endUtc: base.endUtc,
+    timezone: base.timezone || DEFAULT_TIMEZONE,
     leaveDays: [...DEFAULT_LEAVE_DAYS],
     manuallyActive: true,
   };
 }
 
-function buildShiftSettingsRecord(row) {
+function buildShiftSettingsRecord(row, key = DEFAULT_SHIFT_KEY) {
+  const normalizedKey = normalizeShiftKey(row?.key || key);
+  const defaults = envDefaults(normalizedKey);
   const settings = row
     ? {
+        key: normalizedKey,
+        name: row.name || defaults.name,
         enabled: readShiftEnabled(row.enabled, true),
         startUtc: row.startUtc,
         endUtc: row.endUtc,
@@ -66,13 +81,15 @@ function buildShiftSettingsRecord(row) {
         leaveDays: normalizeLeaveDays(row.leaveDays, DEFAULT_LEAVE_DAYS),
         manuallyActive: readShiftEnabled(row.manuallyActive, true),
       }
-    : envDefaults();
+    : defaults;
 
-  applyShiftSettings(settings);
-  const applied = getShiftSettings();
+  applyShiftSettings(settings, normalizedKey);
+  const applied = getShiftSettings(normalizedKey);
 
   return {
     id: row?.id ?? null,
+    key: applied.key,
+    name: applied.name,
     enabled: applied.enabled,
     startUtc: applied.startUtc,
     endUtc: applied.endUtc,
@@ -94,46 +111,82 @@ function buildShiftSettingsRecord(row) {
   };
 }
 
-function withLoadOk(record, loadOk) {
-  return { ...record, loadOk };
+function withLoadOk(records, loadOk) {
+  const next = {};
+  for (const key of SHIFT_KEYS) {
+    next[key] = { ...(records[key] || buildShiftSettingsRecord(null, key)), loadOk };
+  }
+  return next;
+}
+
+/** Primary record for APIs that historically returned one settings object (day shift). */
+export function getPrimaryShiftRecord(records = lastRecords) {
+  const map = records || withLoadOk(
+    { day: buildShiftSettingsRecord(null, "day"), night: buildShiftSettingsRecord(null, "night") },
+    false,
+  );
+  return map.day;
 }
 
 export async function getDefaultGrantDurationMinutes() {
-  const record = await getShiftSettingsRecord();
-  return record.afterShiftGrantDurationMinutes;
+  const records = await getShiftSettingsRecords();
+  return records.day.afterShiftGrantDurationMinutes;
+}
+
+async function ensureShiftRows() {
+  const rows = await db.ShiftSetting.findAll({ order: [["id", "ASC"]] });
+  const byKey = new Map();
+  for (const row of rows) {
+    const key = normalizeShiftKey(row.key, null);
+    if (key && !byKey.has(key)) byKey.set(key, row);
+  }
+
+  for (const key of SHIFT_KEYS) {
+    if (byKey.has(key)) continue;
+    const defaults = envDefaults(key);
+    const created = await db.ShiftSetting.create({
+      key: defaults.key,
+      name: defaults.name,
+      enabled: defaults.enabled,
+      startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : defaults.startUtc,
+      endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : defaults.endUtc,
+      timezone: defaults.timezone,
+      leaveDays: defaults.leaveDays,
+      manuallyActive: defaults.manuallyActive,
+      afterShiftGrantDurationMinutes: DEFAULT_GRANT_DURATION_MINUTES,
+      updatedBy: null,
+    });
+    byKey.set(key, created);
+  }
+
+  return byKey;
 }
 
 async function loadShiftSettingsFromDb() {
   try {
-    let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
-    if (!row) {
-      const defaults = envDefaults();
-      row = await db.ShiftSetting.create({
-        enabled: defaults.enabled,
-        startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : DEFAULT_START_UTC,
-        endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : DEFAULT_END_UTC,
-        timezone: defaults.timezone,
-        leaveDays: defaults.leaveDays,
-        manuallyActive: defaults.manuallyActive,
-        afterShiftGrantDurationMinutes: DEFAULT_GRANT_DURATION_MINUTES,
-        updatedBy: null,
-      });
+    const byKey = await ensureShiftRows();
+    const records = {};
+    for (const key of SHIFT_KEYS) {
+      records[key] = buildShiftSettingsRecord(byKey.get(key), key);
     }
-    const record = buildShiftSettingsRecord(row);
-    lastRecord = record;
+    lastRecords = records;
     lastLoadedAt = Date.now();
     lastLoadOk = true;
-    return record;
+    return records;
   } catch (err) {
     console.error("[shift] failed to reload settings:", err?.message || err);
-    // Keep last-known DB settings. Overwriting with env defaults caused false
-    // mid-shift logouts whenever a transient DB error hit an auth poll.
-    if (lastRecord) {
+    if (lastRecords) {
       lastLoadOk = false;
-      return withLoadOk(lastRecord, false);
+      return withLoadOk(lastRecords, false);
     }
-    const fallback = withLoadOk(buildShiftSettingsRecord(null), false);
-    lastRecord = fallback;
+    const fallback = withLoadOk(
+      {
+        day: buildShiftSettingsRecord(null, "day"),
+        night: buildShiftSettingsRecord(null, "night"),
+      },
+      false,
+    );
+    lastRecords = fallback;
     lastLoadedAt = Date.now();
     lastLoadOk = false;
     return fallback;
@@ -153,14 +206,20 @@ export async function reloadShiftSettings() {
 }
 
 /**
- * Fresh enough for auth/shift checks. Returns `loadOk: false` when the latest
- * DB read failed and callers should avoid forced shift_ended logouts.
+ * Fresh enough for auth/shift checks. Returns map `{ day, night }`.
+ * Each record includes `loadOk: false` when the latest DB read failed.
  */
-export async function getShiftSettingsRecord() {
-  if (lastRecord && Date.now() - lastLoadedAt < SETTINGS_TTL_MS) {
-    return withLoadOk(lastRecord, lastLoadOk);
+export async function getShiftSettingsRecords() {
+  if (lastRecords && Date.now() - lastLoadedAt < SETTINGS_TTL_MS) {
+    return withLoadOk(lastRecords, lastLoadOk);
   }
   return reloadShiftSettings();
+}
+
+/** @deprecated Prefer getShiftSettingsRecords(). Returns day shift for backward compatibility. */
+export async function getShiftSettingsRecord() {
+  const records = await getShiftSettingsRecords();
+  return records.day;
 }
 
 export function parseShiftTimeInput(value) {
@@ -171,6 +230,7 @@ export function parseShiftTimeInput(value) {
 }
 
 export async function updateShiftSettings(patch, updatedBy) {
+  const shiftKey = normalizeShiftKey(patch?.shiftKey || patch?.key);
   const enabled = readShiftEnabled(patch?.enabled, true);
 
   const timezoneRaw = String(patch?.timezone || DEFAULT_TIMEZONE).trim();
@@ -187,6 +247,14 @@ export async function updateShiftSettings(patch, updatedBy) {
   if (startLocal && endLocal) {
     startUtc = zonedHhmmToUtcHhmm(startLocal, timezone);
     endUtc = zonedHhmmToUtcHhmm(endLocal, timezone);
+
+    const localStartMin = parseHhmm(startLocal);
+    const localEndMin = parseHhmm(endLocal);
+    if (localStartMin != null && localEndMin != null && localStartMin > localEndMin) {
+      throw new Error(
+        `Start time must be before or equal to end time (${startLocal} – ${endLocal} ${timezone}).`,
+      );
+    }
   }
 
   if (!startUtc || !endUtc) {
@@ -199,13 +267,7 @@ export async function updateShiftSettings(patch, updatedBy) {
     throw new Error("Start and end times must be valid HH:mm values.");
   }
 
-  if (startMinutes > endMinutes) {
-    const localStart = utcHhmmToZonedHhmm(startUtc, timezone);
-    const localEnd = utcHhmmToZonedHhmm(endUtc, timezone);
-    throw new Error(
-      `Start time must be before or equal to end time (${localStart} – ${localEnd} ${timezone}).`,
-    );
-  }
+  // UTC may wrap midnight (e.g. night shift 1–6 AM PKT). Local validation above covers UX.
 
   const grantDuration =
     patch?.afterShiftGrantDurationMinutes !== undefined
@@ -217,18 +279,28 @@ export async function updateShiftSettings(patch, updatedBy) {
       ? normalizeLeaveDays(patch.leaveDays, DEFAULT_LEAVE_DAYS)
       : undefined;
 
-  let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
+  const name =
+    patch?.name != null && String(patch.name).trim()
+      ? String(patch.name).trim().slice(0, 64)
+      : SHIFT_DEFAULTS[shiftKey].name;
+
+  const byKey = await ensureShiftRows();
+  let row = byKey.get(shiftKey);
   if (!row) {
     row = await db.ShiftSetting.create({
+      key: shiftKey,
+      name,
       enabled,
       startUtc,
       endUtc,
       timezone,
       leaveDays: leaveDays ?? DEFAULT_LEAVE_DAYS,
       afterShiftGrantDurationMinutes: grantDuration ?? DEFAULT_GRANT_DURATION_MINUTES,
+      manuallyActive: true,
       updatedBy: updatedBy ?? null,
     });
   } else {
+    row.name = name;
     row.enabled = enabled;
     row.startUtc = startUtc;
     row.endUtc = endUtc;
@@ -242,16 +314,20 @@ export async function updateShiftSettings(patch, updatedBy) {
   return reloadShiftSettings();
 }
 
-export async function updateShiftManuallyActive(manuallyActive, updatedBy) {
+export async function updateShiftManuallyActive(manuallyActive, updatedBy, shiftKey = DEFAULT_SHIFT_KEY) {
   const active = readShiftEnabled(manuallyActive, true);
+  const key = normalizeShiftKey(shiftKey);
+  const byKey = await ensureShiftRows();
+  let row = byKey.get(key);
 
-  let row = await db.ShiftSetting.findOne({ order: [["id", "DESC"]] });
   if (!row) {
-    const defaults = envDefaults();
+    const defaults = envDefaults(key);
     row = await db.ShiftSetting.create({
+      key: defaults.key,
+      name: defaults.name,
       enabled: defaults.enabled,
-      startUtc: parseUtcTimeOfDay(defaults.startUtc) != null ? defaults.startUtc : DEFAULT_START_UTC,
-      endUtc: parseUtcTimeOfDay(defaults.endUtc) != null ? defaults.endUtc : DEFAULT_END_UTC,
+      startUtc: defaults.startUtc,
+      endUtc: defaults.endUtc,
       timezone: defaults.timezone,
       leaveDays: defaults.leaveDays,
       manuallyActive: active,
@@ -267,9 +343,12 @@ export async function updateShiftManuallyActive(manuallyActive, updatedBy) {
   return reloadShiftSettings();
 }
 
-/** Read shift settings from DB, then return current shift status for display. */
-export async function getLiveShiftStatus() {
-  const { getShiftStatus } = await import("@/server/auth/loginWindow");
-  await getShiftSettingsRecord();
-  return getShiftStatus();
+/** Read shift settings from DB, then return status. Pass user for per-user window. */
+export async function getLiveShiftStatus(user = null) {
+  const { getShiftStatus, getAllShiftStatuses } = await import("@/server/auth/loginWindow");
+  await getShiftSettingsRecords();
+  if (user && user.role !== "admin") {
+    return getShiftStatus(new Date(), user);
+  }
+  return getAllShiftStatuses();
 }

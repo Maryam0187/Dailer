@@ -15,6 +15,7 @@ const LIST_ATTRIBUTES = [
   "createdBy",
   "createdAt",
   "isActive",
+  "shiftKey",
   "afterShiftAccess",
   "afterShiftLimitedFileId",
   "afterShiftAccessExpiresAt",
@@ -24,6 +25,11 @@ const LIST_ATTRIBUTES = [
   "totpEnabled",
   "totpEnabledAt",
 ];
+
+function normalizeUserShiftKey(value, role) {
+  if (role === "admin") return "day";
+  return value === "night" ? "night" : "day";
+}
 
 const LIST_INCLUDE = [
   {
@@ -61,6 +67,7 @@ function serializeUserRow(
     createdByUsername: row.creator?.username ?? null,
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
+    shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
     ...(includeShiftAccess
       ? {
           afterShiftAccess: row.afterShiftAccess || "none",
@@ -159,6 +166,7 @@ export async function POST(req) {
   const role = body?.role;
   const managerId = body?.managerId;
   const supervisorId = body?.supervisorId;
+  const requestedShiftKey = body?.shiftKey === "night" ? "night" : "day";
 
   if (!username || !password) {
     return NextResponse.json({ error: "username and password are required" }, { status: 400 });
@@ -210,6 +218,7 @@ export async function POST(req) {
         role,
         managerId: authedUser.id,
         supervisorId: role === "agent" ? supervisorIdToSet : null,
+        shiftKey: requestedShiftKey,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -220,6 +229,7 @@ export async function POST(req) {
             role: user.role,
             managerId: user.managerId,
             supervisorId: user.supervisorId,
+            shiftKey: user.shiftKey,
             isActive: user.isActive,
           },
         },
@@ -253,6 +263,7 @@ export async function POST(req) {
         role: "agent",
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
+        shiftKey: requestedShiftKey,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -263,6 +274,7 @@ export async function POST(req) {
             role: user.role,
             managerId: user.managerId,
             supervisorId: user.supervisorId,
+            shiftKey: user.shiftKey,
             isActive: user.isActive,
           },
         },
@@ -322,6 +334,7 @@ export async function POST(req) {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const shiftKeyToSet = role === "admin" ? "day" : requestedShiftKey;
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -329,6 +342,7 @@ export async function POST(req) {
       role,
       managerId: managerIdToSet,
       supervisorId: supervisorIdToSet,
+      shiftKey: shiftKeyToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -339,6 +353,7 @@ export async function POST(req) {
           role: user.role,
           managerId: user.managerId,
           supervisorId: user.supervisorId,
+          shiftKey: user.shiftKey,
           isActive: user.isActive,
         },
       },
