@@ -4,7 +4,7 @@ import db from "@/server/db";
 import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
-import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
+import { getShiftSettingsRecords } from "@/server/auth/shiftSettings";
 import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
 import { userHasActiveCall } from "@/server/calls/userActiveCall";
 import {
@@ -61,8 +61,9 @@ async function resolveAuthedUser() {
   // Sync shift bounds from DB before login-window checks. The status API
   // already does this; using a stale boot-time cache here caused false shift_ended
   // logouts while /api/shift/status still reported the shift as active.
-  const shiftSettings = await getShiftSettingsRecord();
-  const shiftSettingsReliable = shiftSettings?.loadOk !== false;
+  const shiftRecords = await getShiftSettingsRecords();
+  const shiftSettingsReliable =
+    shiftRecords?.day?.loadOk !== false && shiftRecords?.night?.loadOk !== false;
 
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
@@ -100,7 +101,7 @@ async function resolveAuthedUser() {
     return { user: null, logoutReason: "session_ended" };
   }
 
-  if (!isSessionValidForToday(payload)) {
+  if (!isSessionValidForToday(payload, new Date(), user)) {
     await clearUserSession(user.id);
     return { user: null, logoutReason: "session_day_ended" };
   }
@@ -177,6 +178,7 @@ async function resolveAuthedUser() {
       managerId: user.managerId,
       accessMode,
       afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,
+      shiftKey: user.shiftKey === "night" ? "night" : "day",
       sessionPurpose: "full",
     },
     logoutReason: null,

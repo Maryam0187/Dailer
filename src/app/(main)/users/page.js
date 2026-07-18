@@ -28,6 +28,7 @@ export default async function UsersPage() {
     "createdBy",
     "createdAt",
     "isActive",
+    "shiftKey",
     "afterShiftAccess",
     "afterShiftLimitedFileId",
     "afterShiftAccessExpiresAt",
@@ -98,6 +99,7 @@ export default async function UsersPage() {
       createdByUsername: r.creator?.username ?? null,
       createdAt: r.createdAt,
       isActive: !(r.isActive === false || r.isActive === 0),
+      shiftKey: r.shiftKey === "night" ? "night" : "day",
       ...(authedUser.role === "admin"
         ? {
             afterShiftAccess: r.afterShiftAccess || "none",

@@ -15,8 +15,9 @@ export default async function ShiftPage() {
           Shift timing
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Set when agents can sign in. Use the shift toggle to end or start the shift immediately.
-          Admins can always sign in. After-shift access also works on leave days and when the shift is ended.
+          Configure day and night shifts separately. Assign each agent to one shift on the Users page.
+          Admins can always sign in and manage both. After-shift access also works on leave days and when a
+          shift is ended.
         </p>
       </div>
       <ShiftSettingsClient />

@@ -41,6 +41,7 @@ export default function ShiftStatusBadge({ initialShiftStatus = null }) {
         detail: json.detail,
         windowLabel: json.windowLabel,
         active: json.active,
+        shifts: json.shifts,
       });
     } catch {
       /* keep last known status */

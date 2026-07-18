@@ -52,6 +52,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      /** Assigned login window: `day` or `night`. Admins ignore this. */
+      shiftKey: {
+        type: DataTypes.STRING(16),
+        allowNull: false,
+        defaultValue: "day",
+      },
       activeSessionId: {
         type: DataTypes.STRING(64),
         allowNull: true,

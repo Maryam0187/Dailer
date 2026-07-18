@@ -18,7 +18,7 @@ export function authCookieOptions() {
 
 export async function beginUserSession(user) {
   const sid = crypto.randomUUID();
-  const sessionDay = getSessionCalendarDate();
+  const sessionDay = getSessionCalendarDate(new Date(), user);
   await user.update({ activeSessionId: sid, activeSessionLastSeenAt: new Date() });
   return { sid, sessionDay };
 }

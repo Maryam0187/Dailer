@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { getShiftStatus } from "@/server/auth/loginWindow";
+import { getAllShiftStatuses, getShiftStatus } from "@/server/auth/loginWindow";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { getShiftSettingsRecord, updateShiftSettings } from "@/server/auth/shiftSettings";
+import {
+  getShiftSettingsRecords,
+  updateShiftSettings,
+} from "@/server/auth/shiftSettings";
 
 export const runtime = "nodejs";
 
@@ -9,12 +12,14 @@ export async function GET() {
   const { errorResponse } = await requireAdmin();
   if (errorResponse) return errorResponse;
 
-  const settings = await getShiftSettingsRecord();
-  const shiftStatus = getShiftStatus();
+  const shifts = await getShiftSettingsRecords();
+  const shiftStatuses = getAllShiftStatuses();
 
   return NextResponse.json({
-    settings,
-    shiftStatus,
+    shifts,
+    settings: shifts.day,
+    shiftStatus: shiftStatuses.day,
+    shiftStatuses,
   });
 }
 
@@ -27,6 +32,7 @@ export async function PATCH(req) {
   try {
     await updateShiftSettings(
       {
+        shiftKey: body?.shiftKey || body?.key || "day",
         enabled: body?.enabled !== false,
         startLocal: body?.startLocal,
         endLocal: body?.endLocal,
@@ -35,6 +41,7 @@ export async function PATCH(req) {
         timezone: body?.timezone,
         afterShiftGrantDurationMinutes: body?.afterShiftGrantDurationMinutes,
         leaveDays: body?.leaveDays,
+        name: body?.name,
       },
       authedUser.id,
     );
@@ -42,12 +49,15 @@ export async function PATCH(req) {
     return NextResponse.json({ error: err.message || "Invalid shift settings" }, { status: 400 });
   }
 
-  const settings = await getShiftSettingsRecord();
-  const shiftStatus = getShiftStatus();
+  const shifts = await getShiftSettingsRecords();
+  const shiftStatuses = getAllShiftStatuses();
+  const key = body?.shiftKey === "night" || body?.key === "night" ? "night" : "day";
 
   return NextResponse.json({
     ok: true,
-    settings,
-    shiftStatus,
+    shifts,
+    settings: shifts[key],
+    shiftStatus: getShiftStatus(new Date(), key),
+    shiftStatuses,
   });
 }

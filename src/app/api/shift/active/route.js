@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getShiftStatus } from "@/server/auth/loginWindow";
+import { getAllShiftStatuses, getShiftStatus } from "@/server/auth/loginWindow";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { getShiftSettingsRecord, updateShiftManuallyActive } from "@/server/auth/shiftSettings";
+import {
+  getShiftSettingsRecords,
+  updateShiftManuallyActive,
+} from "@/server/auth/shiftSettings";
 
 export const runtime = "nodejs";
 
-/** Admin toggle: end shift immediately or activate it again. */
+/** Admin toggle: end shift immediately or activate it again (per day/night). */
 export async function PATCH(req) {
   const { authedUser, errorResponse } = await requireAdmin();
   if (errorResponse) return errorResponse;
@@ -15,14 +18,17 @@ export async function PATCH(req) {
     return NextResponse.json({ error: "manuallyActive is required" }, { status: 400 });
   }
 
-  await updateShiftManuallyActive(body.manuallyActive, authedUser.id);
+  const shiftKey = body?.shiftKey === "night" ? "night" : "day";
+  await updateShiftManuallyActive(body.manuallyActive, authedUser.id, shiftKey);
 
-  const settings = await getShiftSettingsRecord();
-  const shiftStatus = getShiftStatus();
+  const shifts = await getShiftSettingsRecords();
+  const shiftStatuses = getAllShiftStatuses();
 
   return NextResponse.json({
     ok: true,
-    settings,
-    shiftStatus,
+    shifts,
+    settings: shifts[shiftKey],
+    shiftStatus: getShiftStatus(new Date(), shiftKey),
+    shiftStatuses,
   });
 }

@@ -9,7 +9,7 @@ import {
   isManuallyActive,
 } from "@/server/auth/loginWindow";
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
-import { getShiftSettingsRecord } from "@/server/auth/shiftSettings";
+import { getShiftSettingsRecords } from "@/server/auth/shiftSettings";
 import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
 import { isTotpRequiredAtLogin } from "@/server/auth/totp";
 import { hasValidTotpTrust } from "@/server/auth/totpTrust";
@@ -20,7 +20,7 @@ import {
 } from "@/server/auth/issueSession";
 
 export async function POST(req) {
-  await getShiftSettingsRecord();
+  await getShiftSettingsRecords();
 
   const body = await req.json().catch(() => null);
   const username = body?.username;
@@ -84,14 +84,15 @@ export async function POST(req) {
         action: "login_failed",
         metadata: {
           username,
-          reason: isLeaveDay()
+          reason: isLeaveDay(new Date(), user)
             ? "leave_day"
-            : !isManuallyActive()
+            : !isManuallyActive(user)
               ? "shift_manually_ended"
               : "outside_login_window",
+          shiftKey: user.shiftKey === "night" ? "night" : "day",
         },
       });
-      return NextResponse.json({ error: loginWindowErrorMessage() }, { status: 403 });
+      return NextResponse.json({ error: loginWindowErrorMessage(new Date(), user) }, { status: 403 });
     }
   }
 
