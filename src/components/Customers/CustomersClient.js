@@ -286,11 +286,11 @@ export default function CustomersClient() {
   const [chargeFilter, setChargeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [dateField, setDateField] = useState("updated");
-  const [rangePreset, setRangePreset] = useState("all");
-  const [rangeFrom, setRangeFrom] = useState("");
-  const [rangeTo, setRangeTo] = useState("");
-  const [appliedFrom, setAppliedFrom] = useState("");
-  const [appliedTo, setAppliedTo] = useState("");
+  const [rangePreset, setRangePreset] = useState("today");
+  const [rangeFrom, setRangeFrom] = useState(() => getPresetRange("today").from);
+  const [rangeTo, setRangeTo] = useState(() => getPresetRange("today").to);
+  const [appliedFrom, setAppliedFrom] = useState(() => getPresetRange("today").from);
+  const [appliedTo, setAppliedTo] = useState(() => getPresetRange("today").to);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -569,11 +569,12 @@ export default function CustomersClient() {
     setChargeFilter("all");
     setStateFilter("all");
     setDateField("updated");
-    setRangePreset("all");
-    setRangeFrom("");
-    setRangeTo("");
-    setAppliedFrom("");
-    setAppliedTo("");
+    const todayRange = getPresetRange("today");
+    setRangePreset("today");
+    setRangeFrom(todayRange.from);
+    setRangeTo(todayRange.to);
+    setAppliedFrom(todayRange.from);
+    setAppliedTo(todayRange.to);
     setSelectedId(null);
     setError(null);
   }
@@ -586,8 +587,7 @@ export default function CustomersClient() {
     chargeFilter !== "all" ||
     stateFilter !== "all" ||
     dateField !== "updated" ||
-    rangePreset !== "all" ||
-    Boolean(appliedFrom && appliedTo);
+    rangePreset !== "today";
 
   function onPrevPage() {
     if (!pagination.hasPrev || loading) return;
