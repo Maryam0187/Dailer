@@ -13,6 +13,10 @@ import {
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
 
+const COMPOSER_MIN_HEIGHT = 80;
+const COMPOSER_MAX_HEIGHT = 224;
+const COMPOSER_DEFAULT_HEIGHT = 80;
+
 function DateSeparator({ label }) {
   if (!label) return null;
   return (
@@ -60,6 +64,7 @@ export default function ConversationView({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
+  const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   // WhatsApp-style: show a divider before this message id
   const [dividerBeforeId, setDividerBeforeId] = useState(null);
   const [nearBottom, setNearBottom] = useState(true);
@@ -71,6 +76,30 @@ export default function ConversationView({
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
   const skipDraftPersistRef = useRef(false);
+  const resizeDragRef = useRef(null);
+
+  function onComposerResizeStart(event) {
+    if (event.button != null && event.button !== 0) return;
+    event.preventDefault();
+    resizeDragRef.current = {
+      startY: event.clientY,
+      startHeight: composerHeight,
+    };
+    const onMove = (moveEvent) => {
+      const drag = resizeDragRef.current;
+      if (!drag) return;
+      // Dragging the top edge up grows the box; down shrinks it.
+      const next = drag.startHeight + (drag.startY - moveEvent.clientY);
+      setComposerHeight(Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, next)));
+    };
+    const onUp = () => {
+      resizeDragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   function isNearBottom(el) {
     if (!el) return true;
@@ -256,11 +285,12 @@ export default function ConversationView({
       clearNewDivider();
       setNearBottomState(true);
       requestAnimationFrame(() => scrollToBottom(true));
-      textareaRef.current?.focus();
     } catch {
       setError("Failed to send");
     } finally {
       setSending(false);
+      // Keep caret ready for the next message (disabled inputs can't hold focus).
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }
 
@@ -444,35 +474,49 @@ export default function ConversationView({
           onSubmit={handleSend}
           className="border-t border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
-          <div className="flex items-end gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1.5 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/30 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-sky-700">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend(e);
-                }
-              }}
-              rows={1}
-              placeholder="Write a message…"
-              className="max-h-28 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
-              disabled={sending}
-            />
-            <button
-              type="submit"
-              disabled={sending || !draft.trim()}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Send message"
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/30 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-sky-700">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize message box"
+              aria-valuemin={COMPOSER_MIN_HEIGHT}
+              aria-valuemax={COMPOSER_MAX_HEIGHT}
+              aria-valuenow={Math.round(composerHeight)}
+              onPointerDown={onComposerResizeStart}
+              className="group flex h-3 cursor-ns-resize items-center justify-center bg-transparent hover:bg-zinc-100/80 dark:hover:bg-zinc-800/80"
+              title="Drag to resize"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
-              </svg>
-            </button>
+              <span className="h-0.5 w-8 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 dark:bg-zinc-600 dark:group-hover:bg-zinc-500" />
+            </div>
+            <div className="flex items-end gap-2 px-1.5 pb-1.5">
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(e);
+                  }
+                }}
+                style={{ height: composerHeight }}
+                placeholder="Write a message…"
+                className="flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+              />
+              <button
+                type="submit"
+                disabled={sending || !draft.trim()}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Send message"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Enter to send · Shift+Enter for new line
+            Enter to send · Shift+Enter for new line · Drag top edge to resize
           </p>
         </form>
       ) : (
