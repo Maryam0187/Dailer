@@ -22,6 +22,7 @@ const messageModelFactory = require("./Message");
 const customerModelFactory = require("./Customer");
 const customerPaymentMethodModelFactory = require("./CustomerPaymentMethod");
 const paymentProcessorModelFactory = require("./PaymentProcessor");
+const importBatchModelFactory = require("./ImportBatch");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -90,6 +91,7 @@ db.Message = messageModelFactory(sequelize, Sequelize.DataTypes);
 db.Customer = customerModelFactory(sequelize, Sequelize.DataTypes);
 db.CustomerPaymentMethod = customerPaymentMethodModelFactory(sequelize, Sequelize.DataTypes);
 db.PaymentProcessor = paymentProcessorModelFactory(sequelize, Sequelize.DataTypes);
+db.ImportBatch = importBatchModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

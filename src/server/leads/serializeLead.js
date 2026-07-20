@@ -92,6 +92,7 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
     // Charge outcome fields above stay admin-only.
     customerId: lead.customerId ?? null,
     customerPaymentMethodId: lead.customerPaymentMethodId ?? null,
+    importOwnerUserId: lead.importOwnerUserId ?? null,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,

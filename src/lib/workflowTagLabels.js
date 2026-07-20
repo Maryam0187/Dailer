@@ -141,5 +141,5 @@ export const WORKFLOW_TAG_CATEGORY_LABELS = {
   phase: "Sale status",
   progress: "Progress",
   contact: "Call outcome",
-  payment: "Payment",
+  payment: "PC",
 };
