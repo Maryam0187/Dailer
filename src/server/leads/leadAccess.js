@@ -239,6 +239,28 @@ export function andWhereClause(baseWhere, extra) {
 }
 
 /**
+ * Pending legacy imports (source=legacy_import, still owned by an admin) stay on
+ * /import only — never in the main Leads list or lead stats.
+ */
+export async function excludePendingLegacyImportWhere() {
+  const adminUsers = await db.User.findAll({
+    where: { role: "admin" },
+    attributes: ["id"],
+    raw: true,
+  });
+  const adminIds = adminUsers.map((u) => Number(u.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (adminIds.length === 0) {
+    return { source: { [Op.ne]: "legacy_import" } };
+  }
+  return {
+    [Op.or]: [
+      { source: { [Op.ne]: "legacy_import" } },
+      { createdByUserId: { [Op.notIn]: adminIds } },
+    ],
+  };
+}
+
+/**
  * Leads list filter — always by createdByUserId:
  * - no creator filter: whole team (supervisor + their agents) or all (admin)
  * - creator filter: only that person's created leads
@@ -248,47 +270,60 @@ export async function resolveLeadsListWhere(
   { creatorId = null, supervisorId = null, assignedScope = null, processorScope = null } = {},
 ) {
   const role = authedUser.role;
+  const hidePendingImport = await excludePendingLegacyImportWhere();
 
   if (role === "agent") {
-    return {
-      [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
-    };
+    return andWhereClause(
+      {
+        [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+      },
+      hidePendingImport,
+    );
   }
 
   if (role === "processor") {
     if (processorScope === "assigned") {
-      return { processorUserId: authedUser.id };
+      return andWhereClause({ processorUserId: authedUser.id }, hidePendingImport);
     }
     if (processorScope === "own") {
-      return {
-        [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
-      };
+      return andWhereClause(
+        {
+          [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+        },
+        hidePendingImport,
+      );
     }
-    return {
-      [Op.or]: [
-        { assignedUserId: authedUser.id },
-        { createdByUserId: authedUser.id },
-        { processorUserId: authedUser.id },
-      ],
-    };
+    return andWhereClause(
+      {
+        [Op.or]: [
+          { assignedUserId: authedUser.id },
+          { createdByUserId: authedUser.id },
+          { processorUserId: authedUser.id },
+        ],
+      },
+      hidePendingImport,
+    );
   }
 
   if (role === "supervisor") {
     if (assignedScope === "other_team") {
       const agentIds = await getSupervisedAgentUserIds(authedUser.id);
       const teamIds = teamCreatorIds(authedUser.id, agentIds);
-      return {
-        assignedUserId: authedUser.id,
-        createdByUserId: { [Op.notIn]: teamIds },
-      };
+      return andWhereClause(
+        {
+          assignedUserId: authedUser.id,
+          createdByUserId: { [Op.notIn]: teamIds },
+        },
+        hidePendingImport,
+      );
     }
     const visible = {
       [Op.or]: [{ createdByUserId: authedUser.id }, { assignedUserId: authedUser.id }],
     };
     if (creatorId) {
-      return andWhereClause({ createdByUserId: creatorId }, visible);
+      return andWhereClause(andWhereClause({ createdByUserId: creatorId }, visible), hidePendingImport);
     }
-    return visible;
+    return andWhereClause(visible, hidePendingImport);
   }
 
   if (hasFullLeadAccess(role)) {
@@ -296,23 +331,29 @@ export async function resolveLeadsListWhere(
       const agentIds = await getSupervisedAgentUserIds(supervisorId);
       const teamIds = teamCreatorIds(supervisorId, agentIds);
       if (assignedScope === "other_team") {
-        return {
-          assignedUserId: supervisorId,
-          createdByUserId: { [Op.notIn]: teamIds },
-        };
+        return andWhereClause(
+          {
+            assignedUserId: supervisorId,
+            createdByUserId: { [Op.notIn]: teamIds },
+          },
+          hidePendingImport,
+        );
       }
       if (creatorId) {
         if (!teamIds.includes(creatorId)) return null;
-        return { createdByUserId: creatorId };
+        return andWhereClause({ createdByUserId: creatorId }, hidePendingImport);
       }
-      return {
-        [Op.or]: [{ createdByUserId: { [Op.in]: teamIds } }, { assignedUserId: supervisorId }],
-      };
+      return andWhereClause(
+        {
+          [Op.or]: [{ createdByUserId: { [Op.in]: teamIds } }, { assignedUserId: supervisorId }],
+        },
+        hidePendingImport,
+      );
     }
     if (creatorId) {
-      return { createdByUserId: creatorId };
+      return andWhereClause({ createdByUserId: creatorId }, hidePendingImport);
     }
-    return {};
+    return hidePendingImport;
   }
 
   return { createdByUserId: -1 };

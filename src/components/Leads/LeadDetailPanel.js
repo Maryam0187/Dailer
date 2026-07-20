@@ -20,6 +20,7 @@ import {
 import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
 import LeadPaymentSection from "@/components/Leads/LeadPaymentSection";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
+import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -197,6 +198,7 @@ export default function LeadDetailPanel({
   preferShortLabels = true,
   canAssignLead = false,
   canEditChargeAmount = false,
+  canLegacyImportAssign = false,
   variant = "drawer",
   showFullPageLink = true,
 }) {
@@ -217,6 +219,14 @@ export default function LeadDetailPanel({
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [loadingAssignableUsers, setLoadingAssignableUsers] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
+  const [nightUsers, setNightUsers] = useState([]);
+  const [legacyAgentId, setLegacyAgentId] = useState("");
+  const [legacyAssignBusy, setLegacyAssignBusy] = useState(false);
+
+  const isPendingLegacyImport =
+    canLegacyImportAssign &&
+    lead?.source === "legacy_import" &&
+    lead?.createdByUserRole === "admin";
 
   const loadUpdates = useCallback(async () => {
     if (!lead?.id) return;
@@ -294,6 +304,32 @@ export default function LeadDetailPanel({
     };
   }, [canAssignLead]);
 
+  useEffect(() => {
+    if (!isPendingLegacyImport) {
+      setNightUsers([]);
+      setLegacyAgentId("");
+      return undefined;
+    }
+    setLegacyAgentId(lead?.importOwnerUserId ? String(lead.importOwnerUserId) : "");
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/import/sales/night-users", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load night users");
+        if (!cancelled) setNightUsers(json.users || []);
+      } catch (e) {
+        if (!cancelled) setError(e.message || "Failed to load night users");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPendingLegacyImport, lead?.id, lead?.importOwnerUserId]);
+
   async function patchLead(payload) {
     const res = await fetch(`/api/leads/${lead.id}`, {
       method: "PATCH",
@@ -370,6 +406,46 @@ export default function LeadDetailPanel({
     }
   }
 
+  async function onLegacyImportAssign() {
+    const agentUserId = Number(legacyAgentId);
+    if (!Number.isInteger(agentUserId) || agentUserId <= 0) {
+      setError("Pick a night-shift user this sale belongs to");
+      return;
+    }
+    setLegacyAssignBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/import/sales/assign", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id, agentUserId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to send to Leads");
+      const refreshed = await fetch(`/api/leads/${lead.id}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const refreshedJson = await refreshed.json().catch(() => ({}));
+      if (refreshed.ok && refreshedJson.lead) {
+        onLeadUpdated?.(refreshedJson.lead);
+      } else {
+        onLeadUpdated?.({
+          createdByUserId: json.createdByUserId,
+          assignedUserId: json.assignedUserId,
+          createdByUserRole: "agent",
+        });
+      }
+      await loadUpdates();
+      setLegacyAgentId("");
+    } catch (e) {
+      setError(e.message || "Failed to send to Leads");
+    } finally {
+      setLegacyAssignBusy(false);
+    }
+  }
+
   async function downloadRecording(callId, url) {
     if (!url) return;
     setDownloadingId(callId);
@@ -433,7 +509,7 @@ export default function LeadDetailPanel({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                Lead details
+                {isPendingLegacyImport ? "Imported sale (review)" : "Lead details"}
                 <span className="ml-2 font-mono normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
                   #{lead.id}
                 </span>
@@ -461,8 +537,10 @@ export default function LeadDetailPanel({
               </p>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
                 <p className="text-zinc-600 dark:text-zinc-400">
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">Agent:</span>{" "}
-                  {lead.createdByUsername || "—"}
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    {isPendingLegacyImport ? "Belongs to:" : "Agent:"}
+                  </span>{" "}
+                  {isPendingLegacyImport ? "Not mapped yet" : lead.createdByUsername || "—"}
                 </p>
                 <p className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Assigned to:</span>{" "}
@@ -506,10 +584,10 @@ export default function LeadDetailPanel({
               ) : null}
               {isPage ? (
                 <Link
-                  href="/leads"
+                  href={isPendingLegacyImport ? "/import" : "/leads"}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                  title="Back to leads"
-                  aria-label="Back to leads"
+                  title={isPendingLegacyImport ? "Back to import" : "Back to leads"}
+                  aria-label={isPendingLegacyImport ? "Back to import" : "Back to leads"}
                 >
                   <CloseIcon />
                 </Link>
@@ -543,6 +621,64 @@ export default function LeadDetailPanel({
             ) : null}
           </div>
         </div>
+
+        {isPendingLegacyImport ? (
+          <div className="border-b border-violet-200 bg-violet-50 px-5 py-4 dark:border-violet-900/50 dark:bg-violet-950/30">
+            <p className="text-sm font-semibold text-violet-950 dark:text-violet-100">
+              Review this imported sale, then Send to Leads
+            </p>
+            <p className="mt-1 text-xs text-violet-900/80 dark:text-violet-200/80">
+              Hidden from the main Leads list until you send it. Choose who it belongs to (pre-filled
+              if you mapped agents on import) — that sets ownership and assigns their supervisor.
+            </p>
+            <div className="mt-3">
+              <LegacyImportAssignControls
+                nightUsers={nightUsers}
+                value={legacyAgentId}
+                onChange={setLegacyAgentId}
+                onAssign={onLegacyImportAssign}
+                busy={legacyAssignBusy}
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <Link
+                href="/import"
+                className="text-sm font-semibold text-violet-800 underline dark:text-violet-300"
+              >
+                ← Back to Imported sales
+              </Link>
+              <button
+                type="button"
+                disabled={legacyAssignBusy}
+                onClick={async () => {
+                  const ok = window.confirm(
+                    `Delete imported sale #${lead.id}?\n\nCustomer is kept. This cannot be undone.`,
+                  );
+                  if (!ok) return;
+                  setLegacyAssignBusy(true);
+                  setError(null);
+                  try {
+                    const res = await fetch("/api/import/sales/delete", {
+                      method: "DELETE",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ leadId: lead.id }),
+                    });
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(json.error || "Delete failed");
+                    window.location.href = "/import";
+                  } catch (e) {
+                    setError(e.message || "Delete failed");
+                    setLegacyAssignBusy(false);
+                  }
+                }}
+                className="text-sm font-semibold text-red-700 underline disabled:opacity-50 dark:text-red-300"
+              >
+                Delete this sale
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <LeadWorkflowSection

@@ -56,6 +56,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/customers" || pathname?.startsWith("/customers/"),
     },
     {
+      href: "/import",
+      label: "Import sales",
+      active: pathname === "/import" || pathname?.startsWith("/import/"),
+    },
+    {
       href: "/message-oversight",
       label: "Chat oversight",
       active: pathname === "/message-oversight",

@@ -67,7 +67,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: "new",
       },
       source: {
-        type: DataTypes.ENUM("cold_dial", "manual"),
+        type: DataTypes.ENUM("cold_dial", "manual", "legacy_import"),
         allowNull: false,
         defaultValue: "manual",
       },
@@ -104,6 +104,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: { model: "CustomerPaymentMethods", key: "id" },
+      },
+      importBatchId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "ImportBatches", key: "id" },
+      },
+      /** Suggested night-shift owner from CSV agent map; sale stays pending until admin Send to Leads. */
+      importOwnerUserId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
       },
       leadPhase: {
         type: DataTypes.ENUM("active", "closed", "cancelled"),
@@ -202,6 +213,10 @@ module.exports = (sequelize, DataTypes) => {
       as: "customerPaymentMethod",
       foreignKey: "customerPaymentMethodId",
     });
+    if (models.ImportBatch) {
+      Lead.belongsTo(models.ImportBatch, { as: "importBatch", foreignKey: "importBatchId" });
+    }
+    Lead.belongsTo(models.User, { as: "importOwner", foreignKey: "importOwnerUserId" });
     Lead.hasMany(models.CallLog, { foreignKey: "leadId", as: "callLogs" });
     Lead.hasMany(models.LeadUpdate, { foreignKey: "leadId", as: "updates" });
   };
