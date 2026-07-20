@@ -385,7 +385,7 @@ export default function LeadWorkflowSection({
       </div>
 
       <div className="mb-4">
-        <LabelWithInfo tip="Click to select; click again to clear.">Payment collected</LabelWithInfo>
+        <LabelWithInfo tip="Click to select; click again to clear.">PC</LabelWithInfo>
         <div className="flex flex-wrap gap-2">
           {LEAD_PAYMENT_METHODS.map((method) => {
             const active = lead?.leadPaymentMethod === method.value;
