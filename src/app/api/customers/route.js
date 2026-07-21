@@ -167,6 +167,8 @@ export async function GET(req) {
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
   const chargeFilter = String(searchParams.get("chargeFilter") || "").trim().toLowerCase();
   const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
+  const shiftKeyRaw = String(searchParams.get("shiftKey") || "").trim().toLowerCase();
+  const shiftKey = shiftKeyRaw === "day" || shiftKeyRaw === "night" ? shiftKeyRaw : null;
   const dateFieldRaw = String(searchParams.get("dateField") || "updated").trim();
   const dateField = normalizeDateFieldKey(dateFieldRaw);
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
@@ -304,6 +306,25 @@ export async function GET(req) {
     dateField,
   });
   if (leadFilter) pushAnd(where, leadFilter);
+
+  if (shiftKey) {
+    // Customers with at least one lead created by a user on this shift.
+    const shiftLiteral =
+      shiftKey === "night"
+        ? `EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`sl\`
+            INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
+            WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+              AND \`su\`.\`shiftKey\` = 'night'
+          )`
+        : `EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`sl\`
+            INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
+            WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+              AND (\`su\`.\`shiftKey\` IS NULL OR \`su\`.\`shiftKey\` <> 'night')
+          )`;
+    pushAnd(where, db.sequelize.literal(shiftLiteral));
+  }
 
   // Newest first by the selected date field (default: lead updatedAt).
   const sortColumn = leadDateColumn(dateField);

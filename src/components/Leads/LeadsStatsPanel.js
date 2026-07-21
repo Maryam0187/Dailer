@@ -125,7 +125,7 @@ function MetricsTable({ title, description, rows, totals, loading, showRole = tr
   );
 }
 
-export default function LeadsStatsPanel() {
+export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
   const [rangePreset, setRangePreset] = useState("today");
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
@@ -143,6 +143,7 @@ export default function LeadsStatsPanel() {
     setError(null);
     try {
       const qs = new URLSearchParams({ fromDate, toDate });
+      if (shiftKey === "day" || shiftKey === "night") qs.set("shiftKey", shiftKey);
       const res = await fetch(`/api/leads/metrics?${qs.toString()}`, { credentials: "include" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load lead stats");
@@ -161,7 +162,7 @@ export default function LeadsStatsPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [shiftKey]);
 
   useEffect(() => {
     const today = getPresetRange("today");

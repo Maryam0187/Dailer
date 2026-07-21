@@ -2,19 +2,49 @@ import { Op } from "sequelize";
 import { hasFullLeadAccess } from "@/lib/leadRoles";
 import db from "@/server/db";
 
+function normalizeShiftFilter(value) {
+  const s = String(value || "").trim().toLowerCase();
+  if (s === "day" || s === "night") return s;
+  return null; // combined / all
+}
+
+/** User ids whose shift matches day or night (admins ignored as creators usually). */
+export async function resolveUserIdsForShift(shiftKey) {
+  const key = normalizeShiftFilter(shiftKey);
+  if (!key) return null;
+
+  const rows = await db.User.findAll({
+    attributes: ["id", "shiftKey"],
+    raw: true,
+  });
+  return rows
+    .filter((u) => (u.shiftKey === "night" ? "night" : "day") === key)
+    .map((u) => Number(u.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
+/** Sequelize where fragment: leads created by users on this shift. */
+export async function leadsCreatedByShiftWhere(shiftKey) {
+  const key = normalizeShiftFilter(shiftKey);
+  if (!key) return null;
+  const ids = await resolveUserIdsForShift(key);
+  if (!ids || ids.length === 0) return { createdByUserId: -1 };
+  return { createdByUserId: { [Op.in]: ids } };
+}
+
 /** Active agents a user may assign leads to. */
 export async function getAssignableAgents(authedUser) {
   if (hasFullLeadAccess(authedUser.role)) {
     return db.User.findAll({
       where: { role: "agent", isActive: true },
-      attributes: ["id", "username", "supervisorId"],
+      attributes: ["id", "username", "supervisorId", "shiftKey"],
       order: [["username", "ASC"]],
     });
   }
   if (authedUser.role === "supervisor") {
     return db.User.findAll({
       where: { role: "agent", supervisorId: Number(authedUser.id), isActive: true },
-      attributes: ["id", "username", "supervisorId"],
+      attributes: ["id", "username", "supervisorId", "shiftKey"],
       order: [["username", "ASC"]],
     });
   }
@@ -26,7 +56,7 @@ export async function getFilterSupervisors(authedUser) {
   if (hasFullLeadAccess(authedUser.role)) {
     return db.User.findAll({
       where: { role: "supervisor", isActive: true },
-      attributes: ["id", "username"],
+      attributes: ["id", "username", "shiftKey"],
       order: [["username", "ASC"]],
     });
   }
@@ -39,7 +69,7 @@ export async function getLeadFilterCreators(authedUser) {
     const [agents, supervisors] = await Promise.all([
       db.User.findAll({
         where: { role: "agent", isActive: true },
-        attributes: ["id", "username", "supervisorId"],
+        attributes: ["id", "username", "supervisorId", "shiftKey"],
         order: [["username", "ASC"]],
       }),
       getFilterSupervisors(authedUser),
@@ -51,6 +81,7 @@ export async function getLeadFilterCreators(authedUser) {
       role: "supervisor",
       supervisorId: null,
       supervisorName: null,
+      shiftKey: s.shiftKey === "night" ? "night" : "day",
     }));
     for (const agent of agents) {
       rows.push({
@@ -59,6 +90,7 @@ export async function getLeadFilterCreators(authedUser) {
         role: "agent",
         supervisorId: agent.supervisorId ?? null,
         supervisorName: agent.supervisorId ? supervisorNameById.get(agent.supervisorId) ?? null : null,
+        shiftKey: agent.shiftKey === "night" ? "night" : "day",
       });
     }
     return rows.sort((a, b) => {
@@ -69,7 +101,7 @@ export async function getLeadFilterCreators(authedUser) {
 
   if (authedUser.role === "supervisor") {
     const [self, agents] = await Promise.all([
-      db.User.findByPk(authedUser.id, { attributes: ["id", "username"] }),
+      db.User.findByPk(authedUser.id, { attributes: ["id", "username", "shiftKey"] }),
       getAssignableAgents(authedUser),
     ]);
     const rows = [];
@@ -81,6 +113,7 @@ export async function getLeadFilterCreators(authedUser) {
         supervisorId: null,
         supervisorName: null,
         isSelf: true,
+        shiftKey: self.shiftKey === "night" ? "night" : "day",
       });
     }
     for (const agent of agents) {
@@ -91,6 +124,7 @@ export async function getLeadFilterCreators(authedUser) {
         supervisorId: agent.supervisorId ?? null,
         supervisorName: null,
         isSelf: false,
+        shiftKey: agent.shiftKey === "night" ? "night" : "day",
       });
     }
     return rows;
