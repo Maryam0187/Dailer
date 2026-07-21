@@ -1,6 +1,12 @@
 import db from "@/server/db";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
-import { resolveLeadsListWhere, getFilterSupervisors, getLeadStatsCreators } from "@/server/leads/leadAccess";
+import {
+  andWhereClause,
+  resolveLeadsListWhere,
+  getFilterSupervisors,
+  getLeadStatsCreators,
+  leadsCreatedByShiftWhere,
+} from "@/server/leads/leadAccess";
 
 const STATUS_KEYS = ["new", "contacted", "callback", "qualified", "closed", "dnc"];
 
@@ -62,8 +68,11 @@ function normalizeUserId(value) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-export async function aggregateLeadMetrics({ authedUser, fromDate, toDate }) {
-  const accessWhere = await resolveLeadsListWhere(authedUser);
+export async function aggregateLeadMetrics({ authedUser, fromDate, toDate, shiftKey = null }) {
+  let accessWhere = await resolveLeadsListWhere(authedUser);
+  const shiftWhere = await leadsCreatedByShiftWhere(shiftKey);
+  if (shiftWhere) accessWhere = andWhereClause(accessWhere, shiftWhere);
+
   const leads = await db.Lead.findAll({
     where: {
       ...accessWhere,

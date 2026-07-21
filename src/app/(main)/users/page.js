@@ -119,7 +119,12 @@ export default async function UsersPage() {
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users
     .filter((u) => u.role === "supervisor" && u.isActive)
-    .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }));
+    .map((u) => ({
+      id: u.id,
+      username: u.username,
+      managerId: u.managerId,
+      shiftKey: u.shiftKey === "night" ? "night" : "day",
+    }));
 
   return (
     <>

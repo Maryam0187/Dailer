@@ -278,6 +278,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [searchBy, setSearchBy] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchError, setSearchError] = useState(null);
@@ -339,13 +340,22 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const colSpan = showAgentColumn ? 7 : 6;
 
   const filteredAgents = useMemo(() => {
-    if (!showSupervisorFilter || supervisorFilter === "all") return assignableAgents;
-    return assignableAgents.filter(
+    let list = assignableAgents;
+    if (isAdmin && (shiftFilter === "day" || shiftFilter === "night")) {
+      list = list.filter((a) => (a.shiftKey === "night" ? "night" : "day") === shiftFilter);
+    }
+    if (!showSupervisorFilter || supervisorFilter === "all") return list;
+    return list.filter(
       (a) =>
         String(a.supervisorId ?? "") === supervisorFilter ||
         (a.role === "supervisor" && String(a.id) === supervisorFilter),
     );
-  }, [assignableAgents, showSupervisorFilter, supervisorFilter]);
+  }, [assignableAgents, showSupervisorFilter, supervisorFilter, isAdmin, shiftFilter]);
+
+  const filteredSupervisors = useMemo(() => {
+    if (!isAdmin || (shiftFilter !== "day" && shiftFilter !== "night")) return filterSupervisors;
+    return filterSupervisors.filter((s) => (s.shiftKey === "night" ? "night" : "day") === shiftFilter);
+  }, [filterSupervisors, isAdmin, shiftFilter]);
 
   function creatorFilterLabel(entry) {
     if (entry.isSelf) return `${entry.username} (you)`;
@@ -422,6 +432,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
+      if (isAdmin && shiftFilter && shiftFilter !== "all") {
+        params.set("shiftKey", shiftFilter);
+      }
       if (q.trim()) {
         params.set("q", q.trim());
         params.set("searchBy", searchBy);
@@ -475,6 +488,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     leadProgressTagFilter,
     leadContactTagFilter,
     stateFilter,
+    shiftFilter,
+    isAdmin,
     q,
     searchBy,
     appliedFrom,
@@ -757,7 +772,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       ) : null}
 
-      {showLeadStats && activeView === "stats" ? <LeadsStatsPanel /> : null}
+      {showLeadStats && activeView === "stats" ? <LeadsStatsPanel shiftKey={shiftFilter} /> : null}
       {showLeadStats && activeView === "tags" ? (
         <WorkflowTagsAdminPanel onTagsUpdated={loadWorkflowTags} />
       ) : null}
@@ -1033,6 +1048,29 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
+          {isAdmin ? (
+            <div className="w-full sm:min-w-[160px] sm:flex-1">
+              <label htmlFor="leads-shift-filter" className={labelClass}>
+                Shift
+              </label>
+              <select
+                id="leads-shift-filter"
+                value={shiftFilter}
+                onChange={(e) => {
+                  setShiftFilter(e.target.value);
+                  setSupervisorFilter("all");
+                  setAgentFilter("all");
+                  setPage(1);
+                }}
+                className={inputClass}
+                aria-label="Filter by day or night shift"
+              >
+                <option value="all">Combined (all)</option>
+                <option value="day">Day shift</option>
+                <option value="night">Night shift</option>
+              </select>
+            </div>
+          ) : null}
           <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-progress-filter" className={labelClass}>
               Progress
@@ -1240,7 +1278,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   className={inputClass}
                 >
                   <option value="all">All supervisors</option>
-                  {filterSupervisors.map((s) => (
+                  {filteredSupervisors.map((s) => (
                     <option key={s.id} value={String(s.id)}>
                       {s.username}
                     </option>

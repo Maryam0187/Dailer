@@ -285,6 +285,7 @@ export default function CustomersClient() {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [chargeFilter, setChargeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [dateField, setDateField] = useState("updated");
   const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(() => getPresetRange("today").from);
@@ -370,6 +371,7 @@ export default function CustomersClient() {
         payment = paymentFilter,
         charge = chargeFilter,
         state = stateFilter,
+        shift = shiftFilter,
         field = dateField,
         from = appliedFrom,
         to = appliedTo,
@@ -391,6 +393,7 @@ export default function CustomersClient() {
         if (payment && payment !== "all") params.set("paymentFilter", payment);
         if (charge && charge !== "all") params.set("chargeFilter", charge);
         if (state && state !== "all") params.set("state", state);
+        if (shift && shift !== "all") params.set("shiftKey", shift);
         params.set("dateField", field || "updated");
         // Date range applies only when not doing a phone/name/last4 search
         if (!query.trim() && from && to) {
@@ -430,6 +433,7 @@ export default function CustomersClient() {
       paymentFilter,
       chargeFilter,
       stateFilter,
+      shiftFilter,
       dateField,
       appliedFrom,
       appliedTo,
@@ -568,6 +572,7 @@ export default function CustomersClient() {
     setPaymentFilter("all");
     setChargeFilter("all");
     setStateFilter("all");
+    setShiftFilter("all");
     setDateField("updated");
     const todayRange = getPresetRange("today");
     setRangePreset("today");
@@ -586,6 +591,7 @@ export default function CustomersClient() {
     paymentFilter !== "all" ||
     chargeFilter !== "all" ||
     stateFilter !== "all" ||
+    shiftFilter !== "all" ||
     dateField !== "updated" ||
     rangePreset !== "today";
 
@@ -1050,6 +1056,24 @@ export default function CustomersClient() {
                   {opt.label}
                 </option>
               ))}
+            </select>
+          </div>
+          <div className="w-full sm:min-w-[200px] sm:flex-1">
+            <label htmlFor="customer-shift-filter" className={labelClass}>
+              Shift
+            </label>
+            <select
+              id="customer-shift-filter"
+              value={shiftFilter}
+              onChange={(e) => {
+                setShiftFilter(e.target.value);
+                setSelectedId(null);
+              }}
+              className={inputClass}
+            >
+              <option value="all">Combined (all)</option>
+              <option value="day">Day shift</option>
+              <option value="night">Night shift</option>
             </select>
           </div>
           <div className="w-full sm:min-w-[200px] sm:flex-1">

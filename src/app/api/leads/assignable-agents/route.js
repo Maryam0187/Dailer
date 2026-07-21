@@ -17,7 +17,11 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    supervisors: supervisors.map((s) => ({ id: s.id, username: s.username })),
+    supervisors: supervisors.map((s) => ({
+      id: s.id,
+      username: s.username,
+      shiftKey: s.shiftKey === "night" ? "night" : "day",
+    })),
     agents: creators,
   });
 }

@@ -24,10 +24,15 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
+  const shiftKeyRaw = String(searchParams.get("shiftKey") || "").trim().toLowerCase();
+  const shiftKey =
+    shiftKeyRaw === "day" || shiftKeyRaw === "night" ? shiftKeyRaw : null;
+
   const { agents, agentTotals, supervisors, supervisorTotals } = await aggregateLeadMetrics({
     authedUser,
     fromDate,
     toDate,
+    shiftKey,
   });
 
   return NextResponse.json({

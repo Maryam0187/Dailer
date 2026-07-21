@@ -2158,16 +2158,34 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [listError, setListError] = useState(null);
   const [listRefreshing, setListRefreshing] = useState(false);
   const [listSupervisorFilter, setListSupervisorFilter] = useState("");
+  const [listShiftFilter, setListShiftFilter] = useState("all");
 
   const displayUsers = useMemo(() => {
-    const sortedUsers = sortUsersForDisplay(users);
-    if (role !== "admin" || !listSupervisorFilter) return sortedUsers;
+    let sortedUsers = sortUsersForDisplay(users);
+    if (role !== "admin") return sortedUsers;
+
+    if (listShiftFilter === "day" || listShiftFilter === "night") {
+      sortedUsers = sortedUsers.filter(
+        (u) => (u.shiftKey === "night" ? "night" : "day") === listShiftFilter,
+      );
+    }
+
+    if (!listSupervisorFilter) return sortedUsers;
 
     const supervisorId = Number(listSupervisorFilter);
     return sortedUsers.filter(
       (u) => u.role === "agent" && Number(u.supervisorId) === supervisorId,
     );
-  }, [users, role, listSupervisorFilter]);
+  }, [users, role, listSupervisorFilter, listShiftFilter]);
+
+  const listSupervisorOptions = useMemo(() => {
+    if (role !== "admin" || (listShiftFilter !== "day" && listShiftFilter !== "night")) {
+      return supervisorOptions;
+    }
+    return supervisorOptions.filter(
+      (s) => (s.shiftKey === "night" ? "night" : "day") === listShiftFilter,
+    );
+  }, [supervisorOptions, role, listShiftFilter]);
 
   const applyUsersList = useCallback(
     (list) => {
@@ -2181,13 +2199,23 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         setManagerOptions(nextManagers);
         const nextSupervisors = normalizedUsers
           .filter((u) => u.role === "supervisor" && u.isActive)
-          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .map((u) => ({
+            id: u.id,
+            username: u.username,
+            managerId: u.managerId,
+            shiftKey: u.shiftKey === "night" ? "night" : "day",
+          }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setSupervisorOptions(nextSupervisors);
       } else if (role === "manager") {
         const nextSupervisors = normalizedUsers
           .filter((u) => u.role === "supervisor" && u.isActive)
-          .map((u) => ({ id: u.id, username: u.username, managerId: u.managerId }))
+          .map((u) => ({
+            id: u.id,
+            username: u.username,
+            managerId: u.managerId,
+            shiftKey: u.shiftKey === "night" ? "night" : "day",
+          }))
           .sort((a, b) => a.username.localeCompare(b.username));
         setSupervisorOptions(nextSupervisors);
       }
@@ -2697,24 +2725,45 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
             {role === "admin" ? (
-              <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
-                <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
-                  Supervisor
-                </label>
-                <select
-                  id="users-supervisor-filter"
-                  className={compactFilterSelectClass}
-                  value={listSupervisorFilter}
-                  onChange={(e) => setListSupervisorFilter(e.target.value)}
-                >
-                  <option value="">All supervisors</option>
-                  {supervisorOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.username}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <>
+                <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                  <label htmlFor="users-shift-filter" className={compactFilterLabelClass}>
+                    Shift
+                  </label>
+                  <select
+                    id="users-shift-filter"
+                    className={compactFilterSelectClass}
+                    value={listShiftFilter}
+                    onChange={(e) => {
+                      setListShiftFilter(e.target.value);
+                      setListSupervisorFilter("");
+                    }}
+                    aria-label="Filter by day or night shift"
+                  >
+                    <option value="all">Combined (all)</option>
+                    <option value="day">Day shift</option>
+                    <option value="night">Night shift</option>
+                  </select>
+                </div>
+                <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
+                  <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
+                    Supervisor
+                  </label>
+                  <select
+                    id="users-supervisor-filter"
+                    className={compactFilterSelectClass}
+                    value={listSupervisorFilter}
+                    onChange={(e) => setListSupervisorFilter(e.target.value)}
+                  >
+                    <option value="">All supervisors</option>
+                    {listSupervisorOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.username}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
             ) : null}
             <button
               type="button"
@@ -2759,7 +2808,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               <p className="mt-1 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
                 {users.length === 0
                   ? "Use the form above to create the first account."
-                  : "Try a different supervisor or clear the filter."}
+                  : "Try a different shift or supervisor, or clear the filters."}
               </p>
             </div>
           ) : (

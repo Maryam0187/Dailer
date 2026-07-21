@@ -11,6 +11,7 @@ import {
   canAssignLeadToAgent,
   canFilterLeadsByCreator,
   canFilterLeadsBySupervisor,
+  leadsCreatedByShiftWhere,
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
@@ -224,6 +225,18 @@ export async function GET(req) {
 
   if (!where) {
     return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
+  }
+
+  const shiftKeyRaw = String(searchParams.get("shiftKey") || "").trim().toLowerCase();
+  if (shiftKeyRaw && shiftKeyRaw !== "all" && shiftKeyRaw !== "combined") {
+    if (shiftKeyRaw !== "day" && shiftKeyRaw !== "night") {
+      return NextResponse.json({ error: "Invalid shiftKey" }, { status: 400 });
+    }
+    if (authedUser.role !== "admin") {
+      return NextResponse.json({ error: "Invalid shiftKey" }, { status: 403 });
+    }
+    const shiftWhere = await leadsCreatedByShiftWhere(shiftKeyRaw);
+    if (shiftWhere) where = andWhereClause(where, shiftWhere);
   }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
