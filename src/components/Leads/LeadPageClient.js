@@ -170,6 +170,7 @@ export default function LeadPageClient({ leadId, userRole }) {
         canAssignLead={isAdmin}
         canEditChargeAmount={isAdmin}
         canLegacyImportAssign={isAdmin}
+        userRole={userRole}
       />
       {editing ? (
         <LeadEditModal

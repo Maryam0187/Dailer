@@ -1633,6 +1633,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           preferShortLabels={preferShortLabels}
           canAssignLead={isAdmin}
           canEditChargeAmount={isAdmin}
+          userRole={userRole}
         />
       ) : null}
 
