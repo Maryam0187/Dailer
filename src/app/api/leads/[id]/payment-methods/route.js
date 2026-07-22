@@ -3,7 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { canAccessLead } from "@/server/leads/leadAccess";
-import { canViewLeadPaymentChargeInfo } from "@/lib/leadRoles";
+import { canViewLeadPaymentChargeInfo, shouldHideLeadPaymentSection } from "@/lib/leadRoles";
 import {
   serializePaymentMethodForLeadViewer,
   serializePaymentMethodsForLeadViewer,
@@ -47,6 +47,7 @@ async function loadLeadForPaymentAccess(id) {
       "leadPaymentProcessor",
       "leadPaymentChargeAmount",
       "leadPhase",
+      "leadProcessedRequired",
       "assignedUserId",
       "createdByUserId",
       "processorUserId",
@@ -69,6 +70,15 @@ export async function GET(_req, { params }) {
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (shouldHideLeadPaymentSection(authedUser.role, lead)) {
+    return NextResponse.json({
+      customerId: lead.customerId ?? null,
+      linkedPaymentMethodId: null,
+      paymentMethods: [],
+      canEditPaymentMethods: false,
+    });
   }
 
   if (!lead.customerId) {
@@ -124,6 +134,9 @@ export async function POST(req, { params }) {
   const lead = await loadLeadForPaymentAccess(id);
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (shouldHideLeadPaymentSection(authedUser.role, lead)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

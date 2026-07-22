@@ -21,6 +21,7 @@ import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
 import LeadPaymentSection from "@/components/Leads/LeadPaymentSection";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
 import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
+import { shouldHideLeadPaymentSection } from "@/lib/leadRoles";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -199,6 +200,7 @@ export default function LeadDetailPanel({
   canAssignLead = false,
   canEditChargeAmount = false,
   canLegacyImportAssign = false,
+  userRole = null,
   variant = "drawer",
   showFullPageLink = true,
 }) {
@@ -744,14 +746,16 @@ export default function LeadDetailPanel({
             ) : null}
           </section>
 
-          <LeadPaymentSection
-            lead={lead}
-            onLeadUpdated={onLeadUpdated}
-            onReloadActivity={loadUpdates}
-            labelClass={labelClass}
-            inputClass={inputClass}
-            canEditChargeAmount={canEditChargeAmount}
-          />
+          {shouldHideLeadPaymentSection(userRole, lead) ? null : (
+            <LeadPaymentSection
+              lead={lead}
+              onLeadUpdated={onLeadUpdated}
+              onReloadActivity={loadUpdates}
+              labelClass={labelClass}
+              inputClass={inputClass}
+              canEditChargeAmount={canEditChargeAmount}
+            />
+          )}
 
           <form
             onSubmit={onPostComment}
