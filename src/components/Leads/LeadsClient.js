@@ -278,7 +278,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [shiftFilter, setShiftFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("day");
   const [searchBy, setSearchBy] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchError, setSearchError] = useState(null);
@@ -360,6 +360,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   function creatorFilterLabel(entry) {
     if (entry.isSelf) return `${entry.username} (you)`;
     if (entry.role === "supervisor") return `${entry.username} (Supervisor)`;
+    if (entry.role === "processor") return `${entry.username} (Processor)`;
     if (entry.supervisorName) return `${entry.username} (${entry.supervisorName})`;
     return entry.username;
   }
@@ -1289,7 +1290,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
             {showLeadFilters ? (
               <div>
                 <label className={labelClass}>
-                  {showSupervisorFilter ? "Filter by agent / supervisor" : "Filter by agent"}
+                  {showSupervisorFilter
+                    ? "Filter by agent / supervisor / processor"
+                    : "Filter by agent"}
                 </label>
                 <select
                   value={agentFilter}
@@ -1300,7 +1303,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                   className={inputClass}
                 >
                   <option value="all">
-                    {showSupervisorFilter ? "All agents & supervisors" : "All agents"}
+                    {showSupervisorFilter
+                      ? "All agents, supervisors & processors"
+                      : "All agents"}
                   </option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>

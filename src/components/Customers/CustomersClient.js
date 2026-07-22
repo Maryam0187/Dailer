@@ -285,7 +285,7 @@ export default function CustomersClient() {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [chargeFilter, setChargeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [shiftFilter, setShiftFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("day");
   const [dateField, setDateField] = useState("updated");
   const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(() => getPresetRange("today").from);
@@ -572,7 +572,7 @@ export default function CustomersClient() {
     setPaymentFilter("all");
     setChargeFilter("all");
     setStateFilter("all");
-    setShiftFilter("all");
+    setShiftFilter("day");
     setDateField("updated");
     const todayRange = getPresetRange("today");
     setRangePreset("today");
@@ -591,7 +591,7 @@ export default function CustomersClient() {
     paymentFilter !== "all" ||
     chargeFilter !== "all" ||
     stateFilter !== "all" ||
-    shiftFilter !== "all" ||
+    shiftFilter !== "day" ||
     dateField !== "updated" ||
     rangePreset !== "today";
 

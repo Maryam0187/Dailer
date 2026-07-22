@@ -140,18 +140,32 @@ export async function getFilterSupervisors(authedUser) {
   return [];
 }
 
-/** Agents and supervisors shown in the leads page creator filter. */
+const LEAD_FILTER_CREATOR_ROLE_ORDER = { supervisor: 0, agent: 1, processor: 2 };
+
+function sortLeadFilterCreators(rows) {
+  return rows.sort((a, b) => {
+    const roleDiff =
+      (LEAD_FILTER_CREATOR_ROLE_ORDER[a.role] ?? 99) - (LEAD_FILTER_CREATOR_ROLE_ORDER[b.role] ?? 99);
+    if (roleDiff !== 0) return roleDiff;
+    return a.username.localeCompare(b.username);
+  });
+}
+
+/** Agents, supervisors, and processors shown in the leads page creator filter. */
 export async function getLeadFilterCreators(authedUser) {
   if (authedUser.role === "manager" || hasFullLeadAccess(authedUser.role)) {
     const ownShift = resolveOwnLeadShiftKey(authedUser);
-    const agentWhere =
-      authedUser.role === "manager"
-        ? { role: "agent", isActive: true, managerId: Number(authedUser.id) }
-        : { role: "agent", isActive: true };
-    const [agents, supervisors] = await Promise.all([
+    const teamScope =
+      authedUser.role === "manager" ? { managerId: Number(authedUser.id) } : {};
+    const [agents, processors, supervisors] = await Promise.all([
       db.User.findAll({
-        where: agentWhere,
+        where: { role: "agent", isActive: true, ...teamScope },
         attributes: ["id", "username", "supervisorId", "shiftKey"],
+        order: [["username", "ASC"]],
+      }),
+      db.User.findAll({
+        where: { role: "processor", isActive: true, ...teamScope },
+        attributes: ["id", "username", "shiftKey"],
         order: [["username", "ASC"]],
       }),
       getFilterSupervisors(authedUser),
@@ -159,6 +173,9 @@ export async function getLeadFilterCreators(authedUser) {
     const agentsForShift = ownShift
       ? agents.filter((a) => userMatchesShift(a, ownShift))
       : agents;
+    const processorsForShift = ownShift
+      ? processors.filter((p) => userMatchesShift(p, ownShift))
+      : processors;
     const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.username]));
     const rows = supervisors.map((s) => ({
       id: s.id,
@@ -178,10 +195,17 @@ export async function getLeadFilterCreators(authedUser) {
         shiftKey: normalizeUserShiftKey(agent.shiftKey),
       });
     }
-    return rows.sort((a, b) => {
-      if (a.role !== b.role) return a.role === "supervisor" ? -1 : 1;
-      return a.username.localeCompare(b.username);
-    });
+    for (const processor of processorsForShift) {
+      rows.push({
+        id: processor.id,
+        username: processor.username,
+        role: "processor",
+        supervisorId: null,
+        supervisorName: null,
+        shiftKey: normalizeUserShiftKey(processor.shiftKey),
+      });
+    }
+    return sortLeadFilterCreators(rows);
   }
 
   if (authedUser.role === "supervisor") {
@@ -262,14 +286,14 @@ export async function canFilterLeadsByCreator(authedUser, userId) {
   return creators.some((c) => Number(c.id) === userId);
 }
 
-/** Agents and supervisors shown in lead stats (created-by rows). */
+/** Agents, supervisors, and processors shown in lead stats (created-by rows). */
 export async function getLeadStatsCreators(authedUser) {
   if (authedUser.role === "manager") {
     const ownShift = resolveOwnLeadShiftKey(authedUser);
     const users = await db.User.findAll({
       where: {
         managerId: Number(authedUser.id),
-        role: { [Op.in]: ["agent", "supervisor"] },
+        role: { [Op.in]: ["agent", "supervisor", "processor"] },
         isActive: true,
       },
       attributes: ["id", "username", "role", "shiftKey"],
@@ -285,7 +309,7 @@ export async function getLeadStatsCreators(authedUser) {
   if (hasFullLeadAccess(authedUser.role)) {
     const ownShift = resolveOwnLeadShiftKey(authedUser);
     const users = await db.User.findAll({
-      where: { role: { [Op.in]: ["agent", "supervisor"] }, isActive: true },
+      where: { role: { [Op.in]: ["agent", "supervisor", "processor"] }, isActive: true },
       attributes: ["id", "username", "role", "shiftKey"],
       order: [
         ["role", "ASC"],
