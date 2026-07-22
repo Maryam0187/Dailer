@@ -291,7 +291,7 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
 
       <MetricsTable
         title="By agent"
-        description="Leads created by each agent and supervisor in the selected date range."
+        description="Leads created by each agent, supervisor, and processor in the selected date range."
         rows={agentRows}
         totals={agentTotals}
         loading={loading}

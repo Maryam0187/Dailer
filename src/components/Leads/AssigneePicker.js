@@ -12,11 +12,13 @@ const ROLE_FILTERS = [
   { id: "all", label: "All" },
   { id: "agent", label: "Agent" },
   { id: "supervisor", label: "Supervisor" },
+  { id: "processor", label: "Processor" },
 ];
 
 const ROLE_LABELS = {
   agent: "Agent",
   supervisor: "Supervisor",
+  processor: "Processor",
   manager: "Manager",
   admin: "Admin",
   lead_monitor: "Lead monitor",
