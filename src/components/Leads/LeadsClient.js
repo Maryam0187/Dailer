@@ -1460,7 +1460,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Processor lead views">
           {[
             { id: "own", label: "My leads" },
-            { id: "assigned", label: "Assigned for processing" },
+            { id: "assigned", label: "Assigned" },
             { id: "all", label: "All" },
           ].map((option) => (
             <button
