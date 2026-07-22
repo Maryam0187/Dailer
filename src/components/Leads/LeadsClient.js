@@ -278,7 +278,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [shiftFilter, setShiftFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("day");
   const [searchBy, setSearchBy] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchError, setSearchError] = useState(null);
