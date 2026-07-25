@@ -72,7 +72,7 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (shouldHideLeadPaymentSection(authedUser.role, lead)) {
+  if (shouldHideLeadPaymentSection(authedUser.role, lead, authedUser.id)) {
     return NextResponse.json({
       customerId: lead.customerId ?? null,
       linkedPaymentMethodId: null,
@@ -136,7 +136,7 @@ export async function POST(req, { params }) {
   if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (shouldHideLeadPaymentSection(authedUser.role, lead)) {
+  if (shouldHideLeadPaymentSection(authedUser.role, lead, authedUser.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -256,7 +256,7 @@ export async function POST(req, { params }) {
         viewerRole: authedUser.role,
         leadPhase: refreshed?.leadPhase || lead.leadPhase || "active",
       }),
-      lead: serializeLead(refreshed, null, authedUser.role),
+      lead: serializeLead(refreshed, null, authedUser.role, authedUser.id),
       linkedPaymentMethodId: row.id,
     },
     { status: 201 },

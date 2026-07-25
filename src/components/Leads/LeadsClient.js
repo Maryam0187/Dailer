@@ -1634,6 +1634,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           canAssignLead={isAdmin}
           canEditChargeAmount={isAdmin}
           userRole={userRole}
+          currentUserId={currentUserId}
         />
       ) : null}
 
