@@ -1,6 +1,13 @@
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { hasFullLeadAccess } from "@/lib/leadRoles";
 import db from "@/server/db";
+
+/** Leads that do not have the given progress tag (JSON array column). */
+function progressTagMissingLiteral(tag) {
+  return Sequelize.literal(
+    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+  );
+}
 
 function normalizeShiftFilter(value) {
   const s = String(value || "").trim().toLowerCase();
@@ -452,8 +459,13 @@ export async function resolveLeadsListWhere(
   }
 
   if (role === "processor") {
+    // Hide others' assigned sales once processed. Own sales stay fully visible.
+    const notProcessed = progressTagMissingLiteral("processed");
     if (processorScope === "assigned") {
-      return andWhereClause({ processorUserId: authedUser.id }, hidePendingImport);
+      return andWhereClause(
+        andWhereClause({ processorUserId: authedUser.id }, notProcessed),
+        hidePendingImport,
+      );
     }
     if (processorScope === "own") {
       return andWhereClause(
@@ -468,7 +480,7 @@ export async function resolveLeadsListWhere(
         [Op.or]: [
           { assignedUserId: authedUser.id },
           { createdByUserId: authedUser.id },
-          { processorUserId: authedUser.id },
+          { [Op.and]: [{ processorUserId: authedUser.id }, notProcessed] },
         ],
       },
       hidePendingImport,
@@ -582,11 +594,12 @@ export async function canAccessLead(lead, authedUser) {
   }
 
   if (authedUser.role === "processor") {
-    return (
-      lead.assignedUserId === authedUser.id ||
-      lead.createdByUserId === authedUser.id ||
-      lead.processorUserId === authedUser.id
-    );
+    const isOwn =
+      lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;
+    if (isOwn) return true;
+    const tags = Array.isArray(lead.leadProgressTags) ? lead.leadProgressTags : [];
+    if (tags.includes("processed")) return false;
+    return lead.processorUserId === authedUser.id;
   }
 
   return lead.assignedUserId === authedUser.id || lead.createdByUserId === authedUser.id;

@@ -18,7 +18,7 @@ function formatLeadName(lead) {
   return lead?.fullName?.trim() || "—";
 }
 
-export default function LeadPageClient({ leadId, userRole }) {
+export default function LeadPageClient({ leadId, userRole, currentUserId = null }) {
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -171,6 +171,7 @@ export default function LeadPageClient({ leadId, userRole }) {
         canEditChargeAmount={isAdmin}
         canLegacyImportAssign={isAdmin}
         userRole={userRole}
+        currentUserId={currentUserId}
       />
       {editing ? (
         <LeadEditModal

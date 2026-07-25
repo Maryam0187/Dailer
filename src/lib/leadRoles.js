@@ -61,20 +61,29 @@ export function canUseLeadFilters(role) {
   return hasFullLeadAccess(role) || role === "supervisor";
 }
 
-/** Processors must not see agent lead notes on leads assigned for processing. */
-export function shouldHideLeadNotes(viewerRole, lead) {
+/** Processor created or is agent-assigned this sale — full visibility kept. */
+export function isProcessorOwnSale(lead, viewerId) {
+  if (viewerId == null) return false;
+  const id = Number(viewerId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  return Number(lead?.createdByUserId) === id || Number(lead?.assignedUserId) === id;
+}
+
+/** Processors must not see agent lead notes on others' leads assigned for processing. */
+export function shouldHideLeadNotes(viewerRole, lead, viewerId = null) {
   if (viewerRole !== "processor") return false;
+  if (isProcessorOwnSale(lead, viewerId)) return false;
   return lead?.processorUserId != null || Boolean(lead?.leadProcessedRequired);
 }
 
 /** Same rule as notes: hide payment methods from processors on processing leads. */
-export function shouldHideLeadPaymentSection(viewerRole, lead) {
-  return shouldHideLeadNotes(viewerRole, lead);
+export function shouldHideLeadPaymentSection(viewerRole, lead, viewerId = null) {
+  return shouldHideLeadNotes(viewerRole, lead, viewerId);
 }
 
 /** Processors only see their own lead activity on processing leads. */
-export function shouldRestrictProcessorLeadActivity(viewerRole, lead) {
-  return shouldHideLeadNotes(viewerRole, lead);
+export function shouldRestrictProcessorLeadActivity(viewerRole, lead, viewerId = null) {
+  return shouldHideLeadNotes(viewerRole, lead, viewerId);
 }
 
 /** @deprecated Use shouldRestrictProcessorLeadActivity */

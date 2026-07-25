@@ -49,7 +49,7 @@ export function filterLeadUpdatesForViewer(updates, viewer, lead) {
   let next = canViewLeadPaymentChargeInfo(viewerRole)
     ? updates
     : updates.filter((u) => !isAdminOnlyPaymentChargeActivityBody(u.body));
-  if (shouldHideLeadNotes(viewerRole, lead)) {
+  if (shouldHideLeadNotes(viewerRole, lead, viewerId)) {
     next = next
       .filter((u) => u.type !== "note_edit")
       .map((u) => {
@@ -59,7 +59,7 @@ export function filterLeadUpdatesForViewer(updates, viewer, lead) {
         return u;
       });
   }
-  if (shouldRestrictProcessorLeadActivity(viewerRole, lead) && viewerId != null) {
+  if (shouldRestrictProcessorLeadActivity(viewerRole, lead, viewerId) && viewerId != null) {
     next = next.filter((u) => u.type === "comment" || Number(u.userId) === viewerId);
   }
   return next;

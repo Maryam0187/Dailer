@@ -33,9 +33,9 @@ export const leadProcessorUserInclude = {
 
 export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude, leadProcessorUserInclude];
 
-export function serializeLead(lead, lastCallAt = null, viewerRole = null) {
+export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewerId = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
-  const notesHidden = shouldHideLeadNotes(viewerRole, lead);
+  const notesHidden = shouldHideLeadNotes(viewerRole, lead, viewerId);
   const paymentChargeVisible = canViewLeadPaymentChargeInfo(viewerRole);
   return {
     id: lead.id,

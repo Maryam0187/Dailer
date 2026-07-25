@@ -50,7 +50,7 @@ export async function GET(_req, { params }) {
   }
 
   return NextResponse.json({
-    lead: serializeLead(lead, null, authedUser.role),
+    lead: serializeLead(lead, null, authedUser.role, authedUser.id),
   });
 }
 
@@ -129,7 +129,7 @@ export async function PATCH(req, { params }) {
   }
 
   if (body?.notes !== undefined) {
-    if (shouldHideLeadNotes(authedUser.role, lead)) {
+    if (shouldHideLeadNotes(authedUser.role, lead, authedUser.id)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const nextNotes = trimField(body.notes, 65535);
@@ -381,6 +381,6 @@ export async function PATCH(req, { params }) {
   });
   return NextResponse.json({
     ok: true,
-    lead: serializeLead(lead, null, authedUser.role),
+    lead: serializeLead(lead, null, authedUser.role, authedUser.id),
   });
 }

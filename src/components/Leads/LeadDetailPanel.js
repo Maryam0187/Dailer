@@ -201,6 +201,7 @@ export default function LeadDetailPanel({
   canEditChargeAmount = false,
   canLegacyImportAssign = false,
   userRole = null,
+  currentUserId = null,
   variant = "drawer",
   showFullPageLink = true,
 }) {
@@ -746,7 +747,7 @@ export default function LeadDetailPanel({
             ) : null}
           </section>
 
-          {shouldHideLeadPaymentSection(userRole, lead) ? null : (
+          {shouldHideLeadPaymentSection(userRole, lead, currentUserId) ? null : (
             <LeadPaymentSection
               lead={lead}
               onLeadUpdated={onLeadUpdated}

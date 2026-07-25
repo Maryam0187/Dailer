@@ -327,7 +327,7 @@ export async function GET(req) {
   });
 
   return NextResponse.json({
-    leads: leads.map((l) => serializeLead(l, null, authedUser.role)),
+    leads: leads.map((l) => serializeLead(l, null, authedUser.role, authedUser.id)),
     pagination: {
       page,
       pageSize,
@@ -454,5 +454,5 @@ export async function POST(req) {
     },
   });
 
-  return NextResponse.json({ ok: true, lead: serializeLead(withUser, null, authedUser.role) }, { status: 201 });
+  return NextResponse.json({ ok: true, lead: serializeLead(withUser, null, authedUser.role, authedUser.id) }, { status: 201 });
 }
