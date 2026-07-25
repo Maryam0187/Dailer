@@ -230,6 +230,22 @@ export function normalizeLeadPaymentProcessor(raw) {
   return undefined;
 }
 
+/** LeadUpdate.type values for payment charge outcomes (not lead_phase_change). */
+export const PAYMENT_LEAD_UPDATE_TYPES = {
+  charged: "payment_charged",
+  declined: "payment_declined",
+  chargeback: "payment_chargeback",
+};
+
+export const PAYMENT_LEAD_UPDATE_TYPE_VALUES = new Set(Object.values(PAYMENT_LEAD_UPDATE_TYPES));
+
+export function leadUpdateTypeForPaymentChargeStatus(status) {
+  if (status === "charged") return PAYMENT_LEAD_UPDATE_TYPES.charged;
+  if (status === "declined") return PAYMENT_LEAD_UPDATE_TYPES.declined;
+  if (status === "chargeback") return PAYMENT_LEAD_UPDATE_TYPES.chargeback;
+  return "lead_phase_change";
+}
+
 /** Embed payment-method id so customer UI can group logs per card. */
 export function withPaymentMethodId(body, pmId) {
   const text = String(body || "").trim();
@@ -251,7 +267,51 @@ export function stripPaymentMethodIdFromActivityBody(body) {
     .trim();
 }
 
-export function formatPaymentChargeActivity(status, declineReason, pmId, processor) {
+/** Parse "$1,234.56" / "1234.56" style amounts from activity text. */
+export function parseMoneyAmountFromText(raw) {
+  const match = String(raw || "").match(/\$?\s*([\d,]+(?:\.\d{1,2})?)/);
+  if (!match) return null;
+  return normalizeLeadPaymentChargeAmount(match[1].replace(/,/g, ""));
+}
+
+/** Amount embedded in charge activity: `… ($125.00) [pmid:N]`. */
+export function parseEmbeddedPaymentChargeAmount(body) {
+  const text = stripPaymentMethodIdFromActivityBody(body);
+  const match = text.match(/\(\s*(\$?[\d,]+(?:\.\d{1,2})?)\s*\)\s*$/);
+  if (!match) return null;
+  const amount = parseMoneyAmountFromText(match[1]);
+  return amount === undefined ? null : amount;
+}
+
+/** Short code / label after `via` in payment charge activity bodies. */
+export function parsePaymentProcessorLabelFromActivityBody(body) {
+  const text = stripPaymentMethodIdFromActivityBody(body);
+  const match = text.match(/\bvia\s+([A-Za-z0-9_-]+)\b/i);
+  if (!match) return null;
+  return String(match[1] || "").trim() || null;
+}
+
+/** Decline reason from `Payment declined via XX: reason ($amount)`. */
+export function parsePaymentDeclineReasonFromActivityBody(body) {
+  let text = stripPaymentMethodIdFromActivityBody(body);
+  text = text.replace(/\(\s*\$?[\d,]+(?:\.\d{1,2})?\s*\)\s*$/, "").trim();
+  const match = text.match(/^Payment declined(?:\s+via\s+[A-Za-z0-9_-]+)?(?::\s*(.+))?$/i);
+  if (!match) return null;
+  const reason = String(match[1] || "").trim();
+  return reason || null;
+}
+
+/** `Charge amount set to $125.00` / cleared → number | null | undefined (not an amount line). */
+export function parsePaymentAmountSetActivity(body) {
+  const text = String(body || "").trim();
+  if (/^Charge amount cleared\b/i.test(text)) return null;
+  const match = text.match(/^Charge amount set to\s+(.+)$/i);
+  if (!match) return undefined;
+  const amount = parseMoneyAmountFromText(match[1]);
+  return amount === undefined ? null : amount;
+}
+
+export function formatPaymentChargeActivity(status, declineReason, pmId, processor, amount) {
   const via = processor ? ` via ${getLeadPaymentProcessorMeta(processor).label}` : "";
   let text = `Payment charge status cleared${via}`;
   if (status === "charged") text = `Payment charged${via}`;
@@ -259,6 +319,10 @@ export function formatPaymentChargeActivity(status, declineReason, pmId, process
   else if (status === "declined") {
     const reason = String(declineReason || "").trim();
     text = reason ? `Payment declined${via}: ${reason}` : `Payment declined${via}`;
+  }
+  if (status && amount != null && Number.isFinite(Number(amount))) {
+    const formatted = formatLeadPaymentChargeAmount(amount);
+    if (formatted) text = `${text} (${formatted})`;
   }
   return withPaymentMethodId(text, pmId);
 }

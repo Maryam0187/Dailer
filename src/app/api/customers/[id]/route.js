@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { isAdminOnlyPaymentChargeActivityBody } from "@/lib/leadRoles";
+import { isAdminOnlyPaymentChargeActivity } from "@/lib/leadRoles";
 import {
   buildPaymentChargeLogGroups,
   serializeCustomer,
@@ -73,7 +73,7 @@ export async function GET(_req, { params }) {
       ],
     });
     for (const row of updateRows) {
-      if (!isAdminOnlyPaymentChargeActivityBody(row.body)) continue;
+      if (!isAdminOnlyPaymentChargeActivity(row)) continue;
       const list = paymentLogsByLeadId.get(row.leadId) || [];
       list.push(serializePaymentChargeLog(row));
       paymentLogsByLeadId.set(row.leadId, list);

@@ -38,6 +38,7 @@ import IconTooltipButton, {
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 import PaymentProcessorsAdminPanel from "@/components/Customers/PaymentProcessorsAdminPanel";
+import PaymentAnalysisPanel from "@/components/Customers/PaymentAnalysisPanel";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -952,6 +953,7 @@ export default function CustomersClient() {
         {[
           { id: "customers", label: "Customers" },
           { id: "processors", label: "Payment processors" },
+          { id: "analysis", label: "Payment analysis" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -971,6 +973,17 @@ export default function CustomersClient() {
 
       {activeView === "processors" ? (
         <PaymentProcessorsAdminPanel onProcessorsUpdated={loadPaymentProcessors} />
+      ) : null}
+
+      {activeView === "analysis" ? (
+        <PaymentAnalysisPanel
+          openingLeadId={loadingLeadId}
+          openSaleError={paymentError}
+          onOpenRelatedSale={({ customerId, leadId }) => {
+            if (customerId != null) setSelectedId(Number(customerId));
+            if (leadId != null) void openLeadSidebar(Number(leadId));
+          }}
+        />
       ) : null}
 
       {activeView === "customers" ? (
@@ -2246,6 +2259,9 @@ export default function CustomersClient() {
         </>
       ) : null}
 
+      </>
+      ) : null}
+
       {selectedLead ? (
         <LeadDetailPanel
           lead={selectedLead}
@@ -2269,8 +2285,6 @@ export default function CustomersClient() {
             setEditingLead(null);
           }}
         />
-      ) : null}
-      </>
       ) : null}
     </div>
   );

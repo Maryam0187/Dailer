@@ -6,6 +6,7 @@ import {
   formatPaymentAmountActivity,
   formatPaymentChargeActivity,
   formatPaymentLinkActivity,
+  leadUpdateTypeForPaymentChargeStatus,
   normalizeLeadPaymentChargeAmount,
   normalizeLeadPaymentChargeStatus,
   normalizeLeadPaymentMethod,
@@ -67,7 +68,8 @@ export async function PATCH(req, { params }) {
   }
 
   const update = {};
-  const activityBodies = [];
+  /** @type {{ type: string, body: string }[]} */
+  const activities = [];
 
   if (linking) {
     if (body.customerPaymentMethodId === null || body.customerPaymentMethodId === "") {
@@ -84,7 +86,10 @@ export async function PATCH(req, { params }) {
         update.leadPaymentMethod = method;
       }
       if (previousPmId != null) {
-        activityBodies.push(formatPaymentLinkActivity(false, previousPmId));
+        activities.push({
+          type: "lead_phase_change",
+          body: formatPaymentLinkActivity(false, previousPmId),
+        });
       }
     } else {
       const pmId = Number(body.customerPaymentMethodId);
@@ -122,7 +127,10 @@ export async function PATCH(req, { params }) {
       }
 
       if (pmId !== lead.customerPaymentMethodId || nextType !== lead.leadPaymentMethod) {
-        activityBodies.push(formatPaymentLinkActivity(true, pmId));
+        activities.push({
+          type: "lead_phase_change",
+          body: formatPaymentLinkActivity(true, pmId),
+        });
       }
     }
   }
@@ -152,7 +160,10 @@ export async function PATCH(req, { params }) {
         update.leadPaymentChargeStatus = null;
         update.leadPaymentDeclineReason = null;
         update.leadPaymentProcessor = null;
-        activityBodies.push(formatPaymentChargeActivity(null, null, linkedPmId, null));
+        activities.push({
+          type: "lead_phase_change",
+          body: formatPaymentChargeActivity(null, null, linkedPmId, null),
+        });
       }
     } else {
       const resolved = await resolvePaymentProcessor(body.leadPaymentProcessor);
@@ -177,13 +188,27 @@ export async function PATCH(req, { params }) {
         declineReason = reason;
       }
 
+      let chargeAmount =
+        lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null;
+      if (changingAmount) {
+        const nextAmount = normalizeLeadPaymentChargeAmount(body.leadPaymentChargeAmount);
+        if (nextAmount !== undefined) chargeAmount = nextAmount;
+      }
+
       // Every submitted charge event is logged (declines/retries included).
       update.leadPaymentChargeStatus = status;
       update.leadPaymentDeclineReason = status === "declined" ? declineReason : null;
       update.leadPaymentProcessor = resolved.code;
-      activityBodies.push(
-        formatPaymentChargeActivity(status, declineReason, linkedPmId, resolved.shortCode),
-      );
+      activities.push({
+        type: leadUpdateTypeForPaymentChargeStatus(status),
+        body: formatPaymentChargeActivity(
+          status,
+          declineReason,
+          linkedPmId,
+          resolved.shortCode,
+          chargeAmount,
+        ),
+      });
     }
   }
 
@@ -196,7 +221,10 @@ export async function PATCH(req, { params }) {
       lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null;
     if (prevAmount !== amount) {
       update.leadPaymentChargeAmount = amount;
-      activityBodies.push(formatPaymentAmountActivity(amount));
+      activities.push({
+        type: "lead_phase_change",
+        body: formatPaymentAmountActivity(amount),
+      });
     }
   }
 
@@ -208,19 +236,19 @@ export async function PATCH(req, { params }) {
   // Keep customer list sort (updatedAt DESC) in sync with payment work on this customer.
   await db.Customer.update({ updatedAt: new Date() }, { where: { id: customerId } });
 
-  for (const bodyText of activityBodies) {
+  for (const activity of activities) {
     const entry = await createLeadUpdate({
       leadId: lead.id,
       userId: authedUser.id,
-      type: "lead_phase_change",
-      body: bodyText,
+      type: activity.type,
+      body: activity.body,
     });
     await logLeadUpdateActivity({
       req,
       userId: authedUser.id,
       leadId: lead.id,
       leadName: lead.fullName,
-      entry: entry || { type: "lead_phase_change", body: bodyText },
+      entry: entry || activity,
     });
   }
 

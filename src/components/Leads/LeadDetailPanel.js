@@ -96,7 +96,12 @@ function ActivityIcon({ type }) {
       </div>
     );
   }
-  if (type === "lead_phase_change") {
+  if (
+    type === "lead_phase_change" ||
+    type === "payment_charged" ||
+    type === "payment_declined" ||
+    type === "payment_chargeback"
+  ) {
     return (
       <div className={`${base} bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200`}>
         ◆
@@ -127,6 +132,9 @@ function activityTitle(update) {
   if (update.type === "note_edit") return "Notes updated";
   if (update.type === "breakdown_edit") return "Breakdown updated";
   if (update.type === "lead_phase_change") return "Lead workflow updated";
+  if (update.type === "payment_charged") return "Payment charged";
+  if (update.type === "payment_declined") return "Payment declined";
+  if (update.type === "payment_chargeback") return "Payment chargeback";
   if (update.type === "lead_edit") return "Lead updated";
   if (update.type === "created") return "Lead created";
   return "Update";

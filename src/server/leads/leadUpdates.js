@@ -1,7 +1,7 @@
 import db from "@/server/db";
 import {
   canViewLeadPaymentChargeInfo,
-  isAdminOnlyPaymentChargeActivityBody,
+  isAdminOnlyPaymentChargeActivity,
   shouldHideLeadNotes,
   shouldRestrictProcessorLeadActivity,
 } from "@/lib/leadRoles";
@@ -48,7 +48,7 @@ export function filterLeadUpdatesForViewer(updates, viewer, lead) {
   // Charged / declined / chargeback / link logs: admin only (also on Customers → Lead history).
   let next = canViewLeadPaymentChargeInfo(viewerRole)
     ? updates
-    : updates.filter((u) => !isAdminOnlyPaymentChargeActivityBody(u.body));
+    : updates.filter((u) => !isAdminOnlyPaymentChargeActivity(u));
   if (shouldHideLeadNotes(viewerRole, lead, viewerId)) {
     next = next
       .filter((u) => u.type !== "note_edit")
