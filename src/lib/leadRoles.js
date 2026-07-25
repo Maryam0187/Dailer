@@ -1,3 +1,9 @@
+const PAYMENT_LEAD_UPDATE_TYPES = new Set([
+  "payment_charged",
+  "payment_declined",
+  "payment_chargeback",
+]);
+
 /** Roles that can list, filter, and open any lead. */
 export function hasFullLeadAccess(role) {
   return role === "admin" || role === "manager" || role === "lead_monitor";
@@ -54,6 +60,12 @@ export function isAdminOnlyPaymentChargeActivityBody(body) {
     /^Charged payment method cleared\b/i.test(text) ||
     /^Charge amount\b/i.test(text)
   );
+}
+
+/** True when LeadUpdate is a payment charge audit event (by type or legacy body). */
+export function isAdminOnlyPaymentChargeActivity(update) {
+  if (update && PAYMENT_LEAD_UPDATE_TYPES.has(String(update.type || ""))) return true;
+  return isAdminOnlyPaymentChargeActivityBody(update?.body);
 }
 
 /** Roles that see agent/supervisor filters on the leads page. */
