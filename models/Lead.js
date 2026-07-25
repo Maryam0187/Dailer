@@ -180,6 +180,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: true,
       },
+      /** When latest charged/declined/chargeback was set (for payment analysis by day). */
+      leadPaymentOutcomeAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       leadCancelReason: {
         type: DataTypes.TEXT,
         allowNull: true,
@@ -196,6 +201,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["createdByUserId"] },
         { fields: ["leadPhase"] },
         { fields: ["leadPaymentChargeStatus"] },
+        { fields: ["leadPaymentOutcomeAt"] },
         { fields: ["verifiedAt"] },
         { fields: ["processedAt"] },
         { fields: ["saleDoneAt"] },

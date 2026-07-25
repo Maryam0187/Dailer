@@ -7,7 +7,7 @@ import {
   parsePaymentDeclineReasonFromActivityBody,
   parsePaymentProcessorLabelFromActivityBody,
 } from "@/lib/leadWorkflow";
-import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
+import { dateRangeWhere, dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
 import { listPaymentProcessors } from "@/server/paymentProcessors/registry";
 
 function emptyBucket() {
@@ -186,30 +186,45 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
 }
 
 /**
- * Aggregate payment charge outcomes for an admin date range.
+ * Aggregate latest payment outcomes from Leads (one row per sale).
+ * Day expand still uses LeadUpdates via listPaymentChargeDayDetails.
  * @param {{ fromDate: string, toDate: string, processor?: string|null }} opts
- * @returns {{ fromDate: string, toDate: string, processor: string|null, totals: object, byDay: object[] }}
  */
 export async function aggregatePaymentChargeStats({ fromDate, toDate, processor = null }) {
-  const { events, processorFilter } = await loadPaymentChargeEvents({
-    fromDate,
-    toDate,
-    processor,
-    withSale: false,
-  });
+  const processorFilter = processor ? String(processor).trim().toLowerCase() : null;
 
-  const leadIds = [...new Set(events.map((e) => e.leadId))];
-  const amountTimeline = await loadAmountTimelines(leadIds);
+  const where = {
+    leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
+    leadPaymentOutcomeAt: { [Op.ne]: null },
+    ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
+  };
+  if (processorFilter) {
+    where.leadPaymentProcessor = processorFilter;
+  }
+
+  const leads = await db.Lead.findAll({
+    where,
+    attributes: [
+      "id",
+      "leadPaymentChargeStatus",
+      "leadPaymentChargeAmount",
+      "leadPaymentProcessor",
+      "leadPaymentOutcomeAt",
+    ],
+  });
 
   const totals = emptyBucket();
   const byDayMap = new Map(eachDayInclusive(fromDate, toDate).map((d) => [d, emptyBucket()]));
 
-  for (const row of events) {
-    const status = statusFromType(row.type);
+  for (const lead of leads) {
+    const status = lead.leadPaymentChargeStatus;
     if (!status) continue;
-    const amount = resolveEventAmount(row, amountTimeline, row.lead?.leadPaymentChargeAmount);
+    const amount =
+      lead.leadPaymentChargeAmount != null && Number.isFinite(Number(lead.leadPaymentChargeAmount))
+        ? Number(lead.leadPaymentChargeAmount)
+        : null;
     addEvent(totals, status, amount);
-    const day = dayKeyFromDate(row.createdAt);
+    const day = dayKeyFromDate(lead.leadPaymentOutcomeAt);
     if (day && byDayMap.has(day)) {
       addEvent(byDayMap.get(day), status, amount);
     } else if (day) {
