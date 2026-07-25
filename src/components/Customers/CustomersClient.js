@@ -828,6 +828,15 @@ export default function CustomersClient() {
   }
 
   function openChargeModal(lead, status) {
+    if (status === "charged" && lead?.hasPaymentCharged) {
+      setPaymentError("This sale was already charged");
+      return;
+    }
+    if (status === "chargeback" && lead?.hasPaymentChargeback) {
+      setPaymentError("This sale already has a chargeback");
+      return;
+    }
+    setPaymentError(null);
     setChargeProcessor(lead?.leadPaymentProcessor || "");
     setDeclineReason("");
     setChargeModal({ lead, status });
@@ -2009,11 +2018,21 @@ export default function CustomersClient() {
                                   const active = lead.leadPaymentChargeStatus === status.value;
                                   const toneClass =
                                     WORKFLOW_BADGE_CLASS[status.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                                  const onceUsed =
+                                    (status.value === "charged" && lead.hasPaymentCharged) ||
+                                    (status.value === "chargeback" && lead.hasPaymentChargeback);
                                   return (
                                     <button
                                       key={status.value}
                                       type="button"
-                                      disabled={chargeBusy}
+                                      disabled={chargeBusy || onceUsed}
+                                      title={
+                                        onceUsed
+                                          ? status.value === "charged"
+                                            ? "This sale was already charged"
+                                            : "This sale already has a chargeback"
+                                          : undefined
+                                      }
                                       onClick={() => openChargeModal(lead, status.value)}
                                       className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
                                         active
@@ -2023,10 +2042,17 @@ export default function CustomersClient() {
                                       aria-pressed={active}
                                     >
                                       {status.label}
+                                      {onceUsed ? " ✓" : ""}
                                     </button>
                                   );
                                 })}
                               </div>
+                              {lead.hasPaymentCharged || lead.hasPaymentChargeback ? (
+                                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                  Charged and chargeback can each be logged once per sale. Declines
+                                  can be logged multiple times.
+                                </p>
+                              ) : null}
                               {processorMeta ? (
                                 <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400">
                                   Latest processor: {processorMeta.label}

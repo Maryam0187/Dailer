@@ -90,15 +90,17 @@ export async function GET(_req, { params }) {
       lastLeadAt: leadAgg?.lastLeadAt || null,
       paymentMethodCount: paymentMethods.length,
     }),
-    leads: leads.map((lead) =>
-      serializeCustomerLead(lead, {
+    leads: leads.map((lead) => {
+      const paymentChargeLogs = paymentLogsByLeadId.get(lead.id) || [];
+      return serializeCustomerLead(lead, {
+        paymentChargeLogs,
         paymentChargeLogGroups: buildPaymentChargeLogGroups(
-          paymentLogsByLeadId.get(lead.id) || [],
+          paymentChargeLogs,
           paymentMethods,
           lead,
         ),
-      }),
-    ),
+      });
+    }),
     paymentMethods: paymentMethods.map(serializePaymentMethod),
   });
 }
