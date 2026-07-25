@@ -22,6 +22,13 @@ function trimReason(value, maxLen = 2000) {
   return s.slice(0, maxLen);
 }
 
+function clearChargeOutcomeFields(update) {
+  update.leadPaymentChargeStatus = null;
+  update.leadPaymentDeclineReason = null;
+  update.leadPaymentProcessor = null;
+  update.leadPaymentOutcomeAt = null;
+}
+
 /**
  * Admin: link/unlink a saved payment method, set charge outcome, and/or charge amount.
  * Body:
@@ -73,12 +80,33 @@ export async function PATCH(req, { params }) {
   const activities = [];
 
   if (linking) {
-    if (body.customerPaymentMethodId === null || body.customerPaymentMethodId === "") {
+    const nextPmRaw = body.customerPaymentMethodId;
+    const unlinking = nextPmRaw === null || nextPmRaw === "";
+    const nextPmId = unlinking ? null : Number(nextPmRaw);
+    const pmChanging =
+      unlinking
+        ? lead.customerPaymentMethodId != null
+        : !Number.isInteger(nextPmId) || nextPmId <= 0
+          ? true
+          : nextPmId !== lead.customerPaymentMethodId;
+
+    if (pmChanging) {
+      const locked =
+        lead.leadPaymentChargeStatus === "charged" ||
+        lead.leadPaymentChargeStatus === "chargeback" ||
+        (await leadHasPaymentOutcome(lead.id, "charged"));
+      if (locked) {
+        return NextResponse.json(
+          { error: "Cannot change payment method after the sale was charged" },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (unlinking) {
       const previousPmId = lead.customerPaymentMethodId;
       update.customerPaymentMethodId = null;
-      update.leadPaymentChargeStatus = null;
-      update.leadPaymentDeclineReason = null;
-      update.leadPaymentProcessor = null;
+      clearChargeOutcomeFields(update);
       if (body.leadPaymentMethod !== undefined) {
         const method = normalizeLeadPaymentMethod(body.leadPaymentMethod);
         if (method === undefined) {
@@ -93,12 +121,11 @@ export async function PATCH(req, { params }) {
         });
       }
     } else {
-      const pmId = Number(body.customerPaymentMethodId);
-      if (!Number.isInteger(pmId) || pmId <= 0) {
+      if (!Number.isInteger(nextPmId) || nextPmId <= 0) {
         return NextResponse.json({ error: "Invalid payment method id" }, { status: 400 });
       }
       const pm = await db.CustomerPaymentMethod.findOne({
-        where: { id: pmId, customerId },
+        where: { id: nextPmId, customerId },
       });
       if (!pm) {
         return NextResponse.json({ error: "Payment method not found for this customer" }, { status: 404 });
@@ -119,18 +146,16 @@ export async function PATCH(req, { params }) {
         nextType = method || pm.type;
       }
 
-      update.customerPaymentMethodId = pmId;
+      update.customerPaymentMethodId = nextPmId;
       update.leadPaymentMethod = nextType;
-      if (pmId !== lead.customerPaymentMethodId) {
-        update.leadPaymentChargeStatus = null;
-        update.leadPaymentDeclineReason = null;
-        update.leadPaymentProcessor = null;
+      if (nextPmId !== lead.customerPaymentMethodId) {
+        clearChargeOutcomeFields(update);
       }
 
-      if (pmId !== lead.customerPaymentMethodId || nextType !== lead.leadPaymentMethod) {
+      if (nextPmId !== lead.customerPaymentMethodId || nextType !== lead.leadPaymentMethod) {
         activities.push({
           type: "lead_phase_change",
-          body: formatPaymentLinkActivity(true, pmId),
+          body: formatPaymentLinkActivity(true, nextPmId),
         });
       }
     }
@@ -158,9 +183,7 @@ export async function PATCH(req, { params }) {
 
     if (status === null) {
       if (prevStatus != null) {
-        update.leadPaymentChargeStatus = null;
-        update.leadPaymentDeclineReason = null;
-        update.leadPaymentProcessor = null;
+        clearChargeOutcomeFields(update);
         activities.push({
           type: "lead_phase_change",
           body: formatPaymentChargeActivity(null, null, linkedPmId, null),
@@ -181,6 +204,17 @@ export async function PATCH(req, { params }) {
 
       let declineReason = null;
       if (status === "declined") {
+        // Declines only before charged; after charged, decline is locked.
+        if (
+          lead.leadPaymentChargeStatus === "charged" ||
+          lead.leadPaymentChargeStatus === "chargeback" ||
+          (await leadHasPaymentOutcome(lead.id, "charged"))
+        ) {
+          return NextResponse.json(
+            { error: "Cannot decline after the sale was charged" },
+            { status: 409 },
+          );
+        }
         // Each decline is a new event — require a reason on every request.
         const reason = trimReason(body.leadPaymentDeclineReason);
         if (!reason) {
@@ -188,7 +222,7 @@ export async function PATCH(req, { params }) {
         }
         declineReason = reason;
       } else if (status === "charged" || status === "chargeback") {
-        // One charged and one chargeback per sale; declines may repeat.
+        // One charged and one chargeback per sale.
         if (await leadHasPaymentOutcome(lead.id, status)) {
           return NextResponse.json(
             {
@@ -213,6 +247,7 @@ export async function PATCH(req, { params }) {
       update.leadPaymentChargeStatus = status;
       update.leadPaymentDeclineReason = status === "declined" ? declineReason : null;
       update.leadPaymentProcessor = resolved.code;
+      update.leadPaymentOutcomeAt = new Date();
       activities.push({
         type: leadUpdateTypeForPaymentChargeStatus(status),
         body: formatPaymentChargeActivity(

@@ -85,6 +85,7 @@ export function serializeCustomerLead(lead, extras = {}) {
     leadPaymentProcessor: lead.leadPaymentProcessor || null,
     leadPaymentChargeAmount:
       lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null,
+    leadPaymentOutcomeAt: lead.leadPaymentOutcomeAt || null,
     paymentChargeLogGroups: Array.isArray(extras.paymentChargeLogGroups)
       ? extras.paymentChargeLogGroups
       : [],

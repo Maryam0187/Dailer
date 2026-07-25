@@ -17,6 +17,7 @@ import { formatPaymentLinkActivity, normalizeLeadPaymentChargeAmount, normalizeL
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import { leadHasPaymentOutcome } from "@/server/customers/paymentOutcomeHistory";
 
 async function clearOtherDefaults(customerId, exceptId, transaction) {
   const where = { customerId, isDefault: true };
@@ -166,6 +167,19 @@ export async function POST(req, { params }) {
     }
   }
 
+  // Creating a method auto-links it; block that after the sale was charged.
+  if (
+    previousPmId != null &&
+    (lead.leadPaymentChargeStatus === "charged" ||
+      lead.leadPaymentChargeStatus === "chargeback" ||
+      (await leadHasPaymentOutcome(lead.id, "charged")))
+  ) {
+    return NextResponse.json(
+      { error: "Cannot change payment method after the sale was charged" },
+      { status: 409 },
+    );
+  }
+
   const row = await db.sequelize.transaction(async (transaction) => {
     let customerId = lead.customerId;
     if (customerId == null) {
@@ -202,6 +216,7 @@ export async function POST(req, { params }) {
       leadUpdate.leadPaymentChargeStatus = null;
       leadUpdate.leadPaymentDeclineReason = null;
       leadUpdate.leadPaymentProcessor = null;
+      leadUpdate.leadPaymentOutcomeAt = null;
     }
 
     await lead.update(leadUpdate, { transaction });

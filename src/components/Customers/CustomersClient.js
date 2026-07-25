@@ -836,6 +836,15 @@ export default function CustomersClient() {
       setPaymentError("This sale already has a chargeback");
       return;
     }
+    if (
+      status === "declined" &&
+      (lead?.hasPaymentCharged ||
+        lead?.leadPaymentChargeStatus === "charged" ||
+        lead?.leadPaymentChargeStatus === "chargeback")
+    ) {
+      setPaymentError("Cannot decline after the sale was charged");
+      return;
+    }
     setPaymentError(null);
     setChargeProcessor(lead?.leadPaymentProcessor || "");
     setDeclineReason("");
@@ -1988,7 +1997,20 @@ export default function CustomersClient() {
                             <select
                               className={inputClass}
                               value={lead.customerPaymentMethodId || ""}
-                              disabled={chargeBusy || paymentMethods.length === 0}
+                              disabled={
+                                chargeBusy ||
+                                paymentMethods.length === 0 ||
+                                lead.hasPaymentCharged ||
+                                lead.leadPaymentChargeStatus === "charged" ||
+                                lead.leadPaymentChargeStatus === "chargeback"
+                              }
+                              title={
+                                lead.hasPaymentCharged ||
+                                lead.leadPaymentChargeStatus === "charged" ||
+                                lead.leadPaymentChargeStatus === "chargeback"
+                                  ? "Cannot change payment method after the sale was charged"
+                                  : undefined
+                              }
                               onChange={(e) => void linkLeadPayment(lead.id, e.target.value)}
                             >
                               <option value="">
@@ -2003,6 +2025,13 @@ export default function CustomersClient() {
                               ))}
                             </select>
                           </label>
+                          {lead.hasPaymentCharged ||
+                          lead.leadPaymentChargeStatus === "charged" ||
+                          lead.leadPaymentChargeStatus === "chargeback" ? (
+                            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              Payment method is locked after the sale was charged.
+                            </p>
+                          ) : null}
                           {linkingLeadId === lead.id ? (
                             <p className="mt-1 text-xs text-zinc-500">Saving…</p>
                           ) : linkedPm ? (
@@ -2018,21 +2047,27 @@ export default function CustomersClient() {
                                   const active = lead.leadPaymentChargeStatus === status.value;
                                   const toneClass =
                                     WORKFLOW_BADGE_CLASS[status.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                                  const afterCharged =
+                                    lead.hasPaymentCharged ||
+                                    lead.leadPaymentChargeStatus === "charged" ||
+                                    lead.leadPaymentChargeStatus === "chargeback";
                                   const onceUsed =
                                     (status.value === "charged" && lead.hasPaymentCharged) ||
-                                    (status.value === "chargeback" && lead.hasPaymentChargeback);
+                                    (status.value === "chargeback" && lead.hasPaymentChargeback) ||
+                                    (status.value === "declined" && afterCharged);
+                                  const disabledTitle = onceUsed
+                                    ? status.value === "charged"
+                                      ? "This sale was already charged"
+                                      : status.value === "chargeback"
+                                        ? "This sale already has a chargeback"
+                                        : "Cannot decline after the sale was charged"
+                                    : undefined;
                                   return (
                                     <button
                                       key={status.value}
                                       type="button"
                                       disabled={chargeBusy || onceUsed}
-                                      title={
-                                        onceUsed
-                                          ? status.value === "charged"
-                                            ? "This sale was already charged"
-                                            : "This sale already has a chargeback"
-                                          : undefined
-                                      }
+                                      title={disabledTitle}
                                       onClick={() => openChargeModal(lead, status.value)}
                                       className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
                                         active
@@ -2049,8 +2084,8 @@ export default function CustomersClient() {
                               </div>
                               {lead.hasPaymentCharged || lead.hasPaymentChargeback ? (
                                 <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                  Charged and chargeback can each be logged once per sale. Declines
-                                  can be logged multiple times.
+                                  After charged: decline is locked. Charged and chargeback can each
+                                  be logged once. Declines are only allowed before charged.
                                 </p>
                               ) : null}
                               {processorMeta ? (

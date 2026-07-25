@@ -337,7 +337,8 @@ export default function PaymentAnalysisPanel({
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Payment analysis</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Charged, declined, and chargeback volume from payment logs for the selected dates.
+          Totals and daily volume use each sale&apos;s latest outcome on the lead. Expand a day to
+          see payment log events.
         </p>
 
         <form onSubmit={onApplyCustom} className="mt-4 flex flex-wrap items-end gap-3">
@@ -416,7 +417,7 @@ export default function PaymentAnalysisPanel({
         <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
           <h3 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Volume per day</h3>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            Click a day to expand sales. View sale opens it in the side panel.
+            Click a day to expand payment log details. View sale opens it in the side panel.
           </p>
         </div>
         {loading ? (
