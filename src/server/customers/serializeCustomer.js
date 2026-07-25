@@ -2,6 +2,7 @@ import { formatLeadService } from "@/lib/leadService";
 import {
   getLeadPaymentMethodMeta,
   parsePaymentMethodIdFromActivityBody,
+  paymentOneTimeOutcomeFlags,
   stripPaymentMethodIdFromActivityBody,
 } from "@/lib/leadWorkflow";
 import { serializeChargeablePaymentMethod } from "@/server/customers/serializeChargeablePaymentMethod";
@@ -58,6 +59,10 @@ export function serializeCustomer(customer, extras = {}) {
 }
 
 export function serializeCustomerLead(lead, extras = {}) {
+  const paymentLogs = Array.isArray(extras.paymentChargeLogs) ? extras.paymentChargeLogs : [];
+  const outcomeFlags =
+    extras.paymentOutcomeFlags ||
+    paymentOneTimeOutcomeFlags(paymentLogs);
   return {
     id: lead.id,
     fullName: lead.fullName,
@@ -83,6 +88,8 @@ export function serializeCustomerLead(lead, extras = {}) {
     paymentChargeLogGroups: Array.isArray(extras.paymentChargeLogGroups)
       ? extras.paymentChargeLogGroups
       : [],
+    hasPaymentCharged: Boolean(outcomeFlags.hasCharged),
+    hasPaymentChargeback: Boolean(outcomeFlags.hasChargeback),
     createdByUsername: lead.createdBy?.username ?? null,
     assignedUsername: lead.assignedUser?.username ?? null,
     createdAt: lead.createdAt,
@@ -94,6 +101,7 @@ export function serializePaymentChargeLog(row) {
   const rawBody = row.body || "";
   return {
     id: row.id,
+    type: row.type || null,
     body: stripPaymentMethodIdFromActivityBody(rawBody),
     customerPaymentMethodId: parsePaymentMethodIdFromActivityBody(rawBody),
     username: row.author?.username || null,

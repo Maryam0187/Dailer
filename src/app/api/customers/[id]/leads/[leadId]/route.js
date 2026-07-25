@@ -14,6 +14,7 @@ import {
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
 import { resolvePaymentProcessor } from "@/server/paymentProcessors/registry";
+import { leadHasPaymentOutcome } from "@/server/customers/paymentOutcomeHistory";
 
 function trimReason(value, maxLen = 2000) {
   const s = String(value || "").trim();
@@ -186,6 +187,19 @@ export async function PATCH(req, { params }) {
           return NextResponse.json({ error: "Decline reason is required" }, { status: 400 });
         }
         declineReason = reason;
+      } else if (status === "charged" || status === "chargeback") {
+        // One charged and one chargeback per sale; declines may repeat.
+        if (await leadHasPaymentOutcome(lead.id, status)) {
+          return NextResponse.json(
+            {
+              error:
+                status === "charged"
+                  ? "This sale was already charged"
+                  : "This sale already has a chargeback",
+            },
+            { status: 409 },
+          );
+        }
       }
 
       let chargeAmount =

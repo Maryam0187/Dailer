@@ -246,6 +246,30 @@ export function leadUpdateTypeForPaymentChargeStatus(status) {
   return "lead_phase_change";
 }
 
+/** True if update is a charged event (typed or legacy body). */
+export function isPaymentChargedActivity(update) {
+  if (update?.type === PAYMENT_LEAD_UPDATE_TYPES.charged) return true;
+  return /^Payment charged\b/i.test(String(update?.body || "").trim());
+}
+
+/** True if update is a chargeback event (typed or legacy body). */
+export function isPaymentChargebackActivity(update) {
+  if (update?.type === PAYMENT_LEAD_UPDATE_TYPES.chargeback) return true;
+  return /^Payment chargeback\b/i.test(String(update?.body || "").trim());
+}
+
+/** Flags for one-time outcomes on a sale (declines may repeat). */
+export function paymentOneTimeOutcomeFlags(logs) {
+  let hasCharged = false;
+  let hasChargeback = false;
+  for (const log of logs || []) {
+    if (!hasCharged && isPaymentChargedActivity(log)) hasCharged = true;
+    if (!hasChargeback && isPaymentChargebackActivity(log)) hasChargeback = true;
+    if (hasCharged && hasChargeback) break;
+  }
+  return { hasCharged, hasChargeback };
+}
+
 /** Embed payment-method id so customer UI can group logs per card. */
 export function withPaymentMethodId(body, pmId) {
   const text = String(body || "").trim();
