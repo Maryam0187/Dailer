@@ -256,6 +256,7 @@ export async function PATCH(req, { params }) {
           linkedPmId,
           resolved.shortCode,
           chargeAmount,
+          resolved.code,
         ),
       });
     }

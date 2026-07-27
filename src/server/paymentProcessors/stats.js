@@ -5,6 +5,7 @@ import {
   parseEmbeddedPaymentChargeAmount,
   parsePaymentAmountSetActivity,
   parsePaymentDeclineReasonFromActivityBody,
+  parsePaymentProcessorCodeFromActivityBody,
   parsePaymentProcessorLabelFromActivityBody,
 } from "@/lib/leadWorkflow";
 import { dateRangeWhere, dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
@@ -136,22 +137,67 @@ async function buildProcessorLabelToCode() {
   return map;
 }
 
+/**
+ * Resolve UI/API processor filter (code or shortCode) to canonical code + match aliases.
+ * Aliases cover leads that may store either code or shortCode.
+ */
+async function resolveProcessorFilter(raw) {
+  if (raw == null || raw === "") return { code: null, matchValues: null };
+  const key = String(raw).trim().toLowerCase();
+  if (!key || key === "all") return { code: null, matchValues: null };
+
+  const processors = await listPaymentProcessors({ activeOnly: false });
+  let row = processors.find((p) => String(p.code || "").trim().toLowerCase() === key);
+  if (!row) {
+    row = processors.find((p) => String(p.shortCode || "").trim().toLowerCase() === key);
+  }
+  if (!row) {
+    return { code: key, matchValues: [key] };
+  }
+  const code = String(row.code || "").trim().toLowerCase();
+  const short = String(row.shortCode || "").trim().toLowerCase();
+  const matchValues = [...new Set([code, short].filter(Boolean))];
+  return { code, matchValues };
+}
+
 function eventProcessorCode(row, labelToCode) {
+  const pcode = parsePaymentProcessorCodeFromActivityBody(row.body);
+  if (pcode) return labelToCode.get(pcode) || pcode;
   const label = parsePaymentProcessorLabelFromActivityBody(row.body);
   if (!label) return null;
   return labelToCode.get(String(label).toLowerCase()) || null;
 }
 
+function eventMatchesProcessorFilter(row, labelToCode, matchValues) {
+  if (!matchValues || matchValues.length === 0) return true;
+  const set = new Set(matchValues);
+  const fromEvent = eventProcessorCode(row, labelToCode);
+  if (fromEvent && set.has(fromEvent)) return true;
+  const label = parsePaymentProcessorLabelFromActivityBody(row.body);
+  if (label && set.has(String(label).toLowerCase())) return true;
+  const pcode = parsePaymentProcessorCodeFromActivityBody(row.body);
+  if (pcode && set.has(pcode)) return true;
+  return false;
+}
+
 async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, withSale = false }) {
-  const processorFilter = processor ? String(processor).trim().toLowerCase() : null;
+  const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
   const labelToCode = await buildProcessorLabelToCode();
 
   const leadInclude = {
     model: db.Lead,
     as: "lead",
     attributes: withSale
-      ? ["id", "customerId", "fullName", "phone", "leadPaymentChargeAmount", "createdByUserId"]
-      : ["id", "leadPaymentChargeAmount"],
+      ? [
+          "id",
+          "customerId",
+          "fullName",
+          "phone",
+          "leadPaymentChargeAmount",
+          "leadPaymentProcessor",
+          "createdByUserId",
+        ]
+      : ["id", "leadPaymentChargeAmount", "leadPaymentProcessor"],
     required: true,
   };
   if (withSale) {
@@ -179,10 +225,10 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
   });
 
   const filtered = processorFilter
-    ? events.filter((row) => eventProcessorCode(row, labelToCode) === processorFilter)
+    ? events.filter((row) => eventMatchesProcessorFilter(row, labelToCode, matchValues))
     : events;
 
-  return { events: filtered, processorFilter, labelToCode };
+  return { events: filtered, processorFilter, labelToCode, matchValues };
 }
 
 /**
@@ -191,15 +237,19 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
  * @param {{ fromDate: string, toDate: string, processor?: string|null }} opts
  */
 export async function aggregatePaymentChargeStats({ fromDate, toDate, processor = null }) {
-  const processorFilter = processor ? String(processor).trim().toLowerCase() : null;
+  const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
 
   const where = {
     leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
     leadPaymentOutcomeAt: { [Op.ne]: null },
     ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
   };
-  if (processorFilter) {
-    where.leadPaymentProcessor = processorFilter;
+  if (matchValues?.length) {
+    where[Op.and] = [
+      db.sequelize.where(db.sequelize.fn("LOWER", db.sequelize.col("leadPaymentProcessor")), {
+        [Op.in]: matchValues,
+      }),
+    ];
   }
 
   const leads = await db.Lead.findAll({

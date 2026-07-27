@@ -3,6 +3,7 @@ import {
   getLeadPaymentMethodMeta,
   parsePaymentMethodIdFromActivityBody,
   paymentOneTimeOutcomeFlags,
+  stripPaymentActivityMetaTags,
   stripPaymentMethodIdFromActivityBody,
 } from "@/lib/leadWorkflow";
 import { serializeChargeablePaymentMethod } from "@/server/customers/serializeChargeablePaymentMethod";
@@ -103,7 +104,7 @@ export function serializePaymentChargeLog(row) {
   return {
     id: row.id,
     type: row.type || null,
-    body: stripPaymentMethodIdFromActivityBody(rawBody),
+    body: stripPaymentActivityMetaTags(rawBody) || stripPaymentMethodIdFromActivityBody(rawBody),
     customerPaymentMethodId: parsePaymentMethodIdFromActivityBody(rawBody),
     username: row.author?.username || null,
     createdAt: row.createdAt,
