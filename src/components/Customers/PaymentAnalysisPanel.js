@@ -289,7 +289,8 @@ export default function PaymentAnalysisPanel({
 
   function onProcessorChange(value) {
     setProcessor(value);
-    if (preset !== "custom" && from && to) {
+    // Always reload when a date range is set (including custom).
+    if (from && to) {
       void loadStats(from, to, value);
     }
   }
