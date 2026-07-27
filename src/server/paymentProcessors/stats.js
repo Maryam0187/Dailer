@@ -152,11 +152,15 @@ async function resolveProcessorFilter(raw) {
     row = processors.find((p) => String(p.shortCode || "").trim().toLowerCase() === key);
   }
   if (!row) {
+    row = processors.find((p) => String(p.fullName || "").trim().toLowerCase() === key);
+  }
+  if (!row) {
     return { code: key, matchValues: [key] };
   }
   const code = String(row.code || "").trim().toLowerCase();
   const short = String(row.shortCode || "").trim().toLowerCase();
-  const matchValues = [...new Set([code, short].filter(Boolean))];
+  const full = String(row.fullName || "").trim().toLowerCase();
+  const matchValues = [...new Set([code, short, full].filter(Boolean))];
   return { code, matchValues };
 }
 
@@ -165,7 +169,17 @@ function eventProcessorCode(row, labelToCode) {
   if (pcode) return labelToCode.get(pcode) || pcode;
   const label = parsePaymentProcessorLabelFromActivityBody(row.body);
   if (!label) return null;
-  return labelToCode.get(String(label).toLowerCase()) || null;
+  const key = String(label).toLowerCase();
+  // Keep raw label when not in registry so filters can still match shortCode text.
+  return labelToCode.get(key) || key;
+}
+
+function leadStoredProcessorKey(lead, labelToCode) {
+  const stored = String(lead?.leadPaymentProcessor || "")
+    .trim()
+    .toLowerCase();
+  if (!stored) return null;
+  return labelToCode.get(stored) || stored;
 }
 
 function eventMatchesProcessorFilter(row, labelToCode, matchValues) {
@@ -176,8 +190,55 @@ function eventMatchesProcessorFilter(row, labelToCode, matchValues) {
   const label = parsePaymentProcessorLabelFromActivityBody(row.body);
   if (label && set.has(String(label).toLowerCase())) return true;
   const pcode = parsePaymentProcessorCodeFromActivityBody(row.body);
-  if (pcode && set.has(pcode)) return true;
+  if (pcode && (set.has(pcode) || set.has(labelToCode.get(pcode) || ""))) return true;
+  const fromLead = leadStoredProcessorKey(row.lead, labelToCode);
+  if (fromLead && set.has(fromLead)) return true;
+  const leadRaw = String(row.lead?.leadPaymentProcessor || "")
+    .trim()
+    .toLowerCase();
+  if (leadRaw && set.has(leadRaw)) return true;
   return false;
+}
+
+/** Latest payment-log processor key per lead (for leads with missing leadPaymentProcessor). */
+async function resolveProcessorsFromLatestLogs(leadIds, labelToCode) {
+  const map = new Map();
+  if (!leadIds.length) return map;
+
+  const rows = await db.LeadUpdate.findAll({
+    where: {
+      leadId: { [Op.in]: leadIds },
+      type: { [Op.in]: [...PAYMENT_LEAD_UPDATE_TYPE_VALUES] },
+    },
+    attributes: ["id", "leadId", "type", "body", "createdAt"],
+    order: [
+      ["leadId", "ASC"],
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+  });
+
+  for (const row of rows) {
+    if (map.has(row.leadId)) continue;
+    const key = eventProcessorCode(row, labelToCode);
+    if (key) map.set(row.leadId, key);
+  }
+  return map;
+}
+
+function leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessorByLeadId) {
+  if (!matchValues || matchValues.length === 0) return true;
+  const set = new Set(matchValues);
+  const stored = String(lead.leadPaymentProcessor || "")
+    .trim()
+    .toLowerCase();
+  if (stored) {
+    if (set.has(stored)) return true;
+    const canonical = labelToCode.get(stored) || stored;
+    if (set.has(canonical)) return true;
+  }
+  const fromLog = logProcessorByLeadId.get(lead.id);
+  return Boolean(fromLog && set.has(fromLog));
 }
 
 async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, withSale = false }) {
@@ -238,19 +299,13 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
  */
 export async function aggregatePaymentChargeStats({ fromDate, toDate, processor = null }) {
   const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
+  const labelToCode = await buildProcessorLabelToCode();
 
   const where = {
     leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
     leadPaymentOutcomeAt: { [Op.ne]: null },
     ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
   };
-  if (matchValues?.length) {
-    where[Op.and] = [
-      db.sequelize.where(db.sequelize.fn("LOWER", db.sequelize.col("leadPaymentProcessor")), {
-        [Op.in]: matchValues,
-      }),
-    ];
-  }
 
   const leads = await db.Lead.findAll({
     where,
@@ -263,10 +318,27 @@ export async function aggregatePaymentChargeStats({ fromDate, toDate, processor 
     ],
   });
 
+  let logProcessorByLeadId = new Map();
+  if (matchValues?.length) {
+    const missingProcessorLeadIds = leads
+      .filter((lead) => !String(lead.leadPaymentProcessor || "").trim())
+      .map((lead) => lead.id);
+    logProcessorByLeadId = await resolveProcessorsFromLatestLogs(
+      missingProcessorLeadIds,
+      labelToCode,
+    );
+  }
+
+  const filteredLeads = matchValues?.length
+    ? leads.filter((lead) =>
+        leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessorByLeadId),
+      )
+    : leads;
+
   const totals = emptyBucket();
   const byDayMap = new Map(eachDayInclusive(fromDate, toDate).map((d) => [d, emptyBucket()]));
 
-  for (const lead of leads) {
+  for (const lead of filteredLeads) {
     const status = lead.leadPaymentChargeStatus;
     if (!status) continue;
     const amount =
