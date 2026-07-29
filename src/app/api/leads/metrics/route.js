@@ -28,12 +28,13 @@ export async function GET(req) {
   const shiftKey =
     shiftKeyRaw === "day" || shiftKeyRaw === "night" ? shiftKeyRaw : null;
 
-  const { agents, agentTotals, supervisors, supervisorTotals } = await aggregateLeadMetrics({
-    authedUser,
-    fromDate,
-    toDate,
-    shiftKey,
-  });
+  const { agents, agentTotals, supervisors, supervisorTotals, processors, processorTotals, agentProcessors, agentProcessorTotals } =
+    await aggregateLeadMetrics({
+      authedUser,
+      fromDate,
+      toDate,
+      shiftKey,
+    });
 
   return NextResponse.json({
     fromDate,
@@ -42,5 +43,9 @@ export async function GET(req) {
     agentTotals,
     supervisors,
     supervisorTotals,
+    processors,
+    processorTotals,
+    agentProcessors,
+    agentProcessorTotals,
   });
 }

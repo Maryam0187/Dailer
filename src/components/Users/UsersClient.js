@@ -2364,9 +2364,6 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (createRole === "agent" && supervisorId != null) {
           payload.supervisorId = supervisorId;
         }
-        payload.shiftKey = createShiftKey === "night" ? "night" : "day";
-      } else if (role === "supervisor") {
-        payload.shiftKey = createShiftKey === "night" ? "night" : "day";
       }
 
       const res = await fetch("/api/users", {
@@ -2459,6 +2456,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showLeaveColumn = true;
+  const showShiftColumn = role === "admin";
   const showAfterShiftColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
@@ -2645,7 +2643,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     </select>
                   </div>
                 ) : null}
-                {createRole !== "admin" ? (
+                {role === "admin" && createRole !== "admin" ? (
                   <div>
                     <label htmlFor="new-user-shift" className={labelClass}>
                       Shift
@@ -2818,7 +2816,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="px-4 py-3.5">Username</th>
                     <th className="px-4 py-3.5">Role</th>
-                    <th className="px-4 py-3.5">Shift</th>
+                    {showShiftColumn ? <th className="px-4 py-3.5">Shift</th> : null}
                     <th className="px-4 py-3.5">Presence</th>
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
@@ -2853,13 +2851,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-4 py-3.5">
                           <RoleBadge value={u.role} />
                         </td>
-                        <td className="px-4 py-3.5 text-zinc-700 dark:text-zinc-300">
-                          {u.role === "admin"
-                            ? "—"
-                            : u.shiftKey === "night"
-                              ? "Night"
-                              : "Day"}
-                        </td>
+                        {showShiftColumn ? (
+                          <td className="px-4 py-3.5 text-zinc-700 dark:text-zinc-300">
+                            {u.role === "admin"
+                              ? "—"
+                              : u.shiftKey === "night"
+                                ? "Night"
+                                : "Day"}
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3.5">
                           <PresenceBadge status={u.presence} />
                         </td>

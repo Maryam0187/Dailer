@@ -32,6 +32,16 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.db-dump.example
+!.env.local.example
+
+# DB dumps (contains production data — never commit)
+/sql/*.sql
+/sql/*.sql.gz
+/sql/*.sql.tmp.*
+/prod-backup.sql
+/prod-backup.sql.gz
+.env.db-dump
 
 # vercel
 .vercel

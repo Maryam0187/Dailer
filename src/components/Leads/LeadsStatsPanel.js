@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { LEAD_PHASES, LEAD_PROGRESS_TAGS } from "@/lib/leadWorkflow";
+import { buildWorkflowTagLookup, workflowTagDisplayLabel } from "@/lib/workflowTagLabels";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+
+const STATUS_COLUMNS = [
+  ...LEAD_PHASES.map((p) => ({ key: p.value, category: "phase", fallback: p.label, tone: p.value })),
+  ...LEAD_PROGRESS_TAGS.map((t) => ({ key: t.value, category: "progress", fallback: t.label, tone: null })),
+];
 
 function formatDateInput(date) {
   const y = date.getFullYear();
@@ -41,11 +48,160 @@ function getPresetRange(preset) {
 function formatRole(role) {
   if (role === "supervisor") return "Supervisor";
   if (role === "agent") return "Agent";
+  if (role === "processor") return "Processor";
   return role || "—";
 }
 
-function MetricsTable({ title, description, rows, totals, loading, showRole = true, nameHeader = "Name" }) {
-  const colSpan = showRole ? 10 : 9;
+function cellClass(tone) {
+  if (tone === "closed") return "text-right tabular-nums text-emerald-700 dark:text-emerald-300";
+  if (tone === "cancelled") return "text-right tabular-nums text-red-700 dark:text-red-300";
+  return "text-right tabular-nums";
+}
+
+function ProcessorMetricsTable({ title, description, rows, totals, loading }) {
+  const colSpan = 4;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950/60">
+        <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{title}</h3>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
+            <tr>
+              <th className="px-4 py-3">Processor</th>
+              <th className="px-4 py-3 text-right">Assigned</th>
+              <th className="px-4 py-3 text-right">Processed</th>
+              <th className="px-4 py-3 text-right">Pending</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {loading ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
+                  Loading…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
+                  No processor assignments in this date range.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.userId ?? row.username} className="text-zinc-800 dark:text-zinc-200">
+                  <td className="px-4 py-3 font-medium">{row.username}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.assigned}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-300">
+                    {row.processed}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-300">
+                    {row.pending}
+                  </td>
+                </tr>
+              ))
+            )}
+            {totals && rows.length > 0 ? (
+              <tr className="bg-zinc-50 font-semibold text-zinc-900 dark:bg-zinc-950/60 dark:text-zinc-100">
+                <td className="px-4 py-3">Total</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totals.assigned}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totals.processed}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totals.pending}</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AgentProcessorMetricsTable({ title, description, rows, totals, loading }) {
+  const colSpan = 6;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950/60">
+        <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{title}</h3>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
+            <tr>
+              <th className="px-4 py-3">Agent</th>
+              <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">Processor</th>
+              <th className="px-4 py-3 text-right">Assigned</th>
+              <th className="px-4 py-3 text-right">Processed</th>
+              <th className="px-4 py-3 text-right">Pending</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {loading ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
+                  Loading…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-8 text-center text-zinc-500">
+                  No agent → processor assignments in this date range.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr
+                  key={`${row.agentUserId}-${row.processorUserId}`}
+                  className="text-zinc-800 dark:text-zinc-200"
+                >
+                  <td className="px-4 py-3 font-medium">{row.agentUsername}</td>
+                  <td className="px-4 py-3 text-xs capitalize text-zinc-600 dark:text-zinc-400">
+                    {formatRole(row.agentRole)}
+                  </td>
+                  <td className="px-4 py-3">{row.processorUsername}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.assigned}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-300">
+                    {row.processed}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-300">
+                    {row.pending}
+                  </td>
+                </tr>
+              ))
+            )}
+            {totals && rows.length > 0 ? (
+              <tr className="bg-zinc-50 font-semibold text-zinc-900 dark:bg-zinc-950/60 dark:text-zinc-100">
+                <td className="px-4 py-3">Total</td>
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3" />
+                <td className="px-4 py-3 text-right tabular-nums">{totals.assigned}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totals.processed}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totals.pending}</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MetricsTable({
+  title,
+  description,
+  rows,
+  totals,
+  loading,
+  columns,
+  showRole = true,
+  nameHeader = "Name",
+}) {
+  const colSpan = (showRole ? 2 : 1) + 1 + columns.length;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -60,13 +216,11 @@ function MetricsTable({ title, description, rows, totals, loading, showRole = tr
               <th className="px-4 py-3">{nameHeader}</th>
               {showRole ? <th className="px-4 py-3">Role</th> : null}
               <th className="px-4 py-3 text-right">Total</th>
-              <th className="px-4 py-3 text-right">Closed</th>
-              <th className="px-4 py-3 text-right">DNC</th>
-              <th className="px-4 py-3 text-right">In progress</th>
-              <th className="px-4 py-3 text-right">New</th>
-              <th className="px-4 py-3 text-right">Contacted</th>
-              <th className="px-4 py-3 text-right">Callback</th>
-              <th className="px-4 py-3 text-right">Qualified</th>
+              {columns.map((col) => (
+                <th key={col.key} className="px-4 py-3 text-right" title={col.fullLabel}>
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -92,15 +246,11 @@ function MetricsTable({ title, description, rows, totals, loading, showRole = tr
                     </td>
                   ) : null}
                   <td className="px-4 py-3 text-right tabular-nums">{row.total}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-300">
-                    {row.closed}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-300">{row.dnc}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.inProgress}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.new}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.contacted}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.callback}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.qualified}</td>
+                  {columns.map((col) => (
+                    <td key={col.key} className={`px-4 py-3 ${cellClass(col.tone)}`}>
+                      {row[col.key] ?? 0}
+                    </td>
+                  ))}
                 </tr>
               ))
             )}
@@ -109,13 +259,11 @@ function MetricsTable({ title, description, rows, totals, loading, showRole = tr
                 <td className="px-4 py-3">Total</td>
                 {showRole ? <td className="px-4 py-3" /> : null}
                 <td className="px-4 py-3 text-right tabular-nums">{totals.total}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.closed}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.dnc}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.inProgress}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.new}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.contacted}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.callback}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totals.qualified}</td>
+                {columns.map((col) => (
+                  <td key={col.key} className="px-4 py-3 text-right tabular-nums">
+                    {totals[col.key] ?? 0}
+                  </td>
+                ))}
               </tr>
             ) : null}
           </tbody>
@@ -125,7 +273,11 @@ function MetricsTable({ title, description, rows, totals, loading, showRole = tr
   );
 }
 
-export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
+export default function LeadsStatsPanel({
+  shiftKey = "all",
+  workflowTags = [],
+  preferShortLabels = true,
+} = {}) {
   const [rangePreset, setRangePreset] = useState("today");
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
@@ -134,9 +286,31 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
   const [agentTotals, setAgentTotals] = useState(null);
   const [supervisorRows, setSupervisorRows] = useState([]);
   const [supervisorTotals, setSupervisorTotals] = useState(null);
+  const [processorRows, setProcessorRows] = useState([]);
+  const [processorTotals, setProcessorTotals] = useState(null);
+  const [agentProcessorRows, setAgentProcessorRows] = useState([]);
+  const [agentProcessorTotals, setAgentProcessorTotals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [loadedRange, setLoadedRange] = useState(null);
+
+  const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
+
+  const columns = useMemo(
+    () =>
+      STATUS_COLUMNS.map((col) => {
+        const label = workflowTagDisplayLabel(workflowTagLookup, col.category, col.key, {
+          preferShort: preferShortLabels,
+          fallback: col.fallback,
+        });
+        const fullLabel = workflowTagDisplayLabel(workflowTagLookup, col.category, col.key, {
+          preferShort: false,
+          fallback: col.fallback,
+        });
+        return { ...col, label, fullLabel };
+      }),
+    [workflowTagLookup, preferShortLabels],
+  );
 
   const loadStats = useCallback(async (fromDate, toDate) => {
     setLoading(true);
@@ -151,6 +325,10 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
       setAgentTotals(json.agentTotals || null);
       setSupervisorRows(json.supervisors || []);
       setSupervisorTotals(json.supervisorTotals || null);
+      setProcessorRows(json.processors || []);
+      setProcessorTotals(json.processorTotals || null);
+      setAgentProcessorRows(json.agentProcessors || []);
+      setAgentProcessorTotals(json.agentProcessorTotals || null);
       setLoadedRange({ from: fromDate, to: toDate });
     } catch (e) {
       setError(e.message || "Failed to load lead stats");
@@ -158,6 +336,10 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
       setAgentTotals(null);
       setSupervisorRows([]);
       setSupervisorTotals(null);
+      setProcessorRows([]);
+      setProcessorTotals(null);
+      setAgentProcessorRows([]);
+      setAgentProcessorTotals(null);
       setLoadedRange(null);
     } finally {
       setLoading(false);
@@ -285,7 +467,8 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
           selected range. <span className="font-medium">{rangeLabel}</span>
         </p>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
-          Closed = done · DNC = cancelled
+          Sale status and progress counts use current workflow statuses. Processor stats count sales
+          currently assigned to a processor.
         </p>
       </section>
 
@@ -295,6 +478,7 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
         rows={agentRows}
         totals={agentTotals}
         loading={loading}
+        columns={columns}
       />
 
       <MetricsTable
@@ -303,8 +487,25 @@ export default function LeadsStatsPanel({ shiftKey = "all" } = {}) {
         rows={supervisorRows}
         totals={supervisorTotals}
         loading={loading}
+        columns={columns}
         showRole={false}
         nameHeader="Supervisor"
+      />
+
+      <ProcessorMetricsTable
+        title="By processor"
+        description="Sales currently assigned to each processor (from leads created in the selected date range)."
+        rows={processorRows}
+        totals={processorTotals}
+        loading={loading}
+      />
+
+      <AgentProcessorMetricsTable
+        title="Agent → processor"
+        description="Which lead creator’s sales are assigned to which processor. Processed = progress tag set."
+        rows={agentProcessorRows}
+        totals={agentProcessorTotals}
+        loading={loading}
       />
     </div>
   );

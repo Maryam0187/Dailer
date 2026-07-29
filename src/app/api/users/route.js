@@ -189,6 +189,7 @@ export async function POST(req) {
     }
 
     let supervisorIdToSet = null;
+    let shiftKeyToSet = normalizeUserShiftKey(authedUser.shiftKey, "manager");
     if (role === "agent") {
       const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
       if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
@@ -199,6 +200,7 @@ export async function POST(req) {
             managerId: authedUser.id,
             isActive: true,
           },
+          attributes: ["id", "shiftKey"],
         });
         if (!supervisorUser) {
           return NextResponse.json(
@@ -207,6 +209,8 @@ export async function POST(req) {
           );
         }
         supervisorIdToSet = parsedSupervisor;
+        // Agents under a supervisor inherit that supervisor's shift.
+        shiftKeyToSet = normalizeUserShiftKey(supervisorUser.shiftKey, "supervisor");
       }
     }
 
@@ -218,7 +222,7 @@ export async function POST(req) {
         role,
         managerId: authedUser.id,
         supervisorId: role === "agent" ? supervisorIdToSet : null,
-        shiftKey: requestedShiftKey,
+        shiftKey: shiftKeyToSet,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -249,11 +253,14 @@ export async function POST(req) {
     }
 
     const supervisorRow = await db.User.findByPk(authedUser.id, {
-      attributes: ["id", "role", "managerId", "isActive"],
+      attributes: ["id", "role", "managerId", "isActive", "shiftKey"],
     });
     if (!supervisorRow || supervisorRow.role !== "supervisor" || !supervisorRow.isActive) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    // Agents created by a supervisor always match that supervisor's shift.
+    const supervisorShiftKey = normalizeUserShiftKey(supervisorRow.shiftKey, "supervisor");
 
     const passwordHash = await bcrypt.hash(password, 10);
     try {
@@ -263,7 +270,7 @@ export async function POST(req) {
         role: "agent",
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
-        shiftKey: requestedShiftKey,
+        shiftKey: supervisorShiftKey,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
