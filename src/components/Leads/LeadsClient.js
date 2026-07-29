@@ -773,7 +773,13 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         </div>
       ) : null}
 
-      {showLeadStats && activeView === "stats" ? <LeadsStatsPanel shiftKey={shiftFilter} /> : null}
+      {showLeadStats && activeView === "stats" ? (
+        <LeadsStatsPanel
+          shiftKey={shiftFilter}
+          workflowTags={workflowTags}
+          preferShortLabels={preferShortLabels}
+        />
+      ) : null}
       {showLeadStats && activeView === "tags" ? (
         <WorkflowTagsAdminPanel onTagsUpdated={loadWorkflowTags} />
       ) : null}
