@@ -239,6 +239,35 @@ export async function GET(req) {
     if (shiftWhere) where = andWhereClause(where, shiftWhere);
   }
 
+  const processorUserIdRaw = searchParams.get("processorUserId");
+  if (processorUserIdRaw) {
+    if (authedUser.role !== "admin") {
+      return NextResponse.json({ error: "Invalid processorUserId" }, { status: 403 });
+    }
+    const normalizedProcessor = String(processorUserIdRaw).trim().toLowerCase();
+    if (normalizedProcessor === "any") {
+      where = andWhereClause(where, { processorUserId: { [Op.ne]: null } });
+    } else if (normalizedProcessor === "none") {
+      where = andWhereClause(where, {
+        leadProcessedRequired: true,
+        processorUserId: null,
+      });
+    } else {
+      const processorUserId = Number(processorUserIdRaw);
+      if (!Number.isInteger(processorUserId) || processorUserId <= 0) {
+        return NextResponse.json({ error: "Invalid processorUserId" }, { status: 400 });
+      }
+      const processorUser = await db.User.findByPk(processorUserId, {
+        attributes: ["id", "role"],
+        raw: true,
+      });
+      if (!processorUser || processorUser.role !== "processor") {
+        return NextResponse.json({ error: "Invalid processorUserId" }, { status: 400 });
+      }
+      where = andWhereClause(where, { processorUserId });
+    }
+  }
+
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
   }

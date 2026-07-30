@@ -141,6 +141,7 @@ function hasActiveLeadFilters({
   agentFilter,
   assignedScopeFilter,
   processorScopeFilter,
+  processorFilter,
   leadPhaseFilter,
   leadProgressTagFilter,
   leadContactTagFilter,
@@ -153,6 +154,7 @@ function hasActiveLeadFilters({
     agentFilter !== "all" ||
     assignedScopeFilter !== "all" ||
     processorScopeFilter !== "all" ||
+    processorFilter !== "all" ||
     leadPhaseFilter !== "all" ||
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
@@ -274,6 +276,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignedScopeFilter, setAssignedScopeFilter] = useState("all");
   const [processorScopeFilter, setProcessorScopeFilter] = useState("own");
+  const [processorFilter, setProcessorFilter] = useState("all");
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
@@ -285,6 +288,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [q, setQ] = useState("");
   const [assignableAgents, setAssignableAgents] = useState([]);
   const [filterSupervisors, setFilterSupervisors] = useState([]);
+  const [filterProcessors, setFilterProcessors] = useState([]);
   const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
   const initialRange = getPresetRange("today");
@@ -423,6 +427,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (processorScopeFilter !== "all" && isProcessor) {
         params.set("processorScope", processorScopeFilter);
       }
+      if (isAdmin && processorFilter && processorFilter !== "all") {
+        params.set("processorUserId", processorFilter);
+      }
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
         params.set("leadProgressTag", leadProgressTagFilter);
@@ -483,6 +490,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     supervisorFilter,
     assignedScopeFilter,
     processorScopeFilter,
+    processorFilter,
     isSupervisor,
     isProcessor,
     leadPhaseFilter,
@@ -551,12 +559,36 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   }, [showLeadFilters]);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/users/processors", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load processors");
+        setFilterProcessors(json.processors || []);
+      } catch {
+        setFilterProcessors([]);
+      }
+    })();
+  }, [isAdmin]);
+
+  useEffect(() => {
     if (agentFilter === "all") return;
     if (assignableAgents.length === 0) return;
     if (!filteredAgents.some((a) => String(a.id) === agentFilter)) {
       setAgentFilter("all");
     }
   }, [agentFilter, filteredAgents, assignableAgents.length]);
+
+  useEffect(() => {
+    if (!isAdmin || processorFilter === "all" || processorFilter === "any" || processorFilter === "none") {
+      return;
+    }
+    if (filterProcessors.length === 0) return;
+    if (!filterProcessors.some((p) => String(p.id) === processorFilter)) {
+      setProcessorFilter("all");
+    }
+  }, [isAdmin, processorFilter, filterProcessors]);
 
   useEffect(() => {
     if (leadPhaseFilter === "closed" && leadProgressTagFilter === "missing_sale_done") {
@@ -1321,6 +1353,36 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 </select>
               </div>
             ) : null}
+            {isAdmin ? (
+              <div>
+                <label htmlFor="leads-processor-filter" className={labelClass}>
+                  Filter by processor assignment
+                </label>
+                <select
+                  id="leads-processor-filter"
+                  value={processorFilter}
+                  onChange={(e) => {
+                    setProcessorFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className={inputClass}
+                  aria-label="Filter by processor assignment"
+                >
+                  <option value="all">All leads</option>
+                  <option value="any">Any processor assigned</option>
+                  <option value="none">Needs processor (unassigned)</option>
+                  {filterProcessors.map((p) => {
+                    const pending = Number(p.pendingProcessingCount) || 0;
+                    return (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.username}
+                        {pending > 0 ? ` (${pending} pending)` : " (0 pending)"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            ) : null}
             {isSupervisor ? (
               <div>
                 <label className={labelClass}>Assignment</label>
@@ -1524,6 +1586,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                     agentFilter,
                     assignedScopeFilter,
                     processorScopeFilter,
+                    processorFilter,
                     leadPhaseFilter,
                     leadProgressTagFilter,
                     leadContactTagFilter,
