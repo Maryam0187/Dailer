@@ -42,8 +42,9 @@ export function shouldLockLeadPaymentSensitiveFields(viewerRole, _leadPhase, _cr
 }
 
 /**
- * Lead timeline bodies that non-admins must not see:
- * charged / declined / chargeback / processor / payment-link audit lines.
+ * Lead timeline bodies that non-admins must not see (also used for Customers
+ * payment logs): charged / declined / chargeback / processor / payment-link
+ * audit lines. Charge amount stays in sale activity only — not payment logs.
  */
 export function isAdminOnlyPaymentChargeActivityBody(body) {
   const text = String(body || "").trim();
@@ -57,8 +58,7 @@ export function isAdminOnlyPaymentChargeActivityBody(body) {
     /^Payment method unlinked\b/i.test(text) ||
     /^Linked payment method\b/i.test(text) ||
     /^Charged with\b/i.test(text) ||
-    /^Charged payment method cleared\b/i.test(text) ||
-    /^Charge amount\b/i.test(text)
+    /^Charged payment method cleared\b/i.test(text)
   );
 }
 

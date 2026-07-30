@@ -2167,10 +2167,10 @@ export default function CustomersClient() {
                           {(lead.paymentChargeLogGroups || []).length > 0 ? (
                             <div className="mt-3 space-y-2">
                               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                                Payment logs by card
+                                Payment logs
                               </p>
                               {lead.paymentChargeLogGroups.map((group) => {
-                                const groupKey = group.customerPaymentMethodId ?? "unknown";
+                                const groupKey = group.customerPaymentMethodId ?? "sale";
                                 const highlighted = group.isCurrent || group.isCharged;
                                 return (
                                   <div

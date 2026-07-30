@@ -118,7 +118,13 @@ function paymentMethodGroupLabel(pm) {
   return summary ? `${type} · ${summary}` : type;
 }
 
-/** Group payment charge/link logs by card; highlight current + charged. */
+/** Sale-level logs (e.g. charge amount) are not tied to a payment method. */
+function paymentLogGroupLabel(pmId, pm) {
+  if (pmId == null) return "Sale";
+  return paymentMethodGroupLabel(pm);
+}
+
+/** Group payment charge/link logs by card; sale-level amount logs stay under Sale. */
 export function buildPaymentChargeLogGroups(logs, paymentMethods, lead) {
   const pmById = new Map((paymentMethods || []).map((pm) => [pm.id, pm]));
   const currentPmId = lead?.customerPaymentMethodId ?? null;
@@ -127,13 +133,13 @@ export function buildPaymentChargeLogGroups(logs, paymentMethods, lead) {
 
   const groupsMap = new Map();
   for (const log of logs || []) {
-    const key = log.customerPaymentMethodId == null ? "unknown" : String(log.customerPaymentMethodId);
+    const key = log.customerPaymentMethodId == null ? "sale" : String(log.customerPaymentMethodId);
     if (!groupsMap.has(key)) {
       const pmId = log.customerPaymentMethodId;
       const pm = pmId != null ? pmById.get(pmId) : null;
       groupsMap.set(key, {
         customerPaymentMethodId: pmId,
-        label: paymentMethodGroupLabel(pm),
+        label: paymentLogGroupLabel(pmId, pm),
         isCurrent: pmId != null && pmId === currentPmId,
         isCharged: pmId != null && pmId === chargedPmId,
         logs: [],
@@ -147,7 +153,7 @@ export function buildPaymentChargeLogGroups(logs, paymentMethods, lead) {
     const pm = pmById.get(currentPmId);
     groupsMap.set(String(currentPmId), {
       customerPaymentMethodId: currentPmId,
-      label: paymentMethodGroupLabel(pm),
+      label: paymentLogGroupLabel(currentPmId, pm),
       isCurrent: true,
       isCharged: chargedPmId === currentPmId,
       logs: [],
