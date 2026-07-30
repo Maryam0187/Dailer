@@ -805,8 +805,8 @@ export default function CustomersClient() {
     try {
       const payload = {
         leadPaymentChargeStatus: status,
-        leadPaymentProcessor: processor,
       };
+      if (processor) payload.leadPaymentProcessor = processor;
       if (status === "declined") payload.leadPaymentDeclineReason = reason;
       const res = await fetch(`/api/customers/${selectedId}/leads/${leadId}`, {
         method: "PATCH",
@@ -827,7 +827,17 @@ export default function CustomersClient() {
     }
   }
 
-  function openChargeModal(lead, status) {
+  async function clearLeadCharged(lead) {
+    if (!lead?.id) return;
+    const name = lead.fullName || `lead #${lead.id}`;
+    const ok = window.confirm(
+      `Clear charge status for ${name}?\n\nThis removes the charged/chargeback outcome from this sale (including payment logs) so it is no longer marked charged.`,
+    );
+    if (!ok) return;
+    await setLeadChargeStatus(lead.id, null);
+  }
+
+  function openChargeModal(lead, status, paymentType = null) {
     if (status === "charged" && lead?.hasPaymentCharged) {
       setPaymentError("This sale was already charged");
       return;
@@ -848,7 +858,12 @@ export default function CustomersClient() {
     setPaymentError(null);
     setChargeProcessor(lead?.leadPaymentProcessor || "");
     setDeclineReason("");
-    setChargeModal({ lead, status });
+    const methods = detail?.paymentMethods || [];
+    const linked = methods.find(
+      (pm) => Number(pm.id) === Number(lead?.customerPaymentMethodId),
+    );
+    const resolvedType = paymentType || linked?.type || lead?.leadPaymentMethod || null;
+    setChargeModal({ lead, status, paymentType: resolvedType });
   }
 
   function closeChargeModal() {
@@ -857,10 +872,29 @@ export default function CustomersClient() {
     setDeclineReason("");
   }
 
+  function isCheckMailCharge(modalOrLead) {
+    const paymentType =
+      modalOrLead && typeof modalOrLead === "object" && "paymentType" in modalOrLead
+        ? modalOrLead.paymentType
+        : null;
+    if (paymentType) return paymentType === "check_mail";
+
+    const lead = modalOrLead?.lead || modalOrLead;
+    if (!lead) return false;
+    const methods = detail?.paymentMethods || [];
+    const linked = methods.find(
+      (pm) => Number(pm.id) === Number(lead.customerPaymentMethodId),
+    );
+    // Linked method is authoritative; leadPaymentMethod can be stale.
+    if (linked?.type) return linked.type === "check_mail";
+    return lead.leadPaymentMethod === "check_mail";
+  }
+
   async function submitChargeModal() {
     if (!chargeModal) return;
+    const skipProcessor = isCheckMailCharge(chargeModal);
     const processor = chargeProcessor.trim();
-    if (!processor) {
+    if (!skipProcessor && !processor) {
       setPaymentError("Payment processor is required");
       return;
     }
@@ -870,10 +904,15 @@ export default function CustomersClient() {
         setPaymentError("Decline reason is required");
         return;
       }
-      await setLeadChargeStatus(chargeModal.lead.id, "declined", { reason, processor });
+      await setLeadChargeStatus(chargeModal.lead.id, "declined", {
+        reason,
+        processor: skipProcessor ? null : processor,
+      });
       return;
     }
-    await setLeadChargeStatus(chargeModal.lead.id, chargeModal.status, { processor });
+    await setLeadChargeStatus(chargeModal.lead.id, chargeModal.status, {
+      processor: skipProcessor ? null : processor,
+    });
   }
 
   function openAmountModal(lead) {
@@ -964,6 +1003,7 @@ export default function CustomersClient() {
   const customer = detail?.customer;
   const paymentMethods = detail?.paymentMethods || [];
   const leads = detail?.leads || [];
+  const chargeModalIsCheckMail = chargeModal ? isCheckMailCharge(chargeModal) : false;
 
   return (
     <div className="space-y-6">
@@ -2068,7 +2108,13 @@ export default function CustomersClient() {
                                       type="button"
                                       disabled={chargeBusy || onceUsed}
                                       title={disabledTitle}
-                                      onClick={() => openChargeModal(lead, status.value)}
+                                      onClick={() =>
+                                        openChargeModal(
+                                          lead,
+                                          status.value,
+                                          linkedPm?.type || lead.leadPaymentMethod,
+                                        )
+                                      }
                                       className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
                                         active
                                           ? toneClass
@@ -2082,6 +2128,20 @@ export default function CustomersClient() {
                                   );
                                 })}
                               </div>
+                              {lead.hasPaymentCharged ||
+                              lead.hasPaymentChargeback ||
+                              lead.leadPaymentChargeStatus ? (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    disabled={chargeBusy}
+                                    onClick={() => void clearLeadCharged(lead)}
+                                    className="rounded-lg border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                                  >
+                                    {chargingLeadId === lead.id ? "Clearing…" : "Clear charge status"}
+                                  </button>
+                                </div>
+                              ) : null}
                               {lead.hasPaymentCharged || lead.hasPaymentChargeback ? (
                                 <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                   After charged: decline is locked. Charged and chargeback can each
@@ -2208,27 +2268,31 @@ export default function CustomersClient() {
                     : "Payment charged"}
               </h3>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Select the payment processor for {chargeModal.lead.fullName || "this lead"}.
+                {chargeModalIsCheckMail
+                  ? `Confirm charge status for ${chargeModal.lead.fullName || "this lead"} (check mail — no processor).`
+                  : `Select the payment processor for ${chargeModal.lead.fullName || "this lead"}.`}
                 {chargeModal.status === "declined"
                   ? " You can log declines multiple times."
                   : ""}
               </p>
-              <label className={`${labelClass} mt-4`}>
-                Payment processor *
-                <select
-                  className={inputClass}
-                  value={chargeProcessor}
-                  onChange={(e) => setChargeProcessor(e.target.value)}
-                  autoFocus
-                >
-                  <option value="">Select processor…</option>
-                  {activePaymentProcessors.map((processor) => (
-                    <option key={processor.code} value={processor.code}>
-                      {processor.shortCode}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {!chargeModalIsCheckMail ? (
+                <label className={`${labelClass} mt-4`}>
+                  Payment processor *
+                  <select
+                    className={inputClass}
+                    value={chargeProcessor}
+                    onChange={(e) => setChargeProcessor(e.target.value)}
+                    autoFocus
+                  >
+                    <option value="">Select processor…</option>
+                    {activePaymentProcessors.map((processor) => (
+                      <option key={processor.code} value={processor.code}>
+                        {processor.shortCode}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               {chargeModal.status === "declined" ? (
                 <label className={`${labelClass} mt-3`}>
                   Decline reason *
@@ -2238,6 +2302,7 @@ export default function CustomersClient() {
                     rows={4}
                     className={`${inputClass} min-h-[96px] resize-y`}
                     placeholder="Decline reason…"
+                    autoFocus={chargeModalIsCheckMail}
                   />
                 </label>
               ) : null}
@@ -2249,7 +2314,7 @@ export default function CustomersClient() {
                   type="button"
                   disabled={
                     chargingLeadId === chargeModal.lead.id ||
-                    !chargeProcessor ||
+                    (!chargeModalIsCheckMail && !chargeProcessor) ||
                     (chargeModal.status === "declined" && !declineReason.trim())
                   }
                   onClick={() => void submitChargeModal()}

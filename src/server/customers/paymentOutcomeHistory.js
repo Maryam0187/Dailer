@@ -30,3 +30,31 @@ export async function leadHasPaymentOutcome(leadId, status) {
   });
   return Boolean(existing);
 }
+
+/**
+ * Remove one-time charge outcomes from history so an admin can undo a mistaken charge.
+ * Deletes charged and chargeback LeadUpdates (typed + legacy body). Declines are kept.
+ * @returns {Promise<number>} rows destroyed
+ */
+export async function removeLeadPaymentChargeHistory(leadId) {
+  const id = Number(leadId);
+  if (!Number.isInteger(id) || id <= 0) return 0;
+
+  return db.LeadUpdate.destroy({
+    where: {
+      leadId: id,
+      [Op.or]: [
+        { type: PAYMENT_LEAD_UPDATE_TYPES.charged },
+        { type: PAYMENT_LEAD_UPDATE_TYPES.chargeback },
+        {
+          type: "lead_phase_change",
+          body: { [Op.like]: "Payment charged%" },
+        },
+        {
+          type: "lead_phase_change",
+          body: { [Op.like]: "Payment chargeback%" },
+        },
+      ],
+    },
+  });
+}

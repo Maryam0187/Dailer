@@ -14,7 +14,7 @@ import {
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
 import { resolvePaymentProcessor } from "@/server/paymentProcessors/registry";
-import { leadHasPaymentOutcome } from "@/server/customers/paymentOutcomeHistory";
+import { leadHasPaymentOutcome, removeLeadPaymentChargeHistory } from "@/server/customers/paymentOutcomeHistory";
 
 function trimReason(value, maxLen = 2000) {
   const s = String(value || "").trim();
@@ -37,6 +37,8 @@ function clearChargeOutcomeFields(update) {
  *     leadPaymentDeclineReason?: string|null,
  *     leadPaymentProcessor?: string,
  *     leadPaymentChargeAmount?: number|string|null }
+ * Set leadPaymentChargeStatus to null to clear the latest outcome and remove charged/chargeback
+ * history (admin undo for mistaken charges).
  */
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await requireAdmin();
@@ -182,7 +184,14 @@ export async function PATCH(req, { params }) {
     const prevStatus = lead.leadPaymentChargeStatus || null;
 
     if (status === null) {
-      if (prevStatus != null) {
+      const removed = await removeLeadPaymentChargeHistory(lead.id);
+      const hadOutcome =
+        prevStatus != null ||
+        lead.leadPaymentProcessor != null ||
+        lead.leadPaymentDeclineReason != null ||
+        lead.leadPaymentOutcomeAt != null ||
+        removed > 0;
+      if (hadOutcome) {
         clearChargeOutcomeFields(update);
         activities.push({
           type: "lead_phase_change",
@@ -190,16 +199,29 @@ export async function PATCH(req, { params }) {
         });
       }
     } else {
-      const resolved = await resolvePaymentProcessor(body.leadPaymentProcessor);
-      if (!resolved) {
-        return NextResponse.json(
-          {
-            error: body.leadPaymentProcessor
-              ? "Invalid payment processor"
-              : "Payment processor is required",
-          },
-          { status: 400 },
-        );
+      let paymentMethodType = null;
+      if (linkedPmId) {
+        const linkedPm = await db.CustomerPaymentMethod.findByPk(linkedPmId, {
+          attributes: ["type"],
+        });
+        paymentMethodType = linkedPm?.type || null;
+      }
+      if (!paymentMethodType) {
+        paymentMethodType =
+          update.leadPaymentMethod !== undefined
+            ? update.leadPaymentMethod
+            : lead.leadPaymentMethod;
+      }
+      const processorOptional = paymentMethodType === "check_mail";
+
+      let resolved = null;
+      if (body.leadPaymentProcessor) {
+        resolved = await resolvePaymentProcessor(body.leadPaymentProcessor);
+        if (!resolved) {
+          return NextResponse.json({ error: "Invalid payment processor" }, { status: 400 });
+        }
+      } else if (!processorOptional) {
+        return NextResponse.json({ error: "Payment processor is required" }, { status: 400 });
       }
 
       let declineReason = null;
@@ -246,7 +268,7 @@ export async function PATCH(req, { params }) {
       // Every submitted charge event is logged (declines/retries included).
       update.leadPaymentChargeStatus = status;
       update.leadPaymentDeclineReason = status === "declined" ? declineReason : null;
-      update.leadPaymentProcessor = resolved.code;
+      update.leadPaymentProcessor = resolved?.code || null;
       update.leadPaymentOutcomeAt = new Date();
       activities.push({
         type: leadUpdateTypeForPaymentChargeStatus(status),
@@ -254,9 +276,9 @@ export async function PATCH(req, { params }) {
           status,
           declineReason,
           linkedPmId,
-          resolved.shortCode,
+          resolved?.shortCode || null,
           chargeAmount,
-          resolved.code,
+          resolved?.code || null,
         ),
       });
     }
