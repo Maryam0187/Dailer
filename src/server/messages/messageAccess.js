@@ -6,6 +6,20 @@ export function isAdminRole(role) {
   return role === "admin";
 }
 
+export function normalizeShiftKey(shiftKey) {
+  return shiftKey === "night" ? "night" : "day";
+}
+
+/**
+ * Day and night agents only message their own shift.
+ * Admins can message anyone and may be messaged by anyone (they ignore shift).
+ */
+export function canMessageAcrossShifts(viewer, target) {
+  if (!viewer || !target) return false;
+  if (isAdminRole(viewer.role) || isAdminRole(target.role)) return true;
+  return normalizeShiftKey(viewer.shiftKey) === normalizeShiftKey(target.shiftKey);
+}
+
 export function canonicalDmPair(userIdA, userIdB) {
   const a = Number(userIdA);
   const b = Number(userIdB);
@@ -30,7 +44,7 @@ export function isConversationParticipant(conversation, userId) {
   );
 }
 
-/** Any active user may DM any other active user (no self-DM). */
+/** Active same-shift users may DM each other (admins unrestricted; no self-DM). */
 export async function canMessageUser(viewer, targetUserId) {
   const targetId = Number(targetUserId);
   if (!viewer?.id || !Number.isInteger(targetId) || targetId <= 0) return false;
@@ -39,15 +53,16 @@ export async function canMessageUser(viewer, targetUserId) {
   // getAuthedUser() already rejects inactive viewers and omits isActive from
   // the returned object — only re-check the target here.
   const target = await db.User.findByPk(targetId, {
-    attributes: ["id", "isActive"],
+    attributes: ["id", "isActive", "role", "shiftKey"],
   });
   if (!target || !target.isActive) return false;
-  return true;
+  return canMessageAcrossShifts(viewer, target);
 }
 
 /**
  * Load a conversation the viewer may access.
- * Admins can open any conversation (oversight); others must be a participant.
+ * Admins can open any conversation (oversight); others must be a participant
+ * on the same messaging shift as the peer.
  */
 export async function getConversationForUser(conversationId, user, { forWrite = false } = {}) {
   const id = Number(conversationId);
@@ -61,6 +76,20 @@ export async function getConversationForUser(conversationId, user, { forWrite = 
 
   const participant = isConversationParticipant(conversation, uid);
   if (participant) {
+    if (!isAdminRole(user.role)) {
+      const peerId = otherDmUserId(conversation, uid);
+      const peer = peerId
+        ? await db.User.findByPk(peerId, {
+            attributes: ["id", "role", "shiftKey", "isActive"],
+          })
+        : null;
+      if (!peer || !canMessageAcrossShifts(user, peer)) {
+        return null;
+      }
+      if (forWrite && !peer.isActive) {
+        return null;
+      }
+    }
     return { conversation, isParticipant: true, isOversight: false };
   }
 
@@ -152,13 +181,31 @@ function unknownContact(id) {
   };
 }
 
-export async function listContacts(viewerId) {
+/** Active contacts the viewer may message (same shift; admins see / are visible to all). */
+export async function listContacts(viewer) {
+  const viewerId = Number(viewer?.id ?? viewer);
+  if (!Number.isInteger(viewerId) || viewerId <= 0) return [];
+
+  const where = {
+    isActive: true,
+    id: { [Op.ne]: viewerId },
+  };
+
+  if (!isAdminRole(viewer?.role)) {
+    const shiftKey = normalizeShiftKey(viewer?.shiftKey);
+    where[Op.or] = [{ role: "admin" }, { shiftKey }];
+  }
+
   const users = await db.User.findAll({
-    where: {
-      isActive: true,
-      id: { [Op.ne]: Number(viewerId) },
-    },
-    attributes: ["id", "username", "role", "activeSessionId", "activeSessionLastSeenAt"],
+    where,
+    attributes: [
+      "id",
+      "username",
+      "role",
+      "shiftKey",
+      "activeSessionId",
+      "activeSessionLastSeenAt",
+    ],
     order: [["username", "ASC"]],
   });
   const now = Date.now();
@@ -169,7 +216,15 @@ async function loadPeerUsers(peerIds) {
   if (!peerIds.length) return new Map();
   const users = await db.User.findAll({
     where: { id: { [Op.in]: peerIds } },
-    attributes: ["id", "username", "role", "activeSessionId", "activeSessionLastSeenAt", "isActive"],
+    attributes: [
+      "id",
+      "username",
+      "role",
+      "shiftKey",
+      "activeSessionId",
+      "activeSessionLastSeenAt",
+      "isActive",
+    ],
   });
   return new Map(users.map((u) => [u.id, u]));
 }
@@ -294,6 +349,9 @@ export async function listConversationsForUser(user) {
   for (const conversation of conversations) {
     const peerId = otherDmUserId(conversation, uid);
     const peer = usersById.get(peerId) || null;
+    if (!isAdminRole(user.role) && (!peer || !canMessageAcrossShifts(user, peer))) {
+      continue;
+    }
     const lastMessage = lastMessages.get(conversation.id) || null;
     const participant = participantByConv.get(conversation.id);
     const unreadCount = await countUnread(
@@ -431,6 +489,14 @@ export async function createMessage(conversation, authorUser, body) {
 
   if (!isConversationParticipant(conversation, authorUser.id)) {
     return { error: "Cannot send messages in this conversation", status: 403 };
+  }
+
+  const peerId = otherDmUserId(conversation, authorUser.id);
+  if (peerId != null) {
+    const allowed = await canMessageUser(authorUser, peerId);
+    if (!allowed) {
+      return { error: "Cannot message users on a different shift", status: 403 };
+    }
   }
 
   const message = await db.Message.create({
