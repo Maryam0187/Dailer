@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { sendWeb3FormsClient } from "@/lib/sendWeb3FormsClient";
 import {
@@ -318,6 +319,19 @@ export default function SignInPageClient() {
                     ? "Continue to leave application"
                     : "Sign in"}
               </button>
+
+              {!isLeaveMode ? (
+                <p className="text-center text-sm text-zinc-500">
+                  Or try the{" "}
+                  <Link
+                    href="/demo"
+                    className="font-semibold text-sky-700 underline-offset-2 hover:text-sky-800 hover:underline"
+                  >
+                    interactive demo
+                  </Link>{" "}
+                  — no login required.
+                </p>
+              ) : null}
             </form>
           )}
         </div>
