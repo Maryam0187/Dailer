@@ -52,7 +52,7 @@ export default function DemoShell({ title, subtitle, children }) {
             <button
               type="button"
               onClick={() => {
-                if (confirm("Reset Northline Sales demo to a clean state?")) reset();
+                if (confirm("Reset demo to a clean state?")) reset();
               }}
               className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
             >

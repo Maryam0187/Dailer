@@ -27,7 +27,7 @@ export function createSeedState() {
   const now = Date.now();
   return {
     company: {
-      name: "Northline Sales",
+      name: "Dialer",
       tagline: "Outbound dialer · leads · team chat",
     },
     currentUserId: "u-agent",
