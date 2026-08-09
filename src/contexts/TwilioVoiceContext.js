@@ -454,32 +454,43 @@ export function TwilioVoiceProvider({ children }) {
                 });
                 const json = await res.json().catch(() => ({}));
                 const resolvedId = Number(json?.callId);
-                if (!Number.isInteger(resolvedId) || resolvedId <= 0) {
-                  try {
-                    call.reject();
-                  } catch {
-                    /* ignore */
+                if (Number.isInteger(resolvedId) && resolvedId > 0) {
+                  if (!sessionSyncRef.current) {
+                    beginSession({
+                      callId: resolvedId,
+                      callOwnedByMe: false,
+                      conferenceName: json?.conferenceName || null,
+                      inviteCallSid: sid,
+                      customerName,
+                      phoneLabel: fromParam,
+                      toNumber: fromParam,
+                    });
                   }
+                  acceptAndBind();
                   return;
                 }
-                if (!sessionSyncRef.current) {
-                  beginSession({
-                    callId: resolvedId,
-                    callOwnedByMe: false,
-                    conferenceName: json?.conferenceName || null,
-                    inviteCallSid: sid,
-                    customerName,
-                    phoneLabel: fromParam,
-                    toNumber: fromParam,
-                  });
-                }
-                acceptAndBind();
+                // Not a conference invite (e.g. IVR Dial <Client>) — show accept UI instead of rejecting.
+                incomingCallRef.current = call;
+                setIncomingInvite({
+                  source: "ivr",
+                  from: fromParam || "IVR caller",
+                  callSid: sid,
+                  customerName: "IVR caller",
+                  callId: null,
+                  conferenceName: null,
+                  participants: [],
+                });
               } catch {
-                try {
-                  call.reject();
-                } catch {
-                  /* ignore */
-                }
+                incomingCallRef.current = call;
+                setIncomingInvite({
+                  source: "ivr",
+                  from: fromParam || "IVR caller",
+                  callSid: sid || null,
+                  customerName: "IVR caller",
+                  callId: null,
+                  conferenceName: null,
+                  participants: [],
+                });
               }
             })();
             return;
@@ -495,10 +506,13 @@ export function TwilioVoiceProvider({ children }) {
 
         incomingCallRef.current = call;
         const from = String(call?.parameters?.From || "").trim();
+        const looksLikePhone = /^\+?\d{7,}$/.test(from.replace(/[\s()-]/g, ""));
         const baseInvite = {
-          from: from || "Conference invite",
+          source: looksLikePhone ? "ivr" : "invite",
+          from: from || (looksLikePhone ? "IVR caller" : "Conference invite"),
           callSid: getIncomingCallSid(call) || null,
-          customerName: String(call?.customParameters?.get?.("customerName") || "").trim() || "Customer",
+          customerName: String(call?.customParameters?.get?.("customerName") || "").trim() ||
+            (looksLikePhone ? "IVR caller" : "Customer"),
           callId: null,
           conferenceName: null,
           participants: [],
@@ -506,7 +520,7 @@ export function TwilioVoiceProvider({ children }) {
         setIncomingInvite(baseInvite);
 
         const sidForContext = baseInvite.callSid;
-        if (sidForContext) {
+        if (sidForContext && baseInvite.source !== "ivr") {
           fetch(`/api/calls/invite-context?callSid=${encodeURIComponent(sidForContext)}`, {
             credentials: "include",
           })
@@ -514,9 +528,15 @@ export function TwilioVoiceProvider({ children }) {
             .then((json) => {
               setIncomingInvite((prev) => {
                 if (!prev || prev.callSid !== sidForContext) return prev;
+                const resolvedId = Number(json?.callId);
+                if (!Number.isInteger(resolvedId) || resolvedId <= 0) {
+                  // No conference mapping — treat as IVR / direct inbound Client dial.
+                  return { ...prev, source: "ivr", customerName: prev.customerName || "IVR caller" };
+                }
                 return {
                   ...prev,
-                  callId: Number.isInteger(Number(json?.callId)) ? Number(json.callId) : null,
+                  source: "invite",
+                  callId: resolvedId,
                   conferenceName: json?.conferenceName || null,
                   participants: Array.isArray(json?.participants) ? json.participants : [],
                 };
@@ -921,10 +941,12 @@ export function TwilioVoiceProvider({ children }) {
     const snapshotInvite = incomingInvite;
     const snapshotNotify = inviteNotification;
     let callId = Number(snapshotInvite?.callId ?? snapshotNotify?.callId);
-    const inviteCallSid = String(snapshotInvite?.callSid || "").trim() || null;
+    const inviteCallSid = String(snapshotInvite?.callSid || getIncomingCallSid(call) || "").trim() || null;
+    const isIvr = snapshotInvite?.source === "ivr";
+    const fromParam = String(call?.parameters?.From || snapshotInvite?.from || "").trim();
 
     if (!Number.isInteger(callId) || callId <= 0) {
-      if (inviteCallSid) {
+      if (!isIvr && inviteCallSid) {
         try {
           const res = await fetch(
             `/api/calls/invite-context?callSid=${encodeURIComponent(inviteCallSid)}`,
@@ -935,6 +957,31 @@ export function TwilioVoiceProvider({ children }) {
         } catch {
           callId = NaN;
         }
+      }
+    }
+
+    // IVR inbound Dial <Client> — no conference CallLog yet; create one on accept.
+    if ((!Number.isInteger(callId) || callId <= 0) && isIvr) {
+      try {
+        const res = await fetch("/api/ivr/accept", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: fromParam,
+            callSid: inviteCallSid,
+            parentCallSid: String(call?.parameters?.ParentCallSid || "").trim() || null,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        callId = Number(json?.callId);
+        if (!res.ok || !Number.isInteger(callId) || callId <= 0) {
+          setSdkError(json?.error || "Unable to accept IVR call");
+          return false;
+        }
+      } catch (err) {
+        setSdkError(err?.message || "Unable to accept IVR call");
+        return false;
       }
     }
 
@@ -951,12 +998,13 @@ export function TwilioVoiceProvider({ children }) {
       if (!sessionSyncRef.current) {
         beginSession({
           callId,
-          callOwnedByMe: false,
+          callOwnedByMe: isIvr || snapshotInvite?.source === "ivr",
           conferenceName: snapshotInvite?.conferenceName || snapshotNotify?.conferenceName || null,
-          inviteCallSid,
-          customerName: snapshotInvite?.customerName?.trim() || "Customer",
-          phoneLabel: call?.parameters?.From || "",
-          toNumber: call?.parameters?.From || "",
+          inviteCallSid: isIvr ? null : inviteCallSid,
+          customerName: snapshotInvite?.customerName?.trim() || (isIvr ? "IVR caller" : "Customer"),
+          phoneLabel: fromParam,
+          toNumber: fromParam,
+          callKind: isIvr ? "ivr" : null,
         });
       }
       call.accept();

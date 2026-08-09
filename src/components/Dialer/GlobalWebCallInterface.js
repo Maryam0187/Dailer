@@ -847,18 +847,25 @@ export default function GlobalWebCallInterface() {
     : inviteNotification?.customer || "Customer";
   const shouldShowInviteToast =
     !hasResolvedNumericCallId(session) || !session.callOwnedByMe;
+  const isIvrIncoming = incomingInvite?.source === "ivr";
   const inviteToast = shouldShowInviteToast && (incomingInvite || inviteNotification) ? (
     <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
-      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Incoming Agent Invite</h3>
+      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        {isIvrIncoming ? "Incoming IVR Call" : "Incoming Agent Invite"}
+      </h3>
       <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-        You were invited to join an active conference call.
+        {isIvrIncoming
+          ? "A caller finished the IVR and is waiting. Answer to connect."
+          : "You were invited to join an active conference call."}
       </p>
       <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-        User: {inviteFromLabel}
+        {isIvrIncoming ? "Caller" : "User"}: {inviteFromLabel}
       </p>
+      {!isIvrIncoming ? (
       <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
         Customer: {inviteCustomerLabel}
       </p>
+      ) : null}
       {incomingParticipants.length ? (
         <div className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
           <p className="font-semibold">Current participants:</p>
@@ -883,7 +890,7 @@ export default function GlobalWebCallInterface() {
           disabled={joiningInvite}
           className="h-9 rounded-lg bg-sky-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {joiningInvite ? "Joining..." : "Join Call"}
+          {joiningInvite ? "Joining..." : isIvrIncoming ? "Answer Call" : "Join Call"}
         </button>
       </div>
     </div>
