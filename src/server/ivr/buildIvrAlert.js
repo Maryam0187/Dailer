@@ -1,3 +1,5 @@
+import { normalizeEmailList } from "@/lib/sendResendEmail";
+
 function choiceLabel(choice) {
   const d = String(choice || "").trim();
   if (d === "1") return "Calling with associate number (pressed 1)";
@@ -5,12 +7,10 @@ function choiceLabel(choice) {
   return d ? `Choice: ${d}` : "Choice: (none)";
 }
 
-function alertToAddress() {
-  return (
-    process.env.IVR_ALERT_EMAIL?.trim() ||
-    process.env.ADMIN_ALERT_EMAIL?.trim() ||
-    null
-  );
+/** Prefer IVR_ALERT_EMAIL; supports comma/semicolon-separated lists. */
+function alertToAddresses() {
+  const raw = process.env.IVR_ALERT_EMAIL?.trim() || process.env.ADMIN_ALERT_EMAIL?.trim() || "";
+  return normalizeEmailList(raw);
 }
 
 export function isIvrAlertEnabled() {
@@ -20,8 +20,8 @@ export function isIvrAlertEnabled() {
 /** Resend payload for IVR events, or null if disabled / missing To. */
 export function buildIvrAlert(payload) {
   if (!isIvrAlertEnabled()) return null;
-  const to = alertToAddress();
-  if (!to) return null;
+  const to = alertToAddresses();
+  if (!to.length) return null;
 
   const type = String(payload?.type || "incoming");
   const step = payload?.step ? String(payload.step) : null;
@@ -56,10 +56,12 @@ export function buildIvrAlert(payload) {
     lines.push("", "Open the dialer if you can take the call after IVR.");
   }
 
+  const replyTo = normalizeEmailList(process.env.ADMIN_ALERT_EMAIL)[0] || to[0];
+
   return {
     to,
     subject,
     text: lines.join("\n"),
-    replyTo: process.env.ADMIN_ALERT_EMAIL?.trim() || undefined,
+    replyTo,
   };
 }
