@@ -32,11 +32,11 @@ function dialTimeoutSec() {
   return 45;
 }
 
-function fallbackTwiml() {
+function busyTwiml() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXmlText(
-    "Thank you. Our representative will call you shortly. Goodbye.",
+    "We're sorry. All representatives are busy with other callers right now. Please try again later. Goodbye.",
   )}</Say>
   <Hangup/>
 </Response>`;
@@ -61,11 +61,11 @@ function connectTwiml({ callerId, identities, timeout, actionUrl }) {
   const actionAttr = actionUrl
     ? ` action="${escapeXmlAttr(actionUrl)}" method="POST"`
     : "";
-  // When action is set, Twilio fetches dial-result after Dial ends (no inline Say after Dial).
+  // ringTone plays audible ringing to the caller while Clients are dialed
+  // (including when no Device is registered). dial-result handles busy/no-answer.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${escapeXmlText("Please hold while we connect you to a representative.")}</Say>
-  <Dial answerOnBridge="true" timeout="${timeout}"${callerIdAttr}${actionAttr}>
+  <Dial answerOnBridge="true" timeout="${timeout}" ringTone="us"${callerIdAttr}${actionAttr}>
 ${clients}
   </Dial>
 </Response>`;
@@ -106,7 +106,7 @@ export async function POST(req) {
   }).catch((err) => console.warn("[ivr/connect] notify", err?.message || err));
 
   if (!targets.length) {
-    return twimlResponse(fallbackTwiml());
+    return twimlResponse(busyTwiml());
   }
 
   let callerId = "";

@@ -38,7 +38,7 @@ export async function POST(req) {
     return twimlResponse(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXmlText(
-    "Thank you. Our representative will call you shortly. Goodbye.",
+    "We're sorry. All representatives are busy with other callers right now. Please try again later. Goodbye.",
   )}</Say>
   <Hangup/>
 </Response>`);
