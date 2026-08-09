@@ -48,7 +48,13 @@ export default function IvrStaffAlert({ userRole = null }) {
           number: payload.number != null && payload.number !== "" ? payload.number : prev?.number || null,
           at: payload.at || new Date().toISOString(),
         };
-        if (!same || payload.type === "incoming" || payload.type === "gather" || payload.type === "ringing") {
+        if (
+          !same ||
+          payload.type === "incoming" ||
+          payload.type === "gather" ||
+          payload.type === "waiting" ||
+          payload.type === "ringing"
+        ) {
           playIncomingMessageSound();
         }
         return next;
@@ -67,9 +73,11 @@ export default function IvrStaffAlert({ userRole = null }) {
   const title =
     alert.type === "ringing"
       ? "IVR — ringing you"
-      : alert.type === "gather"
-        ? "IVR — gather update"
-        : "Incoming IVR call";
+      : alert.type === "waiting"
+        ? "IVR — caller on hold"
+        : alert.type === "gather"
+          ? "IVR — gather update"
+          : "Incoming IVR call";
 
   const choiceText = choiceLabel(alert.choice);
 
@@ -92,6 +100,11 @@ export default function IvrStaffAlert({ userRole = null }) {
           {alert.type === "incoming" ? (
             <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
               Caller is in IVR — stay ready to answer when it rings.
+            </p>
+          ) : null}
+          {alert.type === "waiting" ? (
+            <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
+              Caller is on hold. Open the dialer / stay online — you will ring when ready.
             </p>
           ) : null}
           {alert.type === "ringing" ? (

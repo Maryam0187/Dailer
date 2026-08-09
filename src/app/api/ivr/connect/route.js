@@ -61,7 +61,6 @@ function connectTwiml({ callerId, identities, timeout, actionUrl }) {
   const actionAttr = actionUrl
     ? ` action="${escapeXmlAttr(actionUrl)}" method="POST"`
     : "";
-  // When action is set, Twilio fetches dial-result after Dial ends (no inline Say after Dial).
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXmlText("Please hold while we connect you to a representative.")}</Say>

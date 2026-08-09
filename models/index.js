@@ -24,6 +24,7 @@ const customerPaymentMethodModelFactory = require("./CustomerPaymentMethod");
 const paymentProcessorModelFactory = require("./PaymentProcessor");
 const importBatchModelFactory = require("./ImportBatch");
 const ivrNotificationModelFactory = require("./IvrNotification");
+const ivrQueuedCallModelFactory = require("./IvrQueuedCall");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -94,6 +95,7 @@ db.CustomerPaymentMethod = customerPaymentMethodModelFactory(sequelize, Sequeliz
 db.PaymentProcessor = paymentProcessorModelFactory(sequelize, Sequelize.DataTypes);
 db.ImportBatch = importBatchModelFactory(sequelize, Sequelize.DataTypes);
 db.IvrNotification = ivrNotificationModelFactory(sequelize, Sequelize.DataTypes);
+db.IvrQueuedCall = ivrQueuedCallModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

@@ -1,5 +1,4 @@
 import db from "@/server/db";
-import { isUserOnline } from "@/server/socketHub";
 import { userHasActiveCall } from "@/server/calls/userActiveCall";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
@@ -10,7 +9,8 @@ function maxRingTargets() {
 }
 
 /**
- * Active admins who are online in the dialer and not already on a call.
+ * Active admins to ring for IVR (online or offline).
+ * Skips admins already on another call. First to answer wins via multi-Client Dial.
  * @returns {Promise<Array<{ userId: number, username: string, identity: string }>>}
  */
 export async function selectIvrTargets() {
@@ -25,7 +25,6 @@ export async function selectIvrTargets() {
 
   for (const admin of admins) {
     if (targets.length >= cap) break;
-    if (!isUserOnline(admin.id)) continue;
     try {
       if (await userHasActiveCall(admin.id)) continue;
     } catch {
