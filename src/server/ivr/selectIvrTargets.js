@@ -8,7 +8,7 @@ function maxRingTargets() {
 }
 
 /**
- * All active admins — ring regardless of online / away / already-on-a-call.
+ * All active admins — dial regardless of online / away / offline / already on a call.
  * First to answer wins via multi-Client Dial.
  * @returns {Promise<Array<{ userId: number, username: string, identity: string }>>}
  */

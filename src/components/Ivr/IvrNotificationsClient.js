@@ -13,7 +13,6 @@ function choiceLabel(choice) {
 function eventLabel(type) {
   if (type === "incoming") return "Incoming";
   if (type === "gather") return "Gather update";
-  if (type === "waiting") return "Caller on hold";
   if (type === "ringing") return "Ringing admin";
   return type || "Update";
 }
