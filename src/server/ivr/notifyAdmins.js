@@ -44,9 +44,9 @@ export async function notifyAdmins(raw) {
     console.warn("[ivr/notifyAdmins] socket", err?.message || err);
   }
 
-  // Ringing is dialer-only (avoid email spam); email on incoming + gather steps.
+  // Email only when the call first arrives. Choice/number/ringing stay dialer + DB realtime.
   let emailed = false;
-  if (payload.type !== "ringing") {
+  if (payload.type === "incoming") {
     const email = buildIvrAlert(payload);
     if (email) {
       void sendResendEmail(email).then((result) => {

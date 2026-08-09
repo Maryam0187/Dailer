@@ -1,10 +1,10 @@
 /**
- * Parse Studio HTTP Request JSON, form body, or query string.
- * Studio often sends application/json; also support key/value HTTP parameters.
+ * Parse Studio HTTP Request: query string, form fields (HTTP Parameters), or JSON.
  */
+
 export async function parseIvrBody(req) {
   const url = new URL(req.url);
-  const fromQuery = pickParams(Object.fromEntries(url.searchParams.entries()));
+  const fromQuery = Object.fromEntries(url.searchParams.entries());
 
   const contentType = String(req.headers.get("content-type") || "").toLowerCase();
   let fromBody = {};
@@ -15,67 +15,83 @@ export async function parseIvrBody(req) {
       if (text && text.trim()) {
         try {
           const json = JSON.parse(text);
-          if (json && typeof json === "object") fromBody = pickParams(json);
+          if (json && typeof json === "object" && !Array.isArray(json)) fromBody = json;
         } catch {
-          // Studio occasionally posts raw key=value in a JSON content-type
-          fromBody = pickParams(Object.fromEntries(new URLSearchParams(text)));
+          fromBody = Object.fromEntries(new URLSearchParams(text));
         }
       }
-    } else {
-      const form = await req.formData();
-      const obj = {};
-      for (const [key, value] of form.entries()) {
-        obj[key] = typeof value === "string" ? value : String(value);
+    } else if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data") || !contentType) {
+      try {
+        const form = await req.formData();
+        for (const [key, value] of form.entries()) {
+          fromBody[key] = typeof value === "string" ? value : String(value);
+        }
+      } catch {
+        /* empty body */
       }
-      fromBody = pickParams(obj);
+    } else {
+      const text = await req.text().catch(() => "");
+      if (text) {
+        try {
+          fromBody = Object.fromEntries(new URLSearchParams(text));
+        } catch {
+          fromBody = {};
+        }
+      }
     }
   } catch {
     fromBody = {};
   }
 
-  return normalize({ ...fromQuery, ...compact(fromBody) });
+  // Body wins over query when both set; compact drops empty / unresolved liquid.
+  return normalize(compact({ ...fromQuery, ...fromBody }));
 }
 
-function pickParams(raw) {
-  if (!raw || typeof raw !== "object") return {};
-  return {
-    type: raw.type,
-    step: raw.step,
-    from: raw.from ?? raw.From,
-    to: raw.to ?? raw.To,
-    callSid: raw.callSid ?? raw.CallSid,
-    choice: raw.choice ?? raw.Digits,
-    number: raw.number,
-  };
+function firstDefined(raw, keys) {
+  for (const key of keys) {
+    if (raw[key] != null && String(raw[key]).trim() !== "") return raw[key];
+  }
+  return null;
 }
 
 function compact(obj) {
   const out = {};
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [k, v] of Object.entries(obj || {})) {
     if (v == null) continue;
     const s = String(v).trim();
-    if (!s || s.startsWith("{{")) continue; // unresolved liquid
+    if (!s) continue;
+    // Unresolved Studio liquid
+    if (s.includes("{{") && s.includes("}}")) continue;
     out[k] = s;
   }
   return out;
 }
 
 function normalize(raw) {
-  const from = raw.from != null ? String(raw.from).trim() : null;
-  const to = raw.to != null ? String(raw.to).trim() : null;
-  const callSid = raw.callSid != null ? String(raw.callSid).trim() : null;
-  const choice = raw.choice != null ? String(raw.choice).trim() : null;
-  const number = raw.number != null ? String(raw.number).trim() : null;
-  const step = raw.step != null ? String(raw.step).trim() : null;
-  const type = raw.type != null ? String(raw.type).trim() : null;
+  const from = firstDefined(raw, ["from", "From"]);
+  const to = firstDefined(raw, ["to", "To"]);
+  const callSid = firstDefined(raw, ["callSid", "CallSid", "call_sid"]);
+  // Studio Gather often exposes Digits; our widgets send choice / number.
+  const choice = firstDefined(raw, ["choice", "Choice", "digits", "Digits", "ask_choice"]);
+  const number = firstDefined(raw, ["number", "Number", "numberEntered", "ask_number"]);
+  const step = firstDefined(raw, ["step", "Step"]);
+  const type = firstDefined(raw, ["type", "Type"]);
+
+  // If only Digits arrived, map by step.
+  let resolvedChoice = choice;
+  let resolvedNumber = number;
+  const digitsOnly = firstDefined(raw, ["Digits", "digits"]);
+  if (step === "number" && !resolvedNumber && digitsOnly) resolvedNumber = digitsOnly;
+  if ((step === "choice" || !step) && !resolvedChoice && digitsOnly) resolvedChoice = digitsOnly;
+
   return {
     type: type || null,
     step: step || null,
     from: from || null,
     to: to || null,
     callSid: callSid || null,
-    choice: choice || null,
-    number: number || null,
+    choice: resolvedChoice || null,
+    number: resolvedNumber || null,
   };
 }
 

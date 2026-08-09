@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTwilioFromNumber } from "@/server/twilio";
+import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { assertIvrSecret, parseIvrBody } from "@/server/ivr/parseIvrBody";
 import { notifyAdmins } from "@/server/ivr/notifyAdmins";
 import { selectIvrTargets } from "@/server/ivr/selectIvrTargets";
@@ -41,21 +42,32 @@ function fallbackTwiml() {
 </Response>`;
 }
 
-function connectTwiml({ callerId, identities, timeout }) {
+function buildDialActionUrl(req) {
+  const origin =
+    getRequestBaseUrlFromRequest(req) ||
+    process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "") ||
+    "";
+  if (!origin) return "";
+  const secret = process.env.IVR_WEBHOOK_SECRET?.trim();
+  const qs = secret ? `?secret=${encodeURIComponent(secret)}` : "";
+  return `${origin}/api/ivr/dial-result${qs}`;
+}
+
+function connectTwiml({ callerId, identities, timeout, actionUrl }) {
   const clients = identities
     .map((id) => `    <Client>${escapeXmlText(id)}</Client>`)
     .join("\n");
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
+  const actionAttr = actionUrl
+    ? ` action="${escapeXmlAttr(actionUrl)}" method="POST"`
+    : "";
+  // When action is set, Twilio fetches dial-result after Dial ends (no inline Say after Dial).
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXmlText("Please hold while we connect you to a representative.")}</Say>
-  <Dial answerOnBridge="true" timeout="${timeout}"${callerIdAttr}>
+  <Dial answerOnBridge="true" timeout="${timeout}"${callerIdAttr}${actionAttr}>
 ${clients}
   </Dial>
-  <Say voice="alice">${escapeXmlText(
-    "Thank you. Our representative will call you shortly. Goodbye.",
-  )}</Say>
-  <Hangup/>
 </Response>`;
 }
 
@@ -76,11 +88,7 @@ export async function POST(req) {
     body = {};
   }
 
-  // Studio Redirect often sends Twilio form fields; query can carry gather context.
-  const from =
-    body.from ||
-    url.searchParams.get("from") ||
-    null;
+  const from = body.from || url.searchParams.get("from") || null;
   const to = body.to || url.searchParams.get("to") || null;
   const callSid = body.callSid || url.searchParams.get("callSid") || null;
   const choice = body.choice || url.searchParams.get("choice") || null;
@@ -113,6 +121,7 @@ export async function POST(req) {
       callerId,
       identities: targets.map((t) => t.identity),
       timeout: dialTimeoutSec(),
+      actionUrl: buildDialActionUrl(req),
     }),
   );
 }
