@@ -5,6 +5,7 @@ import { TwilioVoiceProvider } from "@/contexts/TwilioVoiceContext";
 import { MessagingProvider } from "@/contexts/MessagingContext";
 import GlobalWebCallInterface from "@/components/Dialer/GlobalWebCallInterface";
 import MessagingSlideOver from "@/components/Messaging/MessagingSlideOver";
+import IvrStaffAlert from "@/components/layout/IvrStaffAlert";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
 import ShiftLogoutGuard from "@/components/layout/ShiftLogoutGuard";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
@@ -19,6 +20,7 @@ export default function MainAppShell({ children, currentUserId = null, userRole 
             <VoiceLockBanner />
             {children}
             <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
+            <IvrStaffAlert userRole={userRole} />
             <GlobalWebCallInterface />
           </ThemeProvider>
         </MessagingProvider>
