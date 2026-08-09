@@ -4,6 +4,12 @@ import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { assertIvrSecret, parseIvrBody } from "@/server/ivr/parseIvrBody";
 import { notifyAdmins } from "@/server/ivr/notifyAdmins";
 import { selectIvrTargets } from "@/server/ivr/selectIvrTargets";
+import {
+  busyWithFullRingTwiml,
+  dialTimeoutSec,
+  escapeXmlAttr,
+  escapeXmlText,
+} from "@/server/ivr/ivrRingTwiml";
 
 export const runtime = "nodejs";
 
@@ -14,39 +20,17 @@ function twimlResponse(xml) {
   });
 }
 
-function escapeXmlAttr(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function escapeXmlText(value) {
-  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;");
-}
-
-function dialTimeoutSec() {
-  const n = Number(process.env.IVR_DIAL_TIMEOUT_SEC);
-  if (Number.isInteger(n) && n >= 5 && n <= 120) return n;
-  return 45;
-}
-
-function busyTwiml() {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">${escapeXmlText(
-    "We're sorry. All representatives are busy with other callers right now. Please try again later. Goodbye.",
-  )}</Say>
-  <Hangup/>
-</Response>`;
+function publicBase(req) {
+  return (
+    getRequestBaseUrlFromRequest(req) ||
+    process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "") ||
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    ""
+  );
 }
 
 function buildDialActionUrl(req) {
-  const origin =
-    getRequestBaseUrlFromRequest(req) ||
-    process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "") ||
-    "";
+  const origin = publicBase(req);
   if (!origin) return "";
   const secret = process.env.IVR_WEBHOOK_SECRET?.trim();
   const qs = secret ? `?secret=${encodeURIComponent(secret)}` : "";
@@ -61,8 +45,8 @@ function connectTwiml({ callerId, identities, timeout, actionUrl }) {
   const actionAttr = actionUrl
     ? ` action="${escapeXmlAttr(actionUrl)}" method="POST"`
     : "";
-  // ringTone plays audible ringing to the caller while Clients are dialed
-  // (including when no Device is registered). dial-result handles busy/no-answer.
+  // ringTone = ringing while Dial runs. If Clients are unregistered, Dial often
+  // ends in a few seconds; dial-result then plays more ringback up to timeout.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial answerOnBridge="true" timeout="${timeout}" ringTone="us"${callerIdAttr}${actionAttr}>
@@ -95,6 +79,7 @@ export async function POST(req) {
   const number = body.number || url.searchParams.get("number") || null;
 
   const targets = await selectIvrTargets();
+  const baseUrl = publicBase(req);
 
   void notifyAdmins({
     type: "ringing",
@@ -106,7 +91,7 @@ export async function POST(req) {
   }).catch((err) => console.warn("[ivr/connect] notify", err?.message || err));
 
   if (!targets.length) {
-    return twimlResponse(busyTwiml());
+    return twimlResponse(busyWithFullRingTwiml(baseUrl));
   }
 
   let callerId = "";
