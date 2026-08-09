@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
@@ -98,6 +99,12 @@ export default function IvrStaffAlert({ userRole = null }) {
               Answer the incoming call to connect.
             </p>
           ) : null}
+          <Link
+            href="/ivr-notifications"
+            className="mt-2 inline-block text-xs font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-300"
+          >
+            Open IVR notifications
+          </Link>
         </div>
         <button
           type="button"

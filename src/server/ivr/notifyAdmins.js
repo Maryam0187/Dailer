@@ -2,9 +2,10 @@ import db from "@/server/db";
 import { sendResendEmail } from "@/lib/sendResendEmail";
 import { emitToUser } from "@/server/socketHub";
 import { buildIvrAlert, isIvrAlertEnabled } from "@/server/ivr/buildIvrAlert";
+import { persistIvrNotification } from "@/server/ivr/persistIvrNotification";
 
 /**
- * Email (always when configured) + socket toast to every active admin.
+ * Persist log + email (when configured) + socket toast to every active admin.
  * @param {{ type: string, step?: string|null, from?: string, to?: string, callSid?: string, choice?: string, number?: string }} raw
  */
 export async function notifyAdmins(raw) {
@@ -23,6 +24,13 @@ export async function notifyAdmins(raw) {
     at: new Date().toISOString(),
   };
 
+  const notification = await persistIvrNotification(payload);
+  const socketPayload = {
+    ...payload,
+    notificationId: notification?.id || null,
+    notification: notification || null,
+  };
+
   let socketTargets = 0;
   try {
     const admins = await db.User.findAll({
@@ -30,7 +38,7 @@ export async function notifyAdmins(raw) {
       attributes: ["id"],
     });
     for (const admin of admins) {
-      if (emitToUser(admin.id, "ivr:alert", payload)) socketTargets += 1;
+      if (emitToUser(admin.id, "ivr:alert", socketPayload)) socketTargets += 1;
     }
   } catch (err) {
     console.warn("[ivr/notifyAdmins] socket", err?.message || err);
@@ -50,5 +58,5 @@ export async function notifyAdmins(raw) {
     }
   }
 
-  return { emailed, socketTargets, payload };
+  return { emailed, socketTargets, payload, notification };
 }
