@@ -40,6 +40,7 @@ function contextFrom(req, body) {
     to: body.to || url.searchParams.get("to") || null,
     callSid: body.callSid || url.searchParams.get("callSid") || null,
     choice: body.choice || url.searchParams.get("choice") || null,
+    associate: body.associate || url.searchParams.get("associate") || null,
     number: body.number || url.searchParams.get("number") || null,
     startedAt: Number(url.searchParams.get("startedAt")) || Date.now(),
     isFirstPass: !url.searchParams.has("startedAt"),
@@ -103,6 +104,7 @@ export async function POST(req) {
       to: ctx.to,
       callSid: ctx.callSid,
       choice: ctx.choice,
+      associate: ctx.associate,
       number: ctx.number,
     }).catch((err) => console.warn("[ivr/connect] notify", err?.message || err));
   }
@@ -117,6 +119,7 @@ export async function POST(req) {
     to: ctx.to,
     callSid: ctx.callSid,
     choice: ctx.choice,
+    associate: ctx.associate,
     number: ctx.number,
   });
   const reconnectUrl = `${baseUrl}/api/ivr/connect?${loopQs}`;

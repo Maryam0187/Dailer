@@ -71,18 +71,21 @@ function normalize(raw) {
   const from = firstDefined(raw, ["from", "From"]);
   const to = firstDefined(raw, ["to", "To"]);
   const callSid = firstDefined(raw, ["callSid", "CallSid", "call_sid"]);
-  // Studio Gather often exposes Digits; our widgets send choice / number.
-  const choice = firstDefined(raw, ["choice", "Choice", "digits", "Digits", "ask_choice"]);
+  // Studio Gather often exposes Digits; our widgets send choice / associate / number.
+  const choice = firstDefined(raw, ["choice", "Choice", "ask_choice"]);
+  const associate = firstDefined(raw, ["associate", "Associate", "hasAssociate"]);
   const number = firstDefined(raw, ["number", "Number", "numberEntered", "ask_number"]);
   const step = firstDefined(raw, ["step", "Step"]);
   const type = firstDefined(raw, ["type", "Type"]);
 
-  // If only Digits arrived, map by step.
+  // If only Digits arrived, map by step (do not let associate digits overwrite service choice).
   let resolvedChoice = choice;
+  let resolvedAssociate = associate;
   let resolvedNumber = number;
   const digitsOnly = firstDefined(raw, ["Digits", "digits"]);
   if (step === "number" && !resolvedNumber && digitsOnly) resolvedNumber = digitsOnly;
-  if ((step === "choice" || !step) && !resolvedChoice && digitsOnly) resolvedChoice = digitsOnly;
+  else if (step === "associate" && !resolvedAssociate && digitsOnly) resolvedAssociate = digitsOnly;
+  else if ((step === "choice" || !step) && !resolvedChoice && digitsOnly) resolvedChoice = digitsOnly;
 
   return {
     type: type || null,
@@ -91,6 +94,7 @@ function normalize(raw) {
     to: to || null,
     callSid: callSid || null,
     choice: resolvedChoice || null,
+    associate: resolvedAssociate || null,
     number: resolvedNumber || null,
   };
 }

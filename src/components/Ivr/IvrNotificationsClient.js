@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
-import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { ivrAssociateLabel, ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+
+function customerSummary(customer) {
+  if (!customer?.id) return null;
+  const name = customer.fullName || `Customer #${customer.id}`;
+  return customer.phone ? `${name} (${customer.phone})` : name;
+}
 
 function eventLabel(type) {
   if (type === "incoming") return "Incoming";
@@ -157,8 +163,39 @@ export default function IvrNotificationsClient() {
                   </div>
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
                     Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
+                    {(() => {
+                      const assoc = ivrAssociateLabel(row.associate, { empty: null });
+                      return assoc ? ` · ${assoc}` : "";
+                    })()}
                     {row.numberEntered ? ` · Number: ${row.numberEntered}` : ""}
                   </p>
+                  {row.customer || row.associateCustomer ? (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                      {row.customer ? (
+                        <>
+                          Customer:{" "}
+                          <a
+                            href="/customers"
+                            className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
+                          >
+                            {customerSummary(row.customer)}
+                          </a>
+                        </>
+                      ) : null}
+                      {row.customer && row.associateCustomer ? " · " : null}
+                      {row.associateCustomer ? (
+                        <>
+                          Associate match:{" "}
+                          <a
+                            href="/customers"
+                            className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
+                          >
+                            {customerSummary(row.associateCustomer)}
+                          </a>
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-zinc-500">
                     To {row.toNumber || "—"} · Updated {formatWhen(row.updatedAt || row.createdAt)}
                     {row.callSid ? ` · ${row.callSid}` : ""}

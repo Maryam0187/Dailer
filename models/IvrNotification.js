@@ -34,6 +34,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(16),
         allowNull: true,
       },
+      /** Recent-charge path: "0" = connect agent, "1" = has associate #, "2" = does not. */
+      associate: {
+        type: DataTypes.STRING(8),
+        allowNull: true,
+      },
       numberEntered: {
         type: DataTypes.STRING(64),
         allowNull: true,

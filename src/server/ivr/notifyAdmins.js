@@ -6,7 +6,7 @@ import { persistIvrNotification } from "@/server/ivr/persistIvrNotification";
 
 /**
  * Persist log + email (when configured) + socket toast to every active admin.
- * @param {{ type: string, step?: string|null, from?: string, to?: string, callSid?: string, choice?: string, number?: string }} raw
+ * @param {{ type: string, step?: string|null, from?: string, to?: string, callSid?: string, choice?: string, associate?: string, number?: string }} raw
  */
 export async function notifyAdmins(raw) {
   if (!isIvrAlertEnabled()) {
@@ -20,6 +20,7 @@ export async function notifyAdmins(raw) {
     to: String(raw?.to || "").trim() || null,
     callSid: String(raw?.callSid || "").trim() || null,
     choice: raw?.choice != null ? String(raw.choice).trim() : null,
+    associate: raw?.associate != null ? String(raw.associate).trim() : null,
     number: raw?.number != null ? String(raw.number).trim() : null,
     at: new Date().toISOString(),
   };
@@ -27,6 +28,8 @@ export async function notifyAdmins(raw) {
   const notification = await persistIvrNotification(payload);
   const socketPayload = {
     ...payload,
+    customer: notification?.customer || null,
+    associateCustomer: notification?.associateCustomer || null,
     notificationId: notification?.id || null,
     notification: notification || null,
   };
@@ -47,7 +50,11 @@ export async function notifyAdmins(raw) {
   // Email only when the call first arrives. Choice/number/ringing stay dialer + DB realtime.
   let emailed = false;
   if (payload.type === "incoming") {
-    const email = buildIvrAlert(payload);
+    const email = buildIvrAlert({
+      ...payload,
+      customer: notification?.customer || null,
+      associateCustomer: notification?.associateCustomer || null,
+    });
     if (email) {
       void sendResendEmail(email).then((result) => {
         if (!result?.ok && !result?.skipped) {

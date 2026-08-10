@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { serializeIvrNotification } from "@/server/ivr/persistIvrNotification";
+import { serializeIvrNotificationWithCustomers } from "@/server/ivr/persistIvrNotification";
 
 export const runtime = "nodejs";
 
@@ -22,10 +22,12 @@ export async function GET() {
     limit: 100,
   });
 
+  const notifications = await Promise.all(rows.map((row) => serializeIvrNotificationWithCustomers(row)));
+
   return NextResponse.json({
     ok: true,
     unreadCount: await countUnread(),
-    notifications: rows.map(serializeIvrNotification),
+    notifications,
   });
 }
 

@@ -1,10 +1,17 @@
-import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { ivrAssociateLabel, ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { normalizeEmailList } from "@/lib/sendResendEmail";
 
 /** Prefer IVR_ALERT_EMAIL; supports comma/semicolon-separated lists. */
 function alertToAddresses() {
   const raw = process.env.IVR_ALERT_EMAIL?.trim() || process.env.ADMIN_ALERT_EMAIL?.trim() || "";
   return normalizeEmailList(raw);
+}
+
+function customerLine(label, customer) {
+  if (!customer?.id) return null;
+  const name = customer.fullName || "Customer";
+  const phone = customer.phone ? ` (${customer.phone})` : "";
+  return `${label}: ${name}${phone} [#${customer.id}]`;
 }
 
 export function isIvrAlertEnabled() {
@@ -23,11 +30,13 @@ export function buildIvrAlert(payload) {
   const callTo = String(payload?.to || "").trim() || "(unknown)";
   const callSid = String(payload?.callSid || "").trim() || "(none)";
   const choice = payload?.choice != null ? String(payload.choice) : "";
+  const associate = payload?.associate != null ? String(payload.associate) : "";
   const number = payload?.number != null ? String(payload.number) : "";
   const when = payload?.at || new Date().toLocaleString();
 
   let subject = "Dialer IVR: incoming call";
   if (type === "gather" && step === "choice") subject = "Dialer IVR: caller choice";
+  else if (type === "gather" && step === "associate") subject = "Dialer IVR: associate answer";
   else if (type === "gather" && step === "number") subject = "Dialer IVR: caller number";
   else if (type === "gather") subject = "Dialer IVR: gather update";
   else if (type === "ringing") subject = "Dialer IVR: ringing admin";
@@ -41,9 +50,19 @@ export function buildIvrAlert(payload) {
     `CallSid: ${callSid}`,
   ];
 
-  if (type === "gather" || choice || number) {
+  if (type === "gather" || choice || associate || number) {
     lines.push("", ivrChoiceLabel(choice));
+    const assoc = ivrAssociateLabel(associate, { empty: null });
+    if (assoc) lines.push(assoc);
     if (number) lines.push(`Entered number: ${number}`);
+  }
+
+  const callerCustomer = customerLine("Caller customer", payload?.customer);
+  const assocCustomer = customerLine("Associate-number customer", payload?.associateCustomer);
+  if (callerCustomer || assocCustomer) {
+    lines.push("");
+    if (callerCustomer) lines.push(callerCustomer);
+    if (assocCustomer) lines.push(assocCustomer);
   }
 
   if (type === "incoming") {
