@@ -24,6 +24,9 @@ function phoneVariants(raw) {
       variants.add(`+${digits}`);
       variants.add(digits.slice(1));
     }
+    if (digits.length >= 7 && digits.length <= 15) {
+      variants.add(`+${digits}`);
+    }
   }
 
   return [...variants].filter(Boolean);
@@ -38,34 +41,99 @@ function serializeCustomerMatch(row) {
   };
 }
 
+function serializeLastSale(lead) {
+  if (!lead?.id) return null;
+  return {
+    id: lead.id,
+    fullName: lead.fullName || null,
+    phone: lead.phone || null,
+    status: lead.status || null,
+    createdAt: lead.createdAt ? new Date(lead.createdAt).toISOString() : null,
+  };
+}
+
+async function findCustomerByExactPhoneVariants(variants) {
+  if (!variants.length) return null;
+  return db.Customer.findOne({
+    where: { phone: { [Op.in]: variants } },
+    attributes: ["id", "phone", "fullName"],
+    order: [["id", "ASC"]],
+  });
+}
+
+async function findCustomerByPhoneSuffix(digits) {
+  if (!digits || digits.length < 4) return null;
+  const tails = [...new Set([digits, digits.slice(-10), digits.slice(-7)].filter((t) => t.length >= 4))];
+  for (const tail of tails) {
+    const row = await db.Customer.findOne({
+      where: { phone: { [Op.like]: `%${tail}` } },
+      attributes: ["id", "phone", "fullName"],
+      order: [["id", "ASC"]],
+    });
+    if (row) return row;
+  }
+  return null;
+}
+
+async function findCustomerViaLeadPhone(variants, digits) {
+  const or = [];
+  if (variants.length) or.push({ phone: { [Op.in]: variants } });
+  if (digits && digits.length >= 4) {
+    or.push({ phone: { [Op.like]: `%${digits.slice(-10)}` } });
+  }
+  if (!or.length) return null;
+
+  const lead = await db.Lead.findOne({
+    where: { [Op.or]: or },
+    attributes: ["id", "customerId", "phone"],
+    include: [
+      {
+        model: db.Customer,
+        as: "customer",
+        attributes: ["id", "phone", "fullName"],
+        required: true,
+      },
+    ],
+    order: [["id", "DESC"]],
+  });
+  return lead?.customer || null;
+}
+
+async function withLastSale(customer) {
+  if (!customer?.id) return customer;
+  try {
+    const lead = await db.Lead.findOne({
+      where: { customerId: customer.id },
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "fullName", "phone", "status", "createdAt"],
+    });
+    return { ...customer, lastSale: serializeLastSale(lead) };
+  } catch (err) {
+    console.warn("[ivr/lookupIvrCustomers] lastSale", err?.message || err);
+    return { ...customer, lastSale: null };
+  }
+}
+
 /**
- * Match a Customer by phone / associate digits (exact variants, then ending digits).
+ * Match a Customer by phone / associate digits (Customer.phone, then Lead.phone).
  */
 export async function findCustomerByPhoneOrNumber(raw) {
-  const variants = phoneVariants(raw);
-  const digits = String(raw || "").replace(/\D/g, "");
+  const input = String(raw || "").trim();
+  if (!input) return null;
+
+  const variants = phoneVariants(input);
+  const digits = input.replace(/\D/g, "");
   if (!variants.length && digits.length < 4) return null;
 
   try {
-    if (variants.length) {
-      const exact = await db.Customer.findOne({
-        where: { phone: { [Op.in]: variants } },
-        attributes: ["id", "phone", "fullName"],
-        order: [["id", "ASC"]],
-      });
-      if (exact) return serializeCustomerMatch(exact);
-    }
+    const exact = await findCustomerByExactPhoneVariants(variants);
+    if (exact) return withLastSale(serializeCustomerMatch(exact));
 
-    // Associate numbers may be a partial phone / account-style digit string.
-    if (digits.length >= 7) {
-      const tail = digits.slice(-10);
-      const fuzzy = await db.Customer.findOne({
-        where: { phone: { [Op.like]: `%${tail}` } },
-        attributes: ["id", "phone", "fullName"],
-        order: [["id", "ASC"]],
-      });
-      if (fuzzy) return serializeCustomerMatch(fuzzy);
-    }
+    const suffix = await findCustomerByPhoneSuffix(digits);
+    if (suffix) return withLastSale(serializeCustomerMatch(suffix));
+
+    const viaLead = await findCustomerViaLeadPhone(variants, digits);
+    if (viaLead) return withLastSale(serializeCustomerMatch(viaLead));
   } catch (err) {
     console.warn("[ivr/lookupIvrCustomers]", err?.message || err);
   }
@@ -73,11 +141,16 @@ export async function findCustomerByPhoneOrNumber(raw) {
   return null;
 }
 
-/** Caller From + optional associate number entered in IVR. */
+/**
+ * Caller From → customer.
+ * Entered associate number (IVR gather step=number) → associateCustomer.
+ * Each match includes lastSale (latest lead) when present.
+ */
 export async function lookupIvrCustomers({ from, number } = {}) {
+  const associateNumber = String(number || "").trim();
   const [customer, associateCustomer] = await Promise.all([
     findCustomerByPhoneOrNumber(from),
-    number ? findCustomerByPhoneOrNumber(number) : Promise.resolve(null),
+    associateNumber ? findCustomerByPhoneOrNumber(associateNumber) : Promise.resolve(null),
   ]);
   return { customer, associateCustomer };
 }

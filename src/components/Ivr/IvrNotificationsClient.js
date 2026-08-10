@@ -3,12 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrAssociateLabel, ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
-
-function customerSummary(customer) {
-  if (!customer?.id) return null;
-  const name = customer.fullName || `Customer #${customer.id}`;
-  return customer.phone ? `${name} (${customer.phone})` : name;
-}
+import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 function eventLabel(type) {
   if (type === "incoming") return "Incoming";
@@ -161,6 +156,15 @@ export default function IvrNotificationsClient() {
                     </span>
                     <span className="text-xs text-zinc-500">{eventLabel(row.lastEventType)}</span>
                   </div>
+                  {row.customer ? (
+                    <IvrCustomerMatchRow
+                      label="Caller"
+                      customer={{
+                        ...row.customer,
+                        phone: row.fromNumber || row.customer.phone,
+                      }}
+                    />
+                  ) : null}
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
                     Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
                     {(() => {
@@ -169,33 +173,7 @@ export default function IvrNotificationsClient() {
                     })()}
                     {row.numberEntered ? ` · Number: ${row.numberEntered}` : ""}
                   </p>
-                  {row.customer || row.associateCustomer ? (
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                      {row.customer ? (
-                        <>
-                          Customer:{" "}
-                          <a
-                            href="/customers"
-                            className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
-                          >
-                            {customerSummary(row.customer)}
-                          </a>
-                        </>
-                      ) : null}
-                      {row.customer && row.associateCustomer ? " · " : null}
-                      {row.associateCustomer ? (
-                        <>
-                          Associate match:{" "}
-                          <a
-                            href="/customers"
-                            className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
-                          >
-                            {customerSummary(row.associateCustomer)}
-                          </a>
-                        </>
-                      ) : null}
-                    </p>
-                  ) : null}
+                  <IvrCustomerMatchRow label="Associate match" customer={row.associateCustomer} />
                   <p className="text-xs text-zinc-500">
                     To {row.toNumber || "—"} · Updated {formatWhen(row.updatedAt || row.createdAt)}
                     {row.callSid ? ` · ${row.callSid}` : ""}

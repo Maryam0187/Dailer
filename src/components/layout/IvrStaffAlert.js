@@ -5,11 +5,16 @@ import { useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrAssociateLabel, ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
+import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
-function customerLabel(customer) {
-  if (!customer?.id) return null;
-  const name = customer.fullName || "Customer";
-  return customer.phone ? `${name} · ${customer.phone}` : name;
+function mergeCustomerMatch(prev, next) {
+  if (!next?.id) return prev || null;
+  if (!prev?.id || prev.id !== next.id) return next;
+  return {
+    ...prev,
+    ...next,
+    lastSale: next.lastSale || prev.lastSale || null,
+  };
 }
 
 /**
@@ -50,8 +55,11 @@ export default function IvrStaffAlert({ userRole = null }) {
               ? payload.associate
               : prev?.associate || null,
           number: payload.number != null && payload.number !== "" ? payload.number : prev?.number || null,
-          customer: payload.customer || prev?.customer || null,
-          associateCustomer: payload.associateCustomer || prev?.associateCustomer || null,
+          customer: mergeCustomerMatch(prev?.customer, payload.customer),
+          associateCustomer: mergeCustomerMatch(
+            prev?.associateCustomer,
+            payload.associateCustomer,
+          ),
           at: payload.at || new Date().toISOString(),
         };
         if (!same || payload.type === "incoming" || payload.type === "gather" || payload.type === "ringing") {
@@ -82,28 +90,25 @@ export default function IvrStaffAlert({ userRole = null }) {
       ? ivrChoiceLabel(alert.choice, { empty: "", prefix: false })
       : null;
   const associateText = ivrAssociateLabel(alert.associate, { empty: null });
-  const callerCustomer = customerLabel(alert.customer);
-  const assocCustomer = customerLabel(alert.associateCustomer);
 
   return (
     <div className="fixed right-4 top-4 z-[10002] w-full max-w-sm rounded-xl border border-sky-200 bg-white p-3 shadow-xl dark:border-sky-900 dark:bg-zinc-900">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
-          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-            From: <span className="font-medium">{alert.from || "Unknown"}</span>
-          </p>
-          {callerCustomer ? (
+          {alert.customer ? (
+            <IvrCustomerMatchRow
+              label="Caller"
+              customer={{
+                ...alert.customer,
+                phone: alert.from || alert.customer.phone,
+              }}
+            />
+          ) : (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              Customer:{" "}
-              <Link
-                href="/customers"
-                className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
-              >
-                {callerCustomer}
-              </Link>
+              From: <span className="font-medium">{alert.from || "Unknown"}</span>
             </p>
-          ) : null}
+          )}
           {choiceText ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">Choice: {choiceText}</p>
           ) : null}
@@ -115,17 +120,7 @@ export default function IvrStaffAlert({ userRole = null }) {
               Number: <span className="font-medium">{alert.number}</span>
             </p>
           ) : null}
-          {assocCustomer ? (
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              Associate match:{" "}
-              <Link
-                href="/customers"
-                className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"
-              >
-                {assocCustomer}
-              </Link>
-            </p>
-          ) : null}
+          <IvrCustomerMatchRow label="Associate match" customer={alert.associateCustomer} />
           {alert.type === "incoming" ? (
             <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
               Caller is in IVR — stay ready to answer when it rings.

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 import {
@@ -340,6 +341,9 @@ export default function CustomersClient() {
     }
   });
 
+  const searchParams = useSearchParams();
+  const deepLinkHandledRef = useRef(false);
+
   const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
   const preferShortLabels = resolvePreferShortLabels(true, adminShortLabels);
   const activePaymentProcessors = useMemo(
@@ -498,6 +502,41 @@ export default function CustomersClient() {
   useEffect(() => {
     void loadPaymentProcessors();
   }, [loadPaymentProcessors]);
+
+  // Deep-link from IVR notifications: /customers?customerId=&leadId=
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    const cid = Number(searchParams?.get("customerId"));
+    const lid = Number(searchParams?.get("leadId"));
+    const hasCustomer = Number.isInteger(cid) && cid > 0;
+    const hasLead = Number.isInteger(lid) && lid > 0;
+    if (!hasCustomer && !hasLead) return;
+    deepLinkHandledRef.current = true;
+    setActiveView("customers");
+    if (hasCustomer) setSelectedId(cid);
+    if (hasLead) {
+      setLoadingLeadId(lid);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/leads/${lid}`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || "Failed to load lead");
+          setSelectedLead(json.lead || null);
+          if (!hasCustomer && json.lead?.customerId) {
+            setSelectedId(Number(json.lead.customerId));
+          }
+        } catch (err) {
+          setSelectedLead(null);
+          setPaymentError(err?.message || "Failed to load lead");
+        } finally {
+          setLoadingLeadId(null);
+        }
+      })();
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);

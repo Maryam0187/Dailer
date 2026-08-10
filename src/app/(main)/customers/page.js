@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import CustomersClient from "@/components/Customers/CustomersClient";
@@ -19,7 +20,13 @@ export default async function CustomersPage() {
           the latest lead.
         </p>
       </div>
-      <CustomersClient />
+      <Suspense
+        fallback={
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading customers…</p>
+        }
+      >
+        <CustomersClient />
+      </Suspense>
     </>
   );
 }
