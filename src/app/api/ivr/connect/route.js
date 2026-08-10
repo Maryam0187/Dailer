@@ -7,10 +7,11 @@ import { selectIvrTargets } from "@/server/ivr/selectIvrTargets";
 import {
   buildIvrLoopQuery,
   busySayTwiml,
-  busyWithFullRingTwiml,
   dialAttemptSec,
   escapeXmlAttr,
   escapeXmlText,
+  holdChunkSec,
+  holdWaitLoopTwiml,
   waitLoopTotalSec,
 } from "@/server/ivr/ivrRingTwiml";
 
@@ -62,8 +63,10 @@ ${clients}
 }
 
 /**
- * Wait-loop entry: Dial admins (simple Client Dial). On no-answer, dial-result
- * redirects here again until total timeout — so an admin who logs in mid-wait can still be reached.
+ * Wait-loop entry:
+ * - Online admin browsers → Dial with ringTone (first to answer wins)
+ * - None online → hold/queue audio, Redirect here again until timeout
+ * - dial-result no-answer → back here to retry / pick up newly online admins
  */
 export async function POST(req) {
   if (!assertIvrSecret(req)) {
@@ -104,19 +107,10 @@ export async function POST(req) {
     }).catch((err) => console.warn("[ivr/connect] notify", err?.message || err));
   }
 
-  // No admin users at all — ring for remaining time then busy.
-  if (!targets.length) {
-    if (ctx.isFirstPass) {
-      return twimlResponse(busyWithFullRingTwiml(baseUrl));
-    }
-    return twimlResponse(busySayTwiml());
-  }
-
   if (!baseUrl) {
     return twimlResponse(busySayTwiml());
   }
 
-  const attemptTimeout = Math.max(5, Math.min(dialAttemptSec(), remainingSec));
   const loopQs = buildIvrLoopQuery({
     startedAt: ctx.startedAt,
     from: ctx.from,
@@ -125,6 +119,22 @@ export async function POST(req) {
     choice: ctx.choice,
     number: ctx.number,
   });
+  const reconnectUrl = `${baseUrl}/api/ivr/connect?${loopQs}`;
+
+  // No admin browser online — play hold/queue, then re-enter wait-loop.
+  // When an admin opens the dialer, the next pass Dials them with ringTone.
+  if (!targets.length) {
+    const chunk = Math.min(holdChunkSec(), Math.max(3, remainingSec));
+    return twimlResponse(
+      holdWaitLoopTwiml({
+        redirectUrl: reconnectUrl,
+        baseUrl,
+        chunkSec: chunk,
+      }),
+    );
+  }
+
+  const attemptTimeout = Math.max(5, Math.min(dialAttemptSec(), remainingSec));
 
   // No time left for a meaningful Dial — brief gap then finish via dial-result path.
   if (attemptTimeout < 5) {

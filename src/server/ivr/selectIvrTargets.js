@@ -1,4 +1,5 @@
 import db from "@/server/db";
+import { isUserOnline } from "@/server/socketHub";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
 function maxRingTargets() {
@@ -8,8 +9,9 @@ function maxRingTargets() {
 }
 
 /**
- * All active admins — dial regardless of online / away / offline / already on a call.
- * First to answer wins via multi-Client Dial.
+ * Active admins with an open browser session (socket presence).
+ * Offline browsers are skipped so the wait-loop can play hold music until
+ * someone comes online, then Dial with ringTone.
  * @returns {Promise<Array<{ userId: number, username: string, identity: string }>>}
  */
 export async function selectIvrTargets() {
@@ -24,6 +26,7 @@ export async function selectIvrTargets() {
 
   for (const admin of admins) {
     if (targets.length >= cap) break;
+    if (!isUserOnline(admin.id)) continue;
     try {
       const identity = getAgentClientIdentity(admin.id, admin.username);
       targets.push({

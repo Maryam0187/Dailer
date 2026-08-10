@@ -31,12 +31,32 @@ export function waitGapSec() {
   return 2;
 }
 
+/** Hold/queue chunk while no admin browser is online (seconds, Pause fallback). */
+export function holdChunkSec() {
+  const n = Number(process.env.IVR_HOLD_CHUNK_SEC);
+  if (Number.isInteger(n) && n >= 3 && n <= 30) return n;
+  return 8;
+}
+
 export function dialTimeoutSec() {
   return waitLoopTotalSec();
 }
 
 export function busyMessage() {
   return "We're sorry. All representatives are busy with other callers right now. Please try again later. Goodbye.";
+}
+
+/** Matches Studio `thanks` widget — used when an admin declines the Client ring. */
+export function thanksMessage() {
+  return "Thank you. Our representative will call you shortly. Goodbye.";
+}
+
+export function thanksSayTwiml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${escapeXmlText(thanksMessage())}</Say>
+  <Hangup/>
+</Response>`;
 }
 
 export function ringbackUrl(baseUrl) {
@@ -73,8 +93,27 @@ export function busyWithFullRingTwiml(baseUrl) {
 }
 
 /**
- * Between Dial attempts: short gap (caller already heard ringTone during Dial),
- * then Redirect back into the wait-loop so a newly registered admin can be dialed.
+ * Hold/queue audio for one wait-loop chunk, then Redirect to /api/ivr/connect
+ * so we can Dial again if an admin browser came online.
+ */
+export function holdWaitLoopTwiml({ redirectUrl, baseUrl, chunkSec }) {
+  const audio = ringbackUrl(baseUrl);
+  const sec = Math.max(3, Math.min(30, Number(chunkSec) || holdChunkSec()));
+  // Prefer hold music; on a short remaining window use Pause so timeout stays accurate.
+  const waitXml =
+    audio && sec >= 6
+      ? `<Play>${escapeXmlText(audio)}</Play>`
+      : `<Pause length="${sec}"/>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${waitXml}
+  <Redirect method="POST">${escapeXmlText(redirectUrl)}</Redirect>
+</Response>`;
+}
+
+/**
+ * Between Dial attempts (admin was online but no answer): short pause, then
+ * Redirect so the wait-loop can Dial again (or switch to hold if they went offline).
  */
 export function retryWaitLoopTwiml({ redirectUrl, gapSec }) {
   const gap = Math.max(0, Number(gapSec) || 0);

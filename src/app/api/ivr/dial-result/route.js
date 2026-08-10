@@ -5,6 +5,7 @@ import {
   buildIvrLoopQuery,
   busySayTwiml,
   retryWaitLoopTwiml,
+  thanksSayTwiml,
   waitGapSec,
   waitLoopTotalSec,
 } from "@/server/ivr/ivrRingTwiml";
@@ -27,13 +28,17 @@ function publicBase(req) {
   );
 }
 
-/** Dial ended without a connected conversation. */
-const UNANSWERED = new Set(["busy", "no-answer", "failed", "canceled", "cancelled"]);
+/** Dial ended without a connected conversation — may retry wait-loop. */
+const RETRYABLE = new Set(["no-answer", "failed", "canceled", "cancelled"]);
+
+/** Admin rejected the Client ring (Twilio reports busy). */
+const DECLINED = new Set(["busy"]);
 
 /**
  * Twilio Dial action callback for the IVR wait-loop.
  * - Answered / completed → quiet hangup
- * - No answer → short pause, Redirect to /api/ivr/connect to Dial again (admin may have logged in)
+ * - Busy (admin declined) → thanks message, no redial
+ * - No answer → short pause, Redirect to /api/ivr/connect to Dial again
  * - Total wait exceeded → busy message
  */
 export async function POST(req) {
@@ -50,7 +55,11 @@ export async function POST(req) {
     .trim()
     .toLowerCase();
 
-  if (!UNANSWERED.has(dialStatus)) {
+  if (DECLINED.has(dialStatus)) {
+    return twimlResponse(thanksSayTwiml());
+  }
+
+  if (!RETRYABLE.has(dialStatus)) {
     // completed / answered — conversation already happened
     return twimlResponse(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>

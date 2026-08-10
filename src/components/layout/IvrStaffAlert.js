@@ -3,14 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
+import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
-
-function choiceLabel(choice) {
-  const d = String(choice || "").trim();
-  if (d === "1") return "Associate (pressed 1)";
-  if (d === "2") return "Not associate (pressed 2)";
-  return d || null;
-}
 
 /**
  * Live IVR panel for admins — merges events by callSid.
@@ -71,7 +65,9 @@ export default function IvrStaffAlert({ userRole = null }) {
         ? "IVR — gather update"
         : "Incoming IVR call";
 
-  const choiceText = choiceLabel(alert.choice);
+  const choiceText = alert.choice != null && String(alert.choice).trim()
+    ? ivrChoiceLabel(alert.choice, { empty: "", prefix: false })
+    : null;
 
   return (
     <div className="fixed right-4 top-4 z-[10002] w-full max-w-sm rounded-xl border border-sky-200 bg-white p-3 shadow-xl dark:border-sky-900 dark:bg-zinc-900">

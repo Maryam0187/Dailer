@@ -1,11 +1,5 @@
+import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { normalizeEmailList } from "@/lib/sendResendEmail";
-
-function choiceLabel(choice) {
-  const d = String(choice || "").trim();
-  if (d === "1") return "Calling with associate number (pressed 1)";
-  if (d === "2") return "Not associate — entered / will enter number (pressed 2)";
-  return d ? `Choice: ${d}` : "Choice: (none)";
-}
 
 /** Prefer IVR_ALERT_EMAIL; supports comma/semicolon-separated lists. */
 function alertToAddresses() {
@@ -48,7 +42,7 @@ export function buildIvrAlert(payload) {
   ];
 
   if (type === "gather" || choice || number) {
-    lines.push("", choiceLabel(choice));
+    lines.push("", ivrChoiceLabel(choice));
     if (number) lines.push(`Entered number: ${number}`);
   }
 

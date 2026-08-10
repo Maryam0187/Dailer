@@ -2,13 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
-
-function choiceLabel(choice) {
-  const d = String(choice || "").trim();
-  if (d === "1") return "Associate (1)";
-  if (d === "2") return "Not associate (2)";
-  return d || "—";
-}
+import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 
 function eventLabel(type) {
   if (type === "incoming") return "Incoming";
@@ -162,7 +156,7 @@ export default function IvrNotificationsClient() {
                     <span className="text-xs text-zinc-500">{eventLabel(row.lastEventType)}</span>
                   </div>
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                    Choice: {choiceLabel(row.choice)}
+                    Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
                     {row.numberEntered ? ` · Number: ${row.numberEntered}` : ""}
                   </p>
                   <p className="text-xs text-zinc-500">
