@@ -1537,6 +1537,7 @@ function EditUserModal({
   onSaved,
 }) {
   const isAdmin = viewerRole === "admin";
+  const isManager = viewerRole === "manager";
   const [username, setUsername] = useState(user.username);
   const [password, setPassword] = useState("");
   const [editRole, setEditRole] = useState(user.role);
@@ -1660,6 +1661,12 @@ function EditUserModal({
         const nextShiftKey = editRole === "admin" ? "day" : shiftKey === "night" ? "night" : "day";
         const prevShiftKey = user.shiftKey === "night" ? "night" : "day";
         if (nextShiftKey !== prevShiftKey || (editRole === "admin" && prevShiftKey !== "day")) {
+          payload.shiftKey = nextShiftKey;
+        }
+      } else if (isManager && user.role !== "admin") {
+        const nextShiftKey = shiftKey === "night" ? "night" : "day";
+        const prevShiftKey = user.shiftKey === "night" ? "night" : "day";
+        if (nextShiftKey !== prevShiftKey) {
           payload.shiftKey = nextShiftKey;
         }
       }
@@ -1988,6 +1995,21 @@ function EditUserModal({
                 </div>
               ) : null}
             </>
+          ) : isManager && user.role !== "admin" ? (
+            <div>
+              <label htmlFor="edit-shift" className={labelClass}>
+                Shift
+              </label>
+              <select
+                id="edit-shift"
+                className={inputClass}
+                value={shiftKey}
+                onChange={(e) => setShiftKey(e.target.value === "night" ? "night" : "day")}
+              >
+                <option value="day">Day (6:00 PM – 11:00 PM PKT)</option>
+                <option value="night">Night (1:00 AM – 6:00 AM PKT)</option>
+              </select>
+            </div>
           ) : null}
 
           <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-800/50">
@@ -2162,7 +2184,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
   const displayUsers = useMemo(() => {
     let sortedUsers = sortUsersForDisplay(users);
-    if (role !== "admin") return sortedUsers;
+    if (role !== "admin" && role !== "manager") return sortedUsers;
 
     if (listShiftFilter === "day" || listShiftFilter === "night") {
       sortedUsers = sortedUsers.filter(
@@ -2170,7 +2192,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       );
     }
 
-    if (!listSupervisorFilter) return sortedUsers;
+    if (role !== "admin" || !listSupervisorFilter) return sortedUsers;
 
     const supervisorId = Number(listSupervisorFilter);
     return sortedUsers.filter(
@@ -2364,6 +2386,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (createRole === "agent" && supervisorId != null) {
           payload.supervisorId = supervisorId;
         }
+        payload.shiftKey = createShiftKey === "night" ? "night" : "day";
       }
 
       const res = await fetch("/api/users", {
@@ -2445,18 +2468,18 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       createRole === "supervisor" ||
       createRole === "processor" ||
       createRole === "lead_monitor");
-  const showSupervisorSelector = role === "admin" && createRole === "agent";
+  const showSupervisorSelector = (role === "admin" || isManager) && createRole === "agent";
   const listHeading =
     role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
   const listDescription =
     role === "admin"
       ? "Everyone in the system."
       : isManager
-        ? "Agents, supervisors, processors, and lead monitors assigned to you."
+        ? "Day and night agents, supervisors, processors, and lead monitors assigned to you."
         : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showLeaveColumn = true;
-  const showShiftColumn = role === "admin";
+  const showShiftColumn = role === "admin" || isManager;
   const showAfterShiftColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
@@ -2643,7 +2666,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     </select>
                   </div>
                 ) : null}
-                {role === "admin" && createRole !== "admin" ? (
+                {((role === "admin" && createRole !== "admin") ||
+                  (role === "manager" && createRole !== "admin")) ? (
                   <div>
                     <label htmlFor="new-user-shift" className={labelClass}>
                       Shift
@@ -2657,6 +2681,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       <option value="day">Day (6:00 PM – 11:00 PM PKT)</option>
                       <option value="night">Night (1:00 AM – 6:00 AM PKT)</option>
                     </select>
+                    {role === "manager" && createRole === "agent" && supervisorId != null ? (
+                      <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        Agents assigned to a supervisor inherit that supervisor&apos;s shift.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -2722,7 +2751,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
             </p>
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
-            {role === "admin" ? (
+            {role === "admin" || role === "manager" ? (
               <>
                 <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
                   <label htmlFor="users-shift-filter" className={compactFilterLabelClass}>
@@ -2743,6 +2772,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <option value="night">Night shift</option>
                   </select>
                 </div>
+                {role === "admin" ? (
                 <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
                   <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
                     Supervisor
@@ -2761,6 +2791,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     ))}
                   </select>
                 </div>
+                ) : null}
               </>
             ) : null}
             <button
