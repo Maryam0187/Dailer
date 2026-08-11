@@ -9,6 +9,8 @@ const script = [
   "Open Dialer → place a call → watch connect → ring → in-progress",
   "On the live call: mute, keypad DTMF, start recording",
   "Add supervisor (conference) → hang up → see the call log",
+  "Open IVR → Simulate inbound (known caller) → watch gather → ring → Answer",
+  "Toggle Admin offline → simulate again to see hold / busy path",
   "Open Leads → filter Active → dial Jamie Ortiz from a lead card",
   "Open a lead → toggle Verified / Sale done → Close sale",
   "Open Messages → reply in Floor chat (try two tabs + Reset)",
@@ -45,6 +47,7 @@ export default function DemoHubPage() {
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             {[
               { href: "/demo/dialer", label: "Agent dialer", hint: "Softphone + call logs" },
+              { href: "/demo/ivr", label: "Inbound IVR", hint: "Alerts + answer" },
               { href: "/demo/leads", label: "Leads CRM", hint: "Workflow + payments" },
               { href: "/demo/messages", label: "Team messages", hint: "Floor + DMs" },
               { href: "/demo/team", label: "Team & metrics", hint: "Roles + presence" },
@@ -71,8 +74,8 @@ export default function DemoHubPage() {
               { label: "Active leads", value: stats.active },
               { label: "Sales closed", value: state.metrics.salesClosed },
               {
-                label: "Unread msgs",
-                value: helpers.unreadTotal(state.currentUserId),
+                label: "IVR unread",
+                value: helpers.ivrUnreadTotal(),
               },
             ].map((item) => (
               <div

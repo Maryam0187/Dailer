@@ -128,7 +128,7 @@ export default function DemoDialerView() {
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Call logs</h2>
-            <p className="text-sm text-zinc-500">Recent outbound activity</p>
+            <p className="text-sm text-zinc-500">Recent outbound and inbound IVR</p>
           </div>
           <p className="text-sm font-semibold text-sky-700">
             {state.metrics.callsToday} today
@@ -137,10 +137,18 @@ export default function DemoDialerView() {
         <ul className="divide-y divide-zinc-100">
           {state.callLogs.map((c) => {
             const agent = helpers.getUser(c.agentId);
+            const inbound = c.direction === "inbound" || c.callKind === "ivr";
             return (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="min-w-0">
-                  <p className="font-semibold text-zinc-950">{c.customerName}</p>
+                  <p className="font-semibold text-zinc-950">
+                    {c.customerName}
+                    {inbound ? (
+                      <span className="ml-2 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                        IVR in
+                      </span>
+                    ) : null}
+                  </p>
                   <p className="font-mono text-sm text-zinc-600">{c.phoneLabel}</p>
                   <p className="mt-1 text-xs text-zinc-500">
                     {CALL_STATUS_LABELS[c.status] || c.status}

@@ -26,7 +26,7 @@ import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
 import { syncLeadCustomer } from "@/server/customers/syncCustomer";
 
-const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7"]);
 
 function progressTagContainsLiteral(tag) {
   return Sequelize.literal(
@@ -56,10 +56,10 @@ function leadPhoneMatchClauses(raw) {
   if (digits) {
     or.push({ phone: { [Op.like]: `%${digits}%` } });
     or.push({ cellNumber: { [Op.like]: `%${digits}%` } });
-    if (digits.length >= 4) {
-      const last4 = digits.slice(-4);
-      or.push({ phone: { [Op.like]: `%${last4}` } });
-      or.push({ cellNumber: { [Op.like]: `%${last4}` } });
+    if (digits.length >= 7) {
+      const last7 = digits.slice(-7);
+      or.push({ phone: { [Op.like]: `%${last7}` } });
+      or.push({ cellNumber: { [Op.like]: `%${last7}` } });
     }
     const normalized = normalizeToE164(digits);
     if (normalized) {
@@ -81,7 +81,7 @@ function buildLeadSearchWhere(q, searchBy) {
     return { fullName: { [Op.like]: `%${check.normalized}%` } };
   }
 
-  if (searchBy === "last4") {
+  if (searchBy === "last7") {
     return {
       [Op.or]: [
         { phone: { [Op.like]: `%${check.normalized}` } },

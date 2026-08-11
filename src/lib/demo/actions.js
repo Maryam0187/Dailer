@@ -185,6 +185,9 @@ export function endCall(state, outcome = "completed") {
     conference: Boolean(call.conference),
     createdAt: endedAt,
     agentId: call.agentId,
+    direction: call.direction || "outbound",
+    callKind: call.callKind || null,
+    ivrChoice: call.ivrChoice || null,
   };
 
   return touch({
@@ -386,5 +389,259 @@ export function closeSale(state, leadId) {
   });
 }
 
-// keep uid available for future extensions
-void uid;
+function normalizePhoneDigits(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+function matchLeadByPhone(state, phone) {
+  const digits = normalizePhoneDigits(phone);
+  if (!digits) return null;
+  return (
+    state.leads.find((l) => normalizePhoneDigits(l.phone) === digits) || null
+  );
+}
+
+function buildIvrAlert(session, type) {
+  if (!session) return null;
+  return {
+    callSid: session.callSid,
+    type,
+    from: session.fromLabel,
+    to: session.toNumber,
+    choice: session.choice,
+    customer: session.customer,
+    at: new Date().toISOString(),
+  };
+}
+
+function upsertIvrNotification(state, session, lastEventType) {
+  const now = Date.now();
+  const existing = state.ivrNotifications.find((n) => n.callSid === session.callSid);
+  if (existing) {
+    return state.ivrNotifications.map((n) =>
+      n.callSid === session.callSid
+        ? {
+            ...n,
+            fromNumber: session.fromLabel,
+            toNumber: session.toNumber,
+            choice: session.choice,
+            lastEventType,
+            customer: session.customer,
+            updatedAt: now,
+          }
+        : n
+    );
+  }
+  return [
+    {
+      id: `ivr-${state.nextIvrNum}`,
+      callSid: session.callSid,
+      fromNumber: session.fromLabel,
+      toNumber: session.toNumber,
+      choice: session.choice,
+      lastEventType,
+      customer: session.customer,
+      readAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    ...state.ivrNotifications,
+  ];
+}
+
+export function ivrUnreadTotal(state) {
+  return (state.ivrNotifications || []).filter((n) => !n.readAt).length;
+}
+
+/**
+ * Start a simulated inbound IVR call (Studio incoming → gather → ring).
+ * Switches presenter to Jordan Admin so alerts are visible.
+ */
+export function simulateInboundIvr(state, options = {}) {
+  if (state.ivrSession && state.ivrSession.phase !== "ended") return state;
+  if (state.activeCall) return state;
+
+  const knownCustomer = options.knownCustomer !== false;
+  const choiceDigit = String(options.choice ?? "1");
+  const fromDigits = knownCustomer ? "4155550198" : "5035550188";
+  const fromLabel = `${fromDigits.slice(0, 3)}-${fromDigits.slice(3, 6)}-${fromDigits.slice(6)}`;
+  const lead = knownCustomer ? matchLeadByPhone(state, fromDigits) : null;
+  const customer = lead
+    ? { id: lead.id, fullName: lead.name, phone: lead.phone }
+    : null;
+
+  const session = {
+    callSid: `CA_demo_${uid("ivr")}`,
+    phase: "incoming",
+    fromDigits,
+    fromLabel,
+    toNumber: "+1 (555) 010-2000",
+    choice: null,
+    pendingChoice: choiceDigit,
+    customer,
+    outcome: null,
+    startedAt: Date.now(),
+  };
+
+  const notifications = upsertIvrNotification(state, session, "incoming");
+  const nextIvrNum = notifications[0]?.id === `ivr-${state.nextIvrNum}`
+    ? state.nextIvrNum + 1
+    : state.nextIvrNum;
+
+  return touch({
+    ...state,
+    currentUserId: "u-admin",
+    ivrSession: session,
+    ivrAlert: buildIvrAlert(session, "incoming"),
+    ivrNotifications: notifications,
+    nextIvrNum,
+  });
+}
+
+/** Advance IVR lifecycle: incoming → gather → ringing|holding → (busy). */
+export function advanceIvrPhase(state) {
+  const session = state.ivrSession;
+  if (!session || session.phase === "ended") return state;
+
+  if (session.phase === "incoming") {
+    const next = {
+      ...session,
+      phase: "gather",
+      choice: session.pendingChoice || "1",
+    };
+    return touch({
+      ...state,
+      ivrSession: next,
+      ivrAlert: buildIvrAlert(next, "gather"),
+      ivrNotifications: upsertIvrNotification(state, next, "gather"),
+    });
+  }
+
+  if (session.phase === "gather") {
+    const admin = state.users.find((u) => u.id === "u-admin");
+    const adminOnline = admin?.presence === "online";
+    if (!adminOnline) {
+      const next = { ...session, phase: "holding" };
+      return touch({
+        ...state,
+        ivrSession: next,
+        ivrAlert: buildIvrAlert(next, "incoming"),
+        ivrNotifications: upsertIvrNotification(state, next, "incoming"),
+      });
+    }
+    const next = { ...session, phase: "ringing" };
+    return touch({
+      ...state,
+      ivrSession: next,
+      ivrAlert: buildIvrAlert(next, "ringing"),
+      ivrNotifications: upsertIvrNotification(state, next, "ringing"),
+    });
+  }
+
+  if (session.phase === "holding") {
+    const next = { ...session, phase: "ended", outcome: "busy" };
+    return touch({
+      ...state,
+      ivrSession: next,
+      ivrAlert: null,
+      ivrNotifications: upsertIvrNotification(state, next, "incoming"),
+    });
+  }
+
+  return state;
+}
+
+export function acceptIvrCall(state) {
+  const session = state.ivrSession;
+  if (!session || session.phase !== "ringing" || state.activeCall) return state;
+
+  const call = {
+    id: `c-${state.nextCallNum}`,
+    toNumber: session.fromDigits,
+    phoneLabel: session.fromLabel,
+    customerName: session.customer?.fullName || "IVR caller",
+    phase: "in_progress",
+    status: "in-progress",
+    startedAt: Date.now(),
+    muted: false,
+    showKeypad: false,
+    dtmf: "",
+    recording: false,
+    conference: false,
+    participants: [{ id: state.currentUserId, name: "You (admin)", role: "admin" }],
+    agentId: state.currentUserId,
+    direction: "inbound",
+    callKind: "ivr",
+    ivrChoice: session.choice,
+  };
+
+  const now = Date.now();
+  const notifications = state.ivrNotifications.map((n) =>
+    n.callSid === session.callSid
+      ? { ...n, readAt: n.readAt || now, lastEventType: "ringing", updatedAt: now }
+      : n
+  );
+
+  return touch({
+    ...state,
+    activeCall: call,
+    nextCallNum: state.nextCallNum + 1,
+    ivrSession: { ...session, phase: "ended", outcome: "accepted" },
+    ivrAlert: null,
+    ivrNotifications: notifications,
+  });
+}
+
+export function declineIvrCall(state) {
+  const session = state.ivrSession;
+  if (!session || session.phase !== "ringing") return state;
+  const next = { ...session, phase: "ended", outcome: "declined" };
+  const now = Date.now();
+  return touch({
+    ...state,
+    ivrSession: next,
+    ivrAlert: null,
+    ivrNotifications: state.ivrNotifications.map((n) =>
+      n.callSid === session.callSid
+        ? { ...n, lastEventType: "ringing", updatedAt: now }
+        : n
+    ),
+  });
+}
+
+export function dismissIvrAlert(state) {
+  if (!state.ivrAlert) return state;
+  return touch({ ...state, ivrAlert: null });
+}
+
+export function markIvrRead(state, ids) {
+  const idSet = new Set(ids || []);
+  if (idSet.size === 0) return state;
+  const now = Date.now();
+  return touch({
+    ...state,
+    ivrNotifications: state.ivrNotifications.map((n) =>
+      idSet.has(n.id) ? { ...n, readAt: n.readAt || now } : n
+    ),
+  });
+}
+
+export function markAllIvrRead(state) {
+  const now = Date.now();
+  return touch({
+    ...state,
+    ivrNotifications: state.ivrNotifications.map((n) => ({
+      ...n,
+      readAt: n.readAt || now,
+    })),
+  });
+}
+
+export function setAdminOnlineForIvr(state, online) {
+  return touch({
+    ...state,
+    users: state.users.map((u) =>
+      u.id === "u-admin" ? { ...u, presence: online ? "online" : "offline" } : u
+    ),
+  });
+}

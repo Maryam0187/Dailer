@@ -30,7 +30,7 @@ export default function DemoTeamView() {
           You are browsing as{" "}
           <span className="font-semibold text-zinc-950">{me?.displayName}</span> (
           {ROLE_LABELS[me?.role] || me?.role}). Switch roles to see how messages and presence feel
-          for different seats.
+          for different seats. For inbound IVR alerts, use Jordan Admin.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {state.users.map((u) => (

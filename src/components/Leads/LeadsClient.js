@@ -130,10 +130,10 @@ function filterChipClass(active) {
 }
 
 const SEARCH_BY_OPTIONS = [
-  { value: "all", label: "All", placeholder: "Phone, name, or last 4" },
+  { value: "all", label: "All", placeholder: "Phone, name, or last 7" },
   { value: "phone", label: "Phone", placeholder: "Phone number" },
   { value: "name", label: "Name", placeholder: "Lead name" },
-  { value: "last4", label: "Last 4", placeholder: "Phone last 4 digits" },
+  { value: "last7", label: "Last 7", placeholder: "Phone last 7 digits" },
 ];
 
 function hasActiveLeadFilters({
@@ -447,7 +447,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         params.set("q", q.trim());
         params.set("searchBy", searchBy);
       } else if (appliedFrom && appliedTo) {
-        // Date range applies only when not doing a phone/name/last4 search
+        // Date range applies only when not doing a phone/name/last7 search
         params.set("fromDate", appliedFrom);
         params.set("toDate", appliedTo);
         params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
@@ -1028,8 +1028,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
           </div>
           <div className="relative min-w-[160px] flex-1">
             <label htmlFor="leads-search" className={labelClass}>
-              {searchBy === "last4"
-                ? "Phone last 4"
+              {searchBy === "last7"
+                ? "Phone last 7"
                 : searchBy === "name"
                   ? "Name"
                   : searchBy === "phone"
@@ -1043,8 +1043,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
                 const next = e.target.value;
                 if (searchBy === "phone") {
                   setSearchInput(formatLandline(next));
-                } else if (searchBy === "last4") {
-                  setSearchInput(digitsOnly(next).slice(0, 4));
+                } else if (searchBy === "last7") {
+                  setSearchInput(digitsOnly(next).slice(0, 7));
                 } else {
                   setSearchInput(next);
                 }
@@ -1054,9 +1054,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               placeholder={
                 SEARCH_BY_OPTIONS.find((opt) => opt.value === searchBy)?.placeholder || "Search"
               }
-              inputMode={searchBy === "last4" || searchBy === "phone" ? "numeric" : "text"}
+              inputMode={searchBy === "last7" || searchBy === "phone" ? "numeric" : "text"}
               maxLength={
-                searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
+                searchBy === "last7" ? 7 : searchBy === "phone" ? 12 : 128
               }
               aria-invalid={Boolean(searchError)}
             />

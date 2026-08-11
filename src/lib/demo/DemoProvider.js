@@ -11,7 +11,18 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createSeedState();
-    return { ...createSeedState(), ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const seed = createSeedState();
+    return {
+      ...seed,
+      ...parsed,
+      ivrNotifications: Array.isArray(parsed.ivrNotifications)
+        ? parsed.ivrNotifications
+        : seed.ivrNotifications,
+      ivrSession: parsed.ivrSession ?? null,
+      ivrAlert: parsed.ivrAlert ?? null,
+      nextIvrNum: Number(parsed.nextIvrNum) || seed.nextIvrNum,
+    };
   } catch {
     return createSeedState();
   }
@@ -110,11 +121,20 @@ export function DemoProvider({ children }) {
       sendMessage: (body) => apply(actions.sendMessage, body),
       setCurrentUser: (userId) => apply(actions.setCurrentUser, userId),
       setUserPresence: (userId, presence) => apply(actions.setUserPresence, userId, presence),
+      simulateInboundIvr: (options) => apply(actions.simulateInboundIvr, options),
+      advanceIvrPhase: () => apply(actions.advanceIvrPhase),
+      acceptIvrCall: () => apply(actions.acceptIvrCall),
+      declineIvrCall: () => apply(actions.declineIvrCall),
+      dismissIvrAlert: () => apply(actions.dismissIvrAlert),
+      markIvrRead: (ids) => apply(actions.markIvrRead, ids),
+      markAllIvrRead: () => apply(actions.markAllIvrRead),
+      setAdminOnlineForIvr: (online) => apply(actions.setAdminOnlineForIvr, online),
       helpers: {
         getUser: (id) => actions.getUser(state, id),
         getLead: (id) => actions.getLead(state, id),
         getConversationMessages: (id) => actions.getConversationMessages(state, id),
         unreadTotal: (userId) => actions.unreadTotal(state, userId),
+        ivrUnreadTotal: () => actions.ivrUnreadTotal(state),
         leadStats: () => actions.leadStats(state),
       },
     }),
