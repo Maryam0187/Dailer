@@ -334,6 +334,8 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const showLeadStats = canViewLeadStats(userRole);
   const isAdmin = userRole === "admin";
+  const isManager = userRole === "manager";
+  const canFilterByShift = isAdmin || isManager;
   const preferShortLabels = resolvePreferShortLabels(isAdmin, adminShortLabels);
   const showLeadFilters = canUseLeadFilters(userRole);
   const showSupervisorFilter = hasFullLeadAccess(userRole);
@@ -345,7 +347,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
 
   const filteredAgents = useMemo(() => {
     let list = assignableAgents;
-    if (isAdmin && (shiftFilter === "day" || shiftFilter === "night")) {
+    if (canFilterByShift && (shiftFilter === "day" || shiftFilter === "night")) {
       list = list.filter((a) => (a.shiftKey === "night" ? "night" : "day") === shiftFilter);
     }
     if (!showSupervisorFilter || supervisorFilter === "all") return list;
@@ -354,12 +356,14 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
         String(a.supervisorId ?? "") === supervisorFilter ||
         (a.role === "supervisor" && String(a.id) === supervisorFilter),
     );
-  }, [assignableAgents, showSupervisorFilter, supervisorFilter, isAdmin, shiftFilter]);
+  }, [assignableAgents, showSupervisorFilter, supervisorFilter, canFilterByShift, shiftFilter]);
 
   const filteredSupervisors = useMemo(() => {
-    if (!isAdmin || (shiftFilter !== "day" && shiftFilter !== "night")) return filterSupervisors;
+    if (!canFilterByShift || (shiftFilter !== "day" && shiftFilter !== "night")) {
+      return filterSupervisors;
+    }
     return filterSupervisors.filter((s) => (s.shiftKey === "night" ? "night" : "day") === shiftFilter);
-  }, [filterSupervisors, isAdmin, shiftFilter]);
+  }, [filterSupervisors, canFilterByShift, shiftFilter]);
 
   function creatorFilterLabel(entry) {
     if (entry.isSelf) return `${entry.username} (you)`;
@@ -440,7 +444,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
-      if (isAdmin && shiftFilter && shiftFilter !== "all") {
+      if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
         params.set("shiftKey", shiftFilter);
       }
       if (q.trim()) {
@@ -498,7 +502,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
     leadContactTagFilter,
     stateFilter,
     shiftFilter,
-    isAdmin,
+    canFilterByShift,
     q,
     searchBy,
     appliedFrom,
@@ -1087,7 +1091,7 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
               ))}
             </select>
           </div>
-          {isAdmin ? (
+          {canFilterByShift ? (
             <div className="w-full sm:min-w-[160px] sm:flex-1">
               <label htmlFor="leads-shift-filter" className={labelClass}>
                 Shift
