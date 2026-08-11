@@ -81,6 +81,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/shift",
     },
     {
+      href: "/ivr-notifications",
+      label: "IVR notifications",
+      active: pathname === "/ivr-notifications",
+    },
+    {
       href: "/security",
       label: "Security",
       active: pathname === "/security",

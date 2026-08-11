@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { useDemo } from "@/lib/demo/DemoProvider";
 
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
@@ -53,11 +54,14 @@ export default function DemoActiveCallPanel() {
 
   if (!call) return null;
 
+  const isInboundIvr = call.direction === "inbound" || call.callKind === "ivr";
   const statusLabel =
     call.phase === "connecting"
       ? "Connecting agent…"
       : call.phase === "ringing"
-        ? "Ringing customer…"
+        ? isInboundIvr
+          ? "Ringing you…"
+          : "Ringing customer…"
         : "In progress";
 
   return (
@@ -65,12 +69,17 @@ export default function DemoActiveCallPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-emerald-200/70 px-5 py-4 sm:px-6">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Active call
+            {isInboundIvr ? "Inbound IVR call" : "Active call"}
           </p>
           <h3 className="mt-1 text-xl font-semibold tracking-tight text-zinc-950">
             {call.customerName}
           </h3>
           <p className="font-mono text-sm text-zinc-600">{call.phoneLabel}</p>
+          {isInboundIvr && call.ivrChoice != null ? (
+            <p className="mt-1 text-xs text-zinc-600">
+              {ivrChoiceLabel(call.ivrChoice, { prefix: false })}
+            </p>
+          ) : null}
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-emerald-800">{statusLabel}</p>

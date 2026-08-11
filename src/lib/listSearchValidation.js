@@ -1,7 +1,7 @@
 import { digitsOnly, nationalUsDigits } from "@/lib/phoneFormat";
 
 /**
- * Validate list search input for all / phone / name / phone last-4.
+ * Validate list search input for all / phone / name / phone last-7.
  * Empty value is allowed (clears the search filter).
  */
 export function validateListSearchQuery(searchBy, rawValue) {
@@ -36,13 +36,13 @@ export function validateListSearchQuery(searchBy, rawValue) {
     return { isValid: true, normalized: national, message: "" };
   }
 
-  if (searchBy === "last4") {
+  if (searchBy === "last7") {
     const digits = digitsOnly(value);
-    if (digits.length !== 4) {
+    if (digits.length !== 7) {
       return {
         isValid: false,
         normalized: value,
-        message: "Phone last 4 must be exactly 4 digits",
+        message: "Phone last 7 must be exactly 7 digits",
       };
     }
     return { isValid: true, normalized: digits, message: "" };

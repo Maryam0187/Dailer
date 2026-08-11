@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
 import { useDemo } from "@/lib/demo/DemoProvider";
+import DemoIvrAlert from "./DemoIvrAlert";
 
 const links = [
   { href: "/demo", label: "Hub" },
   { href: "/demo/dialer", label: "Dialer" },
+  { href: "/demo/ivr", label: "IVR" },
   { href: "/demo/leads", label: "Leads" },
   { href: "/demo/messages", label: "Messages" },
   { href: "/demo/team", label: "Team" },
@@ -17,10 +19,14 @@ export default function DemoShell({ title, subtitle, children }) {
   const pathname = usePathname();
   const { state, reset, ready, helpers } = useDemo();
   const unread = helpers.unreadTotal(state.currentUserId);
+  const ivrUnread = helpers.ivrUnreadTotal();
   const onCall = Boolean(state.activeCall);
+  const ivrLive =
+    Boolean(state.ivrSession) && state.ivrSession.phase !== "ended";
 
   return (
     <div className="min-h-dvh bg-zinc-50 text-zinc-950">
+      <DemoIvrAlert />
       <div className="sticky top-0 z-40 border-b border-sky-200/80 bg-white/90 shadow-sm shadow-sky-500/10 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
           <div className="flex items-center gap-3">
@@ -40,6 +46,15 @@ export default function DemoShell({ title, subtitle, children }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {ivrLive ? (
+              <Link
+                href="/demo/ivr"
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900"
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                Live IVR
+              </Link>
+            ) : null}
             {onCall ? (
               <Link
                 href="/demo/dialer"
@@ -85,6 +100,11 @@ export default function DemoShell({ title, subtitle, children }) {
                 {link.href === "/demo/messages" && unread > 0 ? (
                   <span className="ml-1 rounded-full bg-rose-500 px-1.5 text-[10px] text-white">
                     {unread}
+                  </span>
+                ) : null}
+                {link.href === "/demo/ivr" && ivrUnread > 0 ? (
+                  <span className="ml-1 rounded-full bg-sky-600 px-1.5 text-[10px] text-white">
+                    {ivrUnread}
                   </span>
                 ) : null}
               </Link>

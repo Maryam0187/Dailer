@@ -1,5 +1,14 @@
-export const STORAGE_KEY = "dialer-demo-v1";
+export const STORAGE_KEY = "dialer-demo-v2";
 export const CHANNEL_NAME = "dialer-demo";
+
+export const IVR_PHASES = {
+  idle: "idle",
+  incoming: "incoming",
+  gather: "gather",
+  ringing: "ringing",
+  holding: "holding",
+  ended: "ended",
+};
 
 export const CALL_PHASES = {
   idle: "idle",
@@ -28,7 +37,7 @@ export function createSeedState() {
   return {
     company: {
       name: "Dialer",
-      tagline: "Outbound dialer · leads · team chat",
+      tagline: "Outbound dialer · inbound IVR · leads · team chat",
     },
     currentUserId: "u-agent",
     users: [
@@ -260,6 +269,38 @@ export function createSeedState() {
       },
     ],
     activeConversationId: "conv-1",
+    ivrSession: null,
+    ivrAlert: null,
+    ivrNotifications: [
+      {
+        id: "ivr-1",
+        callSid: "CA_demo_seed_1",
+        fromNumber: "415-555-0198",
+        toNumber: "+1 (555) 010-2000",
+        choice: "1",
+        lastEventType: "gather",
+        customer: {
+          id: "l-1",
+          fullName: "Jamie Ortiz",
+          phone: "415-555-0198",
+        },
+        readAt: null,
+        createdAt: ago(12),
+        updatedAt: ago(11),
+      },
+      {
+        id: "ivr-2",
+        callSid: "CA_demo_seed_2",
+        fromNumber: "503-555-0188",
+        toNumber: "+1 (555) 010-2000",
+        choice: "0",
+        lastEventType: "incoming",
+        customer: null,
+        readAt: ago(90),
+        createdAt: ago(95),
+        updatedAt: ago(94),
+      },
+    ],
     metrics: {
       callsToday: 14,
       talkMinutes: 86,
@@ -269,6 +310,7 @@ export function createSeedState() {
     nextCallNum: 1004,
     nextLeadNum: 6,
     nextMessageNum: 5,
+    nextIvrNum: 3,
     updatedAt: now,
   };
 }

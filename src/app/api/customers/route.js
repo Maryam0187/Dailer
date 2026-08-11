@@ -11,7 +11,7 @@ import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/lead
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
 
-const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last4"]);
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
 
 /** Explicit date columns for the customers date-range filter. */
@@ -211,17 +211,17 @@ export async function GET(req) {
           )`),
         ],
       });
-    } else if (searchBy === "last4") {
-      const last4 = check.normalized;
+    } else if (searchBy === "last7") {
+      const last7 = check.normalized;
       pushAnd(where, {
         [Op.or]: [
-          { phone: { [Op.like]: `%${last4}` } },
+          { phone: { [Op.like]: `%${last7}` } },
           db.sequelize.literal(`EXISTS (
             SELECT 1 FROM \`Leads\` AS \`ln\`
             WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
               AND (
-                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
-                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last7}`)}
+                OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last7}`)}
               )
           )`),
         ],
@@ -254,16 +254,16 @@ export async function GET(req) {
               )
           )`),
         );
-        if (digits.length >= 4) {
-          const last4 = digits.slice(-4);
-          or.push({ phone: { [Op.like]: `%${last4}` } });
+        if (digits.length >= 7) {
+          const last7 = digits.slice(-7);
+          or.push({ phone: { [Op.like]: `%${last7}` } });
           or.push(
             db.sequelize.literal(`EXISTS (
               SELECT 1 FROM \`Leads\` AS \`ln\`
               WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
                 AND (
-                  \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last4}`)}
-                  OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last4}`)}
+                  \`ln\`.\`phone\` LIKE ${db.sequelize.escape(`%${last7}`)}
+                  OR \`ln\`.\`cellNumber\` LIKE ${db.sequelize.escape(`%${last7}`)}
                 )
             )`),
           );
