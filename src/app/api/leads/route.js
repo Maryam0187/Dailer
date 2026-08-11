@@ -232,7 +232,7 @@ export async function GET(req) {
     if (shiftKeyRaw !== "day" && shiftKeyRaw !== "night") {
       return NextResponse.json({ error: "Invalid shiftKey" }, { status: 400 });
     }
-    if (authedUser.role !== "admin") {
+    if (authedUser.role !== "admin" && authedUser.role !== "manager") {
       return NextResponse.json({ error: "Invalid shiftKey" }, { status: 403 });
     }
     const shiftWhere = await leadsCreatedByShiftWhere(shiftKeyRaw);
