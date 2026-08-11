@@ -19,14 +19,20 @@ function normalizeUserShiftKey(value) {
   return value === "night" ? "night" : "day";
 }
 
-/** Admin may view all shifts; managers / lead_monitors are locked to their own. */
+/** Admin may view all shifts company-wide. */
 export function canViewAllLeadShifts(authedUser) {
   return authedUser?.role === "admin";
 }
 
-/** Own shift for non-admin full-access roles; null when no auto-scope applies. */
+/**
+ * Own shift for non-admin full-access roles; null when no auto-scope applies.
+ * Managers are not shift-locked: they already scope by team (`managerId`), so
+ * day managers can see night agents (and their leads) that report to them.
+ * Lead monitors remain locked to their own shift.
+ */
 export function resolveOwnLeadShiftKey(authedUser) {
   if (!authedUser || canViewAllLeadShifts(authedUser)) return null;
+  if (authedUser.role === "manager") return null;
   if (!hasFullLeadAccess(authedUser.role)) return null;
   return normalizeUserShiftKey(authedUser.shiftKey);
 }

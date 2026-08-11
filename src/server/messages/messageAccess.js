@@ -13,10 +13,23 @@ export function normalizeShiftKey(shiftKey) {
 /**
  * Day and night agents only message their own shift.
  * Admins can message anyone and may be messaged by anyone (they ignore shift).
+ * Managers can message their team across day/night (and team members can reach them).
  */
 export function canMessageAcrossShifts(viewer, target) {
   if (!viewer || !target) return false;
   if (isAdminRole(viewer.role) || isAdminRole(target.role)) return true;
+  if (
+    viewer.role === "manager" &&
+    Number(target.managerId) === Number(viewer.id)
+  ) {
+    return true;
+  }
+  if (
+    target.role === "manager" &&
+    Number(viewer.managerId) === Number(target.id)
+  ) {
+    return true;
+  }
   return normalizeShiftKey(viewer.shiftKey) === normalizeShiftKey(target.shiftKey);
 }
 
@@ -53,7 +66,7 @@ export async function canMessageUser(viewer, targetUserId) {
   // getAuthedUser() already rejects inactive viewers and omits isActive from
   // the returned object — only re-check the target here.
   const target = await db.User.findByPk(targetId, {
-    attributes: ["id", "isActive", "role", "shiftKey"],
+    attributes: ["id", "isActive", "role", "shiftKey", "managerId"],
   });
   if (!target || !target.isActive) return false;
   return canMessageAcrossShifts(viewer, target);
@@ -80,7 +93,7 @@ export async function getConversationForUser(conversationId, user, { forWrite = 
       const peerId = otherDmUserId(conversation, uid);
       const peer = peerId
         ? await db.User.findByPk(peerId, {
-            attributes: ["id", "role", "shiftKey", "isActive"],
+            attributes: ["id", "role", "shiftKey", "isActive", "managerId"],
           })
         : null;
       if (!peer || !canMessageAcrossShifts(user, peer)) {
@@ -181,7 +194,7 @@ function unknownContact(id) {
   };
 }
 
-/** Active contacts the viewer may message (same shift; admins see / are visible to all). */
+/** Active contacts the viewer may message (same shift; admins unrestricted; managers include their team). */
 export async function listContacts(viewer) {
   const viewerId = Number(viewer?.id ?? viewer);
   if (!Number.isInteger(viewerId) || viewerId <= 0) return [];
@@ -193,7 +206,13 @@ export async function listContacts(viewer) {
 
   if (!isAdminRole(viewer?.role)) {
     const shiftKey = normalizeShiftKey(viewer?.shiftKey);
-    where[Op.or] = [{ role: "admin" }, { shiftKey }];
+    const or = [{ role: "admin" }, { shiftKey }];
+    if (viewer?.role === "manager") {
+      or.push({ managerId: viewerId });
+    } else if (viewer?.managerId) {
+      or.push({ id: Number(viewer.managerId), role: "manager" });
+    }
+    where[Op.or] = or;
   }
 
   const users = await db.User.findAll({
@@ -221,6 +240,7 @@ async function loadPeerUsers(peerIds) {
       "username",
       "role",
       "shiftKey",
+      "managerId",
       "activeSessionId",
       "activeSessionLastSeenAt",
       "isActive",

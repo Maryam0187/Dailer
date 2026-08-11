@@ -168,8 +168,11 @@ export async function PATCH(req, { params }) {
     }
   }
 
-  if (isAdmin && body.shiftKey !== undefined) {
+  if (body.shiftKey !== undefined) {
     const nextRole = updates.role ?? target.role;
+    if (!isAdmin && authedUser.role !== "manager") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     if (nextRole === "admin") {
       updates.shiftKey = "day";
     } else if (body.shiftKey === "day" || body.shiftKey === "night") {

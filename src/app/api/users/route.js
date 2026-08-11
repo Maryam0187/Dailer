@@ -189,7 +189,8 @@ export async function POST(req) {
     }
 
     let supervisorIdToSet = null;
-    let shiftKeyToSet = normalizeUserShiftKey(authedUser.shiftKey, "manager");
+    // Day managers may create night staff under their team (and vice versa).
+    let shiftKeyToSet = normalizeUserShiftKey(requestedShiftKey, role);
     if (role === "agent") {
       const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
       if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
