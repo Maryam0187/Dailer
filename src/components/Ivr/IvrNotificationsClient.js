@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
-import { ivrAssociateLabel, ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 const PAGE_SIZE = 15;
@@ -198,13 +198,7 @@ export default function IvrNotificationsClient() {
                     ) : null}
                     <p className="text-xs text-zinc-600 dark:text-zinc-400">
                       Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
-                      {(() => {
-                        const assoc = ivrAssociateLabel(row.associate, { empty: null });
-                        return assoc ? ` · ${assoc}` : "";
-                      })()}
-                      {row.numberEntered ? ` · Number: ${row.numberEntered}` : ""}
                     </p>
-                    <IvrCustomerMatchRow label="Associate match" customer={row.associateCustomer} />
                     <p className="text-xs text-zinc-500">
                       To {row.toNumber || "—"} · Updated {formatWhen(row.updatedAt || row.createdAt)}
                       {row.callSid ? ` · ${row.callSid}` : ""}

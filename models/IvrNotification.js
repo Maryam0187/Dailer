@@ -34,11 +34,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(16),
         allowNull: true,
       },
-      /** Recent-charge path: "0" = connect agent, "1" = has associate #, "2" = does not. */
+      /** @deprecated Unused — kept for existing DB rows from old associate IVR path. */
       associate: {
         type: DataTypes.STRING(8),
         allowNull: true,
       },
+      /** @deprecated Unused — kept for existing DB rows from old associate IVR path. */
       numberEntered: {
         type: DataTypes.STRING(64),
         allowNull: true,

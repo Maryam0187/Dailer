@@ -86,8 +86,6 @@ export async function POST(req) {
     to: url.searchParams.get("to"),
     callSid: url.searchParams.get("callSid"),
     choice: url.searchParams.get("choice"),
-    associate: url.searchParams.get("associate"),
-    number: url.searchParams.get("number"),
   });
 
   const redirectUrl = `${baseUrl}/api/ivr/connect?${loopQs}`;

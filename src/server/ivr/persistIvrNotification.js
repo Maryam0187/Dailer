@@ -11,10 +11,7 @@ function serialize(row, customers = null) {
     fromNumber: row.fromNumber || null,
     toNumber: row.toNumber || null,
     choice: row.choice || null,
-    associate: row.associate || null,
-    numberEntered: row.numberEntered || null,
     customer: customers?.customer || null,
-    associateCustomer: customers?.associateCustomer || null,
     readAt: row.readAt ? new Date(row.readAt).toISOString() : null,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
@@ -31,8 +28,6 @@ export async function persistIvrNotification(payload) {
   const fromNumber = payload?.from != null ? String(payload.from).trim() || null : null;
   const toNumber = payload?.to != null ? String(payload.to).trim() || null : null;
   const choice = payload?.choice != null ? String(payload.choice).trim() || null : null;
-  const associate = payload?.associate != null ? String(payload.associate).trim() || null : null;
-  const numberEntered = payload?.number != null ? String(payload.number).trim() || null : null;
 
   try {
     let row = null;
@@ -45,8 +40,6 @@ export async function persistIvrNotification(payload) {
           fromNumber: fromNumber || existing.fromNumber,
           toNumber: toNumber || existing.toNumber,
           choice: choice || existing.choice,
-          associate: associate || existing.associate,
-          numberEntered: numberEntered || existing.numberEntered,
           readAt: null, // new activity marks unread again
         });
         row = existing;
@@ -61,16 +54,11 @@ export async function persistIvrNotification(payload) {
         fromNumber,
         toNumber,
         choice,
-        associate,
-        numberEntered,
         readAt: null,
       });
     }
 
-    const customers = await lookupIvrCustomers({
-      from: row.fromNumber,
-      number: row.numberEntered,
-    });
+    const customers = await lookupIvrCustomers({ from: row.fromNumber });
     return serialize(row, customers);
   } catch (err) {
     console.warn("[ivr/persistIvrNotification]", err?.message || err);
@@ -80,10 +68,7 @@ export async function persistIvrNotification(payload) {
 
 export async function serializeIvrNotificationWithCustomers(row) {
   if (!row) return null;
-  const customers = await lookupIvrCustomers({
-    from: row.fromNumber,
-    number: row.numberEntered,
-  });
+  const customers = await lookupIvrCustomers({ from: row.fromNumber });
   return serialize(row, customers);
 }
 

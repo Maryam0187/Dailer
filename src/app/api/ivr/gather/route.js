@@ -12,15 +12,11 @@ export async function POST(req) {
   const body = await parseIvrBody(req);
   const result = await notifyAdmins({
     type: "gather",
-    step:
-      body.step ||
-      (body.number ? "number" : body.associate ? "associate" : "choice"),
+    step: body.step || "choice",
     from: body.from,
     to: body.to,
     callSid: body.callSid,
     choice: body.choice,
-    associate: body.associate,
-    number: body.number,
   });
 
   return NextResponse.json({ ok: true, ...result });

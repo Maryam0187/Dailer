@@ -15,7 +15,7 @@ function customerSummary(customer) {
 }
 
 /**
- * Customer / associate match line with deep-link + last-sale link icon + View sidebar.
+ * Customer match line with deep-link + last-sale link icon + View sidebar.
  */
 export default function IvrCustomerMatchRow({ label = "Customer", customer }) {
   const [lead, setLead] = useState(null);

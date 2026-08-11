@@ -114,9 +114,7 @@ async function withLastSale(customer) {
   }
 }
 
-/**
- * Match a Customer by phone / associate digits (Customer.phone, then Lead.phone).
- */
+/** Match a Customer by caller phone (Customer.phone, then Lead.phone). */
 export async function findCustomerByPhoneOrNumber(raw) {
   const input = String(raw || "").trim();
   if (!input) return null;
@@ -141,16 +139,8 @@ export async function findCustomerByPhoneOrNumber(raw) {
   return null;
 }
 
-/**
- * Caller From → customer.
- * Entered associate number (IVR gather step=number) → associateCustomer.
- * Each match includes lastSale (latest lead) when present.
- */
-export async function lookupIvrCustomers({ from, number } = {}) {
-  const associateNumber = String(number || "").trim();
-  const [customer, associateCustomer] = await Promise.all([
-    findCustomerByPhoneOrNumber(from),
-    associateNumber ? findCustomerByPhoneOrNumber(associateNumber) : Promise.resolve(null),
-  ]);
-  return { customer, associateCustomer };
+/** Caller From → customer (with lastSale when present). */
+export async function lookupIvrCustomers({ from } = {}) {
+  const customer = await findCustomerByPhoneOrNumber(from);
+  return { customer };
 }
