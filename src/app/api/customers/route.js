@@ -172,6 +172,7 @@ export async function GET(req) {
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const kindRaw = String(searchParams.get("kind") || "").trim().toLowerCase();
   const managerScoped = isOutsideManager(authedUser);
+  // Lead Customers tab is never outside. Only kind=outside (or an outside manager) lists those rows.
   const isOutsideList = managerScoped || kindRaw === "outside";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
@@ -201,9 +202,9 @@ export async function GET(req) {
     );
   }
 
-  const where = { isOutside: isOutsideList };
+  const where = { isOutside: { [Op.eq]: Boolean(isOutsideList) } };
   if (managerScoped) {
-    where.isOutside = true;
+    where.isOutside = { [Op.eq]: true };
     where.managerId = authedUser.id;
   }
 
@@ -291,7 +292,7 @@ export async function GET(req) {
       const or = [{ phone: { [Op.like]: `%${phoneDigits}%` } }];
       const normalized = normalizeToE164(phoneDigits);
       if (normalized) or.push({ phone: normalized });
-      where[Op.or] = or;
+      pushAnd(where, { [Op.or]: or });
     }
   }
 

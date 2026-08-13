@@ -39,7 +39,8 @@ export async function POST(req) {
     return NextResponse.json({ error: "Two-factor authentication is not enabled" }, { status: 400 });
   }
 
-  const passwordOk = await bcrypt.compare(password, user.passwordHash);
+  const passwordOk =
+    Boolean(user.passwordHash) && (await bcrypt.compare(password, user.passwordHash));
   if (!passwordOk) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }

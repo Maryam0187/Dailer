@@ -164,23 +164,32 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const username = body?.username;
-  const password = body?.password;
+  const password = typeof body?.password === "string" ? body.password : "";
   const role = body?.role;
   const managerId = body?.managerId;
   const supervisorId = body?.supervisorId;
   const requestedShiftKey = body?.shiftKey === "night" ? "night" : "day";
+  const isOutsideRequested = Boolean(body?.isOutside);
+  const passwordOptional =
+    authedUser.role === "admin" && role === "agent" && isOutsideRequested;
 
-  if (!username || !password) {
-    return NextResponse.json({ error: "username and password are required" }, { status: 400 });
+  if (!username) {
+    return NextResponse.json({ error: "username is required" }, { status: 400 });
   }
 
   if (typeof username !== "string" || username.trim().length < 3) {
     return NextResponse.json({ error: "username must be at least 3 characters" }, { status: 400 });
   }
 
-  if (password.length < 6) {
+  if (!password) {
+    if (!passwordOptional) {
+      return NextResponse.json({ error: "username and password are required" }, { status: 400 });
+    }
+  } else if (password.length < 6) {
     return NextResponse.json({ error: "password must be at least 6 characters" }, { status: 400 });
   }
+
+  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
   if (authedUser.role === "manager") {
     if (role !== "agent" && role !== "supervisor" && role !== "processor" && role !== "lead_monitor") {
@@ -217,7 +226,6 @@ export async function POST(req) {
       }
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
     try {
       const user = await db.User.create({
         username: username.trim(),
@@ -265,7 +273,6 @@ export async function POST(req) {
     // Agents created by a supervisor always match that supervisor's shift.
     const supervisorShiftKey = normalizeUserShiftKey(supervisorRow.shiftKey, "supervisor");
 
-    const passwordHash = await bcrypt.hash(password, 10);
     try {
       const user = await db.User.create({
         username: username.trim(),
@@ -343,7 +350,6 @@ export async function POST(req) {
     }
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
   const shiftKeyToSet = role === "admin" ? "day" : requestedShiftKey;
   const isOutsideToSet = role === "admin" ? false : Boolean(body?.isOutside);
   try {

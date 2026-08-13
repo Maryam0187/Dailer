@@ -135,7 +135,7 @@ export async function GET(_req, { params }) {
   });
 }
 
-/** Admin: update an outside customer's profile. */
+/** Admin: update a customer profile. Outside managers may update their outside customers. */
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
@@ -148,11 +148,10 @@ export async function PATCH(req, { params }) {
 
   const customer = await findAccessibleCustomer(authedUser, id);
   if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
-  if (!customer.isOutside) {
-    return NextResponse.json(
-      { error: "Lead customers are updated from their leads" },
-      { status: 400 },
-    );
+
+  const isOutside = Boolean(customer.isOutside);
+  if (!isOutside && isOutsideManager(authedUser)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);
@@ -163,32 +162,38 @@ export async function PATCH(req, { params }) {
   if (errors.length) {
     return NextResponse.json({ error: errors[0] }, { status: 400 });
   }
+  if (!isOutside) {
+    delete data.managerId;
+    delete data.agentId;
+  }
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  if (data.managerId === null) {
-    return NextResponse.json({ error: "Manager is required" }, { status: 400 });
-  }
-  if (isOutsideManager(authedUser)) {
-    if (data.managerId !== undefined && Number(data.managerId) !== Number(authedUser.id)) {
-      return NextResponse.json({ error: "Cannot reassign this customer" }, { status: 403 });
+  if (isOutside) {
+    if (data.managerId === null) {
+      return NextResponse.json({ error: "Manager is required" }, { status: 400 });
     }
-    delete data.managerId;
-  }
+    if (isOutsideManager(authedUser)) {
+      if (data.managerId !== undefined && Number(data.managerId) !== Number(authedUser.id)) {
+        return NextResponse.json({ error: "Cannot reassign this customer" }, { status: 403 });
+      }
+      delete data.managerId;
+    }
 
-  const nextManagerId = data.managerId !== undefined ? data.managerId : customer.managerId;
-  if (data.managerId !== undefined && data.agentId === undefined) {
-    data.agentId = null;
-  }
-  const nextAgentId = data.agentId !== undefined ? data.agentId : customer.agentId;
-  if (data.managerId !== undefined || data.agentId !== undefined) {
-    const staff = await resolveCustomerStaffIds({
-      managerId: nextManagerId,
-      agentId: nextAgentId,
-    });
-    if (staff.error) {
-      return NextResponse.json({ error: staff.error }, { status: 400 });
+    const nextManagerId = data.managerId !== undefined ? data.managerId : customer.managerId;
+    if (data.managerId !== undefined && data.agentId === undefined) {
+      data.agentId = null;
+    }
+    const nextAgentId = data.agentId !== undefined ? data.agentId : customer.agentId;
+    if (data.managerId !== undefined || data.agentId !== undefined) {
+      const staff = await resolveCustomerStaffIds({
+        managerId: nextManagerId,
+        agentId: nextAgentId,
+      });
+      if (staff.error) {
+        return NextResponse.json({ error: staff.error }, { status: 400 });
+      }
     }
   }
 

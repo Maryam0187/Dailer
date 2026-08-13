@@ -436,7 +436,7 @@ export default function CustomersClient({
           page: String(page),
           pageSize: String(CUSTOMERS_PAGE_SIZE),
         });
-        if (kind === "outside") params.set("kind", "outside");
+        params.set("kind", kind === "outside" ? "outside" : "lead");
         if (query.trim()) {
           params.set("q", query.trim());
           params.set("searchBy", by);
@@ -459,7 +459,10 @@ export default function CustomersClient({
         const json = await res.json().catch(() => ({}));
         if (requestId !== loadRequestIdRef.current) return;
         if (!res.ok) throw new Error(json?.error || "Failed to load customers");
-        setCustomers(json.customers || []);
+        const rows = Array.isArray(json.customers) ? json.customers : [];
+        setCustomers(
+          kind === "outside" ? rows.filter((c) => c.isOutside) : rows.filter((c) => !c.isOutside),
+        );
         setPagination(
           json.pagination || {
             page: 1,
@@ -508,7 +511,11 @@ export default function CustomersClient({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load customer");
       setDetail(json);
-      if (json.customer?.isOutside) setActiveView("outside");
+      if (json.customer?.isOutside) {
+        setActiveView((v) => (v === "customers" ? "outside" : v));
+      } else if (json.customer) {
+        setActiveView((v) => (v === "outside" ? "customers" : v));
+      }
     } catch (err) {
       setPaymentError(err.message || "Failed to load customer");
       setDetail(null);
@@ -583,8 +590,25 @@ export default function CustomersClient({
       if (hasCustomer) setSelectedId(cid);
       return;
     }
-    setActiveView("customers");
-    if (hasCustomer) setSelectedId(cid);
+    if (hasLead) setActiveView("customers");
+    if (hasCustomer) {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/customers/${cid}`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          const json = await res.json().catch(() => ({}));
+          if (json.customer?.isOutside) setActiveView("outside");
+          else setActiveView("customers");
+        } catch {
+          if (!hasLead) setActiveView("customers");
+        }
+        setSelectedId(cid);
+      })();
+    } else if (!hasLead) {
+      setActiveView("customers");
+    }
     if (hasLead) {
       setLoadingLeadId(lid);
       void (async () => {
@@ -1212,28 +1236,32 @@ export default function CustomersClient({
       setPaymentError(phoneCheck.message);
       return;
     }
-    if (!profileForm.managerId) {
+    const editingOutside = Boolean(detail?.customer?.isOutside);
+    if (editingOutside && !profileForm.managerId) {
       setPaymentError("Manager is required");
       return;
     }
     setSavingProfile(true);
     setPaymentError(null);
     try {
+      const payload = {
+        fullName: name,
+        phone: profileForm.phone,
+        address: profileForm.address.trim() || null,
+        city: profileForm.city.trim() || null,
+        state: profileForm.state || null,
+        zipCode: profileForm.zipCode.trim() || null,
+        notes: profileForm.notes.trim() || null,
+      };
+      if (editingOutside) {
+        payload.managerId = Number(profileForm.managerId);
+        payload.agentId = profileForm.agentId ? Number(profileForm.agentId) : null;
+      }
       const res = await fetch(`/api/customers/${selectedId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          fullName: name,
-          phone: profileForm.phone,
-          address: profileForm.address.trim() || null,
-          city: profileForm.city.trim() || null,
-          state: profileForm.state || null,
-          zipCode: profileForm.zipCode.trim() || null,
-          notes: profileForm.notes.trim() || null,
-          managerId: Number(profileForm.managerId),
-          agentId: profileForm.agentId ? Number(profileForm.agentId) : null,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to update customer");
@@ -1333,6 +1361,12 @@ export default function CustomersClient({
   }
 
   const customer = detail?.customer;
+  const customerBelongsOnThisView = Boolean(
+    customer && (isOutsideView ? customer.isOutside : !customer.isOutside),
+  );
+  const visibleCustomers = isOutsideView
+    ? customers.filter((c) => Boolean(c.isOutside))
+    : customers.filter((c) => !c.isOutside);
   const paymentMethods = detail?.paymentMethods || [];
   const leads = detail?.leads || [];
   const charges = detail?.charges || [];
@@ -1861,7 +1895,7 @@ export default function CustomersClient({
               {loading
                 ? "Loading customers…"
                 : pagination.total > 0
-                  ? `Showing ${customers.length} of ${pagination.total} ${isOutsideView && !managerOnly ? "outside customers" : "customers"}`
+                  ? `Showing ${visibleCustomers.length} of ${pagination.total} ${isOutsideView && !managerOnly ? "outside customers" : "customers"}`
                   : isOutsideView && !managerOnly
                     ? "No outside customers yet"
                     : "No customers yet"}
@@ -1912,14 +1946,14 @@ export default function CustomersClient({
                       Loading…
                     </td>
                   </tr>
-                ) : customers.length === 0 ? (
+                ) : visibleCustomers.length === 0 ? (
                   <tr>
                     <td colSpan={isOutsideView ? 5 : 4} className="px-4 py-8 text-center text-zinc-500">
                       No {isOutsideView && !managerOnly ? "outside customers" : "customers"} found.
                     </td>
                   </tr>
                 ) : (
-                  customers.map((c) => (
+                  visibleCustomers.map((c) => (
                     <tr
                       key={c.id}
                       className={`cursor-pointer border-t border-zinc-100 dark:border-zinc-800 ${
@@ -2019,7 +2053,7 @@ export default function CustomersClient({
         </div>
 
         <div className="space-y-4">
-          {!selectedId ? (
+          {!selectedId || (!detailLoading && !customerBelongsOnThisView) ? (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-6 py-16 text-center text-sm text-zinc-500 dark:border-zinc-700">
               Select a customer to view {isOutsideView ? "payment methods and charges" : "lead history and payment methods"}.
             </div>
@@ -2043,13 +2077,13 @@ export default function CustomersClient({
                       </span>
                     ) : null}
                   </h2>
-                  {customer.isOutside && !editingProfile ? (
+                  {(isAdmin || customer.isOutside) && !editingProfile ? (
                     <button type="button" className={btnSecondary} onClick={startEditProfile}>
                       Edit
                     </button>
                   ) : null}
                 </div>
-                {customer.isOutside && editingProfile ? (
+                {editingProfile && (isAdmin || customer.isOutside) ? (
                   <form onSubmit={saveOutsideProfile} className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className={labelClass}>
                       Full name *
@@ -2126,6 +2160,8 @@ export default function CustomersClient({
                         }
                       />
                     </label>
+                    {customer.isOutside ? (
+                    <>
                     <label className={labelClass}>
                       Manager *
                       {isAdmin ? (
@@ -2182,6 +2218,8 @@ export default function CustomersClient({
                         ))}
                       </select>
                     </label>
+                    </>
+                    ) : null}
                     <label className={`${labelClass} sm:col-span-2`}>
                       Notes
                       <textarea
@@ -2257,14 +2295,12 @@ export default function CustomersClient({
                           }`}
                     </dd>
                   </div>
-                  {customer.notes ? (
-                    <div className="sm:col-span-2">
-                      <dt className="text-zinc-500">Notes</dt>
-                      <dd className="whitespace-pre-wrap font-medium text-zinc-900 dark:text-zinc-100">
-                        {customer.notes}
-                      </dd>
-                    </div>
-                  ) : null}
+                  <div className="sm:col-span-2">
+                    <dt className="text-zinc-500">Notes</dt>
+                    <dd className="whitespace-pre-wrap font-medium text-zinc-900 dark:text-zinc-100">
+                      {customer.notes || "—"}
+                    </dd>
+                  </div>
                 </dl>
                 )}
               </section>
