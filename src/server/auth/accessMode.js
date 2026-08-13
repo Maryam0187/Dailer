@@ -1,5 +1,6 @@
 import {
   getAfterShiftAccess,
+  isOutsideManager,
   isShiftWindowEnforced,
   isWithinLoginWindow,
 } from "@/server/auth/loginWindow";
@@ -9,7 +10,7 @@ export { getAfterShiftAccess, hasAfterShiftGrant } from "@/server/auth/loginWind
 /** `full` during shift/admin/grant-full; `limited` after shift with limited grant; never `blocked` here (auth rejects earlier). */
 export function resolveAccessMode(user, date = new Date()) {
   if (!user) return "blocked";
-  if (user.role === "admin") return "full";
+  if (user.role === "admin" || isOutsideManager(user)) return "full";
   if (!isShiftWindowEnforced(user)) return "full";
   if (isWithinLoginWindow(date, user)) return "full";
   if (getAfterShiftAccess(user) === "full") return "full";

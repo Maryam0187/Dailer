@@ -200,6 +200,72 @@ function eventMatchesProcessorFilter(row, labelToCode, matchValues) {
   return false;
 }
 
+function chargeMatchesProcessor(row, matchValues) {
+  if (!matchValues?.length) return true;
+  const stored = String(row.processor || "").trim().toLowerCase();
+  if (!stored) return false;
+  return matchValues.includes(stored);
+}
+
+function applyRowsToBuckets(rows, totals, byDayMap, dateField = "createdAt") {
+  for (const row of rows) {
+    const status = row.status || row.leadPaymentChargeStatus;
+    if (!status) continue;
+    const rawAmount = row.amount ?? row.leadPaymentChargeAmount;
+    const amount =
+      rawAmount != null && Number.isFinite(Number(rawAmount)) ? Number(rawAmount) : null;
+    addEvent(totals, status, amount);
+    const day = dayKeyFromDate(row[dateField] || row.leadPaymentOutcomeAt || row.createdAt);
+    if (day && byDayMap.has(day)) {
+      addEvent(byDayMap.get(day), status, amount);
+    } else if (day) {
+      const bucket = emptyBucket();
+      addEvent(bucket, status, amount);
+      byDayMap.set(day, bucket);
+    }
+  }
+}
+
+export function normalizePaymentKind(value) {
+  const k = String(value || "all").trim().toLowerCase();
+  if (k === "outside" || k === "lead") return k;
+  return "all";
+}
+
+async function loadOutsideCustomerCharges({ fromDate, toDate, processor = null, withDetails = false }) {
+  const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
+  const include = [
+    {
+      model: db.Customer,
+      as: "customer",
+      attributes: withDetails ? ["id", "fullName", "phone", "isOutside"] : ["id", "isOutside"],
+      where: { isOutside: true },
+      required: true,
+    },
+  ];
+  if (withDetails) {
+    include.push({
+      model: db.User,
+      as: "createdBy",
+      attributes: ["id", "username"],
+      required: false,
+    });
+  }
+
+  const rows = await db.CustomerCharge.findAll({
+    where: { ...dateRangeWhere(fromDate, toDate) },
+    include,
+    order: [
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+  });
+  const filtered = matchValues?.length
+    ? rows.filter((row) => chargeMatchesProcessor(row, matchValues))
+    : rows;
+  return { rows: filtered, processorFilter };
+}
+
 /** Latest payment-log processor key per lead (for leads with missing leadPaymentProcessor). */
 async function resolveProcessorsFromLatestLogs(leadIds, labelToCode) {
   const map = new Map();
@@ -293,67 +359,64 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
 }
 
 /**
- * Aggregate latest payment outcomes from Leads (one row per sale).
- * Day expand still uses LeadUpdates via listPaymentChargeDayDetails.
- * @param {{ fromDate: string, toDate: string, processor?: string|null }} opts
+ * Aggregate latest payment outcomes from Leads (one row per sale), plus outside
+ * customer charges when kind is `all` or `outside`.
+ * @param {{ fromDate: string, toDate: string, processor?: string|null, kind?: string }} opts
  */
-export async function aggregatePaymentChargeStats({ fromDate, toDate, processor = null }) {
+export async function aggregatePaymentChargeStats({
+  fromDate,
+  toDate,
+  processor = null,
+  kind = "all",
+}) {
+  const paymentKind = normalizePaymentKind(kind);
   const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
   const labelToCode = await buildProcessorLabelToCode();
-
-  const where = {
-    leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
-    leadPaymentOutcomeAt: { [Op.ne]: null },
-    ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
-  };
-
-  const leads = await db.Lead.findAll({
-    where,
-    attributes: [
-      "id",
-      "leadPaymentChargeStatus",
-      "leadPaymentChargeAmount",
-      "leadPaymentProcessor",
-      "leadPaymentOutcomeAt",
-    ],
-  });
-
-  let logProcessorByLeadId = new Map();
-  if (matchValues?.length) {
-    const missingProcessorLeadIds = leads
-      .filter((lead) => !String(lead.leadPaymentProcessor || "").trim())
-      .map((lead) => lead.id);
-    logProcessorByLeadId = await resolveProcessorsFromLatestLogs(
-      missingProcessorLeadIds,
-      labelToCode,
-    );
-  }
-
-  const filteredLeads = matchValues?.length
-    ? leads.filter((lead) =>
-        leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessorByLeadId),
-      )
-    : leads;
 
   const totals = emptyBucket();
   const byDayMap = new Map(eachDayInclusive(fromDate, toDate).map((d) => [d, emptyBucket()]));
 
-  for (const lead of filteredLeads) {
-    const status = lead.leadPaymentChargeStatus;
-    if (!status) continue;
-    const amount =
-      lead.leadPaymentChargeAmount != null && Number.isFinite(Number(lead.leadPaymentChargeAmount))
-        ? Number(lead.leadPaymentChargeAmount)
-        : null;
-    addEvent(totals, status, amount);
-    const day = dayKeyFromDate(lead.leadPaymentOutcomeAt);
-    if (day && byDayMap.has(day)) {
-      addEvent(byDayMap.get(day), status, amount);
-    } else if (day) {
-      const bucket = emptyBucket();
-      addEvent(bucket, status, amount);
-      byDayMap.set(day, bucket);
+  if (paymentKind !== "outside") {
+    const where = {
+      leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
+      leadPaymentOutcomeAt: { [Op.ne]: null },
+      ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
+    };
+
+    const leads = await db.Lead.findAll({
+      where,
+      attributes: [
+        "id",
+        "leadPaymentChargeStatus",
+        "leadPaymentChargeAmount",
+        "leadPaymentProcessor",
+        "leadPaymentOutcomeAt",
+      ],
+    });
+
+    let logProcessorByLeadId = new Map();
+    if (matchValues?.length) {
+      const missingProcessorLeadIds = leads
+        .filter((lead) => !String(lead.leadPaymentProcessor || "").trim())
+        .map((lead) => lead.id);
+      logProcessorByLeadId = await resolveProcessorsFromLatestLogs(
+        missingProcessorLeadIds,
+        labelToCode,
+      );
     }
+
+    const filteredLeads = matchValues?.length
+      ? leads.filter((lead) =>
+          leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessorByLeadId),
+        )
+      : leads;
+
+    applyRowsToBuckets(filteredLeads, totals, byDayMap, "leadPaymentOutcomeAt");
+  }
+
+  if (paymentKind !== "lead") {
+    const { rows } = await loadOutsideCustomerCharges({ fromDate, toDate, processor });
+    applyRowsToBuckets(rows, totals, byDayMap, "createdAt");
   }
 
   const byDay = [...byDayMap.entries()]
@@ -364,6 +427,7 @@ export async function aggregatePaymentChargeStats({ fromDate, toDate, processor 
     fromDate,
     toDate,
     processor: processorFilter,
+    kind: paymentKind,
     totals: finalizeBucket(totals),
     byDay,
   };
@@ -371,53 +435,97 @@ export async function aggregatePaymentChargeStats({ fromDate, toDate, processor 
 
 /**
  * Detail rows for one calendar day (UTC date key), newest first.
- * @param {{ date: string, processor?: string|null }} opts
+ * @param {{ date: string, processor?: string|null, kind?: string }} opts
  */
-export async function listPaymentChargeDayDetails({ date, processor = null }) {
-  const { events, processorFilter, labelToCode } = await loadPaymentChargeEvents({
-    fromDate: date,
-    toDate: date,
-    processor,
-    withSale: true,
-  });
-
-  const leadIds = [...new Set(events.map((e) => e.leadId))];
-  const amountTimeline = await loadAmountTimelines(leadIds);
+export async function listPaymentChargeDayDetails({ date, processor = null, kind = "all" }) {
+  const paymentKind = normalizePaymentKind(kind);
   const processors = await listPaymentProcessors({ activeOnly: false });
   const byCode = Object.fromEntries(processors.map((p) => [p.code, p]));
+  const details = [];
 
-  const details = events.map((row) => {
-    const status = statusFromType(row.type);
-    const amount = resolveEventAmount(row, amountTimeline, row.lead?.leadPaymentChargeAmount);
-    const processorCode = eventProcessorCode(row, labelToCode);
-    const processorMeta = processorCode ? byCode[processorCode] : null;
-    const processorLabel =
-      parsePaymentProcessorLabelFromActivityBody(row.body) ||
-      processorMeta?.shortCode ||
-      processorCode;
-    return {
-      id: row.id,
-      createdAt: row.createdAt,
-      status,
-      amount: amount != null ? roundMoney(amount) : null,
-      processor: processorCode,
-      processorLabel,
-      declineReason: status === "declined" ? parsePaymentDeclineReasonFromActivityBody(row.body) : null,
-      sale: row.lead
-        ? {
-            leadId: row.lead.id,
-            customerId: row.lead.customerId ?? null,
-            fullName: row.lead.fullName || null,
-            phone: row.lead.phone || null,
-            agentUsername: row.lead.createdBy?.username || null,
-          }
-        : null,
-    };
+  if (paymentKind !== "outside") {
+    const { events, labelToCode } = await loadPaymentChargeEvents({
+      fromDate: date,
+      toDate: date,
+      processor,
+      withSale: true,
+    });
+
+    const leadIds = [...new Set(events.map((e) => e.leadId))];
+    const amountTimeline = await loadAmountTimelines(leadIds);
+
+    for (const row of events) {
+      const status = statusFromType(row.type);
+      const amount = resolveEventAmount(row, amountTimeline, row.lead?.leadPaymentChargeAmount);
+      const processorCode = eventProcessorCode(row, labelToCode);
+      const processorMeta = processorCode ? byCode[processorCode] : null;
+      const processorLabel =
+        parsePaymentProcessorLabelFromActivityBody(row.body) ||
+        processorMeta?.shortCode ||
+        processorCode;
+      details.push({
+        id: row.id,
+        createdAt: row.createdAt,
+        status,
+        amount: amount != null ? roundMoney(amount) : null,
+        processor: processorCode,
+        processorLabel,
+        declineReason: status === "declined" ? parsePaymentDeclineReasonFromActivityBody(row.body) : null,
+        sale: row.lead
+          ? {
+              leadId: row.lead.id,
+              customerId: row.lead.customerId ?? null,
+              fullName: row.lead.fullName || null,
+              phone: row.lead.phone || null,
+              agentUsername: row.lead.createdBy?.username || null,
+              isOutside: false,
+            }
+          : null,
+      });
+    }
+  }
+
+  if (paymentKind !== "lead") {
+    const { rows } = await loadOutsideCustomerCharges({
+      fromDate: date,
+      toDate: date,
+      processor,
+      withDetails: true,
+    });
+    for (const row of rows) {
+      const processorCode = String(row.processor || "").trim().toLowerCase() || null;
+      const processorMeta = processorCode ? byCode[processorCode] : null;
+      details.push({
+        id: `outside-${row.id}`,
+        createdAt: row.createdAt,
+        status: row.status,
+        amount: row.amount != null ? roundMoney(Number(row.amount)) : null,
+        processor: processorCode,
+        processorLabel: processorMeta?.shortCode || processorCode,
+        declineReason: row.status === "declined" ? row.declineReason || null : null,
+        sale: {
+          leadId: null,
+          customerId: row.customerId,
+          fullName: row.customer?.fullName || null,
+          phone: row.customer?.phone || null,
+          agentUsername: row.createdBy?.username || null,
+          isOutside: true,
+        },
+      });
+    }
+  }
+
+  details.sort((a, b) => {
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
+    return tb - ta;
   });
 
+  const { code: processorFilter } = await resolveProcessorFilter(processor);
   return {
     date,
     processor: processorFilter,
+    kind: paymentKind,
     events: details,
   };
 }

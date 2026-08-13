@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { requireCustomerAccess, findAccessibleCustomer } from "@/server/customers/customerAccess";
 import { serializePaymentMethod } from "@/server/customers/serializeCustomer";
 import {
   parsePaymentBody,
@@ -18,7 +18,7 @@ async function clearOtherDefaults(customerId, exceptId, transaction) {
 }
 
 export async function GET(_req, { params }) {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
@@ -27,7 +27,7 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
   }
 
-  const customer = await db.Customer.findByPk(customerId, { attributes: ["id"] });
+  const customer = await findAccessibleCustomer(authedUser, customerId, { attributes: ["id"] });
   if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
   const rows = await db.CustomerPaymentMethod.findAll({
@@ -50,7 +50,7 @@ export async function GET(_req, { params }) {
 }
 
 export async function POST(req, { params }) {
-  const { authedUser, errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
@@ -59,7 +59,7 @@ export async function POST(req, { params }) {
     return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
   }
 
-  const customer = await db.Customer.findByPk(customerId, { attributes: ["id"] });
+  const customer = await findAccessibleCustomer(authedUser, customerId, { attributes: ["id"] });
   if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
   const body = await req.json().catch(() => null);

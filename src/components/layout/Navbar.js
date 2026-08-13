@@ -93,7 +93,18 @@ function buildAdminDropdownItems(pathname) {
   ];
 }
 
-function buildNavItems(role, pathname, accessMode = "full") {
+function buildNavItems(role, pathname, accessMode = "full", isOutside = false) {
+  if (accessMode !== "limited" && role === "manager" && isOutside) {
+    return [
+      {
+        href: "/customers",
+        label: "Customers",
+        active: pathname === "/customers" || pathname?.startsWith("/customers/"),
+        palette: "violet",
+      },
+    ];
+  }
+
   const items = [
     {
       href: "/",
@@ -338,12 +349,18 @@ function MenuIcon({ open }) {
   );
 }
 
-export default function Navbar({ role, shiftStatus = null, accessMode = "full" }) {
+export default function Navbar({
+  role,
+  shiftStatus = null,
+  accessMode = "full",
+  isOutside = false,
+}) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
-  const navItems = buildNavItems(role, pathname, accessMode);
+  const navItems = buildNavItems(role, pathname, accessMode, isOutside);
   const mobileItems = navItems.filter((item) => !item.brand);
+  const outsideManager = role === "manager" && isOutside;
 
   useEffect(() => {
     setMenuOpen(false);
@@ -384,6 +401,23 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
           </div>
 
           <div className="flex min-w-0 items-center gap-2 lg:hidden">
+            {outsideManager ? (
+              <Link
+                href="/customers"
+                className={linkClass(
+                  pathname === "/customers" || pathname?.startsWith("/customers/"),
+                  "violet",
+                  "gap-2 px-2 py-1.5 text-sm sm:px-2.5 sm:text-base",
+                )}
+                aria-label="Customers"
+                aria-current={
+                  pathname === "/customers" || pathname?.startsWith("/customers/") ? "page" : undefined
+                }
+              >
+                <span className="truncate">Customers</span>
+              </Link>
+            ) : (
+              <>
             <Link
               href="/"
               className={linkClass(
@@ -407,6 +441,8 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
             >
               <MenuIcon open={menuOpen} />
             </button>
+              </>
+            )}
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3">
@@ -415,13 +451,13 @@ export default function Navbar({ role, shiftStatus = null, accessMode = "full" }
                 <ShiftStatusBadge initialShiftStatus={shiftStatus} />
               </span>
             ) : null}
-            <NavbarMessagingButton />
+            {outsideManager ? null : <NavbarMessagingButton />}
             <ThemeToggle />
             <LogoutButton />
           </div>
         </div>
 
-        {menuOpen ? (
+        {!outsideManager && menuOpen ? (
           <>
             <button
               type="button"

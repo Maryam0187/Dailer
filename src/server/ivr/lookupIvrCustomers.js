@@ -2,6 +2,9 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 
+const CUSTOMER_LOOKUP_ATTRS = ["id", "phone", "fullName", "isOutside"];
+const MAX_SUFFIX_MATCHES = 8;
+
 function phoneVariants(raw) {
   const input = String(raw || "").trim();
   if (!input) return [];
@@ -38,6 +41,7 @@ function serializeCustomerMatch(row) {
     id: row.id,
     phone: row.phone || null,
     fullName: row.fullName || null,
+    isOutside: Boolean(row.isOutside),
   };
 }
 
@@ -52,55 +56,82 @@ function serializeLastSale(lead) {
   };
 }
 
-async function findCustomerByExactPhoneVariants(variants) {
-  if (!variants.length) return null;
-  return db.Customer.findOne({
-    where: { phone: { [Op.in]: variants } },
-    attributes: ["id", "phone", "fullName"],
-    order: [["id", "ASC"]],
+function mergeUniqueCustomers(lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const row of list || []) {
+      if (!row?.id || byId.has(row.id)) continue;
+      byId.set(row.id, row);
+    }
+  }
+  return [...byId.values()].sort((a, b) => {
+    const ao = Boolean(a.isOutside) ? 1 : 0;
+    const bo = Boolean(b.isOutside) ? 1 : 0;
+    if (ao !== bo) return ao - bo;
+    return Number(a.id) - Number(b.id);
   });
 }
 
-async function findCustomerByPhoneSuffix(digits) {
-  if (!digits || digits.length < 4) return null;
-  const tails = [...new Set([digits, digits.slice(-10), digits.slice(-7)].filter((t) => t.length >= 4))];
-  for (const tail of tails) {
-    const row = await db.Customer.findOne({
-      where: { phone: { [Op.like]: `%${tail}` } },
-      attributes: ["id", "phone", "fullName"],
-      order: [["id", "ASC"]],
-    });
-    if (row) return row;
-  }
-  return null;
+async function findCustomersByExactPhoneVariants(variants) {
+  if (!variants.length) return [];
+  return db.Customer.findAll({
+    where: { phone: { [Op.in]: variants } },
+    attributes: CUSTOMER_LOOKUP_ATTRS,
+    order: [
+      ["isOutside", "ASC"],
+      ["id", "ASC"],
+    ],
+  });
 }
 
-async function findCustomerViaLeadPhone(variants, digits) {
+async function findCustomersByPhoneSuffix(digits) {
+  if (!digits || digits.length < 4) return [];
+  const tails = [...new Set([digits, digits.slice(-10), digits.slice(-7)].filter((t) => t.length >= 4))];
+  const rows = [];
+  for (const tail of tails) {
+    const found = await db.Customer.findAll({
+      where: { phone: { [Op.like]: `%${tail}` } },
+      attributes: CUSTOMER_LOOKUP_ATTRS,
+      order: [
+        ["isOutside", "ASC"],
+        ["id", "ASC"],
+      ],
+      limit: MAX_SUFFIX_MATCHES,
+    });
+    rows.push(...found);
+    if (rows.length >= MAX_SUFFIX_MATCHES) break;
+  }
+  return rows;
+}
+
+async function findCustomersViaLeadPhone(variants, digits) {
   const or = [];
   if (variants.length) or.push({ phone: { [Op.in]: variants } });
   if (digits && digits.length >= 4) {
     or.push({ phone: { [Op.like]: `%${digits.slice(-10)}` } });
   }
-  if (!or.length) return null;
+  if (!or.length) return [];
 
-  const lead = await db.Lead.findOne({
+  const leads = await db.Lead.findAll({
     where: { [Op.or]: or },
     attributes: ["id", "customerId", "phone"],
     include: [
       {
         model: db.Customer,
         as: "customer",
-        attributes: ["id", "phone", "fullName"],
+        attributes: CUSTOMER_LOOKUP_ATTRS,
         required: true,
       },
     ],
     order: [["id", "DESC"]],
+    limit: MAX_SUFFIX_MATCHES,
   });
-  return lead?.customer || null;
+  return leads.map((lead) => lead.customer).filter(Boolean);
 }
 
 async function withLastSale(customer) {
   if (!customer?.id) return customer;
+  if (customer.isOutside) return { ...customer, lastSale: null };
   try {
     const lead = await db.Lead.findOne({
       where: { customerId: customer.id },
@@ -114,33 +145,35 @@ async function withLastSale(customer) {
   }
 }
 
-/** Match a Customer by caller phone (Customer.phone, then Lead.phone). */
-export async function findCustomerByPhoneOrNumber(raw) {
+/** Match customers by caller phone (Customer.phone, then Lead.phone). Includes outside and lead customers. */
+export async function findCustomersByPhoneOrNumber(raw) {
   const input = String(raw || "").trim();
-  if (!input) return null;
+  if (!input) return [];
 
   const variants = phoneVariants(input);
   const digits = input.replace(/\D/g, "");
-  if (!variants.length && digits.length < 4) return null;
+  if (!variants.length && digits.length < 4) return [];
 
   try {
-    const exact = await findCustomerByExactPhoneVariants(variants);
-    if (exact) return withLastSale(serializeCustomerMatch(exact));
-
-    const suffix = await findCustomerByPhoneSuffix(digits);
-    if (suffix) return withLastSale(serializeCustomerMatch(suffix));
-
-    const viaLead = await findCustomerViaLeadPhone(variants, digits);
-    if (viaLead) return withLastSale(serializeCustomerMatch(viaLead));
+    const exact = await findCustomersByExactPhoneVariants(variants);
+    const suffix = await findCustomersByPhoneSuffix(digits);
+    const viaLead = await findCustomersViaLeadPhone(variants, digits);
+    const merged = mergeUniqueCustomers([exact, suffix, viaLead]);
+    return Promise.all(merged.map((row) => withLastSale(serializeCustomerMatch(row))));
   } catch (err) {
     console.warn("[ivr/lookupIvrCustomers]", err?.message || err);
+    return [];
   }
-
-  return null;
 }
 
-/** Caller From → customer (with lastSale when present). */
+/** @deprecated Use findCustomersByPhoneOrNumber — kept for callers that expect one row. */
+export async function findCustomerByPhoneOrNumber(raw) {
+  const rows = await findCustomersByPhoneOrNumber(raw);
+  return rows[0] || null;
+}
+
+/** Caller From → customers (inside and outside). `customer` is the primary match. */
 export async function lookupIvrCustomers({ from } = {}) {
-  const customer = await findCustomerByPhoneOrNumber(from);
-  return { customer };
+  const customers = await findCustomersByPhoneOrNumber(from);
+  return { customer: customers[0] || null, customers };
 }

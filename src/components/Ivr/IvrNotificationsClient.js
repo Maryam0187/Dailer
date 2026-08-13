@@ -187,15 +187,24 @@ export default function IvrNotificationsClient() {
                       </span>
                       <span className="text-xs text-zinc-500">{eventLabel(row.lastEventType)}</span>
                     </div>
-                    {row.customer ? (
-                      <IvrCustomerMatchRow
-                        label="Caller"
-                        customer={{
-                          ...row.customer,
-                          phone: row.fromNumber || row.customer.phone,
-                        }}
-                      />
-                    ) : null}
+                    {(() => {
+                      const matches =
+                        Array.isArray(row.customers) && row.customers.length
+                          ? row.customers
+                          : row.customer
+                            ? [row.customer]
+                            : [];
+                      return matches.map((match) => (
+                        <IvrCustomerMatchRow
+                          key={match.id}
+                          label={match.isOutside ? "Outside" : "Caller"}
+                          customer={{
+                            ...match,
+                            phone: row.fromNumber || match.phone,
+                          }}
+                        />
+                      ));
+                    })()}
                     <p className="text-xs text-zinc-600 dark:text-zinc-400">
                       Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
                     </p>

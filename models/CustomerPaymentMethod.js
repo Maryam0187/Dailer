@@ -124,6 +124,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "customerPaymentMethodId",
       });
     }
+    if (models.CustomerCharge) {
+      CustomerPaymentMethod.hasMany(models.CustomerCharge, {
+        as: "charges",
+        foreignKey: "customerPaymentMethodId",
+      });
+    }
   };
 
   return CustomerPaymentMethod;

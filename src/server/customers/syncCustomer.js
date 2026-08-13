@@ -44,6 +44,7 @@ export async function findOrCreateCustomerForLead(phone, leadFields, { transacti
     customer = await db.Customer.create(
       {
         phone,
+        isOutside: false,
         ...profile,
       },
       { transaction },

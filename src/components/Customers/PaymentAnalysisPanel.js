@@ -131,6 +131,7 @@ function DayDetailPanel({
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">
                         {sale.phone || "No phone"}
                         {sale.leadId != null ? ` · #${sale.leadId}` : ""}
+                      {sale.isOutside ? " · Outside" : ""}
                       </p>
                       {sale.leadId != null && onOpenRelatedSale ? (
                         <button
@@ -148,6 +149,22 @@ function DayDetailPanel({
                           }}
                         >
                           {openingLeadId === sale.leadId ? "Opening…" : "View sale"}
+                        </button>
+                      ) : sale?.isOutside && sale.customerId != null && onOpenRelatedSale ? (
+                        <button
+                          type="button"
+                          className="mt-1 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onOpenRelatedSale({
+                              customerId: sale.customerId,
+                              leadId: null,
+                              processor: ev.processor,
+                            });
+                          }}
+                        >
+                          View customer
                         </button>
                       ) : null}
                     </div>
@@ -183,6 +200,8 @@ export default function PaymentAnalysisPanel({
   const [appliedTo, setAppliedTo] = useState(initial.to);
   const [processor, setProcessor] = useState("all");
   const [appliedProcessor, setAppliedProcessor] = useState("all");
+  const [kind, setKind] = useState("all");
+  const [appliedKind, setAppliedKind] = useState("all");
   const [processors, setProcessors] = useState(
     LEAD_PAYMENT_PROCESSORS.map((p) => ({
       code: p.value,
@@ -215,7 +234,7 @@ export default function PaymentAnalysisPanel({
     }
   }, []);
 
-  const loadStats = useCallback(async (fromDate, toDate, processorCode = "all") => {
+  const loadStats = useCallback(async (fromDate, toDate, processorCode = "all", kindValue = "all") => {
     if (!fromDate || !toDate) return;
     setLoading(true);
     setError(null);
@@ -226,6 +245,7 @@ export default function PaymentAnalysisPanel({
     try {
       const params = new URLSearchParams({ from: fromDate, to: toDate });
       if (processorCode && processorCode !== "all") params.set("processor", processorCode);
+      if (kindValue && kindValue !== "all") params.set("kind", kindValue);
       const res = await fetch(`/api/payment-processors/stats?${params}`, {
         credentials: "include",
         cache: "no-store",
@@ -237,6 +257,7 @@ export default function PaymentAnalysisPanel({
       setAppliedFrom(json.fromDate || fromDate);
       setAppliedTo(json.toDate || toDate);
       setAppliedProcessor(json.processor || "all");
+      setAppliedKind(json.kind || kindValue || "all");
     } catch (e) {
       setError(e.message || "Failed to load payment stats");
       setTotals(null);
@@ -246,13 +267,14 @@ export default function PaymentAnalysisPanel({
     }
   }, []);
 
-  const loadDayDetails = useCallback(async (date, processorCode = "all") => {
-    const cacheKey = `${date}|${processorCode || "all"}`;
+  const loadDayDetails = useCallback(async (date, processorCode = "all", kindValue = "all") => {
+    const cacheKey = `${date}|${processorCode || "all"}|${kindValue || "all"}`;
     setDayLoading((prev) => ({ ...prev, [cacheKey]: true }));
     setDayErrors((prev) => ({ ...prev, [cacheKey]: null }));
     try {
       const params = new URLSearchParams({ date });
       if (processorCode && processorCode !== "all") params.set("processor", processorCode);
+      if (kindValue && kindValue !== "all") params.set("kind", kindValue);
       const res = await fetch(`/api/payment-processors/stats/day?${params}`, {
         credentials: "include",
         cache: "no-store",
@@ -275,7 +297,7 @@ export default function PaymentAnalysisPanel({
 
   useEffect(() => {
     void loadProcessors();
-    void loadStats(initial.from, initial.to, "all");
+    void loadStats(initial.from, initial.to, "all", "all");
   }, [loadProcessors, loadStats]);
 
   function onRangeChange(next) {
@@ -283,7 +305,7 @@ export default function PaymentAnalysisPanel({
     setFrom(next.from);
     setTo(next.to);
     if (next.preset !== "custom" && next.from && next.to) {
-      void loadStats(next.from, next.to, processor);
+      void loadStats(next.from, next.to, processor, kind);
     }
   }
 
@@ -291,7 +313,7 @@ export default function PaymentAnalysisPanel({
     setProcessor(value);
     // Always reload when a date range is set (including custom).
     if (from && to) {
-      void loadStats(from, to, value);
+      void loadStats(from, to, value, kind);
     }
   }
 
@@ -305,7 +327,14 @@ export default function PaymentAnalysisPanel({
       setError("From date must be on or before to date");
       return;
     }
-    void loadStats(from, to, processor);
+    void loadStats(from, to, processor, kind);
+  }
+
+  function onKindChange(value) {
+    setKind(value);
+    if (from && to) {
+      void loadStats(from, to, processor, value);
+    }
   }
 
   function onToggleDay(date, hasEvents) {
@@ -314,9 +343,9 @@ export default function PaymentAnalysisPanel({
     const willOpen = expandedDate !== date;
     setExpandedDate(willOpen ? date : null);
     if (!willOpen) return;
-    const cacheKey = `${date}|${appliedProcessor || "all"}`;
+    const cacheKey = `${date}|${appliedProcessor || "all"}|${appliedKind || "all"}`;
     if (!dayDetails[cacheKey] && !dayLoading[cacheKey]) {
-      void loadDayDetails(date, appliedProcessor);
+      void loadDayDetails(date, appliedProcessor, appliedKind);
     }
   }
 
@@ -338,8 +367,8 @@ export default function PaymentAnalysisPanel({
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Payment analysis</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Totals and daily volume use each sale&apos;s latest outcome on the lead. Expand a day to
-          see payment log events.
+          Totals and daily volume use each sale&apos;s latest outcome on the lead, plus outside
+          customer charges. Use Outside to see billed accounts with no lead.
         </p>
 
         <form onSubmit={onApplyCustom} className="mt-4 flex flex-wrap items-end gap-3">
@@ -368,6 +397,21 @@ export default function PaymentAnalysisPanel({
               ))}
             </select>
           </div>
+          <div className="w-full sm:min-w-[180px] sm:w-48">
+            <label htmlFor="payment-analysis-kind" className={labelClass}>
+              Outside
+            </label>
+            <select
+              id="payment-analysis-kind"
+              value={kind}
+              onChange={(e) => onKindChange(e.target.value)}
+              className={inputClass}
+            >
+              <option value="all">Combined (all)</option>
+              <option value="lead">Lead customers</option>
+              <option value="outside">Outside</option>
+            </select>
+          </div>
           {preset === "custom" ? (
             <button type="submit" className={btnPrimary} disabled={loading}>
               Apply
@@ -377,7 +421,7 @@ export default function PaymentAnalysisPanel({
             type="button"
             className={btnSecondary}
             disabled={loading || !appliedFrom || !appliedTo}
-            onClick={() => void loadStats(appliedFrom, appliedTo, processor)}
+            onClick={() => void loadStats(appliedFrom, appliedTo, processor, kind)}
           >
             Refresh
           </button>
@@ -389,6 +433,14 @@ export default function PaymentAnalysisPanel({
             <span className="font-medium">{appliedTo}</span>
             {" · "}
             <span className="font-medium">{appliedProcessorLabel}</span>
+            {" · "}
+            <span className="font-medium">
+              {appliedKind === "outside"
+                ? "Outside"
+                : appliedKind === "lead"
+                  ? "Lead customers"
+                  : "Combined (all)"}
+            </span>
           </p>
         ) : null}
       </section>
@@ -443,7 +495,7 @@ export default function PaymentAnalysisPanel({
                 {byDay.map((row) => {
                   const hasEvents = dayEventCount(row) > 0;
                   const isExpanded = expandedDate === row.date;
-                  const cacheKey = `${row.date}|${appliedProcessor || "all"}`;
+                  const cacheKey = `${row.date}|${appliedProcessor || "all"}|${appliedKind || "all"}`;
                   return (
                     <Fragment key={row.date}>
                       <tr

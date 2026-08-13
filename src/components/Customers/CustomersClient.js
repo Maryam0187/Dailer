@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
+import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import {
   detectCardBrand,
   formatCardNumberInput,
@@ -199,6 +199,33 @@ function paymentSummary(pm) {
   return pm.email || pm.notes?.slice(0, 60) || "POS";
 }
 
+function emptyOutsideForm(managerId = "") {
+  return {
+    fullName: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    notes: "",
+    managerId: managerId ? String(managerId) : "",
+    agentId: "",
+  };
+}
+
+function staffSelectOptions(users, role, { managerId = "", includeId = "" } = {}) {
+  return (users || []).filter((u) => {
+    if (u.role !== role) return false;
+    if (includeId && Number(u.id) === Number(includeId)) return true;
+    if (u.isActive === false) return false;
+    if (!u.isOutside) return false;
+    if (role === "agent" && managerId) {
+      return Number(u.managerId) === Number(managerId);
+    }
+    return true;
+  });
+}
+
 function emptyPaymentForm(defaults = {}) {
   return {
     type: "card",
@@ -269,7 +296,13 @@ function PaymentViewDetails({ pm }) {
   );
 }
 
-export default function CustomersClient() {
+export default function CustomersClient({
+  isAdmin = true,
+  managerOnly = false,
+  viewerId = null,
+  viewerUsername = "",
+}) {
+  const lockedManagerId = isAdmin ? "" : viewerId != null ? String(viewerId) : "";
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -330,7 +363,19 @@ export default function CustomersClient() {
     tone: p.tone,
     active: true,
   })));
-  const [activeView, setActiveView] = useState("customers");
+  const [activeView, setActiveView] = useState(isAdmin ? "customers" : "outside");
+  const isOutsideView = activeView === "outside";
+  const [showOutsideForm, setShowOutsideForm] = useState(false);
+  const [outsideForm, setOutsideForm] = useState(() => emptyOutsideForm(lockedManagerId));
+  const [savingOutside, setSavingOutside] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState(() => emptyOutsideForm(lockedManagerId));
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [outsidePmId, setOutsidePmId] = useState("");
+  const [outsideAmount, setOutsideAmount] = useState("");
+  const [savingOutsideCharge, setSavingOutsideCharge] = useState(false);
+  const [deletingChargeId, setDeletingChargeId] = useState(null);
+  const [staffUsers, setStaffUsers] = useState([]);
   const loadRequestIdRef = useRef(0);
   const [adminShortLabels, setAdminShortLabels] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -380,6 +425,7 @@ export default function CustomersClient() {
         field = dateField,
         from = appliedFrom,
         to = appliedTo,
+        kind = isOutsideView ? "outside" : "lead",
       } = {},
     ) => {
       const requestId = ++loadRequestIdRef.current;
@@ -390,15 +436,16 @@ export default function CustomersClient() {
           page: String(page),
           pageSize: String(CUSTOMERS_PAGE_SIZE),
         });
+        if (kind === "outside") params.set("kind", "outside");
         if (query.trim()) {
           params.set("q", query.trim());
           params.set("searchBy", by);
         }
-        if (sale && sale !== "all") params.set("saleFilter", sale);
+        if (kind !== "outside" && sale && sale !== "all") params.set("saleFilter", sale);
         if (payment && payment !== "all") params.set("paymentFilter", payment);
         if (charge && charge !== "all") params.set("chargeFilter", charge);
         if (state && state !== "all") params.set("state", state);
-        if (shift && shift !== "all") params.set("shiftKey", shift);
+        if (kind !== "outside" && shift && shift !== "all") params.set("shiftKey", shift);
         params.set("dateField", field || "updated");
         // Date range applies only when not doing a phone/name/last7 search
         if (!query.trim() && from && to) {
@@ -442,6 +489,7 @@ export default function CustomersClient() {
       dateField,
       appliedFrom,
       appliedTo,
+      isOutsideView,
     ],
   );
 
@@ -460,6 +508,7 @@ export default function CustomersClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load customer");
       setDetail(json);
+      if (json.customer?.isOutside) setActiveView("outside");
     } catch (err) {
       setPaymentError(err.message || "Failed to load customer");
       setDetail(null);
@@ -480,6 +529,7 @@ export default function CustomersClient() {
     dateField,
     appliedFrom,
     appliedTo,
+    isOutsideView,
     loadCustomers,
   ]);
 
@@ -503,6 +553,23 @@ export default function CustomersClient() {
     void loadPaymentProcessors();
   }, [loadPaymentProcessors]);
 
+  useEffect(() => {
+    if (!isOutsideView) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/users", { credentials: "include", cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setStaffUsers(json.users || []);
+      } catch {
+        // dropdowns stay empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOutsideView]);
+
   // Deep-link from IVR notifications: /customers?customerId=&leadId=
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
@@ -512,6 +579,10 @@ export default function CustomersClient() {
     const hasLead = Number.isInteger(lid) && lid > 0;
     if (!hasCustomer && !hasLead) return;
     deepLinkHandledRef.current = true;
+    if (!isAdmin) {
+      if (hasCustomer) setSelectedId(cid);
+      return;
+    }
     setActiveView("customers");
     if (hasCustomer) setSelectedId(cid);
     if (hasLead) {
@@ -536,7 +607,7 @@ export default function CustomersClient() {
         }
       })();
     }
-  }, [searchParams]);
+  }, [searchParams, isAdmin]);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
@@ -547,6 +618,9 @@ export default function CustomersClient() {
     setPaymentForm(emptyPaymentForm());
     setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
     setPaymentError(null);
+    setEditingProfile(false);
+    setOutsidePmId("");
+    setOutsideAmount("");
   }, [selectedId, loadDetail]);
 
   // Prefill name on card from customer when opening a new payment form
@@ -560,6 +634,19 @@ export default function CustomersClient() {
       return { ...prev, nameOnCard: name };
     });
   }, [detail, showPaymentForm, editingPaymentId, viewingPayment]);
+
+  useEffect(() => {
+    const methods = detail?.paymentMethods || [];
+    if (!methods.length) {
+      setOutsidePmId("");
+      return;
+    }
+    setOutsidePmId((prev) => {
+      if (prev && methods.some((pm) => String(pm.id) === String(prev))) return prev;
+      const def = methods.find((pm) => pm.isDefault) || methods[0];
+      return def ? String(def.id) : "";
+    });
+  }, [detail]);
 
   function onSearch(e) {
     e.preventDefault();
@@ -943,8 +1030,21 @@ export default function CustomersClient() {
         setPaymentError("Decline reason is required");
         return;
       }
+      if (chargeModal.outside) {
+        await submitOutsideCharge("declined", {
+          reason,
+          processor: skipProcessor ? null : processor,
+        });
+        return;
+      }
       await setLeadChargeStatus(chargeModal.lead.id, "declined", {
         reason,
+        processor: skipProcessor ? null : processor,
+      });
+      return;
+    }
+    if (chargeModal.outside) {
+      await submitOutsideCharge(chargeModal.status, {
         processor: skipProcessor ? null : processor,
       });
       return;
@@ -952,6 +1052,199 @@ export default function CustomersClient() {
     await setLeadChargeStatus(chargeModal.lead.id, chargeModal.status, {
       processor: skipProcessor ? null : processor,
     });
+  }
+
+  function openOutsideChargeModal(status) {
+    const pm = (detail?.paymentMethods || []).find(
+      (m) => String(m.id) === String(outsidePmId),
+    );
+    if (!pm) {
+      setPaymentError("Select a payment method first");
+      return;
+    }
+    if ((status === "charged" || status === "chargeback") && !String(outsideAmount).trim()) {
+      setPaymentError("Charge amount is required");
+      return;
+    }
+    setPaymentError(null);
+    setChargeProcessor("");
+    setDeclineReason("");
+    setChargeModal({
+      outside: true,
+      lead: null,
+      status,
+      paymentType: pm.type,
+      paymentMethodId: pm.id,
+    });
+  }
+
+  async function submitOutsideCharge(status, { reason = null, processor = null } = {}) {
+    if (!selectedId) return;
+    setSavingOutsideCharge(true);
+    setPaymentError(null);
+    try {
+      const payload = {
+        status,
+        customerPaymentMethodId: Number(outsidePmId),
+        amount: outsideAmount.trim() || null,
+      };
+      if (processor) payload.processor = processor;
+      if (status === "declined") payload.declineReason = reason;
+      const res = await fetch(`/api/customers/${selectedId}/charges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to save charge");
+      setChargeModal(null);
+      setChargeProcessor("");
+      setDeclineReason("");
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to save charge");
+    } finally {
+      setSavingOutsideCharge(false);
+    }
+  }
+
+  async function deleteOutsideCharge(chargeId) {
+    if (!selectedId || !chargeId) return;
+    const ok = window.confirm(
+      managerOnly ? "Remove this charge from the customer?" : "Remove this charge from the outside customer?"
+    );
+    if (!ok) return;
+    setDeletingChargeId(chargeId);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/customers/${selectedId}/charges/${chargeId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to remove charge");
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to remove charge");
+    } finally {
+      setDeletingChargeId(null);
+    }
+  }
+
+  async function createOutsideCustomer(e) {
+    e.preventDefault();
+    const name = outsideForm.fullName.trim();
+    if (!name) {
+      setError("Full name is required");
+      return;
+    }
+    const phoneCheck = validatePhone(outsideForm.phone);
+    if (!phoneCheck.isValid) {
+      setError(phoneCheck.message);
+      return;
+    }
+    if (!outsideForm.managerId) {
+      setError("Manager is required");
+      return;
+    }
+    setSavingOutside(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          fullName: name,
+          phone: outsideForm.phone,
+          address: outsideForm.address.trim() || null,
+          city: outsideForm.city.trim() || null,
+          state: outsideForm.state || null,
+          zipCode: outsideForm.zipCode.trim() || null,
+          notes: outsideForm.notes.trim() || null,
+          managerId: Number(outsideForm.managerId),
+          agentId: outsideForm.agentId ? Number(outsideForm.agentId) : null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || (managerOnly ? "Failed to save customer" : "Failed to save outside customer"));
+      setShowOutsideForm(false);
+      setOutsideForm(emptyOutsideForm(lockedManagerId));
+      setSelectedId(json.customer?.id || null);
+      await loadCustomers(1);
+    } catch (err) {
+      setError(err.message || (managerOnly ? "Failed to save customer" : "Failed to save outside customer"));
+    } finally {
+      setSavingOutside(false);
+    }
+  }
+
+  function startEditProfile() {
+    const c = detail?.customer;
+    setProfileForm({
+      fullName: c?.fullName || c?.displayName || "",
+      phone: formatLandline(c?.phone) || c?.phone || "",
+      address: c?.address || "",
+      city: c?.city || "",
+      state: c?.state || "",
+      zipCode: c?.zipCode || "",
+      notes: c?.notes || "",
+      managerId: c?.managerId ? String(c.managerId) : "",
+      agentId: c?.agentId ? String(c.agentId) : "",
+    });
+    setEditingProfile(true);
+    setPaymentError(null);
+  }
+
+  async function saveOutsideProfile(e) {
+    e.preventDefault();
+    if (!selectedId) return;
+    const name = profileForm.fullName.trim();
+    if (!name) {
+      setPaymentError("Full name is required");
+      return;
+    }
+    const phoneCheck = validatePhone(profileForm.phone);
+    if (!phoneCheck.isValid) {
+      setPaymentError(phoneCheck.message);
+      return;
+    }
+    if (!profileForm.managerId) {
+      setPaymentError("Manager is required");
+      return;
+    }
+    setSavingProfile(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/customers/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          fullName: name,
+          phone: profileForm.phone,
+          address: profileForm.address.trim() || null,
+          city: profileForm.city.trim() || null,
+          state: profileForm.state || null,
+          zipCode: profileForm.zipCode.trim() || null,
+          notes: profileForm.notes.trim() || null,
+          managerId: Number(profileForm.managerId),
+          agentId: profileForm.agentId ? Number(profileForm.agentId) : null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to update customer");
+      setEditingProfile(false);
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to update customer");
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   function openAmountModal(lead) {
@@ -1042,20 +1335,51 @@ export default function CustomersClient() {
   const customer = detail?.customer;
   const paymentMethods = detail?.paymentMethods || [];
   const leads = detail?.leads || [];
+  const charges = detail?.charges || [];
+  const managerOptions = staffSelectOptions(staffUsers, "manager", {
+    includeId: outsideForm.managerId || profileForm.managerId || customer?.managerId,
+  });
+  const createAgentOptions = staffSelectOptions(staffUsers, "agent", {
+    managerId: outsideForm.managerId,
+    includeId: outsideForm.agentId,
+  });
+  const editAgentOptions = staffSelectOptions(staffUsers, "agent", {
+    managerId: profileForm.managerId,
+    includeId: profileForm.agentId,
+  });
   const chargeModalIsCheckMail = chargeModal ? isCheckMailCharge(chargeModal) : false;
+  const chargeModalBusy = chargeModal?.outside
+    ? savingOutsideCharge
+    : chargingLeadId === chargeModal?.lead?.id;
+  const chargeModalName = chargeModal?.outside
+    ? customer?.displayName || customer?.fullName || "this customer"
+    : chargeModal?.lead?.fullName || "this lead";
+  const visibleDateFields = isOutsideView
+    ? DATE_FIELD_OPTIONS.filter((opt) => opt.value === "updated" || opt.value === "created")
+    : DATE_FIELD_OPTIONS;
 
   return (
     <div className="space-y-6">
+      {isAdmin ? (
       <div className="flex flex-wrap gap-2">
         {[
           { id: "customers", label: "Customers" },
+          { id: "outside", label: "Outside customers" },
           { id: "processors", label: "Payment processors" },
           { id: "analysis", label: "Payment analysis" },
         ].map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveView(tab.id)}
+            onClick={() => {
+              setActiveView(tab.id);
+              if (tab.id === "customers" || tab.id === "outside") {
+                setSelectedId(null);
+                if (tab.id === "outside" && dateField !== "created" && dateField !== "updated") {
+                  setDateField("updated");
+                }
+              }
+            }}
             className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition-colors ${
               activeView === tab.id
                 ? "bg-violet-600 text-white"
@@ -1067,24 +1391,206 @@ export default function CustomersClient() {
           </button>
         ))}
       </div>
+      ) : null}
 
-      {activeView === "processors" ? (
+      {isAdmin && activeView === "processors" ? (
         <PaymentProcessorsAdminPanel onProcessorsUpdated={loadPaymentProcessors} />
       ) : null}
 
-      {activeView === "analysis" ? (
+      {isAdmin && activeView === "analysis" ? (
         <PaymentAnalysisPanel
           openingLeadId={loadingLeadId}
           openSaleError={paymentError}
           onOpenRelatedSale={({ customerId, leadId }) => {
             if (customerId != null) setSelectedId(Number(customerId));
-            if (leadId != null) void openLeadSidebar(Number(leadId));
+            if (leadId != null) {
+              void openLeadSidebar(Number(leadId));
+            } else if (customerId != null) {
+              setActiveView("outside");
+            }
           }}
         />
       ) : null}
 
-      {activeView === "customers" ? (
+      {activeView === "customers" || activeView === "outside" ? (
       <>
+      {isOutsideView ? (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                {managerOnly ? "Customers" : "Outside customers"}
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                {isAdmin
+                  ? "Billed accounts with no lead. Saved in the same customers table."
+                  : "Add payment methods and charges for your customers."}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={() => {
+                setShowOutsideForm((open) => !open);
+                setError(null);
+              }}
+            >
+              {showOutsideForm ? "Cancel" : managerOnly ? "Add customer" : "Add outside customer"}
+            </button>
+          </div>
+          {showOutsideForm ? (
+            <form onSubmit={createOutsideCustomer} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className={labelClass}>
+                Full name *
+                <input
+                  className={inputClass}
+                  value={outsideForm.fullName}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, fullName: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className={labelClass}>
+                Phone *
+                <input
+                  className={inputClass}
+                  value={outsideForm.phone}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({
+                      ...prev,
+                      phone: formatLandline(e.target.value),
+                    }))
+                  }
+                  inputMode="numeric"
+                  maxLength={12}
+                  required
+                />
+              </label>
+              <label className={labelClass}>
+                Manager *
+                {isAdmin ? (
+                <select
+                  className={inputClass}
+                  value={outsideForm.managerId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setOutsideForm((prev) => ({
+                      ...prev,
+                      managerId: next,
+                      agentId:
+                        prev.agentId &&
+                        staffSelectOptions(staffUsers, "agent", { managerId: next }).some(
+                          (u) => String(u.id) === String(prev.agentId),
+                        )
+                          ? prev.agentId
+                          : "",
+                    }));
+                  }}
+                  required
+                >
+                  <option value="">Select manager…</option>
+                  {managerOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
+                ) : (
+                <input
+                  className={`${inputClass} cursor-not-allowed bg-zinc-50 dark:bg-zinc-900`}
+                  value={viewerUsername || "You"}
+                  disabled
+                  readOnly
+                />
+                )}
+              </label>
+              <label className={labelClass}>
+                Agent
+                <select
+                  className={inputClass}
+                  value={outsideForm.agentId}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, agentId: e.target.value }))
+                  }
+                  disabled={!outsideForm.managerId}
+                >
+                  <option value="">None</option>
+                  {createAgentOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
+                Address
+                <input
+                  className={inputClass}
+                  value={outsideForm.address}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, address: e.target.value }))
+                  }
+                  placeholder="Street address"
+                />
+              </label>
+              <label className={labelClass}>
+                City
+                <input
+                  className={inputClass}
+                  value={outsideForm.city}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, city: e.target.value }))
+                  }
+                />
+              </label>
+              <label className={labelClass}>
+                State
+                <select
+                  className={inputClass}
+                  value={outsideForm.state}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, state: e.target.value }))
+                  }
+                >
+                  <option value="">Select state…</option>
+                  {US_STATES.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={labelClass}>
+                ZIP
+                <input
+                  className={inputClass}
+                  value={outsideForm.zipCode}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, zipCode: e.target.value }))
+                  }
+                />
+              </label>
+              <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
+                Notes
+                <textarea
+                  className={`${inputClass} min-h-[72px] resize-y`}
+                  value={outsideForm.notes}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                  rows={3}
+                />
+              </label>
+              <div className="flex items-end">
+                <button type="submit" className={btnPrimary} disabled={savingOutside}>
+                  {savingOutside ? "Saving…" : "Save customer"}
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </section>
+      ) : null}
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <form onSubmit={onSearch} className="flex flex-wrap items-end gap-3">
           <div className="w-full sm:w-36">
@@ -1148,6 +1654,8 @@ export default function CustomersClient() {
               </p>
             ) : null}
           </div>
+          {!isOutsideView ? (
+          <>
           <div className="w-full sm:min-w-[200px] sm:flex-1">
             <label htmlFor="customer-sale-filter" className={labelClass}>
               Sale status
@@ -1186,6 +1694,8 @@ export default function CustomersClient() {
               <option value="night">Night shift</option>
             </select>
           </div>
+          </>
+          ) : null}
           <div className="w-full sm:min-w-[200px] sm:flex-1">
             <label htmlFor="customer-payment-filter" className={labelClass}>
               Payment
@@ -1260,7 +1770,7 @@ export default function CustomersClient() {
               }}
               className={inputClass}
             >
-              {DATE_FIELD_OPTIONS.map((opt) => (
+              {visibleDateFields.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -1329,7 +1839,7 @@ export default function CustomersClient() {
         </form>
         {appliedFrom && appliedTo ? (
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Lead{" "}
+            {isOutsideView ? "Customer" : "Lead"}{" "}
             {(DATE_FIELD_OPTIONS.find((o) => o.value === dateField)?.label || "Updated").toLowerCase()}{" "}
             in <span className="font-medium">{appliedFrom}</span>
             {" — "}
@@ -1351,8 +1861,10 @@ export default function CustomersClient() {
               {loading
                 ? "Loading customers…"
                 : pagination.total > 0
-                  ? `Showing ${customers.length} of ${pagination.total} customers`
-                  : "No customers yet"}
+                  ? `Showing ${customers.length} of ${pagination.total} ${isOutsideView && !managerOnly ? "outside customers" : "customers"}`
+                  : isOutsideView && !managerOnly
+                    ? "No outside customers yet"
+                    : "No customers yet"}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -1382,21 +1894,28 @@ export default function CustomersClient() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Customer</th>
                   <th className="px-4 py-3 font-semibold">Location</th>
-                  <th className="px-4 py-3 font-semibold">Leads</th>
+                  {isOutsideView ? (
+                    <th className="px-4 py-3 font-semibold">Team</th>
+                  ) : null}
+                  {isOutsideView ? (
+                    <th className="px-4 py-3 font-semibold">Last charge</th>
+                  ) : (
+                    <th className="px-4 py-3 font-semibold">Leads</th>
+                  )}
                   <th className="px-4 py-3 font-semibold">Payments</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={isOutsideView ? 5 : 4} className="px-4 py-8 text-center text-zinc-500">
                       Loading…
                     </td>
                   </tr>
                 ) : customers.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                      No customers found.
+                    <td colSpan={isOutsideView ? 5 : 4} className="px-4 py-8 text-center text-zinc-500">
+                      No {isOutsideView && !managerOnly ? "outside customers" : "customers"} found.
                     </td>
                   </tr>
                 ) : (
@@ -1417,18 +1936,50 @@ export default function CustomersClient() {
                         <div className="font-mono text-xs text-zinc-500">
                           {formatLandline(c.phone) || c.phone}
                         </div>
-                        <div className="text-xs text-zinc-500">{c.serviceLabel || "—"}</div>
+                        <div className="text-xs text-zinc-500">{c.serviceLabel && c.serviceLabel !== "—" ? c.serviceLabel : isOutsideView && !managerOnly ? "Outside" : "—"}</div>
                       </td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                        {[c.city, c.state, c.zipCode].filter(Boolean).join(", ") || "—"}
+                        {[c.address, c.city, c.state, c.zipCode].filter(Boolean).join(", ") || "—"}
                       </td>
+                      {isOutsideView ? (
+                        <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                          <div className="font-medium text-zinc-900 dark:text-zinc-100">
+                            {c.managerUsername || "—"}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {c.agentUsername || "No agent"}
+                          </div>
+                        </td>
+                      ) : null}
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-zinc-900 dark:text-zinc-100">
-                          {c.leadCount ?? 0}
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          Last {formatWhen(c.lastLeadAt)}
-                        </div>
+                        {isOutsideView ? (
+                          <>
+                            <div className="font-semibold text-zinc-900 dark:text-zinc-100">
+                              {c.latestCharge
+                                ? getLeadPaymentChargeStatusMeta(c.latestCharge.status).label
+                                : "—"}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {c.latestCharge?.amount != null
+                                ? formatLeadPaymentChargeAmount(c.latestCharge.amount)
+                                : ""}
+                              {c.latestCharge?.createdAt
+                                ? ` · ${formatWhen(c.latestCharge.createdAt)}`
+                                : c.latestCharge
+                                  ? ""
+                                  : "No charges yet"}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-semibold text-zinc-900 dark:text-zinc-100">
+                              {c.leadCount ?? 0}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              Last {formatWhen(c.lastLeadAt)}
+                            </div>
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100">
                         {c.paymentMethodCount ?? 0}
@@ -1470,7 +2021,7 @@ export default function CustomersClient() {
         <div className="space-y-4">
           {!selectedId ? (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-6 py-16 text-center text-sm text-zinc-500 dark:border-zinc-700">
-              Select a customer to view lead history and payment methods.
+              Select a customer to view {isOutsideView ? "payment methods and charges" : "lead history and payment methods"}.
             </div>
           ) : detailLoading ? (
             <div className="rounded-2xl border border-zinc-200 px-6 py-16 text-center text-sm text-zinc-500 dark:border-zinc-800">
@@ -1483,9 +2034,180 @@ export default function CustomersClient() {
           ) : (
             <>
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-                <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-                  {customer.displayName || customer.fullName || "Customer"}
-                </h2>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+                    {customer.displayName || customer.fullName || "Customer"}
+                    {customer.isOutside && !managerOnly ? (
+                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                        Outside
+                      </span>
+                    ) : null}
+                  </h2>
+                  {customer.isOutside && !editingProfile ? (
+                    <button type="button" className={btnSecondary} onClick={startEditProfile}>
+                      Edit
+                    </button>
+                  ) : null}
+                </div>
+                {customer.isOutside && editingProfile ? (
+                  <form onSubmit={saveOutsideProfile} className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className={labelClass}>
+                      Full name *
+                      <input
+                        className={inputClass}
+                        value={profileForm.fullName}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, fullName: e.target.value }))
+                        }
+                        required
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Phone *
+                      <input
+                        className={inputClass}
+                        value={profileForm.phone}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            phone: formatLandline(e.target.value),
+                          }))
+                        }
+                        inputMode="numeric"
+                        maxLength={12}
+                        required
+                      />
+                    </label>
+                    <label className={`${labelClass} sm:col-span-2`}>
+                      Address
+                      <input
+                        className={inputClass}
+                        value={profileForm.address}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, address: e.target.value }))
+                        }
+                        placeholder="Street address"
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      City
+                      <input
+                        className={inputClass}
+                        value={profileForm.city}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, city: e.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      State
+                      <select
+                        className={inputClass}
+                        value={profileForm.state}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, state: e.target.value }))
+                        }
+                      >
+                        <option value="">Select state…</option>
+                        {US_STATES.map((s) => (
+                          <option key={s.code} value={s.code}>
+                            {s.name} ({s.code})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className={labelClass}>
+                      ZIP
+                      <input
+                        className={inputClass}
+                        value={profileForm.zipCode}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, zipCode: e.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Manager *
+                      {isAdmin ? (
+                      <select
+                        className={inputClass}
+                        value={profileForm.managerId}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            managerId: next,
+                            agentId:
+                              prev.agentId &&
+                              staffSelectOptions(staffUsers, "agent", { managerId: next }).some(
+                                (u) => String(u.id) === String(prev.agentId),
+                              )
+                                ? prev.agentId
+                                : "",
+                          }));
+                        }}
+                        required
+                      >
+                        <option value="">Select manager…</option>
+                        {managerOptions.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.username}
+                          </option>
+                        ))}
+                      </select>
+                      ) : (
+                      <input
+                        className={`${inputClass} cursor-not-allowed bg-zinc-50 dark:bg-zinc-900`}
+                        value={viewerUsername || customer.managerUsername || "You"}
+                        disabled
+                        readOnly
+                      />
+                      )}
+                    </label>
+                    <label className={labelClass}>
+                      Agent
+                      <select
+                        className={inputClass}
+                        value={profileForm.agentId}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, agentId: e.target.value }))
+                        }
+                        disabled={!profileForm.managerId}
+                      >
+                        <option value="">None</option>
+                        {editAgentOptions.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.username}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className={`${labelClass} sm:col-span-2`}>
+                      Notes
+                      <textarea
+                        className={`${inputClass} min-h-[72px] resize-y`}
+                        value={profileForm.notes}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, notes: e.target.value }))
+                        }
+                        rows={3}
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <button type="submit" className={btnPrimary} disabled={savingProfile}>
+                        {savingProfile ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => setEditingProfile(false)}
+                        disabled={savingProfile}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
                 <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-zinc-500">Phone</dt>
@@ -1493,29 +2215,58 @@ export default function CustomersClient() {
                       {formatLandline(customer.phone) || customer.phone}
                     </dd>
                   </div>
+                  {customer.isOutside && managerOnly ? null : (
                   <div>
-                    <dt className="text-zinc-500">Service</dt>
+                    <dt className="text-zinc-500">{customer.isOutside ? "Type" : "Service"}</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {customer.serviceLabel || "—"}
+                      {customer.isOutside ? "Outside (no lead)" : customer.serviceLabel || "—"}
                     </dd>
                   </div>
+                  )}
+                  {customer.isOutside ? (
+                    <>
+                      <div>
+                        <dt className="text-zinc-500">Manager</dt>
+                        <dd className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {customer.managerUsername || "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500">Agent</dt>
+                        <dd className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {customer.agentUsername || "—"}
+                        </dd>
+                      </div>
+                    </>
+                  ) : null}
                   <div>
                     <dt className="text-zinc-500">Location</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {[customer.city, customer.state, customer.zipCode].filter(Boolean).join(", ") ||
-                        "—"}
+                      {[customer.address, customer.city, customer.state, customer.zipCode]
+                        .filter(Boolean)
+                        .join(", ") || "—"}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-zinc-500">Lead history</dt>
+                    <dt className="text-zinc-500">{customer.isOutside ? "Charges" : "Lead history"}</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {customer.leadCount ?? 0} lead{(customer.leadCount ?? 0) === 1 ? "" : "s"}
-                      {customer.firstLeadAt
-                        ? ` · first ${formatWhen(customer.firstLeadAt)}`
-                        : ""}
+                      {customer.isOutside
+                        ? `${charges.length} charge${charges.length === 1 ? "" : "s"}`
+                        : `${customer.leadCount ?? 0} lead${(customer.leadCount ?? 0) === 1 ? "" : "s"}${
+                            customer.firstLeadAt ? ` · first ${formatWhen(customer.firstLeadAt)}` : ""
+                          }`}
                     </dd>
                   </div>
+                  {customer.notes ? (
+                    <div className="sm:col-span-2">
+                      <dt className="text-zinc-500">Notes</dt>
+                      <dd className="whitespace-pre-wrap font-medium text-zinc-900 dark:text-zinc-100">
+                        {customer.notes}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
+                )}
               </section>
 
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
@@ -1916,6 +2667,127 @@ export default function CustomersClient() {
                 ) : null}
               </section>
 
+              {customer.isOutside ? (
+              <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+                <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                  Charges
+                </h3>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Save a payment method, then log Charged, Declined, or Chargeback. No lead is created.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className={labelClass}>
+                    Payment method
+                    <select
+                      className={inputClass}
+                      value={outsidePmId}
+                      onChange={(e) => setOutsidePmId(e.target.value)}
+                      disabled={paymentMethods.length === 0}
+                    >
+                      {paymentMethods.length === 0 ? (
+                        <option value="">No payment methods saved</option>
+                      ) : (
+                        paymentMethods.map((pm) => (
+                          <option key={pm.id} value={pm.id}>
+                            {paymentMethodOptionLabel(pm)}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                  <label className={labelClass}>
+                    Amount
+                    <input
+                      className={inputClass}
+                      value={outsideAmount}
+                      onChange={(e) => setOutsideAmount(e.target.value)}
+                      inputMode="decimal"
+                      placeholder="0.00"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {LEAD_PAYMENT_CHARGE_STATUSES.map((status) => (
+                    <button
+                      key={status.value}
+                      type="button"
+                      disabled={savingOutsideCharge || paymentMethods.length === 0}
+                      onClick={() => openOutsideChargeModal(status.value)}
+                      className={`rounded-xl px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 ${
+                        status.value === "declined"
+                          ? "bg-red-600 hover:bg-red-500"
+                          : status.value === "chargeback"
+                            ? "bg-amber-600 hover:bg-amber-500"
+                            : "bg-emerald-600 hover:bg-emerald-500"
+                      }`}
+                    >
+                      {status.label}
+                    </button>
+                  ))}
+                </div>
+                <ul className="mt-4 space-y-2">
+                  {charges.length === 0 ? (
+                    <li className="text-sm text-zinc-500">No charges logged yet.</li>
+                  ) : (
+                    charges.map((charge) => {
+                      const chargeMeta = getLeadPaymentChargeStatusMeta(charge.status);
+                      const chargeBadgeClass =
+                        WORKFLOW_BADGE_CLASS[chargeMeta.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                      const processorMeta = charge.processor
+                        ? getLeadPaymentProcessorMeta(charge.processor, paymentProcessors)
+                        : null;
+                      const linkedPm = paymentMethods.find(
+                        (pm) => pm.id === charge.customerPaymentMethodId,
+                      );
+                      return (
+                        <li
+                          key={charge.id}
+                          className="rounded-xl border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${chargeBadgeClass}`}
+                              >
+                                {chargeMeta.label}
+                              </span>
+                              {charge.amount != null ? (
+                                <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                                  {formatLeadPaymentChargeAmount(charge.amount)}
+                                </span>
+                              ) : null}
+                              {processorMeta ? (
+                                <span className="text-xs text-zinc-500">
+                                  {processorMeta.label}
+                                </span>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-300"
+                              disabled={deletingChargeId === charge.id}
+                              onClick={() => void deleteOutsideCharge(charge.id)}
+                            >
+                              {deletingChargeId === charge.id ? "Removing…" : "Remove"}
+                            </button>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {linkedPm ? paymentMethodOptionLabel(linkedPm) : "Payment method removed"}
+                            {charge.createdByUsername ? ` · ${charge.createdByUsername}` : ""}
+                            {` · ${formatWhen(charge.createdAt)}`}
+                          </p>
+                          {charge.declineReason ? (
+                            <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                              {charge.declineReason}
+                            </p>
+                          ) : null}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </section>
+              ) : (
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
                 <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                   Lead history
@@ -2284,6 +3156,7 @@ export default function CustomersClient() {
                   )}
                 </ul>
               </section>
+              )}
             </>
           )}
         </div>
@@ -2308,8 +3181,8 @@ export default function CustomersClient() {
               </h3>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {chargeModalIsCheckMail
-                  ? `Confirm charge status for ${chargeModal.lead.fullName || "this lead"} (check mail — no processor).`
-                  : `Select the payment processor for ${chargeModal.lead.fullName || "this lead"}.`}
+                  ? `Confirm charge status for ${chargeModalName} (check mail — no processor).`
+                  : `Select the payment processor for ${chargeModalName}.`}
                 {chargeModal.status === "declined"
                   ? " You can log declines multiple times."
                   : ""}
@@ -2352,7 +3225,7 @@ export default function CustomersClient() {
                 <button
                   type="button"
                   disabled={
-                    chargingLeadId === chargeModal.lead.id ||
+                    chargeModalBusy ||
                     (!chargeModalIsCheckMail && !chargeProcessor) ||
                     (chargeModal.status === "declined" && !declineReason.trim())
                   }
@@ -2365,7 +3238,7 @@ export default function CustomersClient() {
                         : "bg-emerald-600 hover:bg-emerald-500"
                   }`}
                 >
-                  {chargingLeadId === chargeModal.lead.id
+                  {chargeModalBusy
                     ? "Saving…"
                     : chargeModal.status === "declined"
                       ? "Save declined"

@@ -17,6 +17,25 @@ function mergeCustomerMatch(prev, next) {
   };
 }
 
+function mergeCustomerList(prevList, nextList, fallback) {
+  const incoming = Array.isArray(nextList) && nextList.length
+    ? nextList
+    : fallback?.id
+      ? [fallback]
+      : [];
+  if (!incoming.length) return Array.isArray(prevList) ? prevList : [];
+  const byId = new Map();
+  for (const row of prevList || []) {
+    if (row?.id) byId.set(row.id, row);
+  }
+  for (const row of incoming) {
+    if (!row?.id) continue;
+    const prev = byId.get(row.id);
+    byId.set(row.id, prev ? mergeCustomerMatch(prev, row) : row);
+  }
+  return [...byId.values()];
+}
+
 /**
  * Live IVR panel for admins — merges events by callSid.
  */
@@ -51,6 +70,7 @@ export default function IvrStaffAlert({ userRole = null }) {
           to: payload.to || prev?.to || null,
           choice: payload.choice != null && payload.choice !== "" ? payload.choice : prev?.choice || null,
           customer: mergeCustomerMatch(prev?.customer, payload.customer),
+          customers: mergeCustomerList(prev?.customers, payload.customers, payload.customer),
           at: payload.at || new Date().toISOString(),
         };
         if (!same || payload.type === "incoming" || payload.type === "gather" || payload.type === "ringing") {
@@ -86,19 +106,31 @@ export default function IvrStaffAlert({ userRole = null }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
-          {alert.customer ? (
-            <IvrCustomerMatchRow
-              label="Caller"
-              customer={{
-                ...alert.customer,
-                phone: alert.from || alert.customer.phone,
-              }}
-            />
-          ) : (
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-              From: <span className="font-medium">{alert.from || "Unknown"}</span>
-            </p>
-          )}
+          {(() => {
+            const matches =
+              Array.isArray(alert.customers) && alert.customers.length
+                ? alert.customers
+                : alert.customer
+                  ? [alert.customer]
+                  : [];
+            if (!matches.length) {
+              return (
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+                  From: <span className="font-medium">{alert.from || "Unknown"}</span>
+                </p>
+              );
+            }
+            return matches.map((match) => (
+              <IvrCustomerMatchRow
+                key={match.id}
+                label={match.isOutside ? "Outside" : "Caller"}
+                customer={{
+                  ...match,
+                  phone: alert.from || match.phone,
+                }}
+              />
+            ));
+          })()}
           {choiceText ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">Choice: {choiceText}</p>
           ) : null}

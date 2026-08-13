@@ -15,6 +15,7 @@ const LIST_ATTRIBUTES = [
   "createdBy",
   "createdAt",
   "isActive",
+  "isOutside",
   "shiftKey",
   "afterShiftAccess",
   "afterShiftLimitedFileId",
@@ -67,6 +68,7 @@ function serializeUserRow(
     createdByUsername: row.creator?.username ?? null,
     createdAt: row.createdAt,
     isActive: row.isActive !== false,
+    isOutside: Boolean(row.isOutside),
     shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
     ...(includeShiftAccess
       ? {
@@ -343,6 +345,7 @@ export async function POST(req) {
 
   const passwordHash = await bcrypt.hash(password, 10);
   const shiftKeyToSet = role === "admin" ? "day" : requestedShiftKey;
+  const isOutsideToSet = role === "admin" ? false : Boolean(body?.isOutside);
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -351,6 +354,7 @@ export async function POST(req) {
       managerId: managerIdToSet,
       supervisorId: supervisorIdToSet,
       shiftKey: shiftKeyToSet,
+      isOutside: isOutsideToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -363,6 +367,7 @@ export async function POST(req) {
           supervisorId: user.supervisorId,
           shiftKey: user.shiftKey,
           isActive: user.isActive,
+          isOutside: Boolean(user.isOutside),
         },
       },
       { status: 201 },

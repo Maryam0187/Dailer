@@ -11,7 +11,12 @@ function serialize(row, customers = null) {
     fromNumber: row.fromNumber || null,
     toNumber: row.toNumber || null,
     choice: row.choice || null,
-    customer: customers?.customer || null,
+    customer: customers?.customer || customers?.customers?.[0] || null,
+    customers: Array.isArray(customers?.customers)
+      ? customers.customers
+      : customers?.customer
+        ? [customers.customer]
+        : [],
     readAt: row.readAt ? new Date(row.readAt).toISOString() : null,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,

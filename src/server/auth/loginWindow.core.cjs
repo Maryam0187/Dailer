@@ -25,6 +25,15 @@ function utcMinutesOfDay(date = new Date()) {
   return date.getUTCHours() * 60 + date.getUTCMinutes();
 }
 
+function isOutsideManager(user) {
+  return Boolean(
+    user &&
+      typeof user === "object" &&
+      user.role === "manager" &&
+      user.isOutside,
+  );
+}
+
 function resolveShiftKey(userOrKey) {
   if (userOrKey == null) return DEFAULT_SHIFT_KEY;
   if (typeof userOrKey === "string") return normalizeShiftKey(userOrKey);
@@ -55,6 +64,7 @@ function hasAfterShiftGrant(user, date = new Date()) {
 }
 
 function isShiftWindowEnforced(userOrKey) {
+  if (isOutsideManager(userOrKey)) return false;
   return readShiftEnabled(settingsFor(userOrKey).enabled, true);
 }
 
@@ -95,7 +105,7 @@ function isWithinLoginWindow(date = new Date(), userOrKey) {
 
 function isLoginAllowed(user, date = new Date()) {
   if (!user) return false;
-  if (user.role === "admin") return true;
+  if (user.role === "admin" || isOutsideManager(user)) return true;
   if (!isShiftWindowEnforced(user)) return true;
   if (hasAfterShiftGrant(user, date)) return true;
   if (isLeaveDay(date, user)) return false;
@@ -257,6 +267,7 @@ function isSessionValidForToday(payload, date = new Date(), userOrKey) {
 }
 
 module.exports = {
+  isOutsideManager,
   getAfterShiftAccess,
   hasAfterShiftGrant,
   isShiftWindowEnforced,

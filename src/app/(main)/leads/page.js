@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isOutsideManager } from "@/server/customers/customerAccess";
 import LeadsClient from "@/components/Leads/LeadsClient";
 
 export default async function LeadsPage({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (isOutsideManager(authedUser)) redirect("/customers");
   if (authedUser.accessMode === "limited") redirect("/");
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
@@ -23,6 +25,7 @@ export default async function LeadsPage({ searchParams }) {
         initialShowForm={initialShowForm}
         userRole={authedUser.role}
         currentUserId={authedUser.id}
+        isOutside={Boolean(authedUser.isOutside)}
       />
     </>
   );

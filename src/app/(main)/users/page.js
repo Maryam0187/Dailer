@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isOutsideManager } from "@/server/customers/customerAccess";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
@@ -11,6 +12,7 @@ import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (isOutsideManager(authedUser)) redirect("/customers");
   if (
     authedUser.role !== "admin" &&
     authedUser.role !== "manager" &&
@@ -28,6 +30,7 @@ export default async function UsersPage() {
     "createdBy",
     "createdAt",
     "isActive",
+    "isOutside",
     "shiftKey",
     "afterShiftAccess",
     "afterShiftLimitedFileId",
@@ -99,6 +102,7 @@ export default async function UsersPage() {
       createdByUsername: r.creator?.username ?? null,
       createdAt: r.createdAt,
       isActive: !(r.isActive === false || r.isActive === 0),
+      isOutside: Boolean(r.isOutside),
       shiftKey: r.shiftKey === "night" ? "night" : "day",
       ...(authedUser.role === "admin"
         ? {

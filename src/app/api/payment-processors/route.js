@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
+import { requireCustomerAccess, isOutsideManager } from "@/server/customers/customerAccess";
 import { slugifyProcessorCode } from "@/server/paymentProcessors/defaults";
 import {
   invalidatePaymentProcessorRegistry,
@@ -15,10 +16,12 @@ function trimField(value, maxLen) {
 }
 
 export async function GET() {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
-  const processors = await listPaymentProcessors({ activeOnly: false });
+  const processors = await listPaymentProcessors({
+    activeOnly: isOutsideManager(authedUser),
+  });
   return NextResponse.json({ processors });
 }
 

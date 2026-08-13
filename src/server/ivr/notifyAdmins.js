@@ -27,6 +27,7 @@ export async function notifyAdmins(raw) {
   const socketPayload = {
     ...payload,
     customer: notification?.customer || null,
+    customers: Array.isArray(notification?.customers) ? notification.customers : [],
     notificationId: notification?.id || null,
     notification: notification || null,
   };
@@ -50,6 +51,7 @@ export async function notifyAdmins(raw) {
     const email = buildIvrAlert({
       ...payload,
       customer: notification?.customer || null,
+      customers: Array.isArray(notification?.customers) ? notification.customers : [],
     });
     if (email) {
       void sendResendEmail(email).then((result) => {
