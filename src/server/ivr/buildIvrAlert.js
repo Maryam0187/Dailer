@@ -50,9 +50,16 @@ export function buildIvrAlert(payload) {
     lines.push("", ivrChoiceLabel(choice));
   }
 
-  const callerCustomer = customerLine("Caller customer", payload?.customer);
-  if (callerCustomer) {
-    lines.push("", callerCustomer);
+  const matched = Array.isArray(payload?.customers) && payload.customers.length
+    ? payload.customers
+    : payload?.customer
+      ? [payload.customer]
+      : [];
+  const callerLines = matched
+    .map((c) => customerLine(c.isOutside ? "Outside customer" : "Caller customer", c))
+    .filter(Boolean);
+  if (callerLines.length) {
+    lines.push("", ...callerLines);
   }
 
   if (type === "incoming") {

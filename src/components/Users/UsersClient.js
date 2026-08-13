@@ -991,6 +991,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 ) : null}
                 <PresenceBadge status={presence} />
                 <ActiveBadge active={user.isActive !== false} />
+                {user.isOutside ? (
+                  <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                    Outside
+                  </span>
+                ) : null}
                 <LeaveBadge leave={currentLeave} />
               </div>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -1545,6 +1550,7 @@ function EditUserModal({
   const [supervisorId, setSupervisorId] = useState(user.supervisorId ?? "");
   const [shiftKey, setShiftKey] = useState(user.shiftKey === "night" ? "night" : "day");
   const [isActive, setIsActive] = useState(user.isActive !== false);
+  const [isOutside, setIsOutside] = useState(Boolean(user.isOutside));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
     user.afterShiftGrantDurationMinutes ?? 120,
@@ -1570,6 +1576,7 @@ function EditUserModal({
     setSupervisorId(user.supervisorId ?? "");
     setShiftKey(user.shiftKey === "night" ? "night" : "day");
     setIsActive(user.isActive !== false);
+    setIsOutside(Boolean(user.isOutside));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
@@ -1672,6 +1679,12 @@ function EditUserModal({
       }
 
       if (isActive !== (user.isActive !== false)) payload.isActive = isActive;
+      if (isAdmin && editRole !== "admin" && Boolean(isOutside) !== Boolean(user.isOutside)) {
+        payload.isOutside = isOutside;
+      }
+      if (isAdmin && editRole === "admin" && user.isOutside) {
+        payload.isOutside = false;
+      }
 
       if (isAdmin && user.role !== "admin") {
         const prevAccess = user.afterShiftAccess || "none";
@@ -2029,6 +2042,24 @@ function EditUserModal({
             </label>
           </div>
 
+          {isAdmin && editRole !== "admin" ? (
+            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+              <input
+                id="edit-outside"
+                type="checkbox"
+                checked={isOutside}
+                onChange={(e) => setIsOutside(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+              />
+              <label htmlFor="edit-outside" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Outside staff
+                <span className="ml-1 font-normal text-zinc-500">
+                  (can be assigned to outside customers)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           {isAdmin && user.role !== "admin" ? (
             <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
@@ -2144,6 +2175,7 @@ function normalizeUsersList(list) {
   return (list || []).map((u) => ({
     ...u,
     isActive: u.isActive !== false && u.isActive !== 0,
+    isOutside: Boolean(u.isOutside),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
@@ -2168,6 +2200,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
   const [createRole, setCreateRole] = useState(role === "admin" ? "agent" : "agent");
   const [createShiftKey, setCreateShiftKey] = useState("day");
+  const [createIsOutside, setCreateIsOutside] = useState(false);
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
 
@@ -2181,6 +2214,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [listRefreshing, setListRefreshing] = useState(false);
   const [listSupervisorFilter, setListSupervisorFilter] = useState("");
   const [listShiftFilter, setListShiftFilter] = useState("all");
+  const [listOutsideFilter, setListOutsideFilter] = useState("all");
 
   const displayUsers = useMemo(() => {
     let sortedUsers = sortUsersForDisplay(users);
@@ -2192,13 +2226,19 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       );
     }
 
+    if (listOutsideFilter === "outside") {
+      sortedUsers = sortedUsers.filter((u) => Boolean(u.isOutside));
+    } else if (listOutsideFilter === "inhouse") {
+      sortedUsers = sortedUsers.filter((u) => !u.isOutside);
+    }
+
     if (role !== "admin" || !listSupervisorFilter) return sortedUsers;
 
     const supervisorId = Number(listSupervisorFilter);
     return sortedUsers.filter(
       (u) => u.role === "agent" && Number(u.supervisorId) === supervisorId,
     );
-  }, [users, role, listSupervisorFilter, listShiftFilter]);
+  }, [users, role, listSupervisorFilter, listShiftFilter, listOutsideFilter]);
 
   const listSupervisorOptions = useMemo(() => {
     if (role !== "admin" || (listShiftFilter !== "day" && listShiftFilter !== "night")) {
@@ -2380,6 +2420,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (createRole === "agent") payload.supervisorId = supervisorId ?? null;
         if (createRole !== "admin") {
           payload.shiftKey = createShiftKey === "night" ? "night" : "day";
+          payload.isOutside = createIsOutside;
         }
       } else if (role === "manager") {
         payload.role = createRole;
@@ -2400,6 +2441,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
 
       setUsername("");
       setPassword("");
+      setCreateIsOutside(false);
       await loadUsers();
     } catch (err) {
       setError(err.message || "Failed to create user");
@@ -2688,6 +2730,23 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     ) : null}
                   </div>
                 ) : null}
+                {role === "admin" && createRole !== "admin" ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+                    <input
+                      id="new-user-outside"
+                      type="checkbox"
+                      checked={createIsOutside}
+                      onChange={(e) => setCreateIsOutside(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <label htmlFor="new-user-outside" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                      Outside staff
+                      <span className="ml-1 font-normal text-zinc-500">
+                        (can be assigned to outside customers)
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -2772,6 +2831,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <option value="night">Night shift</option>
                   </select>
                 </div>
+                <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                  <label htmlFor="users-outside-filter" className={compactFilterLabelClass}>
+                    Outside
+                  </label>
+                  <select
+                    id="users-outside-filter"
+                    className={compactFilterSelectClass}
+                    value={listOutsideFilter}
+                    onChange={(e) => setListOutsideFilter(e.target.value)}
+                    aria-label="Filter by outside staff"
+                  >
+                    <option value="all">Combined (all)</option>
+                    <option value="outside">Outside</option>
+                    <option value="inhouse">In-house</option>
+                  </select>
+                </div>
                 {role === "admin" ? (
                 <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
                   <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
@@ -2837,7 +2912,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               <p className="mt-1 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
                 {users.length === 0
                   ? "Use the form above to create the first account."
-                  : "Try a different shift or supervisor, or clear the filters."}
+                  : "Try a different shift, outside, or supervisor filter."}
               </p>
             </div>
           ) : (
@@ -2881,6 +2956,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge value={u.role} />
+                          {u.isOutside ? (
+                            <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                              Outside
+                            </span>
+                          ) : null}
                         </td>
                         {showShiftColumn ? (
                           <td className="px-4 py-3.5 text-zinc-700 dark:text-zinc-300">

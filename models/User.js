@@ -52,6 +52,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      /** Outside staff assigned to billed accounts with no lead. */
+      isOutside: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       /** Assigned login window: `day` or `night`. Admins ignore this. */
       shiftKey: {
         type: DataTypes.STRING(16),
@@ -131,6 +137,10 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.ShiftSetting, { as: "updatedShiftSettings", foreignKey: "updatedBy" });
     User.hasMany(models.UserActivity, { as: "activities", foreignKey: "userId" });
     User.hasMany(models.LeaveApplication, { as: "leaveApplications", foreignKey: "userId" });
+    if (models.Customer) {
+      User.hasMany(models.Customer, { as: "managedCustomers", foreignKey: "managerId" });
+      User.hasMany(models.Customer, { as: "agentCustomers", foreignKey: "agentId" });
+    }
   };
 
   return User;

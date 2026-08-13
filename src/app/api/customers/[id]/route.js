@@ -1,19 +1,27 @@
 import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { requireCustomerAccess, isOutsideManager, findAccessibleCustomer } from "@/server/customers/customerAccess";
 import { isAdminOnlyPaymentChargeActivity } from "@/lib/leadRoles";
 import {
   buildPaymentChargeLogGroups,
+  customerAgentInclude,
+  customerManagerInclude,
   serializeCustomer,
+  serializeCustomerCharge,
   serializeCustomerLead,
   serializePaymentChargeLog,
   serializePaymentMethod,
 } from "@/server/customers/serializeCustomer";
+import {
+  findCustomerByPhone,
+  parseCustomerProfile,
+  resolveCustomerStaffIds,
+} from "@/server/customers/parseCustomerBody";
 import { leadAssignedUserInclude, leadCreatedByInclude } from "@/server/leads/serializeLead";
 
 export async function GET(_req, { params }) {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { id: rawId } = await params;
@@ -22,11 +30,16 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
   }
 
-  const customer = await db.Customer.findByPk(id);
+  const customer = await findAccessibleCustomer(authedUser, id, {
+    include: [customerManagerInclude, customerAgentInclude],
+  });
   if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
-  const [leads, paymentMethods, leadAgg] = await Promise.all([
-    db.Lead.findAll({
+  const managerScoped = isOutsideManager(authedUser);
+  const [leads, paymentMethods, leadAgg, charges] = await Promise.all([
+    managerScoped
+      ? Promise.resolve([])
+      : db.Lead.findAll({
       where: { customerId: id },
       order: [["createdAt", "DESC"]],
       include: [leadAssignedUserInclude, leadCreatedByInclude],
@@ -46,7 +59,9 @@ export async function GET(_req, { params }) {
         },
       ],
     }),
-    db.Lead.findOne({
+    managerScoped
+      ? Promise.resolve(null)
+      : db.Lead.findOne({
       attributes: [
         [db.sequelize.fn("COUNT", db.sequelize.col("id")), "leadCount"],
         [db.sequelize.fn("MIN", db.sequelize.col("createdAt")), "firstLeadAt"],
@@ -54,6 +69,18 @@ export async function GET(_req, { params }) {
       ],
       where: { customerId: id },
       raw: true,
+    }),
+    db.CustomerCharge.findAll({
+      where: { customerId: id },
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
+      include: [
+        {
+          model: db.User,
+          as: "createdBy",
+          attributes: ["id", "username"],
+          required: false,
+        },
+      ],
     }),
   ]);
 
@@ -81,10 +108,12 @@ export async function GET(_req, { params }) {
   }
 
   const latestLead = leads[0] || null;
+  const latestCharge = charges[0] || null;
 
   return NextResponse.json({
     customer: serializeCustomer(customer, {
       latestLead,
+      latestCharge,
       leadCount: Number(leadAgg?.leadCount) || 0,
       firstLeadAt: leadAgg?.firstLeadAt || null,
       lastLeadAt: leadAgg?.lastLeadAt || null,
@@ -102,5 +131,97 @@ export async function GET(_req, { params }) {
       });
     }),
     paymentMethods: paymentMethods.map(serializePaymentMethod),
+    charges: charges.map(serializeCustomerCharge),
+  });
+}
+
+/** Admin: update an outside customer's profile. */
+export async function PATCH(req, { params }) {
+  const { authedUser, errorResponse } = await requireCustomerAccess();
+  if (errorResponse) return errorResponse;
+
+  const { id: rawId } = await params;
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
+  }
+
+  const customer = await findAccessibleCustomer(authedUser, id);
+  if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+  if (!customer.isOutside) {
+    return NextResponse.json(
+      { error: "Lead customers are updated from their leads" },
+      { status: 400 },
+    );
+  }
+
+  const body = await req.json().catch(() => null);
+  const { data, errors } = parseCustomerProfile(body, {
+    requireName: false,
+    requirePhone: false,
+  });
+  if (errors.length) {
+    return NextResponse.json({ error: errors[0] }, { status: 400 });
+  }
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+  }
+
+  if (data.managerId === null) {
+    return NextResponse.json({ error: "Manager is required" }, { status: 400 });
+  }
+  if (isOutsideManager(authedUser)) {
+    if (data.managerId !== undefined && Number(data.managerId) !== Number(authedUser.id)) {
+      return NextResponse.json({ error: "Cannot reassign this customer" }, { status: 403 });
+    }
+    delete data.managerId;
+  }
+
+  const nextManagerId = data.managerId !== undefined ? data.managerId : customer.managerId;
+  if (data.managerId !== undefined && data.agentId === undefined) {
+    data.agentId = null;
+  }
+  const nextAgentId = data.agentId !== undefined ? data.agentId : customer.agentId;
+  if (data.managerId !== undefined || data.agentId !== undefined) {
+    const staff = await resolveCustomerStaffIds({
+      managerId: nextManagerId,
+      agentId: nextAgentId,
+    });
+    if (staff.error) {
+      return NextResponse.json({ error: staff.error }, { status: 400 });
+    }
+  }
+
+  if (data.phone && data.phone !== customer.phone) {
+    const existing = await findCustomerByPhone(data.phone);
+    if (existing && Number(existing.id) !== id) {
+      return NextResponse.json(
+        { error: "A customer with this phone already exists" },
+        { status: 409 },
+      );
+    }
+  }
+
+  try {
+    await customer.update(data);
+  } catch (err) {
+    if (String(err?.name).includes("SequelizeUniqueConstraintError")) {
+      return NextResponse.json(
+        { error: "A customer with this phone already exists" },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
+
+  const refreshed = await db.Customer.findByPk(id, {
+    include: [customerManagerInclude, customerAgentInclude],
+  });
+
+  return NextResponse.json({
+    customer: serializeCustomer(refreshed, {
+      leadCount: 0,
+      paymentMethodCount: null,
+    }),
   });
 }

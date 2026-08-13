@@ -11,7 +11,9 @@ import IconTooltipButton, {
 function customerSummary(customer) {
   if (!customer?.id) return null;
   const name = customer.fullName || `Customer #${customer.id}`;
-  return customer.phone ? `${name} (${customer.phone})` : name;
+  const phone = customer.phone ? ` (${customer.phone})` : "";
+  const kind = customer.isOutside ? " · Outside" : "";
+  return `${name}${phone}${kind}`;
 }
 
 /**
@@ -25,7 +27,7 @@ export default function IvrCustomerMatchRow({ label = "Customer", customer }) {
   if (!customer?.id) return null;
 
   const summary = customerSummary(customer);
-  const lastSaleId = customer.lastSale?.id || null;
+  const lastSaleId = customer.isOutside ? null : customer.lastSale?.id || null;
   const customerHref = `/customers?customerId=${customer.id}`;
   const saleHref = lastSaleId
     ? `/customers?customerId=${customer.id}&leadId=${lastSaleId}`

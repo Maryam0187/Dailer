@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
-import { getSessionCalendarDate } from "@/server/auth/loginWindow";
+import { getSessionCalendarDate, isOutsideManager } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
@@ -90,9 +90,16 @@ export async function issueFullSessionResponse({
 
   const token = jwt.sign(tokenPayload, secret, { expiresIn: "7d" });
 
+  const homeRedirect =
+    purpose === "leave_application"
+      ? "/leave-application"
+      : isOutsideManager(user)
+        ? "/customers"
+        : "/";
+
   const res = NextResponse.json({
     ok: true,
-    redirect: purpose === "leave_application" ? "/leave-application" : "/",
+    redirect: homeRedirect,
     locationAlert: purpose === "full" ? locationAlert || null : null,
     ...body,
   });

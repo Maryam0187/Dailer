@@ -35,6 +35,7 @@ export async function GET(_req, { params }) {
       "createdBy",
       "createdAt",
       "isActive",
+      "isOutside",
       "shiftKey",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
@@ -83,6 +84,7 @@ export async function GET(_req, { params }) {
       createdByUsername: target.creator?.username ?? null,
       createdAt: target.createdAt,
       isActive: target.isActive !== false,
+      isOutside: Boolean(target.isOutside),
       shiftKey: target.shiftKey === "night" ? "night" : "day",
       afterShiftAccess: authedUser.role === "admin" ? target.afterShiftAccess || "none" : undefined,
       afterShiftLimitedFileId:
@@ -233,6 +235,10 @@ export async function PATCH(req, { params }) {
 
   if (body.isActive !== undefined) {
     updates.isActive = Boolean(body.isActive);
+  }
+
+  if (isAdmin && body.isOutside !== undefined) {
+    updates.isOutside = effectiveRole === "admin" ? false : Boolean(body.isOutside);
   }
 
   const globalGrantDuration = isAdmin ? await getDefaultGrantDurationMinutes() : null;
@@ -410,6 +416,7 @@ export async function PATCH(req, { params }) {
       "supervisorId",
       "createdAt",
       "isActive",
+      "isOutside",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
       "afterShiftAccessExpiresAt",

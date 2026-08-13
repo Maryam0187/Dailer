@@ -1,11 +1,13 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isOutsideManager } from "@/server/customers/customerAccess";
 import MessagesClient from "@/components/Messaging/MessagesClient";
 
 export default async function MessagesPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (isOutsideManager(authedUser)) redirect("/customers");
   if (authedUser.accessMode === "limited") redirect("/");
 
   return (

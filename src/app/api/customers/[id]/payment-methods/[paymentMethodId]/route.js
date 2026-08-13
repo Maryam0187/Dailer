@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { requireCustomerAccess, findAccessibleCustomer } from "@/server/customers/customerAccess";
 import { serializePaymentMethod } from "@/server/customers/serializeCustomer";
 import {
   parsePaymentBody,
@@ -9,7 +9,7 @@ import {
 } from "@/server/customers/parsePaymentBody";
 
 export async function PATCH(req, { params }) {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { id: rawId, paymentMethodId: rawPmid } = await params;
@@ -21,6 +21,9 @@ export async function PATCH(req, { params }) {
   if (!Number.isInteger(paymentMethodId) || paymentMethodId <= 0) {
     return NextResponse.json({ error: "Invalid payment method id" }, { status: 400 });
   }
+
+  const customer = await findAccessibleCustomer(authedUser, customerId, { attributes: ["id"] });
+  if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
   const row = await db.CustomerPaymentMethod.findOne({
     where: { id: paymentMethodId, customerId },
@@ -83,7 +86,7 @@ export async function PATCH(req, { params }) {
 }
 
 export async function DELETE(_req, { params }) {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { id: rawId, paymentMethodId: rawPmid } = await params;
@@ -95,6 +98,9 @@ export async function DELETE(_req, { params }) {
   if (!Number.isInteger(paymentMethodId) || paymentMethodId <= 0) {
     return NextResponse.json({ error: "Invalid payment method id" }, { status: 400 });
   }
+
+  const customer = await findAccessibleCustomer(authedUser, customerId, { attributes: ["id"] });
+  if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
   const row = await db.CustomerPaymentMethod.findOne({
     where: { id: paymentMethodId, customerId },

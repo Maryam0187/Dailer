@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import { Op, fn, col } from "sequelize";
 import db from "@/server/db";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { requireCustomerAccess, isOutsideManager } from "@/server/customers/customerAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import {
   PAYMENT_METHOD_TYPES,
+  customerAgentInclude,
+  customerManagerInclude,
   serializeCustomer,
 } from "@/server/customers/serializeCustomer";
+import {
+  findCustomerByPhone,
+  parseCustomerProfile,
+  resolveCustomerStaffIds,
+} from "@/server/customers/parseCustomerBody";
 import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
@@ -153,7 +160,7 @@ function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate
 }
 
 export async function GET(req) {
-  const { errorResponse } = await requireAdmin();
+  const { authedUser, errorResponse } = await requireCustomerAccess();
   if (errorResponse) return errorResponse;
 
   const { searchParams } = new URL(req.url);
@@ -163,6 +170,9 @@ export async function GET(req) {
   const q = String(searchParams.get("q") || "").trim();
   const searchByRaw = String(searchParams.get("searchBy") || "all").trim();
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
+  const kindRaw = String(searchParams.get("kind") || "").trim().toLowerCase();
+  const managerScoped = isOutsideManager(authedUser);
+  const isOutsideList = managerScoped || kindRaw === "outside";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
   const chargeFilter = String(searchParams.get("chargeFilter") || "").trim().toLowerCase();
@@ -191,7 +201,11 @@ export async function GET(req) {
     );
   }
 
-  const where = {};
+  const where = { isOutside: isOutsideList };
+  if (managerScoped) {
+    where.isOutside = true;
+    where.managerId = authedUser.id;
+  }
 
   if (q) {
     const check = validateListSearchQuery(searchBy, q);
@@ -297,52 +311,89 @@ export async function GET(req) {
   const salePhase = SALE_FILTER_MAP[saleFilter] || null;
   const paymentType = PAYMENT_FILTER_VALUES.has(paymentFilter) ? paymentFilter : null;
   const chargeStatus = LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeFilter) ? chargeFilter : null;
-  const leadFilter = buildLeadFilterLiteral({
-    salePhase,
-    paymentType,
-    chargeStatus,
-    fromDate,
-    toDate,
-    dateField,
-  });
-  if (leadFilter) pushAnd(where, leadFilter);
 
-  if (shiftKey) {
-    // Customers with at least one lead created by a user on this shift.
-    const shiftLiteral =
-      shiftKey === "night"
-        ? `EXISTS (
-            SELECT 1 FROM \`Leads\` AS \`sl\`
-            INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
-            WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
-              AND \`su\`.\`shiftKey\` = 'night'
-          )`
-        : `EXISTS (
-            SELECT 1 FROM \`Leads\` AS \`sl\`
-            INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
-            WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
-              AND (\`su\`.\`shiftKey\` IS NULL OR \`su\`.\`shiftKey\` <> 'night')
-          )`;
-    pushAnd(where, db.sequelize.literal(shiftLiteral));
+  if (isOutsideList) {
+    if (fromDate && toDate) {
+      const outsideDateCol = dateField === "created" ? "createdAt" : "updatedAt";
+      pushAnd(
+        where,
+        db.sequelize.literal(
+          `DATE(\`Customer\`.\`${outsideDateCol}\`) BETWEEN ` +
+            `${db.sequelize.escape(fromDate)} AND ${db.sequelize.escape(toDate)}`,
+        ),
+      );
+    }
+    if (paymentType) {
+      pushAnd(
+        where,
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`CustomerPaymentMethods\` AS \`cpm\`
+          WHERE \`cpm\`.\`customerId\` = \`Customer\`.\`id\`
+            AND \`cpm\`.\`type\` = ${db.sequelize.escape(paymentType)}
+        )`),
+      );
+    }
+    if (chargeStatus) {
+      pushAnd(
+        where,
+        db.sequelize.literal(`EXISTS (
+          SELECT 1 FROM \`CustomerCharges\` AS \`cc\`
+          WHERE \`cc\`.\`customerId\` = \`Customer\`.\`id\`
+            AND \`cc\`.\`status\` = ${db.sequelize.escape(chargeStatus)}
+        )`),
+      );
+    }
+  } else {
+    const leadFilter = buildLeadFilterLiteral({
+      salePhase,
+      paymentType,
+      chargeStatus,
+      fromDate,
+      toDate,
+      dateField,
+    });
+    if (leadFilter) pushAnd(where, leadFilter);
+
+    if (shiftKey) {
+      // Customers with at least one lead created by a user on this shift.
+      const shiftLiteral =
+        shiftKey === "night"
+          ? `EXISTS (
+              SELECT 1 FROM \`Leads\` AS \`sl\`
+              INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
+              WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+                AND \`su\`.\`shiftKey\` = 'night'
+            )`
+          : `EXISTS (
+              SELECT 1 FROM \`Leads\` AS \`sl\`
+              INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
+              WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+                AND (\`su\`.\`shiftKey\` IS NULL OR \`su\`.\`shiftKey\` <> 'night')
+            )`;
+      pushAnd(where, db.sequelize.literal(shiftLiteral));
+    }
   }
 
-  // Newest first by the selected date field (default: lead updatedAt).
+  // Newest first: outside customers by their own dates; lead customers by lead dates.
   const sortColumn = leadDateColumn(dateField);
-  const order = [
-    [
-      db.sequelize.literal(
-        `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
-      ),
-      "DESC",
-    ],
-    ["id", "DESC"],
-  ];
+  const order = isOutsideList
+    ? [[dateField === "created" ? "createdAt" : "updatedAt", "DESC"], ["id", "DESC"]]
+    : [
+        [
+          db.sequelize.literal(
+            `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
+          ),
+          "DESC",
+        ],
+        ["id", "DESC"],
+      ];
 
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
     order,
     offset,
     limit: pageSize,
+    include: isOutsideList ? [customerManagerInclude, customerAgentInclude] : [],
   });
 
   const customerIds = rows.map((r) => r.id);
@@ -401,6 +452,19 @@ export async function GET(req) {
     latestLeads.map((l) => [Number(l.customerId), l]),
   );
 
+  const latestChargeByCustomer = new Map();
+  if (isOutsideList && customerIds.length > 0) {
+    const chargeRows = await db.CustomerCharge.findAll({
+      where: { customerId: { [Op.in]: customerIds } },
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
+      attributes: ["id", "customerId", "status", "amount", "createdAt"],
+    });
+    for (const row of chargeRows) {
+      const cid = Number(row.customerId);
+      if (!latestChargeByCustomer.has(cid)) latestChargeByCustomer.set(cid, row);
+    }
+  }
+
   return NextResponse.json({
     customers: rows.map((c) => {
       const stats = statsByCustomer.get(c.id) || {
@@ -411,6 +475,7 @@ export async function GET(req) {
       return serializeCustomer(c, {
         ...stats,
         latestLead: latestByCustomer.get(c.id) || null,
+        latestCharge: latestChargeByCustomer.get(c.id) || null,
         paymentMethodCount: paymentsByCustomer.get(c.id) || 0,
       });
     }),
@@ -423,4 +488,72 @@ export async function GET(req) {
       hasPrev: page > 1,
     },
   });
+}
+
+/** Admin or outside manager: create an outside customer (no lead). */
+export async function POST(req) {
+  const { authedUser, errorResponse } = await requireCustomerAccess();
+  if (errorResponse) return errorResponse;
+
+  const body = await req.json().catch(() => null);
+  const payload = body && typeof body === "object" ? { ...body } : {};
+  if (isOutsideManager(authedUser)) {
+    payload.managerId = authedUser.id;
+  }
+  const { data, errors } = parseCustomerProfile(payload, {
+    requireName: true,
+    requirePhone: true,
+    requireManager: true,
+  });
+  if (errors.length) {
+    return NextResponse.json({ error: errors[0] }, { status: 400 });
+  }
+
+  const staff = await resolveCustomerStaffIds({
+    managerId: data.managerId,
+    agentId: data.agentId,
+  });
+  if (staff.error) {
+    return NextResponse.json({ error: staff.error }, { status: 400 });
+  }
+
+  const existing = await findCustomerByPhone(data.phone);
+  if (existing) {
+    return NextResponse.json(
+      {
+        error: existing.isOutside
+          ? "An outside customer with this phone already exists"
+          : "This phone already belongs to a lead customer",
+      },
+      { status: 409 },
+    );
+  }
+
+  try {
+    const customer = await db.Customer.create({
+      ...data,
+      isOutside: true,
+    });
+    return NextResponse.json(
+      {
+        customer: serializeCustomer(customer, {
+          leadCount: 0,
+          firstLeadAt: null,
+          lastLeadAt: null,
+          paymentMethodCount: 0,
+          managerUsername: staff.manager?.username ?? null,
+          agentUsername: staff.agent?.username ?? null,
+        }),
+      },
+      { status: 201 },
+    );
+  } catch (err) {
+    if (String(err?.name).includes("SequelizeUniqueConstraintError")) {
+      return NextResponse.json(
+        { error: "A customer with this phone already exists" },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
 }

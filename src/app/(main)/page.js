@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isOutsideManager } from "@/server/customers/customerAccess";
 import CallLogsClient from "@/components/CallLogs/CallLogsClient";
 import QuickDialPanel from "@/components/Dialer/QuickDialPanel";
 
 export default async function Home({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (isOutsideManager(authedUser)) redirect("/customers");
   const role = authedUser.role;
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;

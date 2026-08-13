@@ -18,6 +18,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(128),
         allowNull: true,
       },
+      address: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
       city: {
         type: DataTypes.STRING(128),
         allowNull: true,
@@ -28,6 +32,10 @@ module.exports = (sequelize, DataTypes) => {
       },
       zipCode: {
         type: DataTypes.STRING(16),
+        allowNull: true,
+      },
+      notes: {
+        type: DataTypes.TEXT,
         allowNull: true,
       },
       serviceType: {
@@ -42,11 +50,32 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(128),
         allowNull: true,
       },
+      /** Admin-only billed accounts with no lead. Kept out of the main customers list. */
+      isOutside: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      managerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
+      agentId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
     },
     {
       tableName: "Customers",
       timestamps: true,
-      indexes: [{ unique: true, fields: ["phone"] }],
+      indexes: [
+        { unique: true, fields: ["phone"] },
+        { fields: ["isOutside"] },
+        { fields: ["managerId"] },
+        { fields: ["agentId"] },
+      ],
     },
   );
 
@@ -56,6 +85,12 @@ module.exports = (sequelize, DataTypes) => {
       as: "paymentMethods",
       foreignKey: "customerId",
     });
+    Customer.hasMany(models.CustomerCharge, {
+      as: "charges",
+      foreignKey: "customerId",
+    });
+    Customer.belongsTo(models.User, { as: "manager", foreignKey: "managerId" });
+    Customer.belongsTo(models.User, { as: "agent", foreignKey: "agentId" });
   };
 
   return Customer;

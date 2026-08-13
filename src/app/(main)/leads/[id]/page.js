@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isOutsideManager } from "@/server/customers/customerAccess";
 import LeadPageClient from "@/components/Leads/LeadPageClient";
 
 export default async function LeadPage({ params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
+  if (isOutsideManager(authedUser)) redirect("/customers");
   if (authedUser.accessMode === "limited") redirect("/");
 
   const { id: rawId } = await params;

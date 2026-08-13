@@ -240,7 +240,12 @@ function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
   );
 }
 
-export default function LeadsClient({ initialShowForm = false, userRole = "agent", currentUserId = null }) {
+export default function LeadsClient({
+  initialShowForm = false,
+  userRole = "agent",
+  currentUserId = null,
+  isOutside = false,
+}) {
   const { session, beginSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -281,7 +286,9 @@ export default function LeadsClient({ initialShowForm = false, userRole = "agent
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [shiftFilter, setShiftFilter] = useState("day");
+  const [shiftFilter, setShiftFilter] = useState(
+    userRole === "manager" && isOutside ? "all" : "day",
+  );
   const [searchBy, setSearchBy] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchError, setSearchError] = useState(null);

@@ -1,4 +1,5 @@
 export {
+  isOutsideManager,
   getAfterShiftAccess,
   hasAfterShiftGrant,
   isShiftWindowEnforced,

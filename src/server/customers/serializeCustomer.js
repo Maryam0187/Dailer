@@ -10,6 +10,18 @@ import { serializeChargeablePaymentMethod } from "@/server/customers/serializeCh
 
 export const PAYMENT_METHOD_TYPES = ["card", "e_check", "check_mail", "pos_link"];
 
+export const customerManagerInclude = {
+  association: "manager",
+  attributes: ["id", "username"],
+  required: false,
+};
+
+export const customerAgentInclude = {
+  association: "agent",
+  attributes: ["id", "username"],
+  required: false,
+};
+
 export function serializePaymentMethod(row) {
   return {
     id: row.id,
@@ -35,25 +47,52 @@ export function serializePaymentMethod(row) {
   };
 }
 
+export function serializeCustomerCharge(row) {
+  if (!row) return null;
+  const amount = row.amount != null ? Number(row.amount) : null;
+  return {
+    id: row.id,
+    customerId: row.customerId,
+    customerPaymentMethodId: row.customerPaymentMethodId ?? null,
+    status: row.status,
+    amount: Number.isFinite(amount) ? amount : null,
+    processor: row.processor || null,
+    declineReason: row.declineReason || null,
+    createdByUserId: row.createdByUserId ?? null,
+    createdByUsername: row.createdBy?.username ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export function serializeCustomer(customer, extras = {}) {
   const latestLead = extras.latestLead || null;
   const storedName = customer.fullName?.trim() || null;
+  const latestCharge = extras.latestCharge || null;
   return {
     id: customer.id,
     phone: customer.phone,
     fullName: storedName,
+    address: customer.address || null,
     city: customer.city,
     state: customer.state,
     zipCode: customer.zipCode,
+    notes: customer.notes || null,
+    managerId: customer.managerId ?? null,
+    managerUsername: extras.managerUsername ?? customer.manager?.username ?? null,
+    agentId: customer.agentId ?? null,
+    agentUsername: extras.agentUsername ?? customer.agent?.username ?? null,
     serviceType: customer.serviceType,
     cableName: customer.cableName,
     streamName: customer.streamName,
     serviceLabel: formatLeadService(customer),
     displayName: storedName || latestLead?.fullName?.trim() || null,
+    isOutside: Boolean(customer.isOutside),
     leadCount: extras.leadCount ?? null,
     firstLeadAt: extras.firstLeadAt ?? null,
     lastLeadAt: extras.lastLeadAt ?? null,
     paymentMethodCount: extras.paymentMethodCount ?? null,
+    latestCharge: latestCharge ? serializeCustomerCharge(latestCharge) : null,
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,
   };
