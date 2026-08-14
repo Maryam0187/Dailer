@@ -2215,6 +2215,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [listSupervisorFilter, setListSupervisorFilter] = useState("");
   const [listShiftFilter, setListShiftFilter] = useState("all");
   const [listOutsideFilter, setListOutsideFilter] = useState("all");
+  const createPasswordOptional = role === "admin" && createRole === "agent" && createIsOutside;
 
   const displayUsers = useMemo(() => {
     let sortedUsers = sortUsersForDisplay(users);
@@ -2405,8 +2406,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     try {
       const payload = {
         username,
-        password,
       };
+      if (password) payload.password = password;
       if (role === "admin") {
         payload.role = createRole;
         if (
@@ -2579,7 +2580,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
                   {role === "admin"
-                    ? " Choose a role and, for agents, supervisors, processors, or lead monitors, optionally assign a manager."
+                    ? " Choose a role and, for agents, supervisors, processors, or lead monitors, optionally assign a manager. Password is optional for outside agents."
                     : isManager
                       ? " Create an agent, supervisor, processor, or lead monitor under your team."
                       : " New accounts are created as your agents."}
@@ -2607,6 +2608,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               <div>
                 <label htmlFor="new-user-password" className={labelClass}>
                   Password
+                  {createPasswordOptional ? (
+                    <span className="font-normal text-zinc-500"> (optional)</span>
+                  ) : null}
                 </label>
                 <input
                   id="new-user-password"
@@ -2614,7 +2618,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={inputClass}
-                  placeholder="Minimum length per your policy"
+                  placeholder={
+                    createPasswordOptional
+                      ? "Leave blank if they will not sign in"
+                      : "Minimum length per your policy"
+                  }
                   autoComplete="new-password"
                 />
               </div>

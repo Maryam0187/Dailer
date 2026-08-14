@@ -172,6 +172,7 @@ export async function GET(req) {
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const kindRaw = String(searchParams.get("kind") || "").trim().toLowerCase();
   const managerScoped = isOutsideManager(authedUser);
+  // Lead Customers tab is never outside. Only kind=outside (or an outside manager) lists those rows.
   const isOutsideList = managerScoped || kindRaw === "outside";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
@@ -201,9 +202,9 @@ export async function GET(req) {
     );
   }
 
-  const where = { isOutside: isOutsideList };
+  const where = { isOutside: { [Op.eq]: Boolean(isOutsideList) } };
   if (managerScoped) {
-    where.isOutside = true;
+    where.isOutside = { [Op.eq]: true };
     where.managerId = authedUser.id;
   }
 
@@ -230,6 +231,7 @@ export async function GET(req) {
       pushAnd(where, {
         [Op.or]: [
           { phone: { [Op.like]: `%${last7}` } },
+          { cellNumber: { [Op.like]: `%${last7}` } },
           db.sequelize.literal(`EXISTS (
             SELECT 1 FROM \`Leads\` AS \`ln\`
             WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
@@ -246,6 +248,7 @@ export async function GET(req) {
       const or = [
         { fullName: { [Op.like]: like } },
         { phone: { [Op.like]: like } },
+        { cellNumber: { [Op.like]: like } },
         db.sequelize.literal(`EXISTS (
           SELECT 1 FROM \`Leads\` AS \`ln\`
           WHERE \`ln\`.\`customerId\` = \`Customer\`.\`id\`
@@ -258,6 +261,7 @@ export async function GET(req) {
       ];
       if (digits) {
         or.push({ phone: { [Op.like]: `%${digits}%` } });
+        or.push({ cellNumber: { [Op.like]: `%${digits}%` } });
         or.push(
           db.sequelize.literal(`EXISTS (
             SELECT 1 FROM \`Leads\` AS \`ln\`
@@ -271,6 +275,7 @@ export async function GET(req) {
         if (digits.length >= 7) {
           const last7 = digits.slice(-7);
           or.push({ phone: { [Op.like]: `%${last7}` } });
+          or.push({ cellNumber: { [Op.like]: `%${last7}` } });
           or.push(
             db.sequelize.literal(`EXISTS (
               SELECT 1 FROM \`Leads\` AS \`ln\`
@@ -283,15 +288,24 @@ export async function GET(req) {
           );
         }
         const normalized = normalizeToE164(digits);
-        if (normalized) or.push({ phone: normalized });
+        if (normalized) {
+          or.push({ phone: normalized });
+          or.push({ cellNumber: normalized });
+        }
       }
       pushAnd(where, { [Op.or]: or });
     } else {
       const phoneDigits = check.normalized;
-      const or = [{ phone: { [Op.like]: `%${phoneDigits}%` } }];
+      const or = [
+        { phone: { [Op.like]: `%${phoneDigits}%` } },
+        { cellNumber: { [Op.like]: `%${phoneDigits}%` } },
+      ];
       const normalized = normalizeToE164(phoneDigits);
-      if (normalized) or.push({ phone: normalized });
-      where[Op.or] = or;
+      if (normalized) {
+        or.push({ phone: normalized });
+        or.push({ cellNumber: normalized });
+      }
+      pushAnd(where, { [Op.or]: or });
     }
   }
 

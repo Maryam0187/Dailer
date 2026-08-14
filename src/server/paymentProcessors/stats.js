@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, fn, col } from "sequelize";
 import db from "@/server/db";
 import {
   PAYMENT_LEAD_UPDATE_TYPE_VALUES,
@@ -252,8 +252,35 @@ async function loadOutsideCustomerCharges({ fromDate, toDate, processor = null, 
     });
   }
 
+  // Same rule as in-house leads: one latest outcome per customer.
+  // Repeat declines on the same outside customer count once, with one amount.
+  const latestIdRows = await db.CustomerCharge.findAll({
+    attributes: [
+      "customerId",
+      [fn("MAX", col("CustomerCharge.id")), "latestId"],
+    ],
+    include: [
+      {
+        model: db.Customer,
+        as: "customer",
+        attributes: [],
+        where: { isOutside: true },
+        required: true,
+      },
+    ],
+    group: ["CustomerCharge.customerId"],
+    raw: true,
+  });
+  const latestIds = latestIdRows
+    .map((row) => Number(row.latestId))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!latestIds.length) return { rows: [], processorFilter };
+
   const rows = await db.CustomerCharge.findAll({
-    where: { ...dateRangeWhere(fromDate, toDate) },
+    where: {
+      id: { [Op.in]: latestIds },
+      ...dateRangeWhere(fromDate, toDate),
+    },
     include,
     order: [
       ["createdAt", "DESC"],
@@ -359,8 +386,8 @@ async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, wit
 }
 
 /**
- * Aggregate latest payment outcomes from Leads (one row per sale), plus outside
- * customer charges when kind is `all` or `outside`.
+ * Aggregate latest payment outcomes from Leads (one row per sale), plus the
+ * latest charge per outside customer when kind is `all` or `outside`.
  * @param {{ fromDate: string, toDate: string, processor?: string|null, kind?: string }} opts
  */
 export async function aggregatePaymentChargeStats({

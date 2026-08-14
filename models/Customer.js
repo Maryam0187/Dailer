@@ -14,6 +14,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
+      cellNumber: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       fullName: {
         type: DataTypes.STRING(128),
         allowNull: true,
@@ -32,6 +36,14 @@ module.exports = (sequelize, DataTypes) => {
       },
       zipCode: {
         type: DataTypes.STRING(16),
+        allowNull: true,
+      },
+      accountNumber: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      bankName: {
+        type: DataTypes.STRING(128),
         allowNull: true,
       },
       notes: {

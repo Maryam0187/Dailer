@@ -367,8 +367,9 @@ export default function PaymentAnalysisPanel({
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Payment analysis</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Totals and daily volume use each sale&apos;s latest outcome on the lead, plus outside
-          customer charges. Use Outside to see billed accounts with no lead.
+          Totals and daily volume use each sale&apos;s latest outcome on the lead, and each
+          outside customer&apos;s latest charge. Repeat declines on the same customer count
+          once. Use Outside to see billed accounts with no lead.
         </p>
 
         <form onSubmit={onApplyCustom} className="mt-4 flex flex-wrap items-end gap-3">
