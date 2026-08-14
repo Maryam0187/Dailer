@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { digitsOnly, formatLandline, formatCellNumber, validatePhone, validateOptionalCell } from "@/lib/phoneFormat";
 import {
   detectCardBrand,
   formatCardNumberInput,
@@ -14,7 +14,7 @@ import {
 } from "@/lib/cardPaymentFormat";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { US_STATES } from "@/lib/usStates";
-import { formatLeadService } from "@/lib/leadService";
+import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import {
   formatLeadPaymentChargeAmount,
   getLeadPaymentChargeStatusMeta,
@@ -203,11 +203,17 @@ function emptyOutsideForm(managerId = "") {
   return {
     fullName: "",
     phone: "",
+    cellNumber: "",
+    accountNumber: "",
+    bankName: "",
     address: "",
     city: "",
     state: "",
     zipCode: "",
     notes: "",
+    serviceType: "",
+    cableName: "",
+    streamName: "",
     managerId: managerId ? String(managerId) : "",
     agentId: "",
   };
@@ -1170,6 +1176,11 @@ export default function CustomersClient({
       setError(phoneCheck.message);
       return;
     }
+    const cellCheck = validateOptionalCell(outsideForm.cellNumber);
+    if (!cellCheck.isValid) {
+      setError(cellCheck.message);
+      return;
+    }
     if (!outsideForm.managerId) {
       setError("Manager is required");
       return;
@@ -1184,11 +1195,17 @@ export default function CustomersClient({
         body: JSON.stringify({
           fullName: name,
           phone: outsideForm.phone,
+          cellNumber: outsideForm.cellNumber.trim() || null,
+          accountNumber: outsideForm.accountNumber.trim() || null,
+          bankName: outsideForm.bankName.trim() || null,
           address: outsideForm.address.trim() || null,
           city: outsideForm.city.trim() || null,
           state: outsideForm.state || null,
           zipCode: outsideForm.zipCode.trim() || null,
           notes: outsideForm.notes.trim() || null,
+          serviceType: outsideForm.serviceType || null,
+          cableName: outsideForm.serviceType === "cable" ? outsideForm.cableName.trim() || null : null,
+          streamName: outsideForm.serviceType === "streams" ? outsideForm.streamName.trim() || null : null,
           managerId: Number(outsideForm.managerId),
           agentId: outsideForm.agentId ? Number(outsideForm.agentId) : null,
         }),
@@ -1211,11 +1228,17 @@ export default function CustomersClient({
     setProfileForm({
       fullName: c?.fullName || c?.displayName || "",
       phone: formatLandline(c?.phone) || c?.phone || "",
+      cellNumber: formatCellNumber(c?.cellNumber) || c?.cellNumber || "",
+      accountNumber: c?.accountNumber || "",
+      bankName: c?.bankName || "",
       address: c?.address || "",
       city: c?.city || "",
       state: c?.state || "",
       zipCode: c?.zipCode || "",
       notes: c?.notes || "",
+      serviceType: c?.serviceType || "",
+      cableName: c?.cableName || "",
+      streamName: c?.streamName || "",
       managerId: c?.managerId ? String(c.managerId) : "",
       agentId: c?.agentId ? String(c.agentId) : "",
     });
@@ -1236,6 +1259,11 @@ export default function CustomersClient({
       setPaymentError(phoneCheck.message);
       return;
     }
+    const cellCheck = validateOptionalCell(profileForm.cellNumber);
+    if (!cellCheck.isValid) {
+      setPaymentError(cellCheck.message);
+      return;
+    }
     const editingOutside = Boolean(detail?.customer?.isOutside);
     if (editingOutside && !profileForm.managerId) {
       setPaymentError("Manager is required");
@@ -1247,6 +1275,9 @@ export default function CustomersClient({
       const payload = {
         fullName: name,
         phone: profileForm.phone,
+        cellNumber: profileForm.cellNumber.trim() || null,
+        accountNumber: profileForm.accountNumber.trim() || null,
+        bankName: profileForm.bankName.trim() || null,
         address: profileForm.address.trim() || null,
         city: profileForm.city.trim() || null,
         state: profileForm.state || null,
@@ -1254,6 +1285,9 @@ export default function CustomersClient({
         notes: profileForm.notes.trim() || null,
       };
       if (editingOutside) {
+        payload.serviceType = profileForm.serviceType || null;
+        payload.cableName = profileForm.serviceType === "cable" ? profileForm.cableName.trim() || null : null;
+        payload.streamName = profileForm.serviceType === "streams" ? profileForm.streamName.trim() || null : null;
         payload.managerId = Number(profileForm.managerId);
         payload.agentId = profileForm.agentId ? Number(profileForm.agentId) : null;
       }
@@ -1502,6 +1536,48 @@ export default function CustomersClient({
                 />
               </label>
               <label className={labelClass}>
+                Cell #
+                <input
+                  className={inputClass}
+                  value={outsideForm.cellNumber}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({
+                      ...prev,
+                      cellNumber: formatCellNumber(e.target.value),
+                    }))
+                  }
+                  inputMode="numeric"
+                  maxLength={12}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className={labelClass}>
+                Account #
+                <input
+                  className={inputClass}
+                  value={outsideForm.accountNumber}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({
+                      ...prev,
+                      accountNumber: digitsOnly(e.target.value).slice(0, 17),
+                    }))
+                  }
+                  inputMode="numeric"
+                  placeholder="Optional"
+                />
+              </label>
+              <label className={labelClass}>
+                Bank name
+                <input
+                  className={inputClass}
+                  value={outsideForm.bankName}
+                  onChange={(e) =>
+                    setOutsideForm((prev) => ({ ...prev, bankName: e.target.value }))
+                  }
+                  placeholder="Optional"
+                />
+              </label>
+              <label className={labelClass}>
                 Manager *
                 {isAdmin ? (
                 <select
@@ -1605,6 +1681,53 @@ export default function CustomersClient({
                   }
                 />
               </label>
+              <label className={labelClass}>
+                Service
+                <select
+                  className={inputClass}
+                  value={outsideForm.serviceType}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setOutsideForm((prev) => ({
+                      ...prev,
+                      serviceType: next,
+                      cableName: next === "cable" ? prev.cableName : "",
+                      streamName: next === "streams" ? prev.streamName : "",
+                    }));
+                  }}
+                >
+                  <option value="">Select service</option>
+                  {SERVICE_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {outsideForm.serviceType === "cable" ? (
+                <label className={labelClass}>
+                  Cable name
+                  <input
+                    className={inputClass}
+                    value={outsideForm.cableName}
+                    onChange={(e) =>
+                      setOutsideForm((prev) => ({ ...prev, cableName: e.target.value }))
+                    }
+                  />
+                </label>
+              ) : null}
+              {outsideForm.serviceType === "streams" ? (
+                <label className={labelClass}>
+                  Stream name
+                  <input
+                    className={inputClass}
+                    value={outsideForm.streamName}
+                    onChange={(e) =>
+                      setOutsideForm((prev) => ({ ...prev, streamName: e.target.value }))
+                    }
+                  />
+                </label>
+              ) : null}
               <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
                 Notes
                 <textarea
@@ -1969,8 +2092,11 @@ export default function CustomersClient({
                         </div>
                         <div className="font-mono text-xs text-zinc-500">
                           {formatLandline(c.phone) || c.phone}
+                          {c.cellNumber
+                            ? ` · Cell ${formatCellNumber(c.cellNumber) || c.cellNumber}`
+                            : ""}
                         </div>
-                        <div className="text-xs text-zinc-500">{c.serviceLabel && c.serviceLabel !== "—" ? c.serviceLabel : isOutsideView && !managerOnly ? "Outside" : "—"}</div>
+                        <div className="text-xs text-zinc-500">{c.serviceLabel && c.serviceLabel !== "—" ? c.serviceLabel : "—"}</div>
                       </td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                         {[c.address, c.city, c.state, c.zipCode].filter(Boolean).join(", ") || "—"}
@@ -2112,6 +2238,48 @@ export default function CustomersClient({
                         required
                       />
                     </label>
+                    <label className={labelClass}>
+                      Cell #
+                      <input
+                        className={inputClass}
+                        value={profileForm.cellNumber}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            cellNumber: formatCellNumber(e.target.value),
+                          }))
+                        }
+                        inputMode="numeric"
+                        maxLength={12}
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Account #
+                      <input
+                        className={inputClass}
+                        value={profileForm.accountNumber}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            accountNumber: digitsOnly(e.target.value).slice(0, 17),
+                          }))
+                        }
+                        inputMode="numeric"
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <label className={labelClass}>
+                      Bank name
+                      <input
+                        className={inputClass}
+                        value={profileForm.bankName}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({ ...prev, bankName: e.target.value }))
+                        }
+                        placeholder="Optional"
+                      />
+                    </label>
                     <label className={`${labelClass} sm:col-span-2`}>
                       Address
                       <input
@@ -2162,6 +2330,53 @@ export default function CustomersClient({
                     </label>
                     {customer.isOutside ? (
                     <>
+                    <label className={labelClass}>
+                      Service
+                      <select
+                        className={inputClass}
+                        value={profileForm.serviceType}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            serviceType: next,
+                            cableName: next === "cable" ? prev.cableName : "",
+                            streamName: next === "streams" ? prev.streamName : "",
+                          }));
+                        }}
+                      >
+                        <option value="">Select service</option>
+                        {SERVICE_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {profileForm.serviceType === "cable" ? (
+                      <label className={labelClass}>
+                        Cable name
+                        <input
+                          className={inputClass}
+                          value={profileForm.cableName}
+                          onChange={(e) =>
+                            setProfileForm((prev) => ({ ...prev, cableName: e.target.value }))
+                          }
+                        />
+                      </label>
+                    ) : null}
+                    {profileForm.serviceType === "streams" ? (
+                      <label className={labelClass}>
+                        Stream name
+                        <input
+                          className={inputClass}
+                          value={profileForm.streamName}
+                          onChange={(e) =>
+                            setProfileForm((prev) => ({ ...prev, streamName: e.target.value }))
+                          }
+                        />
+                      </label>
+                    ) : null}
                     <label className={labelClass}>
                       Manager *
                       {isAdmin ? (
@@ -2253,14 +2468,30 @@ export default function CustomersClient({
                       {formatLandline(customer.phone) || customer.phone}
                     </dd>
                   </div>
-                  {customer.isOutside && managerOnly ? null : (
                   <div>
-                    <dt className="text-zinc-500">{customer.isOutside ? "Type" : "Service"}</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {customer.isOutside ? "Outside (no lead)" : customer.serviceLabel || "—"}
+                    <dt className="text-zinc-500">Cell #</dt>
+                    <dd className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                      {formatCellNumber(customer.cellNumber) || customer.cellNumber || "—"}
                     </dd>
                   </div>
-                  )}
+                  <div>
+                    <dt className="text-zinc-500">Account #</dt>
+                    <dd className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                      {customer.accountNumber || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">Bank name</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {customer.bankName || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">Service</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {customer.serviceLabel || "—"}
+                    </dd>
+                  </div>
                   {customer.isOutside ? (
                     <>
                       <div>

@@ -72,6 +72,9 @@ export function serializeCustomer(customer, extras = {}) {
   return {
     id: customer.id,
     phone: customer.phone,
+    cellNumber: customer.cellNumber || null,
+    accountNumber: customer.accountNumber || null,
+    bankName: customer.bankName || null,
     fullName: storedName,
     address: customer.address || null,
     city: customer.city,
@@ -111,6 +114,8 @@ export function serializeCustomerLead(lead, extras = {}) {
     state: lead.state,
     zipCode: lead.zipCode,
     serviceType: lead.serviceType,
+    cableName: lead.cableName || null,
+    streamName: lead.streamName || null,
     serviceLabel: formatLeadService(lead),
     status: lead.status,
     leadPhase: lead.leadPhase || "active",

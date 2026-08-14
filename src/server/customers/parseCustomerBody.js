@@ -1,7 +1,10 @@
 import { Op } from "sequelize";
 import { getStateByCode } from "@/lib/usStates";
+import { SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import db from "@/server/db";
+
+const CUSTOMER_SERVICE_TYPES = new Set(SERVICE_TYPE_OPTIONS.map((o) => o.value));
 
 export function trimCustomerField(value, maxLen) {
   if (value == null) return null;
@@ -83,6 +86,44 @@ export function parseCustomerProfile(
 
   if (src.zipCode !== undefined) data.zipCode = trimCustomerField(src.zipCode, 16);
   if (src.notes !== undefined) data.notes = trimCustomerField(src.notes, 65535);
+
+  if (src.cellNumber !== undefined) {
+    const raw = trimCustomerField(src.cellNumber, 32);
+    if (!raw) {
+      data.cellNumber = null;
+    } else {
+      const e164 = normalizeToE164(raw);
+      if (e164) {
+        data.cellNumber = e164;
+      } else {
+        const digits = raw.replace(/\D/g, "");
+        if (digits.length === 7) data.cellNumber = digits;
+        else errors.push("Valid cell number is required");
+      }
+    }
+  }
+
+  if (src.accountNumber !== undefined) {
+    const digits = String(src.accountNumber || "").replace(/\D/g, "").slice(0, 17);
+    data.accountNumber = digits || null;
+  }
+
+  if (src.bankName !== undefined) data.bankName = trimCustomerField(src.bankName, 128);
+
+  if (src.serviceType !== undefined) {
+    const raw = trimCustomerField(src.serviceType, 32);
+    if (!raw) {
+      data.serviceType = null;
+      data.cableName = null;
+      data.streamName = null;
+    } else if (!CUSTOMER_SERVICE_TYPES.has(raw)) {
+      errors.push("Invalid service");
+    } else {
+      data.serviceType = raw;
+      data.cableName = raw === "cable" ? trimCustomerField(src.cableName, 128) : null;
+      data.streamName = raw === "streams" ? trimCustomerField(src.streamName, 128) : null;
+    }
+  }
 
   if (src.managerId !== undefined || requireManager) {
     const parsed = parseOptionalUserId(src.managerId);
