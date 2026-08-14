@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import { getStateByCode } from "@/lib/usStates";
 import { SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { normalizeLeadPaymentChargeAmount } from "@/lib/leadWorkflow";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import db from "@/server/db";
 
@@ -108,7 +109,11 @@ export function parseCustomerProfile(
     data.accountNumber = digits || null;
   }
 
-  if (src.bankName !== undefined) data.bankName = trimCustomerField(src.bankName, 128);
+  if (src.chargeAmount !== undefined) {
+    const amount = normalizeLeadPaymentChargeAmount(src.chargeAmount);
+    if (amount === undefined) errors.push("Invalid charge amount");
+    else data.chargeAmount = amount;
+  }
 
   if (src.serviceType !== undefined) {
     const raw = trimCustomerField(src.serviceType, 32);

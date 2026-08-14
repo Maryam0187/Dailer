@@ -165,6 +165,7 @@ export async function PATCH(req, { params }) {
   if (!isOutside) {
     delete data.managerId;
     delete data.agentId;
+    delete data.chargeAmount;
   }
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });

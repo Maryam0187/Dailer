@@ -14,7 +14,8 @@ export function serializeChargeablePaymentMethod(row) {
     const brand = row.brand || row.cardType || "Card";
     const num = maskTail(row.cardNumber);
     const exp = row.expDate ? ` exp ${row.expDate}` : "";
-    summary = `${brand}${num ? ` ${num}` : ""}${exp}`.trim();
+    const bank = row.bankName ? ` · ${row.bankName}` : "";
+    summary = `${brand}${num ? ` ${num}` : ""}${exp}${bank}`.trim();
   } else if (type === "e_check") {
     const bank = row.bankName || "E-check";
     const acct = maskTail(row.accountNumber);

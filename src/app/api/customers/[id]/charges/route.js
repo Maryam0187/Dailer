@@ -69,12 +69,16 @@ export async function POST(req, { params }) {
     return NextResponse.json({ error: "Payment method not found for this customer" }, { status: 404 });
   }
 
-  const amount = normalizeLeadPaymentChargeAmount(body.amount);
+  let amount = normalizeLeadPaymentChargeAmount(body.amount);
   if (amount === undefined) {
     return NextResponse.json({ error: "Invalid charge amount" }, { status: 400 });
   }
+  if (amount == null) {
+    const saved = customer.chargeAmount != null ? Number(customer.chargeAmount) : null;
+    amount = Number.isFinite(saved) ? saved : null;
+  }
   if ((status === "charged" || status === "chargeback") && amount == null) {
-    return NextResponse.json({ error: "Charge amount is required" }, { status: 400 });
+    return NextResponse.json({ error: "Save a charge amount first" }, { status: 400 });
   }
 
   const processorOptional = pm.type === "check_mail";
@@ -106,7 +110,11 @@ export async function POST(req, { params }) {
     declineReason,
     createdByUserId: authedUser.id,
   });
-  await db.Customer.update({ updatedAt: new Date() }, { where: { id: customerId } });
+  const customerUpdates = { updatedAt: new Date() };
+  if (amount != null && Number(customer.chargeAmount) !== Number(amount)) {
+    customerUpdates.chargeAmount = amount;
+  }
+  await customer.update(customerUpdates);
 
   const withUser = await loadCharge(row.id);
   return NextResponse.json({ charge: serializeCustomerCharge(withUser) }, { status: 201 });

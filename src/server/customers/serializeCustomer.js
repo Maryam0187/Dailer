@@ -74,7 +74,12 @@ export function serializeCustomer(customer, extras = {}) {
     phone: customer.phone,
     cellNumber: customer.cellNumber || null,
     accountNumber: customer.accountNumber || null,
-    bankName: customer.bankName || null,
+    chargeAmount: (() => {
+      const stored = customer.chargeAmount != null ? Number(customer.chargeAmount) : null;
+      if (Number.isFinite(stored)) return stored;
+      const fromLatest = latestCharge?.amount != null ? Number(latestCharge.amount) : null;
+      return Number.isFinite(fromLatest) ? fromLatest : null;
+    })(),
     fullName: storedName,
     address: customer.address || null,
     city: customer.city,
