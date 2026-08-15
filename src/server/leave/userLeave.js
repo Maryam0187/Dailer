@@ -51,6 +51,12 @@ export function canUserRequestLeaveCancellation(application) {
   );
 }
 
+export function isLeaveMarkedByAdmin(row) {
+  const createdBy = row?.createdByUserId;
+  if (createdBy == null) return false;
+  return Number(createdBy) !== Number(row.userId);
+}
+
 export function serializeLeaveApplication(row, fallbackUsername = null, { forAdmin = false } = {}) {
   return {
     id: row.id,
@@ -62,6 +68,9 @@ export function serializeLeaveApplication(row, fallbackUsername = null, { forAdm
     status: row.status,
     reviewedAt: row.reviewedAt ?? null,
     cancelRequestedAt: row.cancelRequestedAt ?? null,
+    createdByUserId: row.createdByUserId ?? null,
+    createdByUsername: row.createdBy?.username ?? null,
+    markedByAdmin: isLeaveMarkedByAdmin(row),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     canEdit: forAdmin ? false : canUserEditLeaveReason(row),
@@ -72,20 +81,13 @@ export function serializeLeaveApplication(row, fallbackUsername = null, { forAdm
 }
 
 export async function isUserOnApprovedLeave(userId, date = new Date()) {
-  if (!userId) return false;
+  return Boolean(await getCurrentApprovedLeaveForUser(userId, date));
+}
 
-  const today = getSessionCalendarDate(date);
-  const row = await db.LeaveApplication.findOne({
-    where: {
-      userId,
-      status: "approved",
-      startDate: { [Op.lte]: today },
-      endDate: { [Op.gte]: today },
-    },
-    attributes: ["id"],
-  });
-
-  return Boolean(row);
+export async function getCurrentApprovedLeaveForUser(userId, date = new Date()) {
+  if (!userId) return null;
+  const leaveByUserId = await getCurrentApprovedLeaveByUserIds([userId], date);
+  return leaveByUserId.get(Number(userId)) ?? null;
 }
 
 export async function getCurrentApprovedLeaveByUserIds(userIds, date = new Date()) {
@@ -100,7 +102,7 @@ export async function getCurrentApprovedLeaveByUserIds(userIds, date = new Date(
       startDate: { [Op.lte]: today },
       endDate: { [Op.gte]: today },
     },
-    attributes: ["id", "userId", "startDate", "endDate", "reason", "status"],
+    attributes: ["id", "userId", "createdByUserId", "startDate", "endDate", "reason", "status"],
     order: [
       ["startDate", "ASC"],
       ["id", "ASC"],
@@ -132,7 +134,7 @@ export async function hasOverlappingLeaveApplication(userId, startDate, endDate,
   return Boolean(row);
 }
 
-export async function createLeaveApplication({ userId, startDate, endDate, reason }) {
+export async function createLeaveApplication({ userId, startDate, endDate, reason, createdByUserId = null }) {
   const today = getSessionCalendarDate();
   if (!isLeaveRangeValid(startDate, endDate, today)) {
     throw new Error("Leave dates must be valid and cannot start in the past.");
@@ -143,9 +145,13 @@ export async function createLeaveApplication({ userId, startDate, endDate, reaso
   }
 
   const trimmedReason = String(reason || "").trim();
+  const creatorId = Number.isInteger(Number(createdByUserId)) && Number(createdByUserId) > 0
+    ? Number(createdByUserId)
+    : userId;
 
   return db.LeaveApplication.create({
     userId,
+    createdByUserId: creatorId,
     startDate,
     endDate,
     reason: trimmedReason || null,
