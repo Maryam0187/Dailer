@@ -185,7 +185,8 @@ function paymentSummary(pm) {
     const brand = pm.brand || pm.cardType || "Card";
     const num = maskTail(pm.cardNumber);
     const exp = pm.expDate ? ` exp ${pm.expDate}` : "";
-    return `${brand} ${num}${exp}`.trim();
+    const bank = pm.bankName ? ` · ${pm.bankName}` : "";
+    return `${brand} ${num}${exp}${bank}`.trim();
   }
   if (pm.type === "e_check") {
     const bank = pm.bankName || "E-check";
@@ -205,7 +206,6 @@ function emptyOutsideForm(managerId = "") {
     phone: "",
     cellNumber: "",
     accountNumber: "",
-    bankName: "",
     address: "",
     city: "",
     state: "",
@@ -276,6 +276,7 @@ function PaymentViewDetails({ pm }) {
           <ViewField label="Brand" value={pm.brand} />
           <ViewField label="Exp date" value={pm.expDate} />
           <ViewField label="CVV" value={pm.cvv} />
+          <ViewField label="Bank name" value={pm.bankName} />
         </>
       ) : null}
       {pm.type === "e_check" ? (
@@ -379,6 +380,8 @@ export default function CustomersClient({
   const [savingProfile, setSavingProfile] = useState(false);
   const [outsidePmId, setOutsidePmId] = useState("");
   const [outsideAmount, setOutsideAmount] = useState("");
+  const [showOutsideAmountEditor, setShowOutsideAmountEditor] = useState(false);
+  const [savingOutsideAmount, setSavingOutsideAmount] = useState(false);
   const [savingOutsideCharge, setSavingOutsideCharge] = useState(false);
   const [deletingChargeId, setDeletingChargeId] = useState(null);
   const [staffUsers, setStaffUsers] = useState([]);
@@ -651,6 +654,7 @@ export default function CustomersClient({
     setEditingProfile(false);
     setOutsidePmId("");
     setOutsideAmount("");
+    setShowOutsideAmountEditor(false);
   }, [selectedId, loadDetail]);
 
   // Prefill name on card from customer when opening a new payment form
@@ -1092,8 +1096,9 @@ export default function CustomersClient({
       setPaymentError("Select a payment method first");
       return;
     }
-    if ((status === "charged" || status === "chargeback") && !String(outsideAmount).trim()) {
-      setPaymentError("Charge amount is required");
+    const savedAmount = detail?.customer?.chargeAmount;
+    if ((status === "charged" || status === "chargeback") && (savedAmount == null || savedAmount === "")) {
+      setPaymentError("Save a charge amount first");
       return;
     }
     setPaymentError(null);
@@ -1116,7 +1121,7 @@ export default function CustomersClient({
       const payload = {
         status,
         customerPaymentMethodId: Number(outsidePmId),
-        amount: outsideAmount.trim() || null,
+        amount: detail?.customer?.chargeAmount ?? null,
       };
       if (processor) payload.processor = processor;
       if (status === "declined") payload.declineReason = reason;
@@ -1137,6 +1142,31 @@ export default function CustomersClient({
       setPaymentError(err.message || "Failed to save charge");
     } finally {
       setSavingOutsideCharge(false);
+    }
+  }
+
+  async function saveOutsideChargeAmount() {
+    if (!selectedId) return;
+    setSavingOutsideAmount(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/customers/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          chargeAmount: outsideAmount.trim() === "" ? null : outsideAmount.trim(),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to save charge amount");
+      setShowOutsideAmountEditor(false);
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to save charge amount");
+    } finally {
+      setSavingOutsideAmount(false);
     }
   }
 
@@ -1197,7 +1227,6 @@ export default function CustomersClient({
           phone: outsideForm.phone,
           cellNumber: outsideForm.cellNumber.trim() || null,
           accountNumber: outsideForm.accountNumber.trim() || null,
-          bankName: outsideForm.bankName.trim() || null,
           address: outsideForm.address.trim() || null,
           city: outsideForm.city.trim() || null,
           state: outsideForm.state || null,
@@ -1230,7 +1259,6 @@ export default function CustomersClient({
       phone: formatLandline(c?.phone) || c?.phone || "",
       cellNumber: formatCellNumber(c?.cellNumber) || c?.cellNumber || "",
       accountNumber: c?.accountNumber || "",
-      bankName: c?.bankName || "",
       address: c?.address || "",
       city: c?.city || "",
       state: c?.state || "",
@@ -1277,7 +1305,6 @@ export default function CustomersClient({
         phone: profileForm.phone,
         cellNumber: profileForm.cellNumber.trim() || null,
         accountNumber: profileForm.accountNumber.trim() || null,
-        bankName: profileForm.bankName.trim() || null,
         address: profileForm.address.trim() || null,
         city: profileForm.city.trim() || null,
         state: profileForm.state || null,
@@ -1563,17 +1590,6 @@ export default function CustomersClient({
                     }))
                   }
                   inputMode="numeric"
-                  placeholder="Optional"
-                />
-              </label>
-              <label className={labelClass}>
-                Bank name
-                <input
-                  className={inputClass}
-                  value={outsideForm.bankName}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, bankName: e.target.value }))
-                  }
                   placeholder="Optional"
                 />
               </label>
@@ -2269,17 +2285,6 @@ export default function CustomersClient({
                         placeholder="Optional"
                       />
                     </label>
-                    <label className={labelClass}>
-                      Bank name
-                      <input
-                        className={inputClass}
-                        value={profileForm.bankName}
-                        onChange={(e) =>
-                          setProfileForm((prev) => ({ ...prev, bankName: e.target.value }))
-                        }
-                        placeholder="Optional"
-                      />
-                    </label>
                     <label className={`${labelClass} sm:col-span-2`}>
                       Address
                       <input
@@ -2478,12 +2483,6 @@ export default function CustomersClient({
                     <dt className="text-zinc-500">Account #</dt>
                     <dd className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
                       {customer.accountNumber || "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-zinc-500">Bank name</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {customer.bankName || "—"}
                     </dd>
                   </div>
                   <div>
@@ -2799,6 +2798,16 @@ export default function CustomersClient({
                           </span>
                         ) : null}
                       </label>
+                      <label className={labelClass}>
+                        Bank name
+                        <input
+                          className={inputClass}
+                          value={paymentForm.bankName}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))
+                          }
+                        />
+                      </label>
                     </div>
                   ) : null}
 
@@ -2940,10 +2949,67 @@ export default function CustomersClient({
                   Charges
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Save a payment method, then log Charged, Declined, or Chargeback. No lead is created.
+                  Save a charge amount once, then log Charged, Declined, or Chargeback. No lead is created.
                 </p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                    Charge amount:{" "}
+                    <span className="tabular-nums text-emerald-700 dark:text-emerald-300">
+                      {customer.chargeAmount != null
+                        ? formatLeadPaymentChargeAmount(customer.chargeAmount)
+                        : "—"}
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    disabled={savingOutsideAmount}
+                    onClick={() => {
+                      setOutsideAmount(
+                        customer.chargeAmount != null ? String(customer.chargeAmount) : "",
+                      );
+                      setShowOutsideAmountEditor(true);
+                      setPaymentError(null);
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
+                {showOutsideAmountEditor ? (
+                  <div className="mt-3 space-y-2 rounded-xl border border-indigo-200 bg-white p-3 dark:border-indigo-800 dark:bg-zinc-950">
+                    <label className={labelClass}>
+                      Charge amount
+                      <input
+                        className={inputClass}
+                        value={outsideAmount}
+                        onChange={(e) => setOutsideAmount(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        autoFocus
+                      />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        disabled={savingOutsideAmount}
+                        onClick={() => void saveOutsideChargeAmount()}
+                      >
+                        {savingOutsideAmount ? "Saving…" : "Save amount"}
+                      </button>
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        disabled={savingOutsideAmount}
+                        onClick={() => setShowOutsideAmountEditor(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className={labelClass}>
+                  <label className={`${labelClass} sm:col-span-2`}>
                     Payment method
                     <select
                       className={inputClass}
@@ -2961,16 +3027,6 @@ export default function CustomersClient({
                         ))
                       )}
                     </select>
-                  </label>
-                  <label className={labelClass}>
-                    Amount
-                    <input
-                      className={inputClass}
-                      value={outsideAmount}
-                      onChange={(e) => setOutsideAmount(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="0.00"
-                    />
                   </label>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">

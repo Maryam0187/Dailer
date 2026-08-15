@@ -108,7 +108,8 @@ function paymentSummary(pm) {
     const brand = pm.brand || pm.cardType || "Card";
     const num = pm.sensitiveLocked ? pm.cardNumber || "" : maskTail(pm.cardNumber);
     const exp = pm.expDate ? ` exp ${pm.expDate}` : "";
-    return `${brand} ${num}${exp}`.trim();
+    const bank = pm.bankName ? ` · ${pm.bankName}` : "";
+    return `${brand} ${num}${exp}${bank}`.trim();
   }
   if (pm.type === "e_check") {
     const bank = pm.bankName || "E-check";
@@ -145,6 +146,7 @@ function PaymentViewDetails({ pm }) {
           <ViewField label="Brand" value={pm.brand} />
           <ViewField label="Exp date" value={pm.expDate} />
           <ViewField label="CVV" value={pm.cvv} />
+          <ViewField label="Bank name" value={pm.bankName} />
         </>
       ) : null}
       {pm.type === "e_check" ? (
@@ -677,6 +679,17 @@ export default function LeadPaymentSection({
                     {cardFieldErrors.cvv}
                   </span>
                 ) : null}
+              </label>
+              <label className={labelClass}>
+                Bank name
+                <input
+                  className={inputClass}
+                  value={paymentForm.bankName}
+                  onChange={(e) =>
+                    setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))
+                  }
+                  {...noBrowserSaveProps}
+                />
               </label>
             </div>
           ) : null}

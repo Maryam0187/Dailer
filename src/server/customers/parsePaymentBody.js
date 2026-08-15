@@ -87,7 +87,6 @@ export function clearUnusedPaymentFields(type, data) {
     next.routingNumber = null;
     next.accountNumber = null;
     next.checkNumber = null;
-    next.bankName = null;
     next.email = null;
   } else if (type === "e_check") {
     next.nameOnCard = null;

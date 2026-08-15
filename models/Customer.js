@@ -42,8 +42,9 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(32),
         allowNull: true,
       },
-      bankName: {
-        type: DataTypes.STRING(128),
+      /** Saved charge amount for outside customers (reused on charge/decline). */
+      chargeAmount: {
+        type: DataTypes.DECIMAL(12, 2),
         allowNull: true,
       },
       notes: {
