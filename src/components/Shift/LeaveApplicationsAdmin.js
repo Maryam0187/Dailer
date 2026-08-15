@@ -146,6 +146,7 @@ export default function LeaveApplicationsAdmin() {
                   <th className="px-2 py-2 font-semibold">User</th>
                   <th className="px-2 py-2 font-semibold">Dates</th>
                   <th className="px-2 py-2 font-semibold">Reason</th>
+                  <th className="px-2 py-2 font-semibold">Marked by</th>
                   <th className="px-2 py-2 font-semibold">Submitted</th>
                   <th className="px-2 py-2 font-semibold">Actions</th>
                 </tr>
@@ -164,29 +165,41 @@ export default function LeaveApplicationsAdmin() {
                         <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                           Cancelled
                         </span>
-                      ) : app.cancelRequested ? (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                          Cancel requested
-                        </span>
                       ) : null}
                     </td>
                     <td className="px-2 py-2 text-zinc-700 dark:text-zinc-300">
                       {formatDateRange(app.startDate, app.endDate)}
                     </td>
                     <td className="px-2 py-2 text-zinc-600 dark:text-zinc-400">{app.reason || "—"}</td>
+                    <td className="px-2 py-2 text-zinc-700 dark:text-zinc-300">
+                      {app.markedByAdmin ? (
+                        <span className="inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                          Admin
+                        </span>
+                      ) : (
+                        "User"
+                      )}
+                    </td>
                     <td className="px-2 py-2 text-zinc-600 dark:text-zinc-400">
                       {app.createdAt ? new Date(app.createdAt).toLocaleString() : "—"}
                     </td>
                     <td className="px-2 py-2">
                       {app.canCancel ? (
-                        <button
-                          type="button"
-                          disabled={busyId === app.id}
-                          onClick={() => setCancelTarget(app)}
-                          className="rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950"
-                        >
-                          Cancel
-                        </button>
+                        <div className="flex flex-col items-start gap-1">
+                          <button
+                            type="button"
+                            disabled={busyId === app.id}
+                            onClick={() => setCancelTarget(app)}
+                            className="rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950"
+                          >
+                            Cancel
+                          </button>
+                          {app.cancelRequested ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                              Cancel requested
+                            </span>
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-zinc-400">—</span>
                       )}

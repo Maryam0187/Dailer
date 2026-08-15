@@ -17,6 +17,14 @@ module.exports = (sequelize, DataTypes) => {
           key: "id",
         },
       },
+      createdByUserId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "Users",
+          key: "id",
+        },
+      },
       startDate: {
         type: DataTypes.DATEONLY,
         allowNull: false,
@@ -59,6 +67,7 @@ module.exports = (sequelize, DataTypes) => {
 
   LeaveApplication.associate = (models) => {
     LeaveApplication.belongsTo(models.User, { as: "user", foreignKey: "userId" });
+    LeaveApplication.belongsTo(models.User, { as: "createdBy", foreignKey: "createdByUserId" });
     LeaveApplication.belongsTo(models.User, { as: "reviewer", foreignKey: "reviewedBy" });
   };
 

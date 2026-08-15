@@ -5,7 +5,7 @@ import { resolveAccessMode } from "@/server/auth/accessMode";
 import { isLoginAllowed, isSessionValidForToday } from "@/server/auth/loginWindow";
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecords } from "@/server/auth/shiftSettings";
-import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
+import { getCurrentApprovedLeaveForUser } from "@/server/leave/userLeave";
 import { userHasActiveCall } from "@/server/calls/userActiveCall";
 import {
   hasStoredAfterShiftGrant,
@@ -121,16 +121,19 @@ async function resolveAuthedUser() {
     };
   }
 
-  let onApprovedLeave = false;
+  let currentLeave = null;
   try {
-    onApprovedLeave = await isUserOnApprovedLeave(user.id);
+    currentLeave = await getCurrentApprovedLeaveForUser(user.id);
   } catch (err) {
     // Fail open: a leave-table blip must not force sign-out mid-shift.
     console.error("[auth] leave check failed:", err?.message || err);
   }
-  if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
+  if (currentLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
     await clearUserSession(user.id);
-    return { user: null, logoutReason: "user_on_leave" };
+    return {
+      user: null,
+      logoutReason: currentLeave.markedByAdmin ? "user_on_leave_admin" : "user_on_leave",
+    };
   }
 
   if (!isLoginAllowed(user)) {

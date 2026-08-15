@@ -34,6 +34,9 @@ export function signInNoticeMessage(reason) {
   if (reason === "user_on_leave") {
     return "You are on approved leave today and cannot sign in to the dialer.";
   }
+  if (reason === "user_on_leave_admin") {
+    return "Your leave was marked by admin. You cannot sign in to the dialer today.";
+  }
   return null;
 }
 

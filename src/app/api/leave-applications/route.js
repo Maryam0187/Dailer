@@ -77,12 +77,15 @@ export async function POST(req) {
       startDate,
       endDate,
       reason,
+      createdByUserId: authedUser.id,
     });
+
+    const markedByAdmin = authedUser.id !== leaveUser.id;
 
     await logUserActivity({
       req,
       userId: authedUser.id,
-      action: authedUser.id === leaveUser.id ? "leave_application_submitted" : "leave_application_created",
+      action: markedByAdmin ? "leave_application_created" : "leave_application_submitted",
       entityType: "leave_application",
       entityId: application.id,
       metadata: {
@@ -91,21 +94,24 @@ export async function POST(req) {
         status: "approved",
         targetUserId: leaveUser.id,
         username: leaveUser.username,
+        markedByAdmin,
       },
     });
 
-    const adminAlert = buildLeaveApplicationAlert({
-      userId: leaveUser.id,
-      username: leaveUser.username,
-      startDate,
-      endDate,
-      reason,
-      applicationId: application.id,
-    });
-    if (adminAlert?.subject && adminAlert?.message) {
-      void sendWeb3Forms(adminAlert).catch((err) => {
-        console.warn("[leave-applications] admin alert failed", err?.message || err);
+    if (!markedByAdmin) {
+      const adminAlert = buildLeaveApplicationAlert({
+        userId: leaveUser.id,
+        username: leaveUser.username,
+        startDate,
+        endDate,
+        reason,
+        applicationId: application.id,
       });
+      if (adminAlert?.subject && adminAlert?.message) {
+        void sendWeb3Forms(adminAlert).catch((err) => {
+          console.warn("[leave-applications] admin alert failed", err?.message || err);
+        });
+      }
     }
 
     return NextResponse.json({

@@ -345,6 +345,11 @@ export default function LeaveApplicationClient({ username }) {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium">{formatDateRange(app.startDate, app.endDate)}</p>
+                        {app.markedByAdmin ? (
+                          <p className="mt-0.5 text-xs font-semibold text-indigo-700">
+                            Marked by admin
+                          </p>
+                        ) : null}
                         {editingId === app.id ? (
                           <div className="mt-2 space-y-2">
                             <label className="block text-xs font-medium text-zinc-600" htmlFor={`edit-reason-${app.id}`}>

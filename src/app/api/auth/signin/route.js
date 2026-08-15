@@ -10,7 +10,7 @@ import {
 } from "@/server/auth/loginWindow";
 import { hasAfterShiftGrant } from "@/server/auth/loginWindow.core.cjs";
 import { getShiftSettingsRecords } from "@/server/auth/shiftSettings";
-import { isUserOnApprovedLeave } from "@/server/leave/userLeave";
+import { getCurrentApprovedLeaveForUser } from "@/server/leave/userLeave";
 import { isTotpRequiredAtLogin } from "@/server/auth/totp";
 import { hasValidTotpTrust } from "@/server/auth/totpTrust";
 import {
@@ -63,16 +63,21 @@ export async function POST(req) {
   }
 
   if (purpose === "full") {
-    const onApprovedLeave = await isUserOnApprovedLeave(user.id);
-    if (onApprovedLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
+    const currentLeave = await getCurrentApprovedLeaveForUser(user.id);
+    if (currentLeave && user.role !== "admin" && !hasAfterShiftGrant(user)) {
+      const markedByAdmin = Boolean(currentLeave.markedByAdmin);
       await logUserActivity({
         req,
         userId: user.id,
         action: "login_failed",
-        metadata: { username, reason: "user_on_leave" },
+        metadata: { username, reason: markedByAdmin ? "user_on_leave_admin" : "user_on_leave" },
       });
       return NextResponse.json(
-        { error: "You are on approved leave today and cannot sign in." },
+        {
+          error: markedByAdmin
+            ? "Your leave was marked by admin. You cannot sign in to the dialer today."
+            : "You are on approved leave today and cannot sign in.",
+        },
         { status: 403 },
       );
     }
