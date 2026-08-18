@@ -369,7 +369,7 @@ export default function PaymentAnalysisPanel({
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Totals and daily volume use each sale&apos;s latest outcome on the lead, and each
           outside customer&apos;s latest charge. Repeat declines on the same customer count
-          once. Use Outside to see billed accounts with no lead.
+          once. Use Lead customers, Outside, or Combined (all) to split by charge path.
         </p>
 
         <form onSubmit={onApplyCustom} className="mt-4 flex flex-wrap items-end gap-3">

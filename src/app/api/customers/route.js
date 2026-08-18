@@ -172,7 +172,8 @@ export async function GET(req) {
   const searchBy = SEARCH_BY_VALUES.has(searchByRaw) ? searchByRaw : "all";
   const kindRaw = String(searchParams.get("kind") || "").trim().toLowerCase();
   const managerScoped = isOutsideManager(authedUser);
-  // Lead Customers tab is never outside. Only kind=outside (or an outside manager) lists those rows.
+  // Outside tab (and outside managers): isOutside rows. Lead tab: anyone with a
+  // lead, including rows that are also marked outside.
   const isOutsideList = managerScoped || kindRaw === "outside";
   const saleFilter = String(searchParams.get("saleFilter") || "").trim();
   const paymentFilter = String(searchParams.get("paymentFilter") || "").trim();
@@ -202,10 +203,21 @@ export async function GET(req) {
     );
   }
 
-  const where = { isOutside: { [Op.eq]: Boolean(isOutsideList) } };
+  const where = {};
   if (managerScoped) {
     where.isOutside = { [Op.eq]: true };
     where.managerId = authedUser.id;
+  } else if (isOutsideList) {
+    where.isOutside = { [Op.eq]: true };
+  } else {
+    pushAnd(where, {
+      [Op.or]: [
+        { isOutside: { [Op.eq]: false } },
+        db.sequelize.literal(
+          `EXISTS (SELECT 1 FROM \`Leads\` AS \`dl\` WHERE \`dl\`.\`customerId\` = \`Customer\`.\`id\`)`,
+        ),
+      ],
+    });
   }
 
   if (q) {
@@ -533,14 +545,70 @@ export async function POST(req) {
 
   const existing = await findCustomerByPhone(data.phone);
   if (existing) {
-    return NextResponse.json(
-      {
-        error: existing.isOutside
-          ? "An outside customer with this phone already exists"
-          : "This phone already belongs to a lead customer",
-      },
-      { status: 409 },
-    );
+    if (existing.isOutside) {
+      return NextResponse.json(
+        { error: "An outside customer with this phone already exists" },
+        { status: 409 },
+      );
+    }
+    if (isOutsideManager(authedUser)) {
+      return NextResponse.json(
+        { error: "This phone already belongs to a lead customer" },
+        { status: 409 },
+      );
+    }
+
+    const promote = {
+      isOutside: true,
+      managerId: staff.manager?.id ?? data.managerId,
+      agentId: staff.agent?.id ?? data.agentId ?? null,
+    };
+    const fillKeys = [
+      "fullName",
+      "address",
+      "city",
+      "state",
+      "zipCode",
+      "notes",
+      "cellNumber",
+      "accountNumber",
+      "serviceType",
+      "cableName",
+      "streamName",
+    ];
+    for (const key of fillKeys) {
+      if (data[key] === undefined) continue;
+      const current = existing[key];
+      if (current == null || String(current).trim() === "") {
+        promote[key] = data[key];
+      }
+    }
+    await existing.update(promote);
+    const refreshed = await db.Customer.findByPk(existing.id, {
+      include: [customerManagerInclude, customerAgentInclude],
+    });
+    const [leadAgg, paymentMethodCount] = await Promise.all([
+      db.Lead.findOne({
+        attributes: [
+          [fn("COUNT", col("id")), "leadCount"],
+          [fn("MIN", col("createdAt")), "firstLeadAt"],
+          [fn("MAX", col("createdAt")), "lastLeadAt"],
+        ],
+        where: { customerId: existing.id },
+        raw: true,
+      }),
+      db.CustomerPaymentMethod.count({ where: { customerId: existing.id } }),
+    ]);
+    return NextResponse.json({
+      customer: serializeCustomer(refreshed, {
+        leadCount: Number(leadAgg?.leadCount) || 0,
+        firstLeadAt: leadAgg?.firstLeadAt || null,
+        lastLeadAt: leadAgg?.lastLeadAt || null,
+        paymentMethodCount,
+        managerUsername: staff.manager?.username ?? refreshed?.manager?.username ?? null,
+        agentUsername: staff.agent?.username ?? refreshed?.agent?.username ?? null,
+      }),
+    });
   }
 
   try {
