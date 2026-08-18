@@ -21,7 +21,7 @@ export default async function CustomersPage() {
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           {managerOnly
             ? "Customers assigned to you — payment methods and charges."
-            : "Lead customers with payment methods, plus a separate Outside tab for billed accounts with no lead."}
+            : "Lead customers with payment methods, plus a separate Outside tab for billed accounts. The same phone can appear on both tabs."}
         </p>
       </div>
       <Suspense

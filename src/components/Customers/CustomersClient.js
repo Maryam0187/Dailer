@@ -219,6 +219,24 @@ function emptyOutsideForm(managerId = "") {
   };
 }
 
+function customerHasLeads(customer) {
+  return Number(customer?.leadCount) > 0;
+}
+
+function customerBelongsOnView(customer, isOutsideView) {
+  if (!customer) return false;
+  if (isOutsideView) return Boolean(customer.isOutside);
+  return !customer.isOutside || customerHasLeads(customer);
+}
+
+function DualKindBadge({ label, tone = "amber" }) {
+  const className =
+    tone === "violet"
+      ? "ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950 dark:text-violet-200"
+      : "ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200";
+  return <span className={className}>{label}</span>;
+}
+
 function staffSelectOptions(users, role, { managerId = "", includeId = "" } = {}) {
   return (users || []).filter((u) => {
     if (u.role !== role) return false;
@@ -470,7 +488,9 @@ export default function CustomersClient({
         if (!res.ok) throw new Error(json?.error || "Failed to load customers");
         const rows = Array.isArray(json.customers) ? json.customers : [];
         setCustomers(
-          kind === "outside" ? rows.filter((c) => c.isOutside) : rows.filter((c) => !c.isOutside),
+          kind === "outside"
+            ? rows.filter((c) => c.isOutside)
+            : rows.filter((c) => !c.isOutside || customerHasLeads(c)),
         );
         setPagination(
           json.pagination || {
@@ -520,9 +540,11 @@ export default function CustomersClient({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load customer");
       setDetail(json);
-      if (json.customer?.isOutside) {
+      const loaded = json.customer;
+      const hasLead = customerHasLeads(loaded);
+      if (loaded?.isOutside && !hasLead) {
         setActiveView((v) => (v === "customers" ? "outside" : v));
-      } else if (json.customer) {
+      } else if (loaded && !loaded.isOutside) {
         setActiveView((v) => (v === "outside" ? "customers" : v));
       }
     } catch (err) {
@@ -608,7 +630,8 @@ export default function CustomersClient({
             cache: "no-store",
           });
           const json = await res.json().catch(() => ({}));
-          if (json.customer?.isOutside) setActiveView("outside");
+          if (hasLead) setActiveView("customers");
+          else if (json.customer?.isOutside) setActiveView("outside");
           else setActiveView("customers");
         } catch {
           if (!hasLead) setActiveView("customers");
@@ -1292,7 +1315,7 @@ export default function CustomersClient({
       setPaymentError(cellCheck.message);
       return;
     }
-    const editingOutside = Boolean(detail?.customer?.isOutside);
+    const editingOutside = isOutsideView;
     if (editingOutside && !profileForm.managerId) {
       setPaymentError("Manager is required");
       return;
@@ -1422,12 +1445,10 @@ export default function CustomersClient({
   }
 
   const customer = detail?.customer;
-  const customerBelongsOnThisView = Boolean(
-    customer && (isOutsideView ? customer.isOutside : !customer.isOutside),
-  );
+  const customerBelongsOnThisView = customerBelongsOnView(customer, isOutsideView);
   const visibleCustomers = isOutsideView
     ? customers.filter((c) => Boolean(c.isOutside))
-    : customers.filter((c) => !c.isOutside);
+    : customers.filter((c) => !c.isOutside || customerHasLeads(c));
   const paymentMethods = detail?.paymentMethods || [];
   const leads = detail?.leads || [];
   const charges = detail?.charges || [];
@@ -1518,7 +1539,7 @@ export default function CustomersClient({
               </h2>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {isAdmin
-                  ? "Billed accounts with no lead. Saved in the same customers table."
+                  ? "Billed accounts. The same phone can also appear on Customers if it has a lead."
                   : "Add payment methods and charges for your customers."}
               </p>
             </div>
@@ -2105,6 +2126,12 @@ export default function CustomersClient({
                       <td className="px-4 py-3">
                         <div className="font-medium text-zinc-900 dark:text-zinc-100">
                           {c.displayName || c.fullName || "—"}
+                          {!managerOnly && isOutsideView && customerHasLeads(c) ? (
+                            <DualKindBadge label="Has lead" tone="violet" />
+                          ) : null}
+                          {!managerOnly && !isOutsideView && c.isOutside ? (
+                            <DualKindBadge label="Also outside" />
+                          ) : null}
                         </div>
                         <div className="font-mono text-xs text-zinc-500">
                           {formatLandline(c.phone) || c.phone}
@@ -2213,10 +2240,11 @@ export default function CustomersClient({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
                     {customer.displayName || customer.fullName || "Customer"}
-                    {customer.isOutside && !managerOnly ? (
-                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                        Outside
-                      </span>
+                    {isOutsideView && customerHasLeads(customer) && !managerOnly ? (
+                      <DualKindBadge label="Has lead" tone="violet" />
+                    ) : null}
+                    {!isOutsideView && customer.isOutside && !managerOnly ? (
+                      <DualKindBadge label="Also outside" />
                     ) : null}
                   </h2>
                   {(isAdmin || customer.isOutside) && !editingProfile ? (
@@ -2333,7 +2361,7 @@ export default function CustomersClient({
                         }
                       />
                     </label>
-                    {customer.isOutside ? (
+                    {isOutsideView ? (
                     <>
                     <label className={labelClass}>
                       Service
@@ -2491,7 +2519,7 @@ export default function CustomersClient({
                       {customer.serviceLabel || "—"}
                     </dd>
                   </div>
-                  {customer.isOutside ? (
+                  {isOutsideView ? (
                     <>
                       <div>
                         <dt className="text-zinc-500">Manager</dt>
@@ -2516,9 +2544,9 @@ export default function CustomersClient({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-zinc-500">{customer.isOutside ? "Charges" : "Lead history"}</dt>
+                    <dt className="text-zinc-500">{isOutsideView ? "Charges" : "Lead history"}</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {customer.isOutside
+                      {isOutsideView
                         ? `${charges.length} charge${charges.length === 1 ? "" : "s"}`
                         : `${customer.leadCount ?? 0} lead${(customer.leadCount ?? 0) === 1 ? "" : "s"}${
                             customer.firstLeadAt ? ` · first ${formatWhen(customer.firstLeadAt)}` : ""
@@ -2943,7 +2971,7 @@ export default function CustomersClient({
                 ) : null}
               </section>
 
-              {customer.isOutside ? (
+              {isOutsideView ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
                 <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
                   Charges
