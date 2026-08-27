@@ -77,7 +77,7 @@ function buildAdminDropdownItems(pathname) {
     },
     {
       href: "/chargeflow/alerts",
-      label: "Chargeflow alerts",
+      label: "CF alerts",
       active: pathname === "/chargeflow/alerts" || pathname?.startsWith("/chargeflow/"),
     },
     {

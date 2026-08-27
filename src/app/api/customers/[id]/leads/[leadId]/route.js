@@ -15,6 +15,10 @@ import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
 import { resolvePaymentProcessor } from "@/server/paymentProcessors/registry";
 import { leadHasPaymentOutcome, removeLeadPaymentChargeHistory } from "@/server/customers/paymentOutcomeHistory";
+import {
+  parseChargeMatchFields,
+  snapshotFromPaymentMethod,
+} from "@/server/customers/chargeCardSnapshot";
 
 function trimReason(value, maxLen = 2000) {
   const s = String(value || "").trim();
@@ -36,7 +40,8 @@ function clearChargeOutcomeFields(update) {
  *     leadPaymentChargeStatus?: 'charged'|'declined'|'chargeback'|null,
  *     leadPaymentDeclineReason?: string|null,
  *     leadPaymentProcessor?: string,
- *     leadPaymentChargeAmount?: number|string|null }
+ *     leadPaymentChargeAmount?: number|string|null,
+ *     authCode?: string, arn?: string, processorTransactionId?: string }
  * Set leadPaymentChargeStatus to null to clear the latest outcome and remove charged/chargeback
  * history (admin undo for mistaken charges).
  */
@@ -80,6 +85,8 @@ export async function PATCH(req, { params }) {
   const update = {};
   /** @type {{ type: string, body: string }[]} */
   const activities = [];
+  /** @type {Record<string, unknown>|null} */
+  let pendingCustomerCharge = null;
 
   if (linking) {
     const nextPmRaw = body.customerPaymentMethodId;
@@ -199,10 +206,11 @@ export async function PATCH(req, { params }) {
         });
       }
     } else {
+      let linkedPm = null;
       let paymentMethodType = null;
       if (linkedPmId) {
-        const linkedPm = await db.CustomerPaymentMethod.findByPk(linkedPmId, {
-          attributes: ["type"],
+        linkedPm = await db.CustomerPaymentMethod.findByPk(linkedPmId, {
+          attributes: ["id", "type", "cardNumber", "brand", "cardType"],
         });
         paymentMethodType = linkedPm?.type || null;
       }
@@ -265,6 +273,9 @@ export async function PATCH(req, { params }) {
         if (nextAmount !== undefined) chargeAmount = nextAmount;
       }
 
+      const cardSnapshot = snapshotFromPaymentMethod(linkedPm);
+      const matchFields = parseChargeMatchFields(body);
+
       // Every submitted charge event is logged (declines/retries included).
       update.leadPaymentChargeStatus = status;
       update.leadPaymentDeclineReason = status === "declined" ? declineReason : null;
@@ -281,6 +292,22 @@ export async function PATCH(req, { params }) {
           resolved?.code || null,
         ),
       });
+      // Persist CustomerCharge for Chargeflow matching (last4 auto from card PM).
+      pendingCustomerCharge = {
+        customerId,
+        leadId: lead.id,
+        customerPaymentMethodId: linkedPmId || null,
+        status,
+        amount: chargeAmount,
+        processor: resolved?.code || null,
+        cardLast4: cardSnapshot.cardLast4,
+        cardBrand: cardSnapshot.cardBrand,
+        authCode: matchFields.authCode,
+        arn: matchFields.arn,
+        processorTransactionId: matchFields.processorTransactionId,
+        declineReason: status === "declined" ? declineReason : null,
+        createdByUserId: authedUser.id,
+      };
     }
   }
 
@@ -307,6 +334,10 @@ export async function PATCH(req, { params }) {
   await lead.update(update);
   // Keep customer list sort (updatedAt DESC) in sync with payment work on this customer.
   await db.Customer.update({ updatedAt: new Date() }, { where: { id: customerId } });
+
+  if (pendingCustomerCharge) {
+    await db.CustomerCharge.create(pendingCustomerCharge);
+  }
 
   for (const activity of activities) {
     const entry = await createLeadUpdate({

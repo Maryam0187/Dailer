@@ -372,6 +372,9 @@ export default function CustomersClient({
   const [chargingLeadId, setChargingLeadId] = useState(null);
   const [chargeModal, setChargeModal] = useState(null);
   const [chargeProcessor, setChargeProcessor] = useState("");
+  const [chargeAuthCode, setChargeAuthCode] = useState("");
+  const [chargeArn, setChargeArn] = useState("");
+  const [chargeProcessorTxnId, setChargeProcessorTxnId] = useState("");
   const [declineReason, setDeclineReason] = useState("");
   const [amountModalLead, setAmountModalLead] = useState(null);
   const [amountDraft, setAmountDraft] = useState("");
@@ -981,6 +984,25 @@ export default function CustomersClient({
     }
   }
 
+  function resetChargeFormFields() {
+    setChargeProcessor("");
+    setChargeAuthCode("");
+    setChargeArn("");
+    setChargeProcessorTxnId("");
+    setDeclineReason("");
+  }
+
+  function chargeMatchPayload() {
+    const payload = {};
+    const authCode = chargeAuthCode.trim();
+    const arn = chargeArn.trim();
+    const processorTransactionId = chargeProcessorTxnId.trim();
+    if (authCode) payload.authCode = authCode;
+    if (arn) payload.arn = arn;
+    if (processorTransactionId) payload.processorTransactionId = processorTransactionId;
+    return payload;
+  }
+
   async function setLeadChargeStatus(leadId, status, { reason = null, processor = null } = {}) {
     if (!selectedId || !leadId) return;
     setChargingLeadId(leadId);
@@ -988,6 +1010,7 @@ export default function CustomersClient({
     try {
       const payload = {
         leadPaymentChargeStatus: status,
+        ...chargeMatchPayload(),
       };
       if (processor) payload.leadPaymentProcessor = processor;
       if (status === "declined") payload.leadPaymentDeclineReason = reason;
@@ -1000,8 +1023,7 @@ export default function CustomersClient({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to update charge status");
       setChargeModal(null);
-      setChargeProcessor("");
-      setDeclineReason("");
+      resetChargeFormFields();
       await loadDetail(selectedId);
     } catch (err) {
       setPaymentError(err.message || "Failed to update charge status");
@@ -1039,8 +1061,8 @@ export default function CustomersClient({
       return;
     }
     setPaymentError(null);
+    resetChargeFormFields();
     setChargeProcessor(lead?.leadPaymentProcessor || "");
-    setDeclineReason("");
     const methods = detail?.paymentMethods || [];
     const linked = methods.find(
       (pm) => Number(pm.id) === Number(lead?.customerPaymentMethodId),
@@ -1051,8 +1073,7 @@ export default function CustomersClient({
 
   function closeChargeModal() {
     setChargeModal(null);
-    setChargeProcessor("");
-    setDeclineReason("");
+    resetChargeFormFields();
   }
 
   function isCheckMailCharge(modalOrLead) {
@@ -1125,8 +1146,7 @@ export default function CustomersClient({
       return;
     }
     setPaymentError(null);
-    setChargeProcessor("");
-    setDeclineReason("");
+    resetChargeFormFields();
     setChargeModal({
       outside: true,
       lead: null,
@@ -1145,6 +1165,7 @@ export default function CustomersClient({
         status,
         customerPaymentMethodId: Number(outsidePmId),
         amount: detail?.customer?.chargeAmount ?? null,
+        ...chargeMatchPayload(),
       };
       if (processor) payload.processor = processor;
       if (status === "declined") payload.declineReason = reason;
@@ -1157,8 +1178,7 @@ export default function CustomersClient({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save charge");
       setChargeModal(null);
-      setChargeProcessor("");
-      setDeclineReason("");
+      resetChargeFormFields();
       await loadDetail(selectedId);
       await loadCustomers(pagination.page);
     } catch (err) {
@@ -1470,6 +1490,28 @@ export default function CustomersClient({
   const chargeModalName = chargeModal?.outside
     ? customer?.displayName || customer?.fullName || "this customer"
     : chargeModal?.lead?.fullName || "this lead";
+  const chargeModalPm = (() => {
+    if (!chargeModal) return null;
+    if (chargeModal.outside) {
+      return paymentMethods.find((pm) => Number(pm.id) === Number(chargeModal.paymentMethodId)) || null;
+    }
+    return (
+      paymentMethods.find(
+        (pm) => Number(pm.id) === Number(chargeModal.lead?.customerPaymentMethodId),
+      ) || null
+    );
+  })();
+  const chargeModalCardHint = (() => {
+    if (!chargeModalPm || chargeModalPm.type !== "card") return null;
+    const digits = String(chargeModalPm.cardNumber || "").replace(/\D/g, "");
+    const last4 = digits ? digits.slice(-4) : "";
+    const brand = chargeModalPm.brand || chargeModalPm.cardType || "Card";
+    if (!last4) return `${brand} (last4 saved automatically when available)`;
+    return `${brand} ···· ${last4} — last4 saved automatically`;
+  })();
+  const showChargeMatchFields =
+    chargeModal &&
+    (chargeModal.status === "charged" || chargeModal.status === "chargeback");
   const visibleDateFields = isOutsideView
     ? DATE_FIELD_OPTIONS.filter((opt) => opt.value === "updated" || opt.value === "created")
     : DATE_FIELD_OPTIONS;
@@ -3112,6 +3154,14 @@ export default function CustomersClient({
                                   {processorMeta.label}
                                 </span>
                               ) : null}
+                              {charge.cardLast4 ? (
+                                <span className="text-xs text-zinc-500">
+                                  {(charge.cardBrand || "Card") + ` ···· ${charge.cardLast4}`}
+                                </span>
+                              ) : null}
+                              {charge.authCode ? (
+                                <span className="text-xs text-zinc-500">Auth {charge.authCode}</span>
+                              ) : null}
                             </div>
                             <button
                               type="button"
@@ -3555,6 +3605,46 @@ export default function CustomersClient({
                     ))}
                   </select>
                 </label>
+              ) : null}
+              {chargeModalCardHint ? (
+                <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+                  {chargeModalCardHint}
+                </p>
+              ) : null}
+              {showChargeMatchFields ? (
+                <div className="mt-3 space-y-3">
+                  <label className={labelClass}>
+                    Auth code <span className="font-normal text-zinc-500">(optional)</span>
+                    <input
+                      className={inputClass}
+                      value={chargeAuthCode}
+                      onChange={(e) => setChargeAuthCode(e.target.value)}
+                      placeholder="From processor receipt"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className={labelClass}>
+                    ARN <span className="font-normal text-zinc-500">(optional)</span>
+                    <input
+                      className={inputClass}
+                      value={chargeArn}
+                      onChange={(e) => setChargeArn(e.target.value)}
+                      placeholder="Acquirer reference number"
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className={labelClass}>
+                    Processor transaction ID{" "}
+                    <span className="font-normal text-zinc-500">(optional)</span>
+                    <input
+                      className={inputClass}
+                      value={chargeProcessorTxnId}
+                      onChange={(e) => setChargeProcessorTxnId(e.target.value)}
+                      placeholder="Txn / reference id"
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
               ) : null}
               {chargeModal.status === "declined" ? (
                 <label className={`${labelClass} mt-3`}>

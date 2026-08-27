@@ -11,11 +11,11 @@ export default async function ChargeflowAlertsPage() {
     <>
       <div className="mb-6 border-b border-zinc-200/80 pb-5 sm:mb-8 sm:pb-6 dark:border-zinc-800">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl dark:text-zinc-50">
-          Chargeflow alerts
+          CF alerts
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Pre-chargeback and fraud alerts from your Chargeflow account. Expand a row to see the
-          full alert and network transaction details.
+          Pre-chargeback and fraud alerts from Chargeflow. Expand a row to see the full CF alert
+          and network transaction details.
         </p>
       </div>
       <ChargeflowAlertsClient />

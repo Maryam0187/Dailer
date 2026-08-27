@@ -225,6 +225,9 @@ module.exports = (sequelize, DataTypes) => {
     Lead.belongsTo(models.User, { as: "importOwner", foreignKey: "importOwnerUserId" });
     Lead.hasMany(models.CallLog, { foreignKey: "leadId", as: "callLogs" });
     Lead.hasMany(models.LeadUpdate, { foreignKey: "leadId", as: "updates" });
+    if (models.CustomerCharge) {
+      Lead.hasMany(models.CustomerCharge, { foreignKey: "leadId", as: "charges" });
+    }
   };
 
   return Lead;

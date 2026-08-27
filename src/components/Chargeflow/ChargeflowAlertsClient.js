@@ -757,7 +757,7 @@ export default function ChargeflowAlertsClient() {
       </div>
 
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Click a row to view the full Chargeflow alert payload.
+        Click a row to view the full CF alert payload.
         {filtersActive ? (
           <span className="ml-1 text-zinc-500">
             Filters:
@@ -790,7 +790,7 @@ export default function ChargeflowAlertsClient() {
             <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
               {filtersActive
                 ? "Try a wider date range or clear the type filter."
-                : "When Chargeflow receives pre-chargeback alerts from your connected processors, they will appear here."}
+                : "When CF alerts arrive from your connected processors, they will appear here."}
             </p>
           </div>
         ) : null}
