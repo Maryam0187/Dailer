@@ -54,10 +54,11 @@ const btnPage =
   "rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
 const SEARCH_BY_OPTIONS = [
-  { value: "all", label: "All", placeholder: "Phone, name, or last 7" },
+  { value: "all", label: "All", placeholder: "Phone, name, last 7, or card last 4" },
   { value: "phone", label: "Phone", placeholder: "Phone number" },
   { value: "name", label: "Name", placeholder: "Customer name" },
   { value: "last7", label: "Last 7", placeholder: "Phone last 7 digits" },
+  { value: "last4", label: "Card last 4", placeholder: "Card last 4 digits" },
 ];
 
 const SALE_FILTER_OPTIONS = [
@@ -477,7 +478,7 @@ export default function CustomersClient({
         if (state && state !== "all") params.set("state", state);
         if (kind !== "outside" && shift && shift !== "all") params.set("shiftKey", shift);
         params.set("dateField", field || "updated");
-        // Date range applies only when not doing a phone/name/last7 search
+        // Date range applies only when not doing a targeted search
         if (!query.trim() && from && to) {
           params.set("fromDate", from);
           params.set("toDate", to);
@@ -1856,11 +1857,13 @@ export default function CustomersClient({
             <label htmlFor="customer-search" className={labelClass}>
               {searchBy === "last7"
                 ? "Phone last 7"
-                : searchBy === "name"
-                  ? "Customer name"
-                  : searchBy === "phone"
-                    ? "Phone"
-                    : "Search"}
+                : searchBy === "last4"
+                  ? "Card last 4"
+                  : searchBy === "name"
+                    ? "Customer name"
+                    : searchBy === "phone"
+                      ? "Phone"
+                      : "Search"}
             </label>
             <input
               id="customer-search"
@@ -1871,6 +1874,8 @@ export default function CustomersClient({
                   setSearchInput(formatLandline(next));
                 } else if (searchBy === "last7") {
                   setSearchInput(digitsOnly(next).slice(0, 7));
+                } else if (searchBy === "last4") {
+                  setSearchInput(digitsOnly(next).slice(0, 4));
                 } else {
                   setSearchInput(next);
                 }
@@ -1878,9 +1883,13 @@ export default function CustomersClient({
               }}
               className={inputClass}
               placeholder={searchPlaceholder}
-              inputMode={searchBy === "last7" || searchBy === "phone" ? "numeric" : "text"}
+              inputMode={
+                searchBy === "last7" || searchBy === "last4" || searchBy === "phone"
+                  ? "numeric"
+                  : "text"
+              }
               maxLength={
-                searchBy === "last7" ? 7 : searchBy === "phone" ? 12 : 128
+                searchBy === "last7" ? 7 : searchBy === "last4" ? 4 : searchBy === "phone" ? 12 : 128
               }
               aria-invalid={Boolean(searchError)}
             />

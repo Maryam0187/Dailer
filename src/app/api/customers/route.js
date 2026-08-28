@@ -18,7 +18,7 @@ import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/lead
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
 
-const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7"]);
+const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
 
 /** Explicit date columns for the customers date-range filter. */
@@ -58,6 +58,14 @@ function parseDateOnly(value) {
 function pushAnd(where, clause) {
   if (!where[Op.and]) where[Op.and] = [];
   where[Op.and].push(clause);
+}
+
+function customerHasCardLast4(last4) {
+  return db.sequelize.literal(`EXISTS (
+    SELECT 1 FROM \`CustomerCharges\` AS \`cc\`
+    WHERE \`cc\`.\`customerId\` = \`Customer\`.\`id\`
+      AND \`cc\`.\`cardLast4\` = ${db.sequelize.escape(last4)}
+  )`);
 }
 
 function normalizeDateFieldKey(value) {
@@ -254,6 +262,8 @@ export async function GET(req) {
           )`),
         ],
       });
+    } else if (searchBy === "last4") {
+      pushAnd(where, customerHasCardLast4(check.normalized));
     } else if (searchBy === "all") {
       const like = `%${check.normalized}%`;
       const digits = check.normalized.replace(/\D/g, "");
@@ -284,6 +294,9 @@ export async function GET(req) {
               )
           )`),
         );
+        if (digits.length === 4) {
+          or.push(customerHasCardLast4(digits));
+        }
         if (digits.length >= 7) {
           const last7 = digits.slice(-7);
           or.push({ phone: { [Op.like]: `%${last7}` } });
