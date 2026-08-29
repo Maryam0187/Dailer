@@ -22,6 +22,18 @@ export const customerAgentInclude = {
   required: false,
 };
 
+export const leadManagerInclude = {
+  association: "manager",
+  attributes: ["id", "username"],
+  required: false,
+};
+
+export const leadAgentInclude = {
+  association: "agent",
+  attributes: ["id", "username"],
+  required: false,
+};
+
 export function serializePaymentMethod(row) {
   return {
     id: row.id,
@@ -73,8 +85,10 @@ export function serializeCustomerCharge(row) {
 
 export function serializeCustomer(customer, extras = {}) {
   const latestLead = extras.latestLead || null;
+  const latestSale = extras.latestSale || null;
   const storedName = customer.fullName?.trim() || null;
   const latestCharge = extras.latestCharge || null;
+  const saleForDisplay = latestSale || null;
   return {
     id: customer.id,
     phone: customer.phone,
@@ -103,10 +117,24 @@ export function serializeCustomer(customer, extras = {}) {
     displayName: storedName || latestLead?.fullName?.trim() || null,
     isOutside: Boolean(customer.isOutside),
     leadCount: extras.leadCount ?? null,
+    salesCount: extras.salesCount ?? null,
     firstLeadAt: extras.firstLeadAt ?? null,
     lastLeadAt: extras.lastLeadAt ?? null,
+    firstSaleAt: extras.firstSaleAt ?? null,
+    lastSaleAt: extras.lastSaleAt ?? null,
     paymentMethodCount: extras.paymentMethodCount ?? null,
     latestCharge: latestCharge ? serializeCustomerCharge(latestCharge) : null,
+    latestSale: saleForDisplay
+      ? {
+          id: saleForDisplay.id,
+          leadPaymentChargeStatus: saleForDisplay.leadPaymentChargeStatus || null,
+          leadPaymentChargeAmount:
+            saleForDisplay.leadPaymentChargeAmount != null
+              ? Number(saleForDisplay.leadPaymentChargeAmount)
+              : null,
+          leadPaymentOutcomeAt: saleForDisplay.leadPaymentOutcomeAt || null,
+        }
+      : null,
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,
   };
@@ -128,6 +156,13 @@ export function serializeCustomerLead(lead, extras = {}) {
     cableName: lead.cableName || null,
     streamName: lead.streamName || null,
     serviceLabel: formatLeadService(lead),
+    accountNumber: lead.accountNumber || null,
+    notes: lead.notes || null,
+    breakdown: lead.breakdown || null,
+    managerId: lead.managerId ?? null,
+    managerUsername: lead.manager?.username ?? null,
+    agentId: lead.agentId ?? null,
+    agentUsername: lead.agent?.username ?? null,
     status: lead.status,
     leadPhase: lead.leadPhase || "active",
     leadProgressTags: Array.isArray(lead.leadProgressTags) ? lead.leadProgressTags : [],
@@ -142,6 +177,7 @@ export function serializeCustomerLead(lead, extras = {}) {
     leadPaymentChargeAmount:
       lead.leadPaymentChargeAmount != null ? Number(lead.leadPaymentChargeAmount) : null,
     leadPaymentOutcomeAt: lead.leadPaymentOutcomeAt || null,
+    source: lead.source || null,
     paymentChargeLogGroups: Array.isArray(extras.paymentChargeLogGroups)
       ? extras.paymentChargeLogGroups
       : [],

@@ -17,6 +17,7 @@ import {
 import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
+import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7", "last4"]);
 const PAYMENT_FILTER_VALUES = new Set(PAYMENT_METHOD_TYPES);
@@ -375,10 +376,19 @@ export async function GET(req) {
     if (chargeStatus) {
       pushAnd(
         where,
-        db.sequelize.literal(`EXISTS (
-          SELECT 1 FROM \`CustomerCharges\` AS \`cc\`
-          WHERE \`cc\`.\`customerId\` = \`Customer\`.\`id\`
-            AND \`cc\`.\`status\` = ${db.sequelize.escape(chargeStatus)}
+        db.sequelize.literal(`(
+          EXISTS (
+            SELECT 1 FROM \`Leads\` AS \`os\`
+            WHERE \`os\`.\`customerId\` = \`Customer\`.\`id\`
+              AND \`os\`.\`source\` = ${db.sequelize.escape(OUTSIDE_SALE_SOURCE)}
+              AND \`os\`.\`leadPaymentChargeStatus\` = ${db.sequelize.escape(chargeStatus)}
+          )
+          OR EXISTS (
+            SELECT 1 FROM \`CustomerCharges\` AS \`cc\`
+            WHERE \`cc\`.\`customerId\` = \`Customer\`.\`id\`
+              AND \`cc\`.\`leadId\` IS NULL
+              AND \`cc\`.\`status\` = ${db.sequelize.escape(chargeStatus)}
+          )
         )`),
       );
     }
@@ -436,6 +446,12 @@ export async function GET(req) {
   });
 
   const customerIds = rows.map((r) => r.id);
+  const leadStatsWhere = { customerId: { [Op.in]: customerIds } };
+  if (isOutsideList) {
+    leadStatsWhere.source = OUTSIDE_SALE_SOURCE;
+  } else {
+    leadStatsWhere.source = { [Op.ne]: OUTSIDE_SALE_SOURCE };
+  }
   const leadStats =
     customerIds.length > 0
       ? await db.Lead.findAll({
@@ -446,7 +462,7 @@ export async function GET(req) {
             [fn("MAX", col("createdAt")), "lastLeadAt"],
             [fn("MAX", col("id")), "latestLeadId"],
           ],
-          where: { customerId: { [Op.in]: customerIds } },
+          where: leadStatsWhere,
           group: ["customerId"],
           raw: true,
         })
@@ -473,6 +489,22 @@ export async function GET(req) {
       },
     ]),
   );
+
+  const inHouseLeadStats =
+    isOutsideList && customerIds.length > 0
+      ? await db.Lead.findAll({
+          attributes: ["customerId", [fn("COUNT", col("id")), "leadCount"]],
+          where: {
+            customerId: { [Op.in]: customerIds },
+            source: { [Op.ne]: OUTSIDE_SALE_SOURCE },
+          },
+          group: ["customerId"],
+          raw: true,
+        })
+      : [];
+  const inHouseStatsByCustomer = new Map(
+    inHouseLeadStats.map((s) => [Number(s.customerId), Number(s.leadCount) || 0]),
+  );
   const paymentsByCustomer = new Map(
     paymentCounts.map((s) => [Number(s.customerId), Number(s.paymentMethodCount) || 0]),
   );
@@ -484,7 +516,14 @@ export async function GET(req) {
     latestLeadIds.length > 0
       ? await db.Lead.findAll({
           where: { id: { [Op.in]: latestLeadIds } },
-          attributes: ["id", "fullName", "customerId"],
+          attributes: [
+            "id",
+            "fullName",
+            "customerId",
+            "leadPaymentChargeStatus",
+            "leadPaymentChargeAmount",
+            "leadPaymentOutcomeAt",
+          ],
         })
       : [];
   const latestByCustomer = new Map(
@@ -494,7 +533,7 @@ export async function GET(req) {
   const latestChargeByCustomer = new Map();
   if (isOutsideList && customerIds.length > 0) {
     const chargeRows = await db.CustomerCharge.findAll({
-      where: { customerId: { [Op.in]: customerIds } },
+      where: { customerId: { [Op.in]: customerIds }, leadId: null },
       order: [["createdAt", "DESC"], ["id", "DESC"]],
       attributes: ["id", "customerId", "status", "amount", "createdAt"],
     });
@@ -511,9 +550,16 @@ export async function GET(req) {
         firstLeadAt: null,
         lastLeadAt: null,
       };
+      const inHouseLeadCount = isOutsideList
+        ? inHouseStatsByCustomer.get(c.id) || 0
+        : stats.leadCount;
+      const latestLeadRow = latestByCustomer.get(c.id) || null;
       return serializeCustomer(c, {
         ...stats,
-        latestLead: latestByCustomer.get(c.id) || null,
+        leadCount: inHouseLeadCount,
+        salesCount: isOutsideList ? stats.leadCount : undefined,
+        latestLead: latestLeadRow,
+        latestSale: isOutsideList ? latestLeadRow : null,
         latestCharge: latestChargeByCustomer.get(c.id) || null,
         paymentMethodCount: paymentsByCustomer.get(c.id) || 0,
       });
@@ -559,16 +605,129 @@ export async function POST(req) {
   const existing = await findCustomerByPhone(data.phone);
   if (existing) {
     if (existing.isOutside) {
-      return NextResponse.json(
-        { error: "An outside customer with this phone already exists" },
-        { status: 409 },
-      );
+      if (isOutsideManager(authedUser) && Number(existing.managerId) !== Number(authedUser.id)) {
+        return NextResponse.json(
+          { error: "An outside customer with this phone already exists" },
+          { status: 409 },
+        );
+      }
+      const fillKeys = [
+        "fullName",
+        "address",
+        "city",
+        "state",
+        "zipCode",
+        "notes",
+        "cellNumber",
+        "accountNumber",
+        "serviceType",
+        "cableName",
+        "streamName",
+      ];
+      const touch = { updatedAt: new Date() };
+      for (const key of fillKeys) {
+        if (data[key] === undefined) continue;
+        const current = existing[key];
+        if (current == null || String(current).trim() === "") {
+          touch[key] = data[key];
+        }
+      }
+      if (!isOutsideManager(authedUser)) {
+        touch.managerId = staff.manager?.id ?? data.managerId;
+        touch.agentId = staff.agent?.id ?? data.agentId ?? null;
+      }
+      await existing.update(touch);
+      const refreshed = await db.Customer.findByPk(existing.id, {
+        include: [customerManagerInclude, customerAgentInclude],
+      });
+      const [salesAgg, inHouseAgg, paymentMethodCount] = await Promise.all([
+        db.Lead.findOne({
+          attributes: [
+            [fn("COUNT", col("id")), "leadCount"],
+            [fn("MIN", col("createdAt")), "firstLeadAt"],
+            [fn("MAX", col("createdAt")), "lastLeadAt"],
+          ],
+          where: { customerId: existing.id, source: OUTSIDE_SALE_SOURCE },
+          raw: true,
+        }),
+        db.Lead.findOne({
+          attributes: [[fn("COUNT", col("id")), "leadCount"]],
+          where: { customerId: existing.id, source: { [Op.ne]: OUTSIDE_SALE_SOURCE } },
+          raw: true,
+        }),
+        db.CustomerPaymentMethod.count({ where: { customerId: existing.id } }),
+      ]);
+      return NextResponse.json({
+        customer: serializeCustomer(refreshed, {
+          leadCount: Number(inHouseAgg?.leadCount) || 0,
+          salesCount: Number(salesAgg?.leadCount) || 0,
+          firstLeadAt: salesAgg?.firstLeadAt || null,
+          lastLeadAt: salesAgg?.lastLeadAt || null,
+          paymentMethodCount,
+          managerUsername: staff.manager?.username ?? refreshed?.manager?.username ?? null,
+          agentUsername: staff.agent?.username ?? refreshed?.agent?.username ?? null,
+        }),
+      });
     }
     if (isOutsideManager(authedUser)) {
-      return NextResponse.json(
-        { error: "This phone already belongs to a lead customer" },
-        { status: 409 },
-      );
+      const promote = {
+        isOutside: true,
+        managerId: authedUser.id,
+        agentId: staff.agent?.id ?? data.agentId ?? null,
+        updatedAt: new Date(),
+      };
+      const fillKeys = [
+        "fullName",
+        "address",
+        "city",
+        "state",
+        "zipCode",
+        "notes",
+        "cellNumber",
+        "accountNumber",
+        "serviceType",
+        "cableName",
+        "streamName",
+      ];
+      for (const key of fillKeys) {
+        if (data[key] === undefined) continue;
+        const current = existing[key];
+        if (current == null || String(current).trim() === "") {
+          promote[key] = data[key];
+        }
+      }
+      await existing.update(promote);
+      const refreshed = await db.Customer.findByPk(existing.id, {
+        include: [customerManagerInclude, customerAgentInclude],
+      });
+      const [salesAgg, inHouseAgg, paymentMethodCount] = await Promise.all([
+        db.Lead.findOne({
+          attributes: [
+            [fn("COUNT", col("id")), "leadCount"],
+            [fn("MIN", col("createdAt")), "firstLeadAt"],
+            [fn("MAX", col("createdAt")), "lastLeadAt"],
+          ],
+          where: { customerId: existing.id, source: OUTSIDE_SALE_SOURCE },
+          raw: true,
+        }),
+        db.Lead.findOne({
+          attributes: [[fn("COUNT", col("id")), "leadCount"]],
+          where: { customerId: existing.id, source: { [Op.ne]: OUTSIDE_SALE_SOURCE } },
+          raw: true,
+        }),
+        db.CustomerPaymentMethod.count({ where: { customerId: existing.id } }),
+      ]);
+      return NextResponse.json({
+        customer: serializeCustomer(refreshed, {
+          leadCount: Number(inHouseAgg?.leadCount) || 0,
+          salesCount: Number(salesAgg?.leadCount) || 0,
+          firstLeadAt: salesAgg?.firstLeadAt || null,
+          lastLeadAt: salesAgg?.lastLeadAt || null,
+          paymentMethodCount,
+          managerUsername: refreshed?.manager?.username ?? null,
+          agentUsername: refreshed?.agent?.username ?? null,
+        }),
+      });
     }
 
     const promote = {

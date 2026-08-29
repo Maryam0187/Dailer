@@ -1,5 +1,6 @@
 import { Op, fn, col } from "sequelize";
 import db from "@/server/db";
+import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 import {
   PAYMENT_LEAD_UPDATE_TYPE_VALUES,
   parseEmbeddedPaymentChargeAmount,
@@ -252,13 +253,13 @@ async function loadOutsideCustomerCharges({ fromDate, toDate, processor = null, 
     });
   }
 
-  // Same rule as in-house leads: one latest outcome per customer.
-  // Repeat declines on the same outside customer count once, with one amount.
+  // Legacy flat outside charges (leadId null) — kept for historical rows.
   const latestIdRows = await db.CustomerCharge.findAll({
     attributes: [
       "customerId",
       [fn("MAX", col("CustomerCharge.id")), "latestId"],
     ],
+    where: { leadId: null },
     include: [
       {
         model: db.Customer,
@@ -290,6 +291,56 @@ async function loadOutsideCustomerCharges({ fromDate, toDate, processor = null, 
   const filtered = matchValues?.length
     ? rows.filter((row) => chargeMatchesProcessor(row, matchValues))
     : rows;
+  return { rows: filtered, processorFilter };
+}
+
+async function loadOutsideSaleLeads({ fromDate, toDate, processor = null }) {
+  const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
+  const where = {
+    source: OUTSIDE_SALE_SOURCE,
+    leadPaymentChargeStatus: { [Op.in]: ["charged", "declined", "chargeback"] },
+    leadPaymentOutcomeAt: { [Op.ne]: null },
+    ...dateRangeWhereOn("leadPaymentOutcomeAt", fromDate, toDate),
+  };
+
+  const leads = await db.Lead.findAll({
+    where,
+    attributes: [
+      "id",
+      "leadPaymentChargeStatus",
+      "leadPaymentChargeAmount",
+      "leadPaymentProcessor",
+      "leadPaymentOutcomeAt",
+    ],
+    include: [
+      {
+        model: db.Customer,
+        as: "customer",
+        attributes: ["id"],
+        where: { isOutside: true },
+        required: true,
+      },
+    ],
+  });
+
+  const labelToCode = await buildProcessorLabelToCode();
+  let logProcessorByLeadId = new Map();
+  if (matchValues?.length) {
+    const missingProcessorLeadIds = leads
+      .filter((lead) => !String(lead.leadPaymentProcessor || "").trim())
+      .map((lead) => lead.id);
+    logProcessorByLeadId = await resolveProcessorsFromLatestLogs(
+      missingProcessorLeadIds,
+      labelToCode,
+    );
+  }
+
+  const filtered = matchValues?.length
+    ? leads.filter((lead) =>
+        leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessorByLeadId),
+      )
+    : leads;
+
   return { rows: filtered, processorFilter };
 }
 
@@ -334,24 +385,39 @@ function leadMatchesProcessorFilter(lead, labelToCode, matchValues, logProcessor
   return Boolean(fromLog && set.has(fromLog));
 }
 
-async function loadPaymentChargeEvents({ fromDate, toDate, processor = null, withSale = false }) {
+async function loadPaymentChargeEvents({
+  fromDate,
+  toDate,
+  processor = null,
+  withSale = false,
+  leadSource = "inhouse",
+}) {
   const { code: processorFilter, matchValues } = await resolveProcessorFilter(processor);
   const labelToCode = await buildProcessorLabelToCode();
+
+  const leadWhere =
+    leadSource === "outside_sale"
+      ? { source: OUTSIDE_SALE_SOURCE }
+      : leadSource === "inhouse"
+        ? { source: { [Op.ne]: OUTSIDE_SALE_SOURCE } }
+        : {};
 
   const leadInclude = {
     model: db.Lead,
     as: "lead",
+    where: leadWhere,
     attributes: withSale
       ? [
           "id",
           "customerId",
           "fullName",
           "phone",
+          "source",
           "leadPaymentChargeAmount",
           "leadPaymentProcessor",
           "createdByUserId",
         ]
-      : ["id", "leadPaymentChargeAmount", "leadPaymentProcessor"],
+      : ["id", "leadPaymentChargeAmount", "leadPaymentProcessor", "source"],
     required: true,
   };
   if (withSale) {
@@ -411,7 +477,10 @@ export async function aggregatePaymentChargeStats({
     };
 
     const leads = await db.Lead.findAll({
-      where,
+      where: {
+        ...where,
+        source: { [Op.ne]: OUTSIDE_SALE_SOURCE },
+      },
       attributes: [
         "id",
         "leadPaymentChargeStatus",
@@ -442,8 +511,12 @@ export async function aggregatePaymentChargeStats({
   }
 
   if (paymentKind !== "lead") {
-    const { rows } = await loadOutsideCustomerCharges({ fromDate, toDate, processor });
-    applyRowsToBuckets(rows, totals, byDayMap, "createdAt");
+    const [{ rows: outsideSales }, { rows: legacyCharges }] = await Promise.all([
+      loadOutsideSaleLeads({ fromDate, toDate, processor }),
+      loadOutsideCustomerCharges({ fromDate, toDate, processor }),
+    ]);
+    applyRowsToBuckets(outsideSales, totals, byDayMap, "leadPaymentOutcomeAt");
+    applyRowsToBuckets(legacyCharges, totals, byDayMap, "createdAt");
   }
 
   const byDay = [...byDayMap.entries()]
@@ -513,6 +586,53 @@ export async function listPaymentChargeDayDetails({ date, processor = null, kind
   }
 
   if (paymentKind !== "lead") {
+    const { events: outsideSaleEvents, labelToCode: outsideLabelToCode } =
+      await loadPaymentChargeEvents({
+        fromDate: date,
+        toDate: date,
+        processor,
+        withSale: true,
+        leadSource: "outside_sale",
+      });
+
+    const outsideLeadIds = [...new Set(outsideSaleEvents.map((e) => e.leadId))];
+    const outsideAmountTimeline = await loadAmountTimelines(outsideLeadIds);
+
+    for (const row of outsideSaleEvents) {
+      const status = statusFromType(row.type);
+      const amount = resolveEventAmount(
+        row,
+        outsideAmountTimeline,
+        row.lead?.leadPaymentChargeAmount,
+      );
+      const processorCode = eventProcessorCode(row, outsideLabelToCode);
+      const processorMeta = processorCode ? byCode[processorCode] : null;
+      const processorLabel =
+        parsePaymentProcessorLabelFromActivityBody(row.body) ||
+        processorMeta?.shortCode ||
+        processorCode;
+      details.push({
+        id: row.id,
+        createdAt: row.createdAt,
+        status,
+        amount: amount != null ? roundMoney(amount) : null,
+        processor: processorCode,
+        processorLabel,
+        declineReason:
+          status === "declined" ? parsePaymentDeclineReasonFromActivityBody(row.body) : null,
+        sale: row.lead
+          ? {
+              leadId: row.lead.id,
+              customerId: row.lead.customerId ?? null,
+              fullName: row.lead.fullName || null,
+              phone: row.lead.phone || null,
+              agentUsername: row.lead.createdBy?.username || null,
+              isOutside: true,
+            }
+          : null,
+      });
+    }
+
     const { rows } = await loadOutsideCustomerCharges({
       fromDate: date,
       toDate: date,

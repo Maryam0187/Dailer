@@ -1,5 +1,6 @@
 import { Op, Sequelize } from "sequelize";
 import { hasFullLeadAccess } from "@/lib/leadRoles";
+import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 import db from "@/server/db";
 
 /** Leads that do not have the given progress tag (JSON array column). */
@@ -421,6 +422,11 @@ export function andWhereClause(baseWhere, extra) {
   return { [Op.and]: [baseWhere, extra] };
 }
 
+/** Outside-customer sales (Customers → Outside tab) never appear on /leads. */
+export function excludeOutsideSaleWhere() {
+  return { source: { [Op.ne]: OUTSIDE_SALE_SOURCE } };
+}
+
 /**
  * Pending legacy imports (source=legacy_import, still owned by an admin) stay on
  * /import only — never in the main Leads list or lead stats.
@@ -454,13 +460,17 @@ export async function resolveLeadsListWhere(
 ) {
   const role = authedUser.role;
   const hidePendingImport = await excludePendingLegacyImportWhere();
+  const hideOutsideSales = excludeOutsideSaleWhere();
 
   if (role === "agent") {
     return andWhereClause(
-      {
-        [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
-      },
-      hidePendingImport,
+      andWhereClause(
+        {
+          [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+        },
+        hidePendingImport,
+      ),
+      hideOutsideSales,
     );
   }
 
@@ -469,27 +479,33 @@ export async function resolveLeadsListWhere(
     const notProcessed = progressTagMissingLiteral("processed");
     if (processorScope === "assigned") {
       return andWhereClause(
-        andWhereClause({ processorUserId: authedUser.id }, notProcessed),
-        hidePendingImport,
+        andWhereClause(andWhereClause({ processorUserId: authedUser.id }, notProcessed), hidePendingImport),
+        hideOutsideSales,
       );
     }
     if (processorScope === "own") {
       return andWhereClause(
-        {
-          [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
-        },
-        hidePendingImport,
+        andWhereClause(
+          {
+            [Op.or]: [{ assignedUserId: authedUser.id }, { createdByUserId: authedUser.id }],
+          },
+          hidePendingImport,
+        ),
+        hideOutsideSales,
       );
     }
     return andWhereClause(
-      {
-        [Op.or]: [
-          { assignedUserId: authedUser.id },
-          { createdByUserId: authedUser.id },
-          { [Op.and]: [{ processorUserId: authedUser.id }, notProcessed] },
-        ],
-      },
-      hidePendingImport,
+      andWhereClause(
+        {
+          [Op.or]: [
+            { assignedUserId: authedUser.id },
+            { createdByUserId: authedUser.id },
+            { [Op.and]: [{ processorUserId: authedUser.id }, notProcessed] },
+          ],
+        },
+        hidePendingImport,
+      ),
+      hideOutsideSales,
     );
   }
 
@@ -498,20 +514,26 @@ export async function resolveLeadsListWhere(
       const agentIds = await getSupervisedAgentUserIds(authedUser.id);
       const teamIds = teamCreatorIds(authedUser.id, agentIds);
       return andWhereClause(
-        {
-          assignedUserId: authedUser.id,
-          createdByUserId: { [Op.notIn]: teamIds },
-        },
-        hidePendingImport,
+        andWhereClause(
+          {
+            assignedUserId: authedUser.id,
+            createdByUserId: { [Op.notIn]: teamIds },
+          },
+          hidePendingImport,
+        ),
+        hideOutsideSales,
       );
     }
     const visible = {
       [Op.or]: [{ createdByUserId: authedUser.id }, { assignedUserId: authedUser.id }],
     };
     if (creatorId) {
-      return andWhereClause(andWhereClause({ createdByUserId: creatorId }, visible), hidePendingImport);
+      return andWhereClause(
+        andWhereClause(andWhereClause({ createdByUserId: creatorId }, visible), hidePendingImport),
+        hideOutsideSales,
+      );
     }
-    return andWhereClause(visible, hidePendingImport);
+    return andWhereClause(andWhereClause(visible, hidePendingImport), hideOutsideSales);
   }
 
   if (hasFullLeadAccess(role)) {
@@ -533,7 +555,8 @@ export async function resolveLeadsListWhere(
 
     const applyManagerScopes = async (clause) => {
       const withTeam = await applyManagerTeam(clause);
-      return applyOwnShift(withTeam);
+      const withShift = await applyOwnShift(withTeam);
+      return andWhereClause(withShift, hideOutsideSales);
     };
 
     if (supervisorId) {
@@ -566,10 +589,10 @@ export async function resolveLeadsListWhere(
     if (creatorId) {
       return applyManagerScopes(andWhereClause({ createdByUserId: creatorId }, hidePendingImport));
     }
-    return applyManagerScopes(hidePendingImport);
+    return applyManagerScopes(andWhereClause(hidePendingImport, hideOutsideSales));
   }
 
-  return { createdByUserId: -1 };
+  return andWhereClause({ createdByUserId: -1 }, hideOutsideSales);
 }
 
 export async function canAccessLead(lead, authedUser) {

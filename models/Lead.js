@@ -41,6 +41,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(16),
         allowNull: true,
       },
+      /** Service account # for this sale (outside_sale and imports). */
+      accountNumber: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       serviceType: {
         type: DataTypes.ENUM("dish", "direct", "cable", "streams"),
         allowNull: true,
@@ -67,7 +72,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: "new",
       },
       source: {
-        type: DataTypes.ENUM("cold_dial", "manual", "legacy_import"),
+        type: DataTypes.ENUM("cold_dial", "manual", "legacy_import", "outside_sale"),
         allowNull: false,
         defaultValue: "manual",
       },
@@ -99,6 +104,18 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: { model: "Customers", key: "id" },
+      },
+      /** Outside manager for this sale (outside_sale). */
+      managerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
+      /** Outside agent for this sale (outside_sale). */
+      agentId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
       },
       customerPaymentMethodId: {
         type: DataTypes.INTEGER,
@@ -215,6 +232,8 @@ module.exports = (sequelize, DataTypes) => {
     Lead.belongsTo(models.User, { as: "createdBy", foreignKey: "createdByUserId" });
     Lead.belongsTo(models.CallLog, { as: "createdFromCall", foreignKey: "createdFromCallLogId" });
     Lead.belongsTo(models.Customer, { as: "customer", foreignKey: "customerId" });
+    Lead.belongsTo(models.User, { as: "manager", foreignKey: "managerId" });
+    Lead.belongsTo(models.User, { as: "agent", foreignKey: "agentId" });
     Lead.belongsTo(models.CustomerPaymentMethod, {
       as: "customerPaymentMethod",
       foreignKey: "customerPaymentMethodId",

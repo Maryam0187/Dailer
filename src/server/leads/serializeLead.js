@@ -24,6 +24,20 @@ export const leadCreatedByInclude = {
   required: false,
 };
 
+export const leadManagerInclude = {
+  model: db.User,
+  as: "manager",
+  attributes: ["id", "username"],
+  required: false,
+};
+
+export const leadAgentInclude = {
+  model: db.User,
+  as: "agent",
+  attributes: ["id", "username"],
+  required: false,
+};
+
 export const leadProcessorUserInclude = {
   model: db.User,
   as: "processorUser",

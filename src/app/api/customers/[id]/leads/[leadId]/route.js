@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { assertCustomerLeadPatchAccess, isOutsideManager } from "@/server/customers/customerAccess";
+import { isOutsideSaleSource } from "@/lib/outsideSale";
+import {
+  parseOutsideSaleBody,
+  validateOutsideSaleStaff,
+} from "@/server/customers/parseOutsideSaleBody";
 import { serializeCustomerLead } from "@/server/customers/serializeCustomer";
 import {
   formatPaymentAmountActivity,
@@ -14,6 +20,11 @@ import {
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUpdateActivity } from "@/server/activity/logLeadActivity";
 import { resolvePaymentProcessor } from "@/server/paymentProcessors/registry";
+import {
+  leadAgentInclude,
+  leadCreatedByInclude,
+  leadManagerInclude,
+} from "@/server/leads/serializeLead";
 import { leadHasPaymentOutcome, removeLeadPaymentChargeHistory } from "@/server/customers/paymentOutcomeHistory";
 import {
   parseChargeMatchFields,
@@ -24,6 +35,29 @@ function trimReason(value, maxLen = 2000) {
   const s = String(value || "").trim();
   if (!s) return null;
   return s.slice(0, maxLen);
+}
+
+function isSaleOutcomeLocked(lead) {
+  return (
+    lead.leadPaymentChargeStatus === "charged" ||
+    lead.leadPaymentChargeStatus === "chargeback"
+  );
+}
+
+const SALE_PROFILE_BODY_KEYS = [
+  "serviceType",
+  "cableName",
+  "streamName",
+  "accountNumber",
+  "notes",
+  "breakdown",
+  "managerId",
+  "agentId",
+  "leadPaymentChargeAmount",
+];
+
+function bodyHasSaleProfile(body) {
+  return SALE_PROFILE_BODY_KEYS.some((key) => body[key] !== undefined);
 }
 
 function clearChargeOutcomeFields(update) {
@@ -46,8 +80,10 @@ function clearChargeOutcomeFields(update) {
  * history (admin undo for mistaken charges).
  */
 export async function PATCH(req, { params }) {
-  const { authedUser, errorResponse } = await requireAdmin();
-  if (errorResponse) return errorResponse;
+  const authedUser = await getAuthedUser();
+  if (!authedUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { id: rawCustomerId, leadId: rawLeadId } = await params;
   const customerId = Number(rawCustomerId);
@@ -69,14 +105,21 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
+  const clearingCharge = body.leadPaymentChargeStatus === null;
+  const access = await assertCustomerLeadPatchAccess(authedUser, customerId, lead, {
+    clearingCharge,
+  });
+  if (!access.ok) return access.errorResponse;
+
   const linking = body.customerPaymentMethodId !== undefined;
   const charging = body.leadPaymentChargeStatus !== undefined;
-  const changingAmount = body.leadPaymentChargeAmount !== undefined;
-  if (!linking && !charging && !changingAmount) {
+  const updatingSaleProfile = bodyHasSaleProfile(body);
+  const changingAmount = body.leadPaymentChargeAmount !== undefined && !updatingSaleProfile;
+  if (!linking && !charging && !changingAmount && !updatingSaleProfile) {
     return NextResponse.json(
       {
         error:
-          "customerPaymentMethodId, leadPaymentChargeStatus, or leadPaymentChargeAmount is required",
+          "Provide sale details, customerPaymentMethodId, leadPaymentChargeStatus, or leadPaymentChargeAmount",
       },
       { status: 400 },
     );
@@ -87,6 +130,55 @@ export async function PATCH(req, { params }) {
   const activities = [];
   /** @type {Record<string, unknown>|null} */
   let pendingCustomerCharge = null;
+
+  if (updatingSaleProfile) {
+    if (isSaleOutcomeLocked(lead)) {
+      return NextResponse.json(
+        { error: "Cannot change sale details after the sale was charged" },
+        { status: 409 },
+      );
+    }
+    const { data, errors } = parseOutsideSaleBody(body, {});
+    if (errors.length) {
+      return NextResponse.json({ error: errors[0] }, { status: 400 });
+    }
+    if (data.managerId !== undefined || data.agentId !== undefined) {
+      if (isOutsideSaleSource(lead.source) || data.managerId !== undefined || data.agentId !== undefined) {
+        if (isOutsideManager(authedUser)) {
+          if (data.managerId !== undefined && Number(data.managerId) !== Number(authedUser.id)) {
+            return NextResponse.json({ error: "Cannot reassign this sale" }, { status: 403 });
+          }
+          delete data.managerId;
+        }
+        const nextManagerId =
+          data.managerId !== undefined ? data.managerId : lead.managerId ?? null;
+        const nextAgentId = data.agentId !== undefined ? data.agentId : lead.agentId ?? null;
+        if (data.managerId !== undefined && data.agentId === undefined) {
+          data.agentId = null;
+        }
+        const staff = await validateOutsideSaleStaff(
+          { managerId: nextManagerId, agentId: nextAgentId },
+          { requireManager: isOutsideSaleSource(lead.source) && data.managerId !== undefined },
+        );
+        if (staff.error) {
+          return NextResponse.json({ error: staff.error }, { status: 400 });
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(data)) {
+      const prev = lead[key];
+      const next = value;
+      if (prev !== next && !(prev == null && next == null)) {
+        update[key] = next;
+      }
+    }
+    if (update.leadPaymentChargeAmount !== undefined) {
+      activities.push({
+        type: "lead_phase_change",
+        body: formatPaymentAmountActivity(update.leadPaymentChargeAmount),
+      });
+    }
+  }
 
   if (linking) {
     const nextPmRaw = body.customerPaymentMethodId;
@@ -357,12 +449,9 @@ export async function PATCH(req, { params }) {
 
   const refreshed = await db.Lead.findByPk(lead.id, {
     include: [
-      {
-        model: db.User,
-        as: "createdBy",
-        attributes: ["id", "username"],
-        required: false,
-      },
+      leadCreatedByInclude,
+      leadManagerInclude,
+      leadAgentInclude,
       {
         model: db.User,
         as: "assignedUser",

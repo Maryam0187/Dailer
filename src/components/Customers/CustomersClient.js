@@ -15,6 +15,7 @@ import {
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { US_STATES } from "@/lib/usStates";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { isOutsideSaleSource } from "@/lib/outsideSale";
 import {
   formatLeadPaymentChargeAmount,
   getLeadPaymentChargeStatusMeta,
@@ -40,6 +41,7 @@ import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 import PaymentProcessorsAdminPanel from "@/components/Customers/PaymentProcessorsAdminPanel";
 import PaymentAnalysisPanel from "@/components/Customers/PaymentAnalysisPanel";
+import StateSelectField from "@/components/Leads/StateSelectField";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -220,7 +222,77 @@ function emptyOutsideForm(managerId = "") {
   };
 }
 
+function emptyLeadForm(customer, { lockedManagerId = "" } = {}) {
+  return {
+    phone: customer?.phone ? formatLandline(customer.phone) : "",
+    fullName: customer?.fullName?.trim() || customer?.displayName?.trim() || "",
+    cellNumber: customer?.cellNumber ? formatCellNumber(customer.cellNumber) : "",
+    city: customer?.city || "",
+    state: customer?.state || "",
+    zipCode: customer?.zipCode || "",
+    serviceType: customer?.serviceType || "",
+    cableName: customer?.cableName || "",
+    streamName: customer?.streamName || "",
+    accountNumber: customer?.accountNumber || "",
+    notes: "",
+    breakdown: "",
+    managerId: lockedManagerId
+      ? String(lockedManagerId)
+      : customer?.managerId != null
+        ? String(customer.managerId)
+        : "",
+    agentId: customer?.agentId != null ? String(customer.agentId) : "",
+    leadPaymentChargeAmount: "",
+  };
+}
+
+function saleFormFromLead(lead) {
+  return {
+    serviceType: lead?.serviceType || "",
+    cableName: lead?.cableName || "",
+    streamName: lead?.streamName || "",
+    accountNumber: lead?.accountNumber || "",
+    notes: lead?.notes || "",
+    breakdown: lead?.breakdown || "",
+    managerId: lead?.managerId != null ? String(lead.managerId) : "",
+    agentId: lead?.agentId != null ? String(lead.agentId) : "",
+    leadPaymentChargeAmount:
+      lead?.leadPaymentChargeAmount != null ? String(lead.leadPaymentChargeAmount) : "",
+  };
+}
+
+function saleDetailsPayload(form) {
+  return {
+    serviceType: form.serviceType || null,
+    cableName: form.serviceType === "cable" ? form.cableName.trim() || null : null,
+    streamName: form.serviceType === "streams" ? form.streamName.trim() || null : null,
+    accountNumber:
+      form.accountNumber.trim() === "" ? null : digitsOnly(form.accountNumber).slice(0, 17),
+    notes: form.notes.trim() === "" ? null : form.notes.trim(),
+    breakdown: form.breakdown.trim() === "" ? null : form.breakdown.trim(),
+    managerId: form.managerId ? Number(form.managerId) : null,
+    agentId: form.agentId ? Number(form.agentId) : null,
+    leadPaymentChargeAmount:
+      form.leadPaymentChargeAmount.trim() === "" ? null : form.leadPaymentChargeAmount.trim(),
+  };
+}
+
+function outsideLeadRequestPayload(form, customer = null) {
+  const cellRaw = customer?.cellNumber || form.cellNumber;
+  return {
+    ...(customer?.id ? { customerId: customer.id } : {}),
+    phone: digitsOnly(customer?.phone || form.phone),
+    fullName: (customer?.fullName || customer?.displayName || form.fullName || "").trim(),
+    cellNumber: cellRaw && String(cellRaw).trim() ? digitsOnly(cellRaw) : undefined,
+    city: (customer?.city || form.city || "").trim() || undefined,
+    state: (customer?.state || form.state || "").trim() || undefined,
+    zipCode: (customer?.zipCode || form.zipCode || "").trim() || undefined,
+    ...saleDetailsPayload(form),
+  };
+}
+
 function customerHasLeads(customer) {
+  // In-house leads only (outside_sale rows count toward salesCount, not leadCount).
   return Number(customer?.leadCount) > 0;
 }
 
@@ -234,8 +306,46 @@ function DualKindBadge({ label, tone = "amber" }) {
   const className =
     tone === "violet"
       ? "ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950 dark:text-violet-200"
-      : "ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200";
+      : tone === "emerald"
+        ? "ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+        : "ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200";
   return <span className={className}>{label}</span>;
+}
+
+function CustomerKindBadge({ customer, managerOnly = false }) {
+  if (managerOnly || !customer) return null;
+  const hasInHouse = customerHasLeads(customer);
+  const isOutside = Boolean(customer.isOutside);
+  if (isOutside && hasInHouse) {
+    return <DualKindBadge label="Both" tone="violet" />;
+  }
+  return null;
+}
+
+function LeadSourceBadge({ lead }) {
+  if (isOutsideSaleSource(lead?.source)) {
+    return <DualKindBadge label="Outside" tone="amber" />;
+  }
+  return <DualKindBadge label="In-house" tone="emerald" />;
+}
+
+function isOutsideLeadRow(lead) {
+  return isOutsideSaleSource(lead?.source);
+}
+
+function buildCustomerHistoryRows({ leads, sales, customer, isOutsideView, managerOnly }) {
+  const inHouse = leads || [];
+  const outside = sales || [];
+  const hasBoth = Boolean(customer?.isOutside) && customerHasLeads(customer);
+  if (!managerOnly && hasBoth) {
+    return [...inHouse, ...outside].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }
+  if (isOutsideView || (customer?.isOutside && managerOnly)) {
+    return outside;
+  }
+  return inHouse;
 }
 
 function staffSelectOptions(users, role, { managerId = "", includeId = "" } = {}) {
@@ -394,17 +504,16 @@ export default function CustomersClient({
   })));
   const [activeView, setActiveView] = useState(isAdmin ? "customers" : "outside");
   const isOutsideView = activeView === "outside";
-  const [showOutsideForm, setShowOutsideForm] = useState(false);
-  const [outsideForm, setOutsideForm] = useState(() => emptyOutsideForm(lockedManagerId));
-  const [savingOutside, setSavingOutside] = useState(false);
+  const [showOutsideLeadForm, setShowOutsideLeadForm] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState(() => emptyOutsideForm(lockedManagerId));
   const [savingProfile, setSavingProfile] = useState(false);
-  const [outsidePmId, setOutsidePmId] = useState("");
-  const [outsideAmount, setOutsideAmount] = useState("");
-  const [showOutsideAmountEditor, setShowOutsideAmountEditor] = useState(false);
-  const [savingOutsideAmount, setSavingOutsideAmount] = useState(false);
-  const [savingOutsideCharge, setSavingOutsideCharge] = useState(false);
+  const [creatingLead, setCreatingLead] = useState(false);
+  const [showAddLeadForm, setShowAddLeadForm] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState(() => emptyLeadForm(null));
+  const [editingHistoryLeadId, setEditingHistoryLeadId] = useState(null);
+  const [leadEditForm, setLeadEditForm] = useState(() => emptyLeadForm(null));
+  const [savingLeadDetailsId, setSavingLeadDetailsId] = useState(null);
   const [deletingChargeId, setDeletingChargeId] = useState(null);
   const [staffUsers, setStaffUsers] = useState([]);
   const loadRequestIdRef = useRef(0);
@@ -679,9 +788,6 @@ export default function CustomersClient({
     setCardFieldErrors({ cardNumber: "", expDate: "", cvv: "" });
     setPaymentError(null);
     setEditingProfile(false);
-    setOutsidePmId("");
-    setOutsideAmount("");
-    setShowOutsideAmountEditor(false);
   }, [selectedId, loadDetail]);
 
   // Prefill name on card from customer when opening a new payment form
@@ -696,18 +802,161 @@ export default function CustomersClient({
     });
   }, [detail, showPaymentForm, editingPaymentId, viewingPayment]);
 
-  useEffect(() => {
-    const methods = detail?.paymentMethods || [];
-    if (!methods.length) {
-      setOutsidePmId("");
+  async function submitOutsideLead(e, { customer: ctxCustomer = null } = {}) {
+    e?.preventDefault();
+    const phoneCheck = validatePhone(ctxCustomer?.phone || newLeadForm.phone);
+    if (!phoneCheck.isValid) {
+      setError(ctxCustomer ? null : phoneCheck.message);
+      if (ctxCustomer) setPaymentError(phoneCheck.message);
       return;
     }
-    setOutsidePmId((prev) => {
-      if (prev && methods.some((pm) => String(pm.id) === String(prev))) return prev;
-      const def = methods.find((pm) => pm.isDefault) || methods[0];
-      return def ? String(def.id) : "";
-    });
-  }, [detail]);
+    const name = (ctxCustomer?.fullName || ctxCustomer?.displayName || newLeadForm.fullName || "").trim();
+    if (!name) {
+      const msg = "Full name is required";
+      if (ctxCustomer) setPaymentError(msg);
+      else setError(msg);
+      return;
+    }
+    const cellCheck = validateOptionalCell(
+      ctxCustomer?.cellNumber || newLeadForm.cellNumber,
+    );
+    if (!cellCheck.isValid) {
+      const msg = cellCheck.message;
+      if (ctxCustomer) setPaymentError(msg);
+      else setError(msg);
+      return;
+    }
+    if (!managerOnly && !newLeadForm.managerId) {
+      const msg = "Manager is required";
+      if (ctxCustomer) setPaymentError(msg);
+      else setError(msg);
+      return;
+    }
+    setCreatingLead(true);
+    if (ctxCustomer) setPaymentError(null);
+    else setError(null);
+    try {
+      const res = await fetch("/api/customers/outside-leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(outsideLeadRequestPayload(newLeadForm, ctxCustomer)),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to add lead");
+      setShowOutsideLeadForm(false);
+      setShowAddLeadForm(false);
+      setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+      setSelectedId(json.customer?.id || ctxCustomer?.id || null);
+      await loadCustomers(1);
+      if (json.customer?.id || ctxCustomer?.id) {
+        await loadDetail(json.customer?.id || ctxCustomer.id);
+      }
+    } catch (err) {
+      const msg = err.message || "Failed to add lead";
+      if (ctxCustomer) setPaymentError(msg);
+      else setError(msg);
+    } finally {
+      setCreatingLead(false);
+    }
+  }
+
+  async function submitNewOutsideLead(e) {
+    return submitOutsideLead(e, { customer });
+  }
+
+  async function submitNewInHouseLead(e) {
+    e?.preventDefault();
+    if (!selectedId || !customer) return;
+    setCreatingLead(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: digitsOnly(customer.phone),
+          fullName: (customer.fullName || customer.displayName || "").trim(),
+          cellNumber: customer.cellNumber ? digitsOnly(customer.cellNumber) : undefined,
+          city: customer.city?.trim() || undefined,
+          state: customer.state?.trim() || undefined,
+          zipCode: customer.zipCode?.trim() || undefined,
+          serviceType: newLeadForm.serviceType || undefined,
+          cableName:
+            newLeadForm.serviceType === "cable" ? newLeadForm.cableName.trim() || undefined : undefined,
+          streamName:
+            newLeadForm.serviceType === "streams"
+              ? newLeadForm.streamName.trim() || undefined
+              : undefined,
+          breakdown: newLeadForm.breakdown.trim() || undefined,
+          notes: newLeadForm.notes.trim() || undefined,
+          source: "manual",
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to add lead");
+      setShowAddLeadForm(false);
+      setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to add lead");
+    } finally {
+      setCreatingLead(false);
+    }
+  }
+
+  function openAddLeadForm() {
+    setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+    setShowAddLeadForm(true);
+    setShowOutsideLeadForm(false);
+    setEditingHistoryLeadId(null);
+    setPaymentError(null);
+  }
+
+  function openOutsideListLeadForm() {
+    setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+    setShowOutsideLeadForm(true);
+    setShowAddLeadForm(false);
+    setEditingHistoryLeadId(null);
+    setError(null);
+  }
+
+  function startEditLead(lead) {
+    setEditingHistoryLeadId(lead.id);
+    setLeadEditForm(saleFormFromLead(lead));
+    setShowAddLeadForm(false);
+    setPaymentError(null);
+  }
+
+  function cancelEditLead() {
+    setEditingHistoryLeadId(null);
+    setLeadEditForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+  }
+
+  async function saveLeadDetails(leadId, form) {
+    if (!selectedId || !leadId) return;
+    setSavingLeadDetailsId(leadId);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/customers/${selectedId}/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(saleDetailsPayload(form)),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to save lead details");
+      setEditingHistoryLeadId(null);
+      await loadDetail(selectedId);
+      await loadCustomers(pagination.page);
+    } catch (err) {
+      setPaymentError(err.message || "Failed to save lead details");
+    } finally {
+      setSavingLeadDetailsId(null);
+    }
+  }
 
   function onSearch(e) {
     e.preventDefault();
@@ -1037,7 +1286,7 @@ export default function CustomersClient({
     if (!lead?.id) return;
     const name = lead.fullName || `lead #${lead.id}`;
     const ok = window.confirm(
-      `Clear charge status for ${name}?\n\nThis removes the charged/chargeback outcome from this sale (including payment logs) so it is no longer marked charged.`,
+      `Clear charge status for ${name}?\n\nThis removes the charged/chargeback outcome from this lead (including payment logs) so it is no longer marked charged.`,
     );
     if (!ok) return;
     await setLeadChargeStatus(lead.id, null);
@@ -1045,11 +1294,11 @@ export default function CustomersClient({
 
   function openChargeModal(lead, status, paymentType = null) {
     if (status === "charged" && lead?.hasPaymentCharged) {
-      setPaymentError("This sale was already charged");
+      setPaymentError("This lead was already charged");
       return;
     }
     if (status === "chargeback" && lead?.hasPaymentChargeback) {
-      setPaymentError("This sale already has a chargeback");
+      setPaymentError("This lead already has a chargeback");
       return;
     }
     if (
@@ -1058,7 +1307,14 @@ export default function CustomersClient({
         lead?.leadPaymentChargeStatus === "charged" ||
         lead?.leadPaymentChargeStatus === "chargeback")
     ) {
-      setPaymentError("Cannot decline after the sale was charged");
+      setPaymentError("Cannot decline after the lead was charged");
+      return;
+    }
+    if (
+      (status === "charged" || status === "chargeback") &&
+      (lead?.leadPaymentChargeAmount == null || lead?.leadPaymentChargeAmount === "")
+    ) {
+      setPaymentError("Set a charge amount first");
       return;
     }
     setPaymentError(null);
@@ -1096,7 +1352,7 @@ export default function CustomersClient({
   }
 
   async function submitChargeModal() {
-    if (!chargeModal) return;
+    if (!chargeModal?.lead) return;
     const skipProcessor = isCheckMailCharge(chargeModal);
     const processor = chargeProcessor.trim();
     if (!skipProcessor && !processor) {
@@ -1109,21 +1365,8 @@ export default function CustomersClient({
         setPaymentError("Decline reason is required");
         return;
       }
-      if (chargeModal.outside) {
-        await submitOutsideCharge("declined", {
-          reason,
-          processor: skipProcessor ? null : processor,
-        });
-        return;
-      }
       await setLeadChargeStatus(chargeModal.lead.id, "declined", {
         reason,
-        processor: skipProcessor ? null : processor,
-      });
-      return;
-    }
-    if (chargeModal.outside) {
-      await submitOutsideCharge(chargeModal.status, {
         processor: skipProcessor ? null : processor,
       });
       return;
@@ -1133,88 +1376,7 @@ export default function CustomersClient({
     });
   }
 
-  function openOutsideChargeModal(status) {
-    const pm = (detail?.paymentMethods || []).find(
-      (m) => String(m.id) === String(outsidePmId),
-    );
-    if (!pm) {
-      setPaymentError("Select a payment method first");
-      return;
-    }
-    const savedAmount = detail?.customer?.chargeAmount;
-    if ((status === "charged" || status === "chargeback") && (savedAmount == null || savedAmount === "")) {
-      setPaymentError("Save a charge amount first");
-      return;
-    }
-    setPaymentError(null);
-    resetChargeFormFields();
-    setChargeModal({
-      outside: true,
-      lead: null,
-      status,
-      paymentType: pm.type,
-      paymentMethodId: pm.id,
-    });
-  }
-
-  async function submitOutsideCharge(status, { reason = null, processor = null } = {}) {
-    if (!selectedId) return;
-    setSavingOutsideCharge(true);
-    setPaymentError(null);
-    try {
-      const payload = {
-        status,
-        customerPaymentMethodId: Number(outsidePmId),
-        amount: detail?.customer?.chargeAmount ?? null,
-        ...chargeMatchPayload(),
-      };
-      if (processor) payload.processor = processor;
-      if (status === "declined") payload.declineReason = reason;
-      const res = await fetch(`/api/customers/${selectedId}/charges`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to save charge");
-      setChargeModal(null);
-      resetChargeFormFields();
-      await loadDetail(selectedId);
-      await loadCustomers(pagination.page);
-    } catch (err) {
-      setPaymentError(err.message || "Failed to save charge");
-    } finally {
-      setSavingOutsideCharge(false);
-    }
-  }
-
-  async function saveOutsideChargeAmount() {
-    if (!selectedId) return;
-    setSavingOutsideAmount(true);
-    setPaymentError(null);
-    try {
-      const res = await fetch(`/api/customers/${selectedId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          chargeAmount: outsideAmount.trim() === "" ? null : outsideAmount.trim(),
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to save charge amount");
-      setShowOutsideAmountEditor(false);
-      await loadDetail(selectedId);
-      await loadCustomers(pagination.page);
-    } catch (err) {
-      setPaymentError(err.message || "Failed to save charge amount");
-    } finally {
-      setSavingOutsideAmount(false);
-    }
-  }
-
-  async function deleteOutsideCharge(chargeId) {
+  async function deleteLegacyOutsideCharge(chargeId) {
     if (!selectedId || !chargeId) return;
     const ok = window.confirm(
       managerOnly ? "Remove this charge from the customer?" : "Remove this charge from the outside customer?"
@@ -1235,64 +1397,6 @@ export default function CustomersClient({
       setPaymentError(err.message || "Failed to remove charge");
     } finally {
       setDeletingChargeId(null);
-    }
-  }
-
-  async function createOutsideCustomer(e) {
-    e.preventDefault();
-    const name = outsideForm.fullName.trim();
-    if (!name) {
-      setError("Full name is required");
-      return;
-    }
-    const phoneCheck = validatePhone(outsideForm.phone);
-    if (!phoneCheck.isValid) {
-      setError(phoneCheck.message);
-      return;
-    }
-    const cellCheck = validateOptionalCell(outsideForm.cellNumber);
-    if (!cellCheck.isValid) {
-      setError(cellCheck.message);
-      return;
-    }
-    if (!outsideForm.managerId) {
-      setError("Manager is required");
-      return;
-    }
-    setSavingOutside(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/customers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          fullName: name,
-          phone: outsideForm.phone,
-          cellNumber: outsideForm.cellNumber.trim() || null,
-          accountNumber: outsideForm.accountNumber.trim() || null,
-          address: outsideForm.address.trim() || null,
-          city: outsideForm.city.trim() || null,
-          state: outsideForm.state || null,
-          zipCode: outsideForm.zipCode.trim() || null,
-          notes: outsideForm.notes.trim() || null,
-          serviceType: outsideForm.serviceType || null,
-          cableName: outsideForm.serviceType === "cable" ? outsideForm.cableName.trim() || null : null,
-          streamName: outsideForm.serviceType === "streams" ? outsideForm.streamName.trim() || null : null,
-          managerId: Number(outsideForm.managerId),
-          agentId: outsideForm.agentId ? Number(outsideForm.agentId) : null,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || (managerOnly ? "Failed to save customer" : "Failed to save outside customer"));
-      setShowOutsideForm(false);
-      setOutsideForm(emptyOutsideForm(lockedManagerId));
-      setSelectedId(json.customer?.id || null);
-      await loadCustomers(1);
-    } catch (err) {
-      setError(err.message || (managerOnly ? "Failed to save customer" : "Failed to save outside customer"));
-    } finally {
-      setSavingOutside(false);
     }
   }
 
@@ -1472,36 +1576,39 @@ export default function CustomersClient({
     : customers.filter((c) => !c.isOutside || customerHasLeads(c));
   const paymentMethods = detail?.paymentMethods || [];
   const leads = detail?.leads || [];
-  const charges = detail?.charges || [];
+  const sales = detail?.sales || [];
+  const historyRows = buildCustomerHistoryRows({
+    leads,
+    sales,
+    customer,
+    isOutsideView,
+    managerOnly,
+  });
+  const showMergedHistory =
+    !managerOnly && Boolean(customer?.isOutside) && customerHasLeads(customer);
+  const canAddOutsideLead = Boolean(customer?.isOutside) && isOutsideView;
+  const canAddInHouseLead = isAdmin && !isOutsideView && customer && !managerOnly;
+  const showAddLeadButton = canAddOutsideLead || canAddInHouseLead;
+  const legacyCharges = detail?.charges || [];
   const managerOptions = staffSelectOptions(staffUsers, "manager", {
-    includeId: outsideForm.managerId || profileForm.managerId || customer?.managerId,
+    includeId: newLeadForm.managerId || profileForm.managerId || customer?.managerId,
   });
   const createAgentOptions = staffSelectOptions(staffUsers, "agent", {
-    managerId: outsideForm.managerId,
-    includeId: outsideForm.agentId,
+    managerId: newLeadForm.managerId || profileForm.managerId,
+    includeId: newLeadForm.agentId || profileForm.agentId,
   });
   const editAgentOptions = staffSelectOptions(staffUsers, "agent", {
     managerId: profileForm.managerId,
     includeId: profileForm.agentId,
   });
   const chargeModalIsCheckMail = chargeModal ? isCheckMailCharge(chargeModal) : false;
-  const chargeModalBusy = chargeModal?.outside
-    ? savingOutsideCharge
-    : chargingLeadId === chargeModal?.lead?.id;
-  const chargeModalName = chargeModal?.outside
-    ? customer?.displayName || customer?.fullName || "this customer"
-    : chargeModal?.lead?.fullName || "this lead";
-  const chargeModalPm = (() => {
-    if (!chargeModal) return null;
-    if (chargeModal.outside) {
-      return paymentMethods.find((pm) => Number(pm.id) === Number(chargeModal.paymentMethodId)) || null;
-    }
-    return (
-      paymentMethods.find(
+  const chargeModalBusy = chargingLeadId === chargeModal?.lead?.id;
+  const chargeModalName = chargeModal?.lead?.fullName || "this lead";
+  const chargeModalPm = chargeModal
+    ? paymentMethods.find(
         (pm) => Number(pm.id) === Number(chargeModal.lead?.customerPaymentMethodId),
       ) || null
-    );
-  })();
+    : null;
   const chargeModalCardHint = (() => {
     if (!chargeModalPm || chargeModalPm.type !== "card") return null;
     const digits = String(chargeModalPm.cardNumber || "").replace(/\D/g, "");
@@ -1516,6 +1623,214 @@ export default function CustomersClient({
   const visibleDateFields = isOutsideView
     ? DATE_FIELD_OPTIONS.filter((opt) => opt.value === "updated" || opt.value === "created")
     : DATE_FIELD_OPTIONS;
+
+  function renderLeadDetailsFields(
+    form,
+    setForm,
+    { managerLocked = false, showStaff = isOutsideView, showContactFields = false } = {},
+  ) {
+    const agentOptions = staffSelectOptions(staffUsers, "agent", {
+      managerId: form.managerId,
+      includeId: form.agentId,
+    });
+    return (
+      <div className="mt-3 grid gap-3 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 dark:border-indigo-800 dark:bg-indigo-950/20 sm:grid-cols-2">
+        {showContactFields ? (
+          <>
+            <label className={labelClass}>
+              Phone *
+              <input
+                className={inputClass}
+                value={form.phone}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, phone: formatLandline(e.target.value) }))
+                }
+                inputMode="numeric"
+                maxLength={12}
+                required
+              />
+            </label>
+            <label className={labelClass}>
+              Full name *
+              <input
+                className={inputClass}
+                value={form.fullName}
+                onChange={(e) => setForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                required
+              />
+            </label>
+            <label className={labelClass}>
+              Cell #
+              <input
+                className={inputClass}
+                value={form.cellNumber}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, cellNumber: formatCellNumber(e.target.value) }))
+                }
+                inputMode="numeric"
+                maxLength={12}
+                placeholder="Optional"
+              />
+            </label>
+            <StateSelectField
+              id="outside-lead-state"
+              value={form.state}
+              onChange={(next) => setForm((prev) => ({ ...prev, state: next }))}
+              showLocalTime={false}
+            />
+            <label className={labelClass}>
+              City
+              <input
+                className={inputClass}
+                value={form.city}
+                onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
+              />
+            </label>
+            <label className={labelClass}>
+              Zip
+              <input
+                className={inputClass}
+                value={form.zipCode}
+                onChange={(e) => setForm((prev) => ({ ...prev, zipCode: e.target.value }))}
+                maxLength={16}
+              />
+            </label>
+          </>
+        ) : null}
+        <label className={labelClass}>
+          Service
+          <select
+            className={inputClass}
+            value={form.serviceType}
+            onChange={(e) => {
+              const next = e.target.value;
+              setForm((prev) => ({
+                ...prev,
+                serviceType: next,
+                cableName: next === "cable" ? prev.cableName : "",
+                streamName: next === "streams" ? prev.streamName : "",
+              }));
+            }}
+          >
+            <option value="">Select service</option>
+            {SERVICE_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form.serviceType === "cable" ? (
+          <label className={labelClass}>
+            Cable name
+            <input
+              className={inputClass}
+              value={form.cableName}
+              onChange={(e) => setForm((prev) => ({ ...prev, cableName: e.target.value }))}
+            />
+          </label>
+        ) : null}
+        {form.serviceType === "streams" ? (
+          <label className={labelClass}>
+            Stream name
+            <input
+              className={inputClass}
+              value={form.streamName}
+              onChange={(e) => setForm((prev) => ({ ...prev, streamName: e.target.value }))}
+            />
+          </label>
+        ) : null}
+        {showStaff ? (
+          <>
+            <label className={labelClass}>
+              Account #
+              <input
+                className={inputClass}
+                value={form.accountNumber}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    accountNumber: digitsOnly(e.target.value).slice(0, 17),
+                  }))
+                }
+                inputMode="numeric"
+                placeholder="Optional"
+              />
+            </label>
+            <label className={labelClass}>
+              Charge amount
+              <input
+                className={inputClass}
+                value={form.leadPaymentChargeAmount}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, leadPaymentChargeAmount: e.target.value }))
+                }
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+            </label>
+            <label className={labelClass}>
+              Manager
+              <select
+                className={inputClass}
+                value={form.managerId}
+                disabled={managerLocked}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    managerId: e.target.value,
+                    agentId: "",
+                  }))
+                }
+              >
+                <option value="">Select manager</option>
+                {managerOptions.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelClass}>
+              Agent
+              <select
+                className={inputClass}
+                value={form.agentId}
+                onChange={(e) => setForm((prev) => ({ ...prev, agentId: e.target.value }))}
+              >
+                <option value="">No agent</option>
+                {agentOptions.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+        <label className={labelClass}>
+          Breakdown / processing notes
+          <textarea
+            className={`${inputClass} min-h-[96px] resize-y`}
+            value={form.breakdown}
+            onChange={(e) => setForm((prev) => ({ ...prev, breakdown: e.target.value }))}
+            rows={3}
+            placeholder="Add breakdown details…"
+          />
+        </label>
+        <label className={labelClass}>
+          Note
+          <textarea
+            className={`${inputClass} min-h-[96px] resize-y`}
+            value={form.notes}
+            onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+            rows={3}
+            placeholder="Add a note…"
+          />
+        </label>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1582,246 +1897,43 @@ export default function CustomersClient({
               </h2>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {isAdmin
-                  ? "Billed accounts. The same phone can also appear on Customers if it has a lead."
-                  : "Add payment methods and charges for your customers."}
+                  ? "Add a lead like in-house. A new phone creates the outside customer automatically."
+                  : "Add a lead for your customer, then link payment and log the charge."}
               </p>
             </div>
             <button
               type="button"
               className={btnPrimary}
               onClick={() => {
-                setShowOutsideForm((open) => !open);
+                if (showOutsideLeadForm) {
+                  setShowOutsideLeadForm(false);
+                } else {
+                  openOutsideListLeadForm();
+                }
                 setError(null);
               }}
             >
-              {showOutsideForm ? "Cancel" : managerOnly ? "Add customer" : "Add outside customer"}
+              {showOutsideLeadForm ? "Cancel" : "Add lead"}
             </button>
           </div>
-          {showOutsideForm ? (
-            <form onSubmit={createOutsideCustomer} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <label className={labelClass}>
-                Full name *
-                <input
-                  className={inputClass}
-                  value={outsideForm.fullName}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, fullName: e.target.value }))
-                  }
-                  required
-                />
-              </label>
-              <label className={labelClass}>
-                Phone *
-                <input
-                  className={inputClass}
-                  value={outsideForm.phone}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({
-                      ...prev,
-                      phone: formatLandline(e.target.value),
-                    }))
-                  }
-                  inputMode="numeric"
-                  maxLength={12}
-                  required
-                />
-              </label>
-              <label className={labelClass}>
-                Cell #
-                <input
-                  className={inputClass}
-                  value={outsideForm.cellNumber}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({
-                      ...prev,
-                      cellNumber: formatCellNumber(e.target.value),
-                    }))
-                  }
-                  inputMode="numeric"
-                  maxLength={12}
-                  placeholder="Optional"
-                />
-              </label>
-              <label className={labelClass}>
-                Account #
-                <input
-                  className={inputClass}
-                  value={outsideForm.accountNumber}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({
-                      ...prev,
-                      accountNumber: digitsOnly(e.target.value).slice(0, 17),
-                    }))
-                  }
-                  inputMode="numeric"
-                  placeholder="Optional"
-                />
-              </label>
-              <label className={labelClass}>
-                Manager *
-                {isAdmin ? (
-                <select
-                  className={inputClass}
-                  value={outsideForm.managerId}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setOutsideForm((prev) => ({
-                      ...prev,
-                      managerId: next,
-                      agentId:
-                        prev.agentId &&
-                        staffSelectOptions(staffUsers, "agent", { managerId: next }).some(
-                          (u) => String(u.id) === String(prev.agentId),
-                        )
-                          ? prev.agentId
-                          : "",
-                    }));
-                  }}
-                  required
+          {showOutsideLeadForm ? (
+            <form onSubmit={(e) => void submitOutsideLead(e)} className="mt-4 space-y-3">
+              {renderLeadDetailsFields(newLeadForm, setNewLeadForm, {
+                managerLocked: managerOnly,
+                showStaff: true,
+                showContactFields: true,
+              })}
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" className={btnPrimary} disabled={creatingLead}>
+                  {creatingLead ? "Saving…" : "Save lead"}
+                </button>
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={creatingLead}
+                  onClick={() => setShowOutsideLeadForm(false)}
                 >
-                  <option value="">Select manager…</option>
-                  {managerOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.username}
-                    </option>
-                  ))}
-                </select>
-                ) : (
-                <input
-                  className={`${inputClass} cursor-not-allowed bg-zinc-50 dark:bg-zinc-900`}
-                  value={viewerUsername || "You"}
-                  disabled
-                  readOnly
-                />
-                )}
-              </label>
-              <label className={labelClass}>
-                Agent
-                <select
-                  className={inputClass}
-                  value={outsideForm.agentId}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, agentId: e.target.value }))
-                  }
-                  disabled={!outsideForm.managerId}
-                >
-                  <option value="">None</option>
-                  {createAgentOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.username}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
-                Address
-                <input
-                  className={inputClass}
-                  value={outsideForm.address}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, address: e.target.value }))
-                  }
-                  placeholder="Street address"
-                />
-              </label>
-              <label className={labelClass}>
-                City
-                <input
-                  className={inputClass}
-                  value={outsideForm.city}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, city: e.target.value }))
-                  }
-                />
-              </label>
-              <label className={labelClass}>
-                State
-                <select
-                  className={inputClass}
-                  value={outsideForm.state}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, state: e.target.value }))
-                  }
-                >
-                  <option value="">Select state…</option>
-                  {US_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={labelClass}>
-                ZIP
-                <input
-                  className={inputClass}
-                  value={outsideForm.zipCode}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, zipCode: e.target.value }))
-                  }
-                />
-              </label>
-              <label className={labelClass}>
-                Service
-                <select
-                  className={inputClass}
-                  value={outsideForm.serviceType}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setOutsideForm((prev) => ({
-                      ...prev,
-                      serviceType: next,
-                      cableName: next === "cable" ? prev.cableName : "",
-                      streamName: next === "streams" ? prev.streamName : "",
-                    }));
-                  }}
-                >
-                  <option value="">Select service</option>
-                  {SERVICE_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {outsideForm.serviceType === "cable" ? (
-                <label className={labelClass}>
-                  Cable name
-                  <input
-                    className={inputClass}
-                    value={outsideForm.cableName}
-                    onChange={(e) =>
-                      setOutsideForm((prev) => ({ ...prev, cableName: e.target.value }))
-                    }
-                  />
-                </label>
-              ) : null}
-              {outsideForm.serviceType === "streams" ? (
-                <label className={labelClass}>
-                  Stream name
-                  <input
-                    className={inputClass}
-                    value={outsideForm.streamName}
-                    onChange={(e) =>
-                      setOutsideForm((prev) => ({ ...prev, streamName: e.target.value }))
-                    }
-                  />
-                </label>
-              ) : null}
-              <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
-                Notes
-                <textarea
-                  className={`${inputClass} min-h-[72px] resize-y`}
-                  value={outsideForm.notes}
-                  onChange={(e) =>
-                    setOutsideForm((prev) => ({ ...prev, notes: e.target.value }))
-                  }
-                  rows={3}
-                />
-              </label>
-              <div className="flex items-end">
-                <button type="submit" className={btnPrimary} disabled={savingOutside}>
-                  {savingOutside ? "Saving…" : "Save customer"}
+                  Cancel
                 </button>
               </div>
             </form>
@@ -2143,7 +2255,7 @@ export default function CustomersClient({
                     <th className="px-4 py-3 font-semibold">Team</th>
                   ) : null}
                   {isOutsideView ? (
-                    <th className="px-4 py-3 font-semibold">Last charge</th>
+                    <th className="px-4 py-3 font-semibold">Latest lead</th>
                   ) : (
                     <th className="px-4 py-3 font-semibold">Leads</th>
                   )}
@@ -2177,12 +2289,7 @@ export default function CustomersClient({
                       <td className="px-4 py-3">
                         <div className="font-medium text-zinc-900 dark:text-zinc-100">
                           {c.displayName || c.fullName || "—"}
-                          {!managerOnly && isOutsideView && customerHasLeads(c) ? (
-                            <DualKindBadge label="Has lead" tone="violet" />
-                          ) : null}
-                          {!managerOnly && !isOutsideView && c.isOutside ? (
-                            <DualKindBadge label="Also outside" />
-                          ) : null}
+                          <CustomerKindBadge customer={c} managerOnly={managerOnly} />
                         </div>
                         <div className="font-mono text-xs text-zinc-500">
                           {formatLandline(c.phone) || c.phone}
@@ -2209,19 +2316,31 @@ export default function CustomersClient({
                         {isOutsideView ? (
                           <>
                             <div className="font-semibold text-zinc-900 dark:text-zinc-100">
-                              {c.latestCharge
-                                ? getLeadPaymentChargeStatusMeta(c.latestCharge.status).label
-                                : "—"}
+                              {c.latestSale?.leadPaymentChargeStatus
+                                ? getLeadPaymentChargeStatusMeta(c.latestSale.leadPaymentChargeStatus)
+                                    .label
+                                : c.latestCharge
+                                  ? getLeadPaymentChargeStatusMeta(c.latestCharge.status).label
+                                  : "—"}
                             </div>
                             <div className="text-xs text-zinc-500">
-                              {c.latestCharge?.amount != null
-                                ? formatLeadPaymentChargeAmount(c.latestCharge.amount)
-                                : ""}
-                              {c.latestCharge?.createdAt
-                                ? ` · ${formatWhen(c.latestCharge.createdAt)}`
-                                : c.latestCharge
-                                  ? ""
-                                  : "No charges yet"}
+                              {c.latestSale?.leadPaymentChargeAmount != null
+                                ? formatLeadPaymentChargeAmount(c.latestSale.leadPaymentChargeAmount)
+                                : c.latestCharge?.amount != null
+                                  ? formatLeadPaymentChargeAmount(c.latestCharge.amount)
+                                  : ""}
+                              {c.latestSale?.leadPaymentOutcomeAt
+                                ? ` · ${formatWhen(c.latestSale.leadPaymentOutcomeAt)}`
+                                : c.latestCharge?.createdAt
+                                  ? ` · ${formatWhen(c.latestCharge.createdAt)}`
+                                  : (c.salesCount ?? 0) > 0
+                                    ? ""
+                                    : "No leads yet"}
+                              {(c.salesCount ?? 0) > 0 ? (
+                                <span className="block text-zinc-500">
+                                  {c.salesCount} lead{(c.salesCount ?? 0) === 1 ? "" : "s"}
+                                </span>
+                              ) : null}
                             </div>
                           </>
                         ) : (
@@ -2291,12 +2410,7 @@ export default function CustomersClient({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
                     {customer.displayName || customer.fullName || "Customer"}
-                    {isOutsideView && customerHasLeads(customer) && !managerOnly ? (
-                      <DualKindBadge label="Has lead" tone="violet" />
-                    ) : null}
-                    {!isOutsideView && customer.isOutside && !managerOnly ? (
-                      <DualKindBadge label="Also outside" />
-                    ) : null}
+                    <CustomerKindBadge customer={customer} managerOnly={managerOnly} />
                   </h2>
                   {(isAdmin || customer.isOutside) && !editingProfile ? (
                     <button type="button" className={btnSecondary} onClick={startEditProfile}>
@@ -2595,13 +2709,13 @@ export default function CustomersClient({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-zinc-500">{isOutsideView ? "Charges" : "Lead history"}</dt>
+                    <dt className="text-zinc-500">Lead history</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {isOutsideView
-                        ? `${charges.length} charge${charges.length === 1 ? "" : "s"}`
-                        : `${customer.leadCount ?? 0} lead${(customer.leadCount ?? 0) === 1 ? "" : "s"}${
-                            customer.firstLeadAt ? ` · first ${formatWhen(customer.firstLeadAt)}` : ""
-                          }`}
+                      {`${historyRows.length} lead${historyRows.length === 1 ? "" : "s"}${
+                        customer.firstLeadAt || customer.firstSaleAt
+                          ? ` · last ${formatWhen(customer.lastSaleAt || customer.lastLeadAt || customer.firstSaleAt || customer.firstLeadAt)}`
+                          : ""
+                      }`}
                     </dd>
                   </div>
                   <div className="sm:col-span-2">
@@ -3022,194 +3136,62 @@ export default function CustomersClient({
                 ) : null}
               </section>
 
-              {isOutsideView ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-                <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                  Charges
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Save a charge amount once, then log Charged, Declined, or Chargeback. No lead is created.
-                </p>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                    Charge amount:{" "}
-                    <span className="tabular-nums text-emerald-700 dark:text-emerald-300">
-                      {customer.chargeAmount != null
-                        ? formatLeadPaymentChargeAmount(customer.chargeAmount)
-                        : "—"}
-                    </span>
-                  </p>
-                  <button
-                    type="button"
-                    className={btnSecondary}
-                    disabled={savingOutsideAmount}
-                    onClick={() => {
-                      setOutsideAmount(
-                        customer.chargeAmount != null ? String(customer.chargeAmount) : "",
-                      );
-                      setShowOutsideAmountEditor(true);
-                      setPaymentError(null);
-                    }}
-                  >
-                    Change
-                  </button>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                      Lead history
+                    </h3>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      Link a payment method, then log Charged, Declined, or Chargeback.
+                    </p>
+                  </div>
+                  {showAddLeadButton ? (
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={creatingLead}
+                      onClick={openAddLeadForm}
+                    >
+                      {creatingLead ? "Adding…" : "Add lead"}
+                    </button>
+                  ) : null}
                 </div>
-                {showOutsideAmountEditor ? (
-                  <div className="mt-3 space-y-2 rounded-xl border border-indigo-200 bg-white p-3 dark:border-indigo-800 dark:bg-zinc-950">
-                    <label className={labelClass}>
-                      Charge amount
-                      <input
-                        className={inputClass}
-                        value={outsideAmount}
-                        onChange={(e) => setOutsideAmount(e.target.value)}
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        autoFocus
-                      />
-                    </label>
+                {showAddLeadForm ? (
+                  <form
+                    onSubmit={(e) =>
+                      void (canAddOutsideLead
+                        ? submitNewOutsideLead(e)
+                        : submitNewInHouseLead(e))
+                    }
+                    className="mt-4 space-y-3"
+                  >
+                    {renderLeadDetailsFields(newLeadForm, setNewLeadForm, {
+                      managerLocked: managerOnly,
+                      showStaff: canAddOutsideLead,
+                    })}
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className={btnPrimary}
-                        disabled={savingOutsideAmount}
-                        onClick={() => void saveOutsideChargeAmount()}
-                      >
-                        {savingOutsideAmount ? "Saving…" : "Save amount"}
+                      <button type="submit" className={btnPrimary} disabled={creatingLead}>
+                        {creatingLead ? "Saving…" : "Save lead"}
                       </button>
                       <button
                         type="button"
                         className={btnSecondary}
-                        disabled={savingOutsideAmount}
-                        onClick={() => setShowOutsideAmountEditor(false)}
+                        disabled={creatingLead}
+                        onClick={() => setShowAddLeadForm(false)}
                       >
                         Cancel
                       </button>
                     </div>
-                  </div>
+                  </form>
                 ) : null}
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className={`${labelClass} sm:col-span-2`}>
-                    Payment method
-                    <select
-                      className={inputClass}
-                      value={outsidePmId}
-                      onChange={(e) => setOutsidePmId(e.target.value)}
-                      disabled={paymentMethods.length === 0}
-                    >
-                      {paymentMethods.length === 0 ? (
-                        <option value="">No payment methods saved</option>
-                      ) : (
-                        paymentMethods.map((pm) => (
-                          <option key={pm.id} value={pm.id}>
-                            {paymentMethodOptionLabel(pm)}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </label>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {LEAD_PAYMENT_CHARGE_STATUSES.map((status) => (
-                    <button
-                      key={status.value}
-                      type="button"
-                      disabled={savingOutsideCharge || paymentMethods.length === 0}
-                      onClick={() => openOutsideChargeModal(status.value)}
-                      className={`rounded-xl px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 ${
-                        status.value === "declined"
-                          ? "bg-red-600 hover:bg-red-500"
-                          : status.value === "chargeback"
-                            ? "bg-amber-600 hover:bg-amber-500"
-                            : "bg-emerald-600 hover:bg-emerald-500"
-                      }`}
-                    >
-                      {status.label}
-                    </button>
-                  ))}
-                </div>
-                <ul className="mt-4 space-y-2">
-                  {charges.length === 0 ? (
-                    <li className="text-sm text-zinc-500">No charges logged yet.</li>
-                  ) : (
-                    charges.map((charge) => {
-                      const chargeMeta = getLeadPaymentChargeStatusMeta(charge.status);
-                      const chargeBadgeClass =
-                        WORKFLOW_BADGE_CLASS[chargeMeta.tone] || WORKFLOW_BADGE_CLASS.zinc;
-                      const processorMeta = charge.processor
-                        ? getLeadPaymentProcessorMeta(charge.processor, paymentProcessors)
-                        : null;
-                      const linkedPm = paymentMethods.find(
-                        (pm) => pm.id === charge.customerPaymentMethodId,
-                      );
-                      return (
-                        <li
-                          key={charge.id}
-                          className="rounded-xl border border-zinc-200 px-3 py-2 dark:border-zinc-800"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${chargeBadgeClass}`}
-                              >
-                                {chargeMeta.label}
-                              </span>
-                              {charge.amount != null ? (
-                                <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                                  {formatLeadPaymentChargeAmount(charge.amount)}
-                                </span>
-                              ) : null}
-                              {processorMeta ? (
-                                <span className="text-xs text-zinc-500">
-                                  {processorMeta.label}
-                                </span>
-                              ) : null}
-                              {charge.cardLast4 ? (
-                                <span className="text-xs text-zinc-500">
-                                  {(charge.cardBrand || "Card") + ` ···· ${charge.cardLast4}`}
-                                </span>
-                              ) : null}
-                              {charge.authCode ? (
-                                <span className="text-xs text-zinc-500">Auth {charge.authCode}</span>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              className="text-xs font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-300"
-                              disabled={deletingChargeId === charge.id}
-                              onClick={() => void deleteOutsideCharge(charge.id)}
-                            >
-                              {deletingChargeId === charge.id ? "Removing…" : "Remove"}
-                            </button>
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {linkedPm ? paymentMethodOptionLabel(linkedPm) : "Payment method removed"}
-                            {charge.createdByUsername ? ` · ${charge.createdByUsername}` : ""}
-                            {` · ${formatWhen(charge.createdAt)}`}
-                          </p>
-                          {charge.declineReason ? (
-                            <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                              {charge.declineReason}
-                            </p>
-                          ) : null}
-                        </li>
-                      );
-                    })
-                  )}
-                </ul>
-              </section>
-              ) : (
-              <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-                <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                  Lead history
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Link a saved payment method, then log Charged, Declined, or Chargeback.
-                </p>
                 <ul className="mt-3 space-y-2">
-                  {leads.length === 0 ? (
-                    <li className="text-sm text-zinc-500">No leads linked yet.</li>
+                  {historyRows.length === 0 ? (
+                    <li className="text-sm text-zinc-500">
+                      No leads yet. Add a lead to get started.
+                    </li>
                   ) : (
-                    leads.map((lead) => {
+                    historyRows.map((lead) => {
                       const linkedPm = paymentMethods.find(
                         (pm) => pm.id === lead.customerPaymentMethodId,
                       );
@@ -3240,6 +3222,7 @@ export default function CustomersClient({
                         : "";
                       const chargeBusy =
                         linkingLeadId === lead.id || chargingLeadId === lead.id;
+                      const outsideRow = isOutsideLeadRow(lead);
                       return (
                         <li
                           key={lead.id}
@@ -3254,27 +3237,34 @@ export default function CustomersClient({
                                 <span className="font-medium text-zinc-900 dark:text-zinc-100">
                                   {lead.fullName}
                                 </span>
+                                {showMergedHistory && !managerOnly ? (
+                                  <LeadSourceBadge lead={lead} />
+                                ) : null}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-zinc-500">
                                 {formatWhen(lead.createdAt)}
                               </span>
-                              <IconTooltipButton
-                                title={
-                                  copiedLeadId === lead.id ? "Link copied!" : "Copy lead link"
-                                }
-                                onClick={() => void copyLeadLink(lead.id)}
-                              >
-                                {copiedLeadId === lead.id ? <CheckIcon /> : <CopyLinkIcon />}
-                              </IconTooltipButton>
-                              <IconTooltipButton
-                                title={loadingLeadId === lead.id ? "Loading…" : "View lead"}
-                                disabled={loadingLeadId === lead.id}
-                                onClick={() => void openLeadSidebar(lead.id)}
-                              >
-                                <ViewIcon />
-                              </IconTooltipButton>
+                              {!(isOutsideView && managerOnly) ? (
+                                <>
+                                  <IconTooltipButton
+                                    title={
+                                      copiedLeadId === lead.id ? "Link copied!" : "Copy lead link"
+                                    }
+                                    onClick={() => void copyLeadLink(lead.id)}
+                                  >
+                                    {copiedLeadId === lead.id ? <CheckIcon /> : <CopyLinkIcon />}
+                                  </IconTooltipButton>
+                                  <IconTooltipButton
+                                    title={loadingLeadId === lead.id ? "Loading…" : "View lead"}
+                                    disabled={loadingLeadId === lead.id}
+                                    onClick={() => void openLeadSidebar(lead.id)}
+                                  >
+                                    <ViewIcon />
+                                  </IconTooltipButton>
+                                </>
+                              ) : null}
                             </div>
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
@@ -3350,9 +3340,59 @@ export default function CustomersClient({
                               </span>
                             ) : null}
                             <span>
-                              {formatLeadService(lead)} · created by {lead.createdByUsername || "—"}
+                              {formatLeadService(lead)}
+                              {outsideRow && lead.accountNumber ? ` · acct ${lead.accountNumber}` : ""}
+                              {outsideRow && lead.managerUsername ? ` · ${lead.managerUsername}` : ""}
+                              {outsideRow && lead.agentUsername ? ` / ${lead.agentUsername}` : ""}
+                              {" · created by "}
+                              {lead.createdByUsername || "—"}
                             </span>
+                            {outsideRow &&
+                            !(
+                              lead.hasPaymentCharged ||
+                              lead.leadPaymentChargeStatus === "charged" ||
+                              lead.leadPaymentChargeStatus === "chargeback"
+                            ) ? (
+                              <button
+                                type="button"
+                                className="rounded-lg border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                onClick={() => startEditLead(lead)}
+                              >
+                                Edit
+                              </button>
+                            ) : null}
                           </div>
+                          {outsideRow && editingHistoryLeadId === lead.id ? (
+                            <form
+                              className="mt-3"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                void saveLeadDetails(lead.id, leadEditForm);
+                              }}
+                            >
+                              {renderLeadDetailsFields(leadEditForm, setLeadEditForm, {
+                                managerLocked: managerOnly,
+                                showStaff: true,
+                              })}
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="submit"
+                                  className={btnPrimary}
+                                  disabled={savingLeadDetailsId === lead.id}
+                                >
+                                  {savingLeadDetailsId === lead.id ? "Saving…" : "Save details"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={btnSecondary}
+                                  disabled={savingLeadDetailsId === lead.id}
+                                  onClick={cancelEditLead}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </form>
+                          ) : null}
                           <label className={`${labelClass} mt-3`}>
                             Linked payment method
                             <select
@@ -3369,7 +3409,7 @@ export default function CustomersClient({
                                 lead.hasPaymentCharged ||
                                 lead.leadPaymentChargeStatus === "charged" ||
                                 lead.leadPaymentChargeStatus === "chargeback"
-                                  ? "Cannot change payment method after the sale was charged"
+                                  ? "Cannot change payment method after the lead was charged"
                                   : undefined
                               }
                               onChange={(e) => void linkLeadPayment(lead.id, e.target.value)}
@@ -3390,7 +3430,7 @@ export default function CustomersClient({
                           lead.leadPaymentChargeStatus === "charged" ||
                           lead.leadPaymentChargeStatus === "chargeback" ? (
                             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                              Payment method is locked after the sale was charged.
+                              Payment method is locked after the lead was charged.
                             </p>
                           ) : null}
                           {linkingLeadId === lead.id ? (
@@ -3418,10 +3458,10 @@ export default function CustomersClient({
                                     (status.value === "declined" && afterCharged);
                                   const disabledTitle = onceUsed
                                     ? status.value === "charged"
-                                      ? "This sale was already charged"
+                                      ? "This lead was already charged"
                                       : status.value === "chargeback"
-                                        ? "This sale already has a chargeback"
-                                        : "Cannot decline after the sale was charged"
+                                        ? "This lead already has a chargeback"
+                                        : "Cannot decline after the lead was charged"
                                     : undefined;
                                   return (
                                     <button
@@ -3449,9 +3489,10 @@ export default function CustomersClient({
                                   );
                                 })}
                               </div>
-                              {lead.hasPaymentCharged ||
+                              {!managerOnly &&
+                              (lead.hasPaymentCharged ||
                               lead.hasPaymentChargeback ||
-                              lead.leadPaymentChargeStatus ? (
+                              lead.leadPaymentChargeStatus) ? (
                                 <div className="mt-2">
                                   <button
                                     type="button"
@@ -3565,8 +3606,56 @@ export default function CustomersClient({
                     })
                   )}
                 </ul>
+                {isOutsideView && legacyCharges.length > 0 ? (
+                  <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                    <h4 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                      Legacy charges
+                    </h4>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      Older flat charges from before per-lead tracking. Read-only history.
+                    </p>
+                    <ul className="mt-3 space-y-2">
+                      {legacyCharges.map((charge) => {
+                        const chargeMeta = getLeadPaymentChargeStatusMeta(charge.status);
+                        const chargeBadgeClass =
+                          WORKFLOW_BADGE_CLASS[chargeMeta.tone] || WORKFLOW_BADGE_CLASS.zinc;
+                        const linkedPm = paymentMethods.find(
+                          (pm) => pm.id === charge.customerPaymentMethodId,
+                        );
+                        return (
+                          <li
+                            key={charge.id}
+                            className="rounded-xl border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${chargeBadgeClass}`}
+                              >
+                                {chargeMeta.label}
+                              </span>
+                              {charge.amount != null ? (
+                                <span className="text-sm font-semibold tabular-nums">
+                                  {formatLeadPaymentChargeAmount(charge.amount)}
+                                </span>
+                              ) : null}
+                              {charge.cardLast4 ? (
+                                <span className="text-xs text-zinc-500">
+                                  {(charge.cardBrand || "Card") + ` ···· ${charge.cardLast4}`}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {linkedPm ? paymentMethodOptionLabel(linkedPm) : "Payment method removed"}
+                              {charge.createdByUsername ? ` · ${charge.createdByUsername}` : ""}
+                              {` · ${formatWhen(charge.createdAt)}`}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
               </section>
-              )}
             </>
           )}
         </div>
