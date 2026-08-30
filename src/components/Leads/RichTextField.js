@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import RichTextEditor, { RichHtmlContent } from "@/components/Leads/RichTextEditor";
 import { isEmptyRichText, normalizeRichHtml, plainTextFromHtml, toRichEditorHtml } from "@/lib/richText";
 
@@ -20,6 +20,9 @@ export default function RichTextField({
   expandLabel = "Full editor",
   actions = null,
   rows = 8,
+  onSave = null,
+  saving = false,
+  saveLabel = "Save",
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -34,9 +37,41 @@ export default function RichTextField({
     setModalOpen(true);
   }
 
-  function saveModal() {
-    onChange(normalizeRichHtml(draft));
-    setModalOpen(false);
+  const persistModal = useCallback(
+    async (closeAfterSave) => {
+      if (saving) return;
+      const next = normalizeRichHtml(draft);
+      onChange(next);
+      if (closeAfterSave) setModalOpen(false);
+      if (!onSave) return;
+      try {
+        await onSave(next);
+      } catch {
+        // Parent surfaces the error. Modal already closed when saving from the button.
+      }
+    },
+    [draft, onChange, onSave, saving],
+  );
+
+  useEffect(() => {
+    if (!modalOpen) return undefined;
+
+    function onKeyDown(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      event.stopPropagation();
+      void persistModal(false);
+    }
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [modalOpen, persistModal]);
+
+  function onCompactSaveKeyDown(event) {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+    event.preventDefault();
+    if (!onSave || saving || disabled) return;
+    void onSave(value);
   }
 
   return (
@@ -70,6 +105,7 @@ export default function RichTextField({
           <textarea
             value={plainTextFromHtml(value)}
             onChange={(e) => onChange(e.target.value)}
+            onKeyDown={onCompactSaveKeyDown}
             placeholder={placeholder}
             rows={rows}
             className={textareaClass}
@@ -124,10 +160,12 @@ export default function RichTextField({
                 </button>
                 <button
                   type="button"
-                  onClick={saveModal}
-                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                  title="Ctrl+S"
+                  onClick={() => void persistModal(true)}
+                  disabled={saving}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  Done
+                  {saving ? "Saving…" : saveLabel}
                 </button>
               </div>
             </div>
