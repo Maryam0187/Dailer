@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import db from "@/server/db";
 import { getAllowedAttachmentMimeTypes, MAX_ATTACHMENT_SIZE_BYTES } from "@/server/messages/attachmentConfig";
-import { getAttachmentStorageMode } from "@/server/messages/attachmentStorage";
-import { writeLocalAttachment } from "@/server/messages/localAttachmentStorage";
+import { getAttachmentStorageMode, writeStoredAttachment } from "@/server/messages/attachmentStorage";
 
 export const runtime = "nodejs";
 
@@ -15,8 +14,8 @@ function normalizeMimeType(value) {
 }
 
 export async function POST(req, { params }) {
-  if (getAttachmentStorageMode() !== "local") {
-    return NextResponse.json({ error: "Local upload is not enabled" }, { status: 404 });
+  if (!getAttachmentStorageMode()) {
+    return NextResponse.json({ error: "Attachment storage is not configured" }, { status: 503 });
   }
 
   const authedUser = await getAuthedUser();
@@ -59,8 +58,14 @@ export async function POST(req, { params }) {
     return NextResponse.json({ error: "Uploaded file type does not match" }, { status: 400 });
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await writeLocalAttachment(attachment.storageKey, bytes);
-
-  return NextResponse.json({ ok: true });
+  try {
+    const bytes = Buffer.from(await file.arrayBuffer());
+    await writeStoredAttachment(attachment.storageKey, bytes, mimeType);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Failed to save attachment" },
+      { status: 500 },
+    );
+  }
 }

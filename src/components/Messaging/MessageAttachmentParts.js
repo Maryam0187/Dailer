@@ -14,16 +14,26 @@ async function fetchDownloadUrl(attachmentId) {
   return data.downloadUrl;
 }
 
-function AttachmentIcon({ className = "h-4 w-4" }) {
+export function AttachFileIcon({ className = "h-5 w-5" }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className} aria-hidden>
-      <path
-        fillRule="evenodd"
-        d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 12.52 9.52l3.39-3.39a.75.75 0 1 1 1.06 1.061l-3.39 3.39a1.125 1.125 0 0 0 1.587 1.595l3.454-3.553a3 3 0 0 0 0-4.242Z"
-        clipRule="evenodd"
-      />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
+}
+
+function AttachmentIcon({ className = "h-4 w-4" }) {
+  return <AttachFileIcon className={className} />;
 }
 
 function MessageImagePreview({ attachment, mine }) {

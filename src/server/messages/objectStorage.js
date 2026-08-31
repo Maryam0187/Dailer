@@ -37,7 +37,7 @@ export function getS3Client() {
         accessKeyId: process.env.S3_ACCESS_KEY_ID,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
       },
-      forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
     });
   }
   return cachedClient;
@@ -87,6 +87,20 @@ export async function createPresignedDownloadUrl({ storageKey, originalName, mim
     expiresIn: PRESIGN_DOWNLOAD_EXPIRY_SEC,
   });
   return { downloadUrl, expiresIn: PRESIGN_DOWNLOAD_EXPIRY_SEC };
+}
+
+export async function writeObjectAttachment(storageKey, data, mimeType) {
+  const client = getS3Client();
+  const body = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  await client.send(
+    new PutObjectCommand({
+      Bucket: getBucketName(),
+      Key: storageKey,
+      Body: body,
+      ContentType: mimeType,
+      ContentLength: body.length,
+    }),
+  );
 }
 
 export async function headObjectMetadata(storageKey) {

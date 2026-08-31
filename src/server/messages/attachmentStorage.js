@@ -5,12 +5,13 @@ import {
 import {
   headLocalAttachment,
   isLocalAttachmentStorageEnabled,
+  writeLocalAttachment,
 } from "@/server/messages/localAttachmentStorage";
 import {
   createPresignedDownloadUrl,
-  createPresignedUploadUrl,
   headObjectMetadata,
   isObjectStorageConfigured,
+  writeObjectAttachment,
 } from "@/server/messages/objectStorage";
 
 export function getAttachmentStorageMode() {
@@ -25,20 +26,25 @@ export function isAttachmentStorageAvailable() {
 
 export async function createUploadTarget({ attachmentId, storageKey, mimeType, sizeBytes }) {
   const mode = getAttachmentStorageMode();
-  if (mode === "s3") {
-    const presign = await createPresignedUploadUrl({ storageKey, mimeType, sizeBytes });
-    return {
-      mode,
-      uploadUrl: presign.uploadUrl,
-      expiresIn: presign.expiresIn,
-    };
-  }
-  if (mode === "local") {
+  if (mode === "s3" || mode === "local") {
     return {
       mode,
       uploadUrl: `/api/messages/attachments/${attachmentId}/upload`,
       expiresIn: PRESIGN_UPLOAD_EXPIRY_SEC,
     };
+  }
+  throw new Error("Attachment storage is not configured");
+}
+
+export async function writeStoredAttachment(storageKey, data, mimeType) {
+  const mode = getAttachmentStorageMode();
+  if (mode === "local") {
+    await writeLocalAttachment(storageKey, data);
+    return;
+  }
+  if (mode === "s3") {
+    await writeObjectAttachment(storageKey, data, mimeType);
+    return;
   }
   throw new Error("Attachment storage is not configured");
 }

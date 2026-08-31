@@ -13,6 +13,7 @@ import {
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
 import {
+  AttachFileIcon,
   MessageAttachmentList,
   PendingAttachmentList,
 } from "@/components/Messaging/MessageAttachmentParts";
@@ -415,24 +416,16 @@ export default function ConversationView({
         throw new Error(presignData.error || "Failed to prepare upload");
       }
 
-      const uploadRes =
-        presignData.uploadMode === "local"
-          ? await (async () => {
-              const formData = new FormData();
-              formData.append("file", file);
-              return fetch(presignData.uploadUrl, {
-                method: "POST",
-                credentials: "include",
-                body: formData,
-              });
-            })()
-          : await fetch(presignData.uploadUrl, {
-              method: "PUT",
-              headers: { "Content-Type": mimeType },
-              body: file,
-            });
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch(presignData.uploadUrl, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
       if (!uploadRes.ok) {
-        throw new Error("Upload to storage failed");
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        throw new Error(uploadData.error || "Upload failed");
       }
 
       setPendingAttachments((prev) =>
@@ -448,14 +441,18 @@ export default function ConversationView({
         ),
       );
     } catch (err) {
+      const message =
+        err?.message === "Failed to fetch"
+          ? "Upload failed — could not reach the server"
+          : err?.message || "Upload failed";
       setPendingAttachments((prev) =>
         prev.map((item) =>
           item.localKey === localKey
-            ? { ...item, uploading: false, error: err?.message || "Upload failed" }
+            ? { ...item, uploading: false, error: message }
             : item,
         ),
       );
-      setError(err?.message || "Upload failed");
+      setError(message);
     }
   }
 
@@ -726,7 +723,7 @@ export default function ConversationView({
             >
               <span className="h-0.5 w-8 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 dark:bg-zinc-600 dark:group-hover:bg-zinc-500" />
             </div>
-            <div className="flex items-end gap-2 px-1.5 pb-1.5">
+            <div className="flex items-end gap-1.5 px-1.5 pb-1.5">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -735,22 +732,6 @@ export default function ConversationView({
                 onChange={onFilesSelected}
                 accept={attachmentUploadConfig?.accept || ".doc,.docx"}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-200/70 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                aria-label="Attach file"
-                title="Attach file"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  <path
-                    fillRule="evenodd"
-                    d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 12.52 9.52l3.39-3.39a.75.75 0 1 1 1.06 1.061l-3.39 3.39a1.125 1.125 0 0 0 1.587 1.595l3.454-3.553a3 3 0 0 0 0-4.242Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
               <textarea
                 ref={textareaRef}
                 value={draft}
@@ -763,15 +744,25 @@ export default function ConversationView({
                 }}
                 style={{ height: composerHeight }}
                 placeholder="Write a message…"
-                className="flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
               />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                aria-label="Attach file"
+                title="Attach file"
+              >
+                <AttachFileIcon className="h-5 w-5" />
+              </button>
               <button
                 type="submit"
                 disabled={sending || hasUploadingAttachments || (!draft.trim() && !readyAttachmentIds.length)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Send message"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
                   <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
                 </svg>
               </button>
