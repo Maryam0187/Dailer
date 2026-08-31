@@ -12,6 +12,10 @@ import {
   roleLabel,
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
+import {
+  MessageAttachmentList,
+  PendingAttachmentList,
+} from "@/components/Messaging/MessageAttachmentParts";
 
 const COMPOSER_MIN_HEIGHT = 80;
 const COMPOSER_MAX_HEIGHT = 224;
@@ -126,6 +130,8 @@ export default function ConversationView({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [attachmentUploadConfig, setAttachmentUploadConfig] = useState(null);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   // WhatsApp-style: show a divider before this message id
   const [dividerBeforeId, setDividerBeforeId] = useState(null);
@@ -134,6 +140,7 @@ export default function ConversationView({
   const listRef = useRef(null);
   const dividerRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   const nearBottomRef = useRef(true);
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
@@ -200,8 +207,33 @@ export default function ConversationView({
     setDividerBeforeId(null);
     skipDraftPersistRef.current = true;
     setDraft(readMessageDraft(conversationId));
+    setPendingAttachments([]);
     setNearBottomState(true);
   }, [conversationId, initialUnreadCount]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/messages/attachments/config", { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setAttachmentUploadConfig({
+            mimeTypes: Array.isArray(data.mimeTypes) ? data.mimeTypes : [],
+            mimeTypeSet: new Set(Array.isArray(data.mimeTypes) ? data.mimeTypes : []),
+            accept: typeof data.accept === "string" ? data.accept : "",
+            maxSizeBytes: Number(data.maxSizeBytes) || 10 * 1024 * 1024,
+            maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage) || 5,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -316,10 +348,143 @@ export default function ConversationView({
     return buildParticipantNameColors(authors);
   }, [conversation?.isOversight, conversation?.participants, messages]);
 
+  const readyAttachmentIds = useMemo(
+    () =>
+      pendingAttachments
+        .filter((item) => item.id && !item.uploading && !item.error)
+        .map((item) => item.id),
+    [pendingAttachments],
+  );
+
+  const hasUploadingAttachments = pendingAttachments.some((item) => item.uploading);
+
+  const maxAttachmentsPerMessage = attachmentUploadConfig?.maxAttachmentsPerMessage ?? 5;
+  const maxAttachmentSizeBytes = attachmentUploadConfig?.maxSizeBytes ?? 10 * 1024 * 1024;
+  const allowedMimeTypeSet = attachmentUploadConfig?.mimeTypeSet ?? new Set();
+
+  async function uploadSelectedFile(file) {
+    if (!conversationId || !file) return;
+    if (!attachmentUploadConfig) {
+      setError("Attachment settings are still loading");
+      return;
+    }
+
+    const mimeType = String(file.type || "").toLowerCase().split(";")[0];
+    if (!allowedMimeTypeSet.has(mimeType)) {
+      setError("That file type is not supported");
+      return;
+    }
+    if (file.size > maxAttachmentSizeBytes) {
+      setError(`File is too large (max ${Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB)`);
+      return;
+    }
+    if (pendingAttachments.length >= maxAttachmentsPerMessage) {
+      setError(`You can attach up to ${maxAttachmentsPerMessage} files per message`);
+      return;
+    }
+
+    const localKey = `${Date.now()}-${file.name}`;
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        localKey,
+        originalName: file.name,
+        mimeType,
+        sizeBytes: file.size,
+        uploading: true,
+        error: null,
+        id: null,
+      },
+    ]);
+    setError(null);
+
+    try {
+      const presignRes = await fetch("/api/messages/attachments/presign-upload", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          filename: file.name,
+          mimeType,
+          sizeBytes: file.size,
+        }),
+      });
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok) {
+        throw new Error(presignData.error || "Failed to prepare upload");
+      }
+
+      const uploadRes =
+        presignData.uploadMode === "local"
+          ? await (async () => {
+              const formData = new FormData();
+              formData.append("file", file);
+              return fetch(presignData.uploadUrl, {
+                method: "POST",
+                credentials: "include",
+                body: formData,
+              });
+            })()
+          : await fetch(presignData.uploadUrl, {
+              method: "PUT",
+              headers: { "Content-Type": mimeType },
+              body: file,
+            });
+      if (!uploadRes.ok) {
+        throw new Error("Upload to storage failed");
+      }
+
+      setPendingAttachments((prev) =>
+        prev.map((item) =>
+          item.localKey === localKey
+            ? {
+                ...item,
+                uploading: false,
+                id: presignData.attachment?.id ?? null,
+                originalName: presignData.attachment?.originalName || item.originalName,
+              }
+            : item,
+        ),
+      );
+    } catch (err) {
+      setPendingAttachments((prev) =>
+        prev.map((item) =>
+          item.localKey === localKey
+            ? { ...item, uploading: false, error: err?.message || "Upload failed" }
+            : item,
+        ),
+      );
+      setError(err?.message || "Upload failed");
+    }
+  }
+
+  function onFilesSelected(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    const slotsLeft = maxAttachmentsPerMessage - pendingAttachments.length;
+    if (slotsLeft <= 0) {
+      setError(`You can attach up to ${maxAttachmentsPerMessage} files per message`);
+      return;
+    }
+    files.slice(0, slotsLeft).forEach((file) => {
+      void uploadSelectedFile(file);
+    });
+    if (files.length > slotsLeft) {
+      setError(`Only ${slotsLeft} more file${slotsLeft === 1 ? "" : "s"} can be attached`);
+    }
+  }
+
+  function removePendingAttachment(localKey) {
+    setPendingAttachments((prev) => prev.filter((item) => item.localKey !== localKey));
+  }
+
   async function handleSend(event) {
     event.preventDefault();
     const body = draft.trim();
-    if (!body || !conversationId || sending) return;
+    if ((!body && !readyAttachmentIds.length) || !conversationId || sending || hasUploadingAttachments) {
+      return;
+    }
 
     setSending(true);
     setError(null);
@@ -328,7 +493,7 @@ export default function ConversationView({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, attachmentIds: readyAttachmentIds }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -343,6 +508,7 @@ export default function ConversationView({
         onMessageSent?.(data.message, conversation);
       }
       setDraft("");
+      setPendingAttachments([]);
       writeMessageDraft(conversationId, "");
       clearNewDivider();
       setNearBottomState(true);
@@ -489,7 +655,13 @@ export default function ConversationView({
                           />
                         </p>
                       ) : null}
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
+                      {message.body ? (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
+                      ) : null}
+                      <MessageAttachmentList
+                        attachments={message.attachments}
+                        mine={mine}
+                      />
                       <div className="mt-1.5 flex items-center justify-end gap-1">
                         <p
                           className={`text-[10px] tabular-nums ${
@@ -540,6 +712,7 @@ export default function ConversationView({
           className="border-t border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/30 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-sky-700">
+            <PendingAttachmentList items={pendingAttachments} onRemove={removePendingAttachment} />
             <div
               role="separator"
               aria-orientation="horizontal"
@@ -554,6 +727,30 @@ export default function ConversationView({
               <span className="h-0.5 w-8 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 dark:bg-zinc-600 dark:group-hover:bg-zinc-500" />
             </div>
             <div className="flex items-end gap-2 px-1.5 pb-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={onFilesSelected}
+                accept={attachmentUploadConfig?.accept || ".doc,.docx"}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-200/70 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                aria-label="Attach file"
+                title="Attach file"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  <path
+                    fillRule="evenodd"
+                    d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 12.52 9.52l3.39-3.39a.75.75 0 1 1 1.06 1.061l-3.39 3.39a1.125 1.125 0 0 0 1.587 1.595l3.454-3.553a3 3 0 0 0 0-4.242Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
               <textarea
                 ref={textareaRef}
                 value={draft}
@@ -570,7 +767,7 @@ export default function ConversationView({
               />
               <button
                 type="submit"
-                disabled={sending || !draft.trim()}
+                disabled={sending || hasUploadingAttachments || (!draft.trim() && !readyAttachmentIds.length)}
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Send message"
               >
@@ -581,7 +778,8 @@ export default function ConversationView({
             </div>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Enter to send · Shift+Enter for new line · Drag top edge to resize
+            Enter to send · Shift+Enter for new line · Drag top edge to resize · Word files only (.doc, .docx), up to{" "}
+            {Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB each
           </p>
         </form>
       ) : (
