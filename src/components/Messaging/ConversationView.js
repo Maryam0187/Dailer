@@ -708,8 +708,16 @@ export default function ConversationView({
           onSubmit={handleSend}
           className="border-t border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={onFilesSelected}
+            accept={attachmentUploadConfig?.accept || ".doc,.docx"}
+          />
+          <PendingAttachmentList items={pendingAttachments} onRemove={removePendingAttachment} />
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/30 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-sky-700">
-            <PendingAttachmentList items={pendingAttachments} onRemove={removePendingAttachment} />
             <div
               role="separator"
               aria-orientation="horizontal"
@@ -723,50 +731,42 @@ export default function ConversationView({
             >
               <span className="h-0.5 w-8 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 dark:bg-zinc-600 dark:group-hover:bg-zinc-500" />
             </div>
-            <div className="flex items-end gap-1.5 px-1.5 pb-1.5">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={onFilesSelected}
-                accept={attachmentUploadConfig?.accept || ".doc,.docx"}
-              />
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend(e);
-                  }
-                }}
-                style={{ height: composerHeight }}
-                placeholder="Write a message…"
-                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                aria-label="Attach file"
-                title="Attach file"
-              >
-                <AttachFileIcon className="h-5 w-5" />
-              </button>
-              <button
-                type="submit"
-                disabled={sending || hasUploadingAttachments || (!draft.trim() && !readyAttachmentIds.length)}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Send message"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
-                </svg>
-              </button>
-            </div>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(e);
+                }
+              }}
+              style={{ height: composerHeight }}
+              placeholder="Write a message…"
+              className="block w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Attach file"
+              title="Attach file"
+            >
+              <AttachFileIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="submit"
+              disabled={sending || hasUploadingAttachments || (!draft.trim() && !readyAttachmentIds.length)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send message"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
+              </svg>
+            </button>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
             Enter to send · Shift+Enter for new line · Drag top edge to resize · Word files only (.doc, .docx), up to{" "}
