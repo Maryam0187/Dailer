@@ -97,6 +97,38 @@ function leadDateBetweenSql(dateField, fromDate, toDate) {
   );
 }
 
+function leadCountOrderLiteral(isOutsideList) {
+  const sourceClause = isOutsideList
+    ? `\`lc\`.\`source\` = ${db.sequelize.escape(OUTSIDE_SALE_SOURCE)}`
+    : `\`lc\`.\`source\` <> ${db.sequelize.escape(OUTSIDE_SALE_SOURCE)}`;
+  return db.sequelize.literal(
+    `(SELECT COUNT(*) FROM \`Leads\` AS \`lc\` WHERE \`lc\`.\`customerId\` = \`Customer\`.\`id\` AND ${sourceClause})`,
+  );
+}
+
+function parseCustomersOrder(searchParams, { isOutsideList, dateField }) {
+  const sortBy = String(searchParams.get("sortBy") || "").trim();
+  const sortDir = searchParams.get("sortDir") === "asc" ? "ASC" : "DESC";
+
+  if (sortBy === "leadCount") {
+    return [[leadCountOrderLiteral(isOutsideList), sortDir], ["id", "DESC"]];
+  }
+
+  const sortColumn = leadDateColumn(dateField);
+  if (isOutsideList) {
+    return [[dateField === "created" ? "createdAt" : "updatedAt", "DESC"], ["id", "DESC"]];
+  }
+  return [
+    [
+      db.sequelize.literal(
+        `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
+      ),
+      "DESC",
+    ],
+    ["id", "DESC"],
+  ];
+}
+
 /**
  * Build one EXISTS so sale status, payment type, charge status, and date range
  * apply to the same lead when those filters are combined.
@@ -423,19 +455,7 @@ export async function GET(req) {
     }
   }
 
-  // Newest first: outside customers by their own dates; lead customers by lead dates.
-  const sortColumn = leadDateColumn(dateField);
-  const order = isOutsideList
-    ? [[dateField === "created" ? "createdAt" : "updatedAt", "DESC"], ["id", "DESC"]]
-    : [
-        [
-          db.sequelize.literal(
-            `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
-          ),
-          "DESC",
-        ],
-        ["id", "DESC"],
-      ];
+  const order = parseCustomersOrder(searchParams, { isOutsideList, dateField });
 
   const { rows, count } = await db.Customer.findAndCountAll({
     where,

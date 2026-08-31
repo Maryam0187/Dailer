@@ -432,6 +432,32 @@ function PaymentViewDetails({ pm }) {
   );
 }
 
+function SortableLeadsHeader({ label, sortBy, sortDir, onSort, title }) {
+  const active = sortBy === "leadCount";
+
+  return (
+    <th
+      className="px-4 py-3 font-semibold"
+      scope="col"
+      title={title}
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={onSort}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-zinc-800 dark:hover:text-zinc-200 ${
+          active ? "text-violet-700 dark:text-violet-300" : ""
+        }`}
+      >
+        <span>{label}</span>
+        <span className="text-[10px] leading-none opacity-70" aria-hidden>
+          {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export default function CustomersClient({
   isAdmin = true,
   managerOnly = false,
@@ -457,6 +483,8 @@ export default function CustomersClient({
   const [chargeFilter, setChargeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState("day");
+  const [sortBy, setSortBy] = useState("");
+  const [sortDir, setSortDir] = useState("desc");
   const [dateField, setDateField] = useState("updated");
   const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(() => getPresetRange("today").from);
@@ -566,6 +594,8 @@ export default function CustomersClient({
         from = appliedFrom,
         to = appliedTo,
         kind = isOutsideView ? "outside" : "lead",
+        sort = sortBy,
+        dir = sortDir,
       } = {},
     ) => {
       const requestId = ++loadRequestIdRef.current;
@@ -591,6 +621,10 @@ export default function CustomersClient({
         if (!query.trim() && from && to) {
           params.set("fromDate", from);
           params.set("toDate", to);
+        }
+        if (sort === "leadCount") {
+          params.set("sortBy", "leadCount");
+          params.set("sortDir", dir === "asc" ? "asc" : "desc");
         }
         const res = await fetch(`/api/customers?${params}`, {
           credentials: "include",
@@ -635,8 +669,19 @@ export default function CustomersClient({
       appliedFrom,
       appliedTo,
       isOutsideView,
+      sortBy,
+      sortDir,
     ],
   );
+
+  const onLeadsSort = useCallback(() => {
+    if (sortBy === "leadCount") {
+      setSortDir((dir) => (dir === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortBy("leadCount");
+    setSortDir("desc");
+  }, [sortBy]);
 
   const loadDetail = useCallback(async (id) => {
     if (!id) {
@@ -681,6 +726,8 @@ export default function CustomersClient({
     appliedFrom,
     appliedTo,
     isOutsideView,
+    sortBy,
+    sortDir,
     loadCustomers,
   ]);
 
@@ -2255,9 +2302,21 @@ export default function CustomersClient({
                     <th className="px-4 py-3 font-semibold">Team</th>
                   ) : null}
                   {isOutsideView ? (
-                    <th className="px-4 py-3 font-semibold">Latest lead</th>
+                    <SortableLeadsHeader
+                      label="Latest lead"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={onLeadsSort}
+                      title="Sort by lead count"
+                    />
                   ) : (
-                    <th className="px-4 py-3 font-semibold">Leads</th>
+                    <SortableLeadsHeader
+                      label="Leads"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={onLeadsSort}
+                      title="Sort by lead count"
+                    />
                   )}
                   <th className="px-4 py-3 font-semibold">Payments</th>
                 </tr>
