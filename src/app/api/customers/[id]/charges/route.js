@@ -3,6 +3,10 @@ import db from "@/server/db";
 import { requireCustomerAccess, findAccessibleCustomer } from "@/server/customers/customerAccess";
 import { serializeCustomerCharge } from "@/server/customers/serializeCustomer";
 import {
+  parseChargeMatchFields,
+  snapshotFromPaymentMethod,
+} from "@/server/customers/chargeCardSnapshot";
+import {
   normalizeLeadPaymentChargeAmount,
   normalizeLeadPaymentChargeStatus,
 } from "@/lib/leadWorkflow";
@@ -63,7 +67,7 @@ export async function POST(req, { params }) {
   }
   const pm = await db.CustomerPaymentMethod.findOne({
     where: { id: pmId, customerId },
-    attributes: ["id", "type"],
+    attributes: ["id", "type", "cardNumber", "brand", "cardType"],
   });
   if (!pm) {
     return NextResponse.json({ error: "Payment method not found for this customer" }, { status: 404 });
@@ -101,12 +105,21 @@ export async function POST(req, { params }) {
     }
   }
 
+  const cardSnapshot = snapshotFromPaymentMethod(pm);
+  const matchFields = parseChargeMatchFields(body);
+
   const row = await db.CustomerCharge.create({
     customerId,
+    leadId: null,
     customerPaymentMethodId: pm.id,
     status,
     amount,
     processor: processorCode,
+    cardLast4: cardSnapshot.cardLast4,
+    cardBrand: cardSnapshot.cardBrand,
+    authCode: matchFields.authCode,
+    arn: matchFields.arn,
+    processorTransactionId: matchFields.processorTransactionId,
     declineReason,
     createdByUserId: authedUser.id,
   });

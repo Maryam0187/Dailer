@@ -19,12 +19,17 @@ const workflowTagModelFactory = require("./WorkflowTag");
 const conversationModelFactory = require("./Conversation");
 const conversationParticipantModelFactory = require("./ConversationParticipant");
 const messageModelFactory = require("./Message");
+const messageAttachmentModelFactory = require("./MessageAttachment");
 const customerModelFactory = require("./Customer");
 const customerPaymentMethodModelFactory = require("./CustomerPaymentMethod");
 const customerChargeModelFactory = require("./CustomerCharge");
 const paymentProcessorModelFactory = require("./PaymentProcessor");
 const importBatchModelFactory = require("./ImportBatch");
 const ivrNotificationModelFactory = require("./IvrNotification");
+const userAttendanceStatsModelFactory = require("./UserAttendanceStats");
+const attendancePointLogModelFactory = require("./AttendancePointLog");
+const userAttendanceBadgeModelFactory = require("./UserAttendanceBadge");
+const attendanceDailyRecordModelFactory = require("./AttendanceDailyRecord");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -90,12 +95,17 @@ db.WorkflowTag = workflowTagModelFactory(sequelize, Sequelize.DataTypes);
 db.Conversation = conversationModelFactory(sequelize, Sequelize.DataTypes);
 db.ConversationParticipant = conversationParticipantModelFactory(sequelize, Sequelize.DataTypes);
 db.Message = messageModelFactory(sequelize, Sequelize.DataTypes);
+db.MessageAttachment = messageAttachmentModelFactory(sequelize, Sequelize.DataTypes);
 db.Customer = customerModelFactory(sequelize, Sequelize.DataTypes);
 db.CustomerPaymentMethod = customerPaymentMethodModelFactory(sequelize, Sequelize.DataTypes);
 db.CustomerCharge = customerChargeModelFactory(sequelize, Sequelize.DataTypes);
 db.PaymentProcessor = paymentProcessorModelFactory(sequelize, Sequelize.DataTypes);
 db.ImportBatch = importBatchModelFactory(sequelize, Sequelize.DataTypes);
 db.IvrNotification = ivrNotificationModelFactory(sequelize, Sequelize.DataTypes);
+db.UserAttendanceStats = userAttendanceStatsModelFactory(sequelize, Sequelize.DataTypes);
+db.AttendancePointLog = attendancePointLogModelFactory(sequelize, Sequelize.DataTypes);
+db.UserAttendanceBadge = userAttendanceBadgeModelFactory(sequelize, Sequelize.DataTypes);
+db.AttendanceDailyRecord = attendanceDailyRecordModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

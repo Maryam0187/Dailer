@@ -1,6 +1,10 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { derivePresence } from "@/server/auth/presence";
+import {
+  linkAttachmentsToMessage,
+  serializeAttachment,
+} from "@/server/messages/messageAttachments";
 
 export function isAdminRole(role) {
   return role === "admin";
@@ -154,12 +158,18 @@ export async function findOrCreateDm(viewerId, recipientUserId) {
 export function serializeMessage(message) {
   const plain = typeof message.toJSON === "function" ? message.toJSON() : message;
   const author = plain.author || null;
+  const attachments = Array.isArray(plain.attachments)
+    ? plain.attachments
+        .filter((item) => item.status === "attached")
+        .map(serializeAttachment)
+    : [];
   return {
     id: plain.id,
     conversationId: plain.conversationId,
     userId: plain.userId,
     body: plain.body,
     createdAt: plain.createdAt,
+    attachments,
     author: author
       ? { id: author.id, username: author.username, role: author.role }
       : null,
@@ -259,6 +269,11 @@ async function loadLastMessages(conversationIds) {
         model: db.User,
         as: "author",
         attributes: ["id", "username", "role"],
+        required: false,
+      },
+      {
+        model: db.MessageAttachment,
+        as: "attachments",
         required: false,
       },
     ],
@@ -489,6 +504,11 @@ export async function listMessages(conversationId, { beforeId = null, limit = 50
         attributes: ["id", "username", "role"],
         required: false,
       },
+      {
+        model: db.MessageAttachment,
+        as: "attachments",
+        required: false,
+      },
     ],
     order: [["id", "DESC"]],
     limit: capped,
@@ -498,10 +518,12 @@ export async function listMessages(conversationId, { beforeId = null, limit = 50
   return rows.reverse().map(serializeMessage);
 }
 
-export async function createMessage(conversation, authorUser, body) {
+export async function createMessage(conversation, authorUser, body, { attachmentIds = [] } = {}) {
   const text = typeof body === "string" ? body.trim() : "";
-  if (!text) {
-    return { error: "Message body is required", status: 400 };
+  const ids = [...new Set((attachmentIds || []).map((value) => Number(value)).filter((n) => n > 0))];
+
+  if (!text && !ids.length) {
+    return { error: "Message body or at least one attachment is required", status: 400 };
   }
   if (text.length > 5000) {
     return { error: "Message is too long (max 5000 characters)", status: 400 };
@@ -519,26 +541,55 @@ export async function createMessage(conversation, authorUser, body) {
     }
   }
 
-  const message = await db.Message.create({
-    conversationId: conversation.id,
-    userId: authorUser.id,
-    body: text,
-  });
-
-  const now = new Date();
-  await conversation.update({ lastMessageAt: now });
-  await markConversationRead(conversation.id, authorUser.id);
-
-  const withAuthor = await db.Message.findByPk(message.id, {
-    include: [
+  const tx = await db.sequelize.transaction();
+  try {
+    const message = await db.Message.create(
       {
-        model: db.User,
-        as: "author",
-        attributes: ["id", "username", "role"],
-        required: false,
+        conversationId: conversation.id,
+        userId: authorUser.id,
+        body: text,
       },
-    ],
-  });
+      { transaction: tx },
+    );
 
-  return { message: serializeMessage(withAuthor) };
+    const linkResult = await linkAttachmentsToMessage({
+      conversationId: conversation.id,
+      userId: authorUser.id,
+      messageId: message.id,
+      attachmentIds: ids,
+      transaction: tx,
+    });
+    if (linkResult.error) {
+      await tx.rollback();
+      return linkResult;
+    }
+
+    const now = new Date();
+    await conversation.update({ lastMessageAt: now }, { transaction: tx });
+
+    await tx.commit();
+    await markConversationRead(conversation.id, authorUser.id);
+
+    const withAuthor = await db.Message.findByPk(message.id, {
+      include: [
+        {
+          model: db.User,
+          as: "author",
+          attributes: ["id", "username", "role"],
+          required: false,
+        },
+        {
+          model: db.MessageAttachment,
+          as: "attachments",
+          where: { status: "attached" },
+          required: false,
+        },
+      ],
+    });
+
+    return { message: serializeMessage(withAuthor) };
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
 }

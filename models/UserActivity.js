@@ -54,6 +54,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(512),
         allowNull: true,
       },
+      deviceType: {
+        type: DataTypes.STRING(16),
+        allowNull: true,
+      },
       sessionId: {
         type: DataTypes.STRING(64),
         allowNull: true,

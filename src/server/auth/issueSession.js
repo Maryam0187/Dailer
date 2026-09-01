@@ -3,6 +3,9 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import { getSessionCalendarDate, isOutsideManager } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
+import { resolveDeviceTypeFromRequest, isDesktopAttendanceLogin } from "@/server/activity/resolveDeviceType";
+import { processLoginGamification } from "@/server/attendance/processLoginGamification";
+import { upsertDailyLoginRecord } from "@/server/attendance/upsertDailyLoginRecord";
 
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
 
@@ -69,13 +72,20 @@ export async function issueFullSessionResponse({
   }
 
   const purpose = loginPurpose === "leave_application" ? "leave_application" : "full";
+  const device = resolveDeviceTypeFromRequest(req);
 
   const { locationAlert } = await logUserActivity({
     req,
     userId: user.id,
     action: purpose === "leave_application" ? "leave_application_login" : "login_success",
     sessionId: sid,
-    metadata: { username: user.username, sessionDay, purpose },
+    metadata: {
+      username: user.username,
+      sessionDay,
+      purpose,
+      deviceType: device.deviceType,
+      attendanceTracked: purpose === "full" && isDesktopAttendanceLogin(device),
+    },
   });
 
   const tokenPayload = {
@@ -96,6 +106,16 @@ export async function issueFullSessionResponse({
       : isOutsideManager(user)
         ? "/customers"
         : "/";
+
+  if (purpose === "full" && isDesktopAttendanceLogin(device)) {
+    try {
+      const loginAt = new Date();
+      await upsertDailyLoginRecord(user, loginAt, device);
+      await processLoginGamification(user, loginAt);
+    } catch (err) {
+      console.error("[attendance] login tracking failed:", err?.message || err);
+    }
+  }
 
   const res = NextResponse.json({
     ok: true,

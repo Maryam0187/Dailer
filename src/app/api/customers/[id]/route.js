@@ -1,24 +1,23 @@
 import { NextResponse } from "next/server";
-import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireCustomerAccess, isOutsideManager, findAccessibleCustomer } from "@/server/customers/customerAccess";
-import { isAdminOnlyPaymentChargeActivity } from "@/lib/leadRoles";
 import {
-  buildPaymentChargeLogGroups,
   customerAgentInclude,
   customerManagerInclude,
   serializeCustomer,
   serializeCustomerCharge,
-  serializeCustomerLead,
-  serializePaymentChargeLog,
   serializePaymentMethod,
 } from "@/server/customers/serializeCustomer";
+import {
+  loadCustomerDetailLeads,
+  loadCustomerLeadAggregates,
+  finalizeLeadBundle,
+} from "@/server/customers/loadCustomerDetailLeads";
 import {
   findCustomerByPhone,
   parseCustomerProfile,
   resolveCustomerStaffIds,
 } from "@/server/customers/parseCustomerBody";
-import { leadAssignedUserInclude, leadCreatedByInclude } from "@/server/leads/serializeLead";
 
 export async function GET(_req, { params }) {
   const { authedUser, errorResponse } = await requireCustomerAccess();
@@ -36,102 +35,85 @@ export async function GET(_req, { params }) {
   if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
   const managerScoped = isOutsideManager(authedUser);
-  const [leads, paymentMethods, leadAgg, charges] = await Promise.all([
-    managerScoped
-      ? Promise.resolve([])
-      : db.Lead.findAll({
-      where: { customerId: id },
-      order: [["createdAt", "DESC"]],
-      include: [leadAssignedUserInclude, leadCreatedByInclude],
-    }),
-    db.CustomerPaymentMethod.findAll({
-      where: { customerId: id },
-      order: [
-        ["isDefault", "DESC"],
-        ["createdAt", "DESC"],
-      ],
-      include: [
-        {
-          model: db.User,
-          as: "createdBy",
-          attributes: ["id", "username"],
-          required: false,
-        },
-      ],
-    }),
-    managerScoped
-      ? Promise.resolve(null)
-      : db.Lead.findOne({
-      attributes: [
-        [db.sequelize.fn("COUNT", db.sequelize.col("id")), "leadCount"],
-        [db.sequelize.fn("MIN", db.sequelize.col("createdAt")), "firstLeadAt"],
-        [db.sequelize.fn("MAX", db.sequelize.col("createdAt")), "lastLeadAt"],
-      ],
-      where: { customerId: id },
-      raw: true,
-    }),
-    db.CustomerCharge.findAll({
-      where: { customerId: id },
-      order: [["createdAt", "DESC"], ["id", "DESC"]],
-      include: [
-        {
-          model: db.User,
-          as: "createdBy",
-          attributes: ["id", "username"],
-          required: false,
-        },
-      ],
-    }),
+  const isOutsideCustomer = Boolean(customer.isOutside);
+
+  const [inHouseBundle, salesBundle, paymentMethods, inHouseAgg, salesAgg, legacyCharges] =
+    await Promise.all([
+      managerScoped
+        ? Promise.resolve({ leads: [] })
+        : loadCustomerDetailLeads(id, { inHouseOnly: true }),
+      isOutsideCustomer
+        ? loadCustomerDetailLeads(id, { salesOnly: true })
+        : Promise.resolve({ leads: [] }),
+      db.CustomerPaymentMethod.findAll({
+        where: { customerId: id },
+        order: [
+          ["isDefault", "DESC"],
+          ["createdAt", "DESC"],
+        ],
+        include: [
+          {
+            model: db.User,
+            as: "createdBy",
+            attributes: ["id", "username"],
+            required: false,
+          },
+        ],
+      }),
+      managerScoped
+        ? Promise.resolve(null)
+        : loadCustomerLeadAggregates(id, { inHouseOnly: true }),
+      isOutsideCustomer
+        ? loadCustomerLeadAggregates(id, { salesOnly: true })
+        : Promise.resolve(null),
+      isOutsideCustomer
+        ? db.CustomerCharge.findAll({
+            where: { customerId: id, leadId: null },
+            order: [["createdAt", "DESC"], ["id", "DESC"]],
+            include: [
+              {
+                model: db.User,
+                as: "createdBy",
+                attributes: ["id", "username"],
+                required: false,
+              },
+            ],
+          })
+        : Promise.resolve([]),
+    ]);
+
+  const paymentMethodsSerialized = paymentMethods.map(serializePaymentMethod);
+
+  const [leads, sales] = await Promise.all([
+    finalizeLeadBundle(inHouseBundle, paymentMethodsSerialized),
+    finalizeLeadBundle(salesBundle, paymentMethodsSerialized),
   ]);
 
-  const leadIds = leads.map((lead) => lead.id);
-  const paymentLogsByLeadId = new Map();
-  if (leadIds.length > 0) {
-    const updateRows = await db.LeadUpdate.findAll({
-      where: { leadId: { [Op.in]: leadIds } },
-      order: [["createdAt", "DESC"]],
-      include: [
-        {
-          model: db.User,
-          as: "author",
-          attributes: ["id", "username"],
-          required: false,
-        },
-      ],
-    });
-    for (const row of updateRows) {
-      if (!isAdminOnlyPaymentChargeActivity(row)) continue;
-      const list = paymentLogsByLeadId.get(row.leadId) || [];
-      list.push(serializePaymentChargeLog(row));
-      paymentLogsByLeadId.set(row.leadId, list);
-    }
-  }
+  const latestLead = inHouseBundle.leads[0] || null;
+  const latestSale = salesBundle.leads[0] || null;
+  const latestLegacyCharge = legacyCharges[0] || null;
 
-  const latestLead = leads[0] || null;
-  const latestCharge = charges[0] || null;
+  const inHouseCount = Number(inHouseAgg?.leadCount) || 0;
+  const salesCount = Number(salesAgg?.leadCount) || 0;
 
   return NextResponse.json({
     customer: serializeCustomer(customer, {
       latestLead,
-      latestCharge,
-      leadCount: Number(leadAgg?.leadCount) || 0,
-      firstLeadAt: leadAgg?.firstLeadAt || null,
-      lastLeadAt: leadAgg?.lastLeadAt || null,
+      latestCharge: latestLegacyCharge,
+      latestSale,
+      leadCount: managerScoped ? salesCount : inHouseCount,
+      salesCount,
+      firstLeadAt: managerScoped ? salesAgg?.firstLeadAt || null : inHouseAgg?.firstLeadAt || null,
+      lastLeadAt: managerScoped ? salesAgg?.lastLeadAt || null : inHouseAgg?.lastLeadAt || null,
+      firstSaleAt: salesAgg?.firstLeadAt || null,
+      lastSaleAt: salesAgg?.lastLeadAt || null,
       paymentMethodCount: paymentMethods.length,
     }),
-    leads: leads.map((lead) => {
-      const paymentChargeLogs = paymentLogsByLeadId.get(lead.id) || [];
-      return serializeCustomerLead(lead, {
-        paymentChargeLogs,
-        paymentChargeLogGroups: buildPaymentChargeLogGroups(
-          paymentChargeLogs,
-          paymentMethods,
-          lead,
-        ),
-      });
-    }),
-    paymentMethods: paymentMethods.map(serializePaymentMethod),
-    charges: charges.map(serializeCustomerCharge),
+    leads,
+    sales,
+    paymentMethods: paymentMethodsSerialized,
+    /** Legacy flat charges (leadId null). New work uses `sales`. */
+    charges: legacyCharges.map(serializeCustomerCharge),
   });
 }
 

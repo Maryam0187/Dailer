@@ -1,6 +1,7 @@
 "use client";
 
 import { UserAvatar, formatMessageTime, roleLabel } from "./presence";
+import { messagePreviewText } from "@/lib/messageAttachments";
 
 function EmptyInbox({ onCompose }) {
   return (
@@ -114,7 +115,7 @@ export default function ConversationList({
                 ? Number(activeNewCount) || 0
                 : Number(conversation.unreadCount) || 0;
               const hasUnread = badgeCount > 0;
-              const preview = conversation.lastMessage?.body || "No messages yet";
+              const preview = messagePreviewText(conversation.lastMessage) || "No messages yet";
               const name = conversation.peer?.username || "Unknown";
               return (
                 <li key={conversation.id}>

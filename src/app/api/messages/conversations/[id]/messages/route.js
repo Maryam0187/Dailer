@@ -60,7 +60,9 @@ export async function POST(req, { params }) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const result = await createMessage(access.conversation, authedUser, body?.body);
+  const result = await createMessage(access.conversation, authedUser, body?.body, {
+    attachmentIds: body?.attachmentIds,
+  });
   if (result.error) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

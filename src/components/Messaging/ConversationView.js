@@ -12,6 +12,11 @@ import {
   roleLabel,
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
+import {
+  AttachFileIcon,
+  MessageAttachmentList,
+  PendingAttachmentList,
+} from "@/components/Messaging/MessageAttachmentParts";
 
 const COMPOSER_MIN_HEIGHT = 80;
 const COMPOSER_MAX_HEIGHT = 224;
@@ -27,6 +32,68 @@ function DateSeparator({ label }) {
       </span>
       <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
     </div>
+  );
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+}
+
+function CopyMessageButton({ text, mine }) {
+  const [copied, setCopied] = useState(false);
+  const body = typeof text === "string" ? text : "";
+  if (!body) return null;
+
+  async function onCopy() {
+    const ok = await copyText(body);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onCopy()}
+      aria-label={copied ? "Message copied" : "Copy message"}
+      title={copied ? "Copied!" : "Copy message"}
+      className={`inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors ${
+        mine
+          ? "text-sky-100/80 hover:bg-sky-500 hover:text-white"
+          : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+      }`}
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+          <path
+            fillRule="evenodd"
+            d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+          <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+          <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -64,6 +131,8 @@ export default function ConversationView({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [attachmentUploadConfig, setAttachmentUploadConfig] = useState(null);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
   // WhatsApp-style: show a divider before this message id
   const [dividerBeforeId, setDividerBeforeId] = useState(null);
@@ -72,6 +141,7 @@ export default function ConversationView({
   const listRef = useRef(null);
   const dividerRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   const nearBottomRef = useRef(true);
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
@@ -138,8 +208,33 @@ export default function ConversationView({
     setDividerBeforeId(null);
     skipDraftPersistRef.current = true;
     setDraft(readMessageDraft(conversationId));
+    setPendingAttachments([]);
     setNearBottomState(true);
   }, [conversationId, initialUnreadCount]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/messages/attachments/config", { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setAttachmentUploadConfig({
+            mimeTypes: Array.isArray(data.mimeTypes) ? data.mimeTypes : [],
+            mimeTypeSet: new Set(Array.isArray(data.mimeTypes) ? data.mimeTypes : []),
+            accept: typeof data.accept === "string" ? data.accept : "",
+            maxSizeBytes: Number(data.maxSizeBytes) || 10 * 1024 * 1024,
+            maxAttachmentsPerMessage: Number(data.maxAttachmentsPerMessage) || 5,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -254,10 +349,139 @@ export default function ConversationView({
     return buildParticipantNameColors(authors);
   }, [conversation?.isOversight, conversation?.participants, messages]);
 
+  const readyAttachmentIds = useMemo(
+    () =>
+      pendingAttachments
+        .filter((item) => item.id && !item.uploading && !item.error)
+        .map((item) => item.id),
+    [pendingAttachments],
+  );
+
+  const hasUploadingAttachments = pendingAttachments.some((item) => item.uploading);
+
+  const maxAttachmentsPerMessage = attachmentUploadConfig?.maxAttachmentsPerMessage ?? 5;
+  const maxAttachmentSizeBytes = attachmentUploadConfig?.maxSizeBytes ?? 10 * 1024 * 1024;
+  const allowedMimeTypeSet = attachmentUploadConfig?.mimeTypeSet ?? new Set();
+
+  async function uploadSelectedFile(file) {
+    if (!conversationId || !file) return;
+    if (!attachmentUploadConfig) {
+      setError("Attachment settings are still loading");
+      return;
+    }
+
+    const mimeType = String(file.type || "").toLowerCase().split(";")[0];
+    if (!allowedMimeTypeSet.has(mimeType)) {
+      setError("That file type is not supported");
+      return;
+    }
+    if (file.size > maxAttachmentSizeBytes) {
+      setError(`File is too large (max ${Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB)`);
+      return;
+    }
+    if (pendingAttachments.length >= maxAttachmentsPerMessage) {
+      setError(`You can attach up to ${maxAttachmentsPerMessage} files per message`);
+      return;
+    }
+
+    const localKey = `${Date.now()}-${file.name}`;
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        localKey,
+        originalName: file.name,
+        mimeType,
+        sizeBytes: file.size,
+        uploading: true,
+        error: null,
+        id: null,
+      },
+    ]);
+    setError(null);
+
+    try {
+      const presignRes = await fetch("/api/messages/attachments/presign-upload", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          filename: file.name,
+          mimeType,
+          sizeBytes: file.size,
+        }),
+      });
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok) {
+        throw new Error(presignData.error || "Failed to prepare upload");
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch(presignData.uploadUrl, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        throw new Error(uploadData.error || "Upload failed");
+      }
+
+      setPendingAttachments((prev) =>
+        prev.map((item) =>
+          item.localKey === localKey
+            ? {
+                ...item,
+                uploading: false,
+                id: presignData.attachment?.id ?? null,
+                originalName: presignData.attachment?.originalName || item.originalName,
+              }
+            : item,
+        ),
+      );
+    } catch (err) {
+      const message =
+        err?.message === "Failed to fetch"
+          ? "Upload failed — could not reach the server"
+          : err?.message || "Upload failed";
+      setPendingAttachments((prev) =>
+        prev.map((item) =>
+          item.localKey === localKey
+            ? { ...item, uploading: false, error: message }
+            : item,
+        ),
+      );
+      setError(message);
+    }
+  }
+
+  function onFilesSelected(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    const slotsLeft = maxAttachmentsPerMessage - pendingAttachments.length;
+    if (slotsLeft <= 0) {
+      setError(`You can attach up to ${maxAttachmentsPerMessage} files per message`);
+      return;
+    }
+    files.slice(0, slotsLeft).forEach((file) => {
+      void uploadSelectedFile(file);
+    });
+    if (files.length > slotsLeft) {
+      setError(`Only ${slotsLeft} more file${slotsLeft === 1 ? "" : "s"} can be attached`);
+    }
+  }
+
+  function removePendingAttachment(localKey) {
+    setPendingAttachments((prev) => prev.filter((item) => item.localKey !== localKey));
+  }
+
   async function handleSend(event) {
     event.preventDefault();
     const body = draft.trim();
-    if (!body || !conversationId || sending) return;
+    if ((!body && !readyAttachmentIds.length) || !conversationId || sending || hasUploadingAttachments) {
+      return;
+    }
 
     setSending(true);
     setError(null);
@@ -266,7 +490,7 @@ export default function ConversationView({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, attachmentIds: readyAttachmentIds }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -281,6 +505,7 @@ export default function ConversationView({
         onMessageSent?.(data.message, conversation);
       }
       setDraft("");
+      setPendingAttachments([]);
       writeMessageDraft(conversationId, "");
       clearNewDivider();
       setNearBottomState(true);
@@ -427,14 +652,23 @@ export default function ConversationView({
                           />
                         </p>
                       ) : null}
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
-                      <p
-                        className={`mt-1.5 text-[10px] tabular-nums ${
-                          mine ? "text-sky-100/90" : "text-zinc-400 dark:text-zinc-500"
-                        }`}
-                      >
-                        {formatMessageClock(message.createdAt)}
-                      </p>
+                      {message.body ? (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
+                      ) : null}
+                      <MessageAttachmentList
+                        attachments={message.attachments}
+                        mine={mine}
+                      />
+                      <div className="mt-1.5 flex items-center justify-end gap-1">
+                        <p
+                          className={`text-[10px] tabular-nums ${
+                            mine ? "text-sky-100/90" : "text-zinc-400 dark:text-zinc-500"
+                          }`}
+                        >
+                          {formatMessageClock(message.createdAt)}
+                        </p>
+                        <CopyMessageButton text={message.body} mine={mine} />
+                      </div>
                     </div>
                   </div>
                 </Fragment>
@@ -474,6 +708,15 @@ export default function ConversationView({
           onSubmit={handleSend}
           className="border-t border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={onFilesSelected}
+            accept={attachmentUploadConfig?.accept || ".doc,.docx"}
+          />
+          <PendingAttachmentList items={pendingAttachments} onRemove={removePendingAttachment} />
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-400/30 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:border-sky-700">
             <div
               role="separator"
@@ -488,35 +731,46 @@ export default function ConversationView({
             >
               <span className="h-0.5 w-8 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-400 dark:bg-zinc-600 dark:group-hover:bg-zinc-500" />
             </div>
-            <div className="flex items-end gap-2 px-1.5 pb-1.5">
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend(e);
-                  }
-                }}
-                style={{ height: composerHeight }}
-                placeholder="Write a message…"
-                className="flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
-              />
-              <button
-                type="submit"
-                disabled={sending || !draft.trim()}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Send message"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                  <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
-                </svg>
-              </button>
-            </div>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(e);
+                }
+              }}
+              style={{ height: composerHeight }}
+              placeholder="Write a message…"
+              className="block w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending || hasUploadingAttachments || !attachmentUploadConfig}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Attach file"
+              title="Attach file"
+            >
+              <AttachFileIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="submit"
+              disabled={sending || hasUploadingAttachments || (!draft.trim() && !readyAttachmentIds.length)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-600 text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send message"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M3.105 2.288a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.288z" />
+              </svg>
+            </button>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Enter to send · Shift+Enter for new line · Drag top edge to resize
+            Enter to send · Shift+Enter for new line · Drag top edge to resize · Word files only (.doc, .docx), up to{" "}
+            {Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB each
           </p>
         </form>
       ) : (

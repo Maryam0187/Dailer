@@ -44,6 +44,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "userId",
       as: "author",
     });
+    Message.hasMany(models.MessageAttachment, {
+      foreignKey: "messageId",
+      as: "attachments",
+    });
   };
 
   return Message;

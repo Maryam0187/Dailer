@@ -378,27 +378,33 @@ export default function LeadDetailPanel({
     }
   }
 
-  async function onSaveNotes() {
+  async function onSaveNotes(nextNotes) {
+    const notes = nextNotes !== undefined ? nextNotes : notesDraft;
     setSavingNotes(true);
     setError(null);
     try {
-      await patchLead({ notes: notesDraft });
+      await patchLead({ notes });
+      setNotesDraft(notes);
       await loadUpdates();
     } catch (e) {
       setError(e.message || "Failed to save notes");
+      throw e;
     } finally {
       setSavingNotes(false);
     }
   }
 
-  async function onSaveBreakdown() {
+  async function onSaveBreakdown(nextBreakdown) {
+    const breakdown = nextBreakdown !== undefined ? nextBreakdown : breakdownDraft;
     setSavingBreakdown(true);
     setError(null);
     try {
-      await patchLead({ breakdown: breakdownDraft });
+      await patchLead({ breakdown });
+      setBreakdownDraft(breakdown);
       await loadUpdates();
     } catch (e) {
       setError(e.message || "Failed to save breakdown");
+      throw e;
     } finally {
       setSavingBreakdown(false);
     }
@@ -710,6 +716,9 @@ export default function LeadDetailPanel({
                 onChange={setNotesDraft}
                 disabled={savingNotes}
                 placeholder="Add context about this lead…"
+                onSave={onSaveNotes}
+                saving={savingNotes}
+                saveLabel="Save notes"
                 actions={
                   notesDirty ? (
                     <button
@@ -737,6 +746,9 @@ export default function LeadDetailPanel({
               onChange={setBreakdownDraft}
               disabled={savingBreakdown}
               placeholder="Add breakdown details…"
+              onSave={onSaveBreakdown}
+              saving={savingBreakdown}
+              saveLabel="Save breakdown"
               actions={
                 breakdownDirty ? (
                   <button

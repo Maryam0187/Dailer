@@ -76,6 +76,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/billing",
     },
     {
+      href: "/chargeflow/alerts",
+      label: "CF alerts",
+      active: pathname === "/chargeflow/alerts" || pathname?.startsWith("/chargeflow/"),
+    },
+    {
       href: "/shift",
       label: "Shift",
       active: pathname === "/shift",
@@ -130,6 +135,15 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false) {
     active: pathname === "/files",
     palette: "indigo",
   });
+
+  if (accessMode !== "limited" && role === "admin") {
+    items.push({
+      href: "/attendance",
+      label: "Attendance",
+      active: pathname === "/attendance",
+      palette: "amber",
+    });
+  }
 
   if (accessMode !== "limited" && (role === "admin" || role === "manager" || role === "supervisor")) {
     items.push({

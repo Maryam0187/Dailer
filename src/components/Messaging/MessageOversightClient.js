@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ConversationView from "@/components/Messaging/ConversationView";
 import { UserAvatar, formatMessageTime } from "@/components/Messaging/presence";
+import { messagePreviewText } from "@/lib/messageAttachments";
 
 export default function MessageOversightClient({ currentUserId }) {
   const [conversations, setConversations] = useState([]);
@@ -78,7 +79,7 @@ export default function MessageOversightClient({ currentUserId }) {
     return conversations.filter((c) => {
       const label = c.peer?.username || "";
       const names = (c.participants || []).map((p) => p.username).join(" ");
-      const preview = c.lastMessage?.body || "";
+      const preview = messagePreviewText(c) || "";
       return `${label} ${names} ${preview}`.toLowerCase().includes(q);
     });
   }, [conversations, search]);
@@ -164,7 +165,7 @@ export default function MessageOversightClient({ currentUserId }) {
             <ul className="space-y-1">
               {filtered.map((conversation) => {
                 const selected = Number(activeId) === Number(conversation.id);
-                const preview = conversation.lastMessage?.body || "No messages yet";
+                const preview = messagePreviewText(conversation.lastMessage) || "No messages yet";
                 const participants = Array.isArray(conversation.participants)
                   ? conversation.participants.filter((p) => p?.id)
                   : [];

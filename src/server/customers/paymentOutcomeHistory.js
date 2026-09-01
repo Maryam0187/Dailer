@@ -34,13 +34,14 @@ export async function leadHasPaymentOutcome(leadId, status) {
 /**
  * Remove one-time charge outcomes from history so an admin can undo a mistaken charge.
  * Deletes charged and chargeback LeadUpdates (typed + legacy body). Declines are kept.
- * @returns {Promise<number>} rows destroyed
+ * Also removes matching CustomerCharge rows for this lead.
+ * @returns {Promise<number>} LeadUpdate rows destroyed
  */
 export async function removeLeadPaymentChargeHistory(leadId) {
   const id = Number(leadId);
   if (!Number.isInteger(id) || id <= 0) return 0;
 
-  return db.LeadUpdate.destroy({
+  const destroyed = await db.LeadUpdate.destroy({
     where: {
       leadId: id,
       [Op.or]: [
@@ -57,4 +58,13 @@ export async function removeLeadPaymentChargeHistory(leadId) {
       ],
     },
   });
+
+  await db.CustomerCharge.destroy({
+    where: {
+      leadId: id,
+      status: { [Op.in]: ["charged", "chargeback"] },
+    },
+  });
+
+  return destroyed;
 }
