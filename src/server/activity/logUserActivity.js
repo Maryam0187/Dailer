@@ -1,6 +1,7 @@
 import db from "@/server/db";
 import { resolveRequestLocation } from "@/server/activity/resolveRequestLocation";
 import { buildLocationChangeAlert } from "@/server/activity/locationChangeAlert";
+import { resolveDeviceTypeFromRequest } from "@/server/activity/resolveDeviceType";
 
 function headerValue(headers, name) {
   const raw = headers.get?.(name) ?? headers[name];
@@ -45,6 +46,8 @@ export async function logUserActivity({
       });
     }
 
+    const device = resolveDeviceTypeFromRequest(req);
+
     const activity = await db.UserActivity.create({
       userId,
       action,
@@ -58,6 +61,7 @@ export async function logUserActivity({
       region,
       city,
       userAgent: requestUserAgent(req),
+      deviceType: device.deviceType !== "unknown" ? device.deviceType : null,
       metadata,
     });
 

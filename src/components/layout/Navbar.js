@@ -136,6 +136,15 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false) {
     palette: "indigo",
   });
 
+  if (accessMode !== "limited" && role === "admin") {
+    items.push({
+      href: "/attendance",
+      label: "Attendance",
+      active: pathname === "/attendance",
+      palette: "amber",
+    });
+  }
+
   if (accessMode !== "limited" && (role === "admin" || role === "manager" || role === "supervisor")) {
     items.push({
       href: "/users",
