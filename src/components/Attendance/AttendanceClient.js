@@ -8,6 +8,29 @@ const thClass =
   "px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const tdClass = "px-3 py-2 text-zinc-800 dark:text-zinc-200";
 
+const SHIFT_FILTER_OPTIONS = [
+  { id: "all", label: "All shifts" },
+  { id: "day", label: "Day shift" },
+  { id: "night", label: "Night shift" },
+];
+
+function shiftFilterButtonClass(active) {
+  return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+    active
+      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+  }`;
+}
+
+function usersForShift(users, shiftFilter) {
+  if (shiftFilter === "all") return users;
+  return users.filter((u) => u.shiftKey === shiftFilter);
+}
+
+function shiftLabel(shiftKey) {
+  return shiftKey === "night" ? "Night" : "Day";
+}
+
 function formatTime(value) {
   if (!value) return "—";
   return new Date(value).toLocaleString(undefined, {
@@ -294,24 +317,30 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
 }
 
 export default function AttendanceClient({ isAdmin, users = [] }) {
-  const initialRange = getPresetRange("week");
-  const [preset, setPreset] = useState("week");
+  const initialRange = getPresetRange("today");
+  const [preset, setPreset] = useState("today");
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [adminTab, setAdminTab] = useState("summary");
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
-
-  useEffect(() => {
-    if (isAdmin && users.length > 0 && !selectedUserId) {
-      setSelectedUserId(users[0].id);
-    }
-  }, [isAdmin, users, selectedUserId]);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
+
+  const filteredUsers = usersForShift(users, shiftFilter);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const list = usersForShift(users, shiftFilter);
+    if (list.length === 0) return;
+    if (!selectedUserId || !list.some((u) => u.id === selectedUserId)) {
+      setSelectedUserId(list[0].id);
+    }
+  }, [isAdmin, users, shiftFilter, selectedUserId]);
 
   async function reloadDetail() {
     const params = new URLSearchParams({ fromDate: appliedFrom, toDate: appliedTo });
@@ -332,6 +361,9 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
       try {
         if (isAdmin && adminTab === "summary") {
           const params = new URLSearchParams({ fromDate: appliedFrom, toDate: appliedTo });
+          if (shiftFilter === "day" || shiftFilter === "night") {
+            params.set("shiftKey", shiftFilter);
+          }
           const res = await fetch(`/api/attendance/summary?${params}`, { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error || "Failed to load summary");
@@ -368,9 +400,10 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, adminTab, selectedUserId, appliedFrom, appliedTo]);
+  }, [isAdmin, adminTab, selectedUserId, appliedFrom, appliedTo, shiftFilter]);
 
   function applyRange() {
+    if (!from || !to) return;
     setAppliedFrom(from);
     setAppliedTo(to);
   }
@@ -379,26 +412,52 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="min-w-[200px] flex-1">
-          <DateRangeFilter
-            preset={preset}
-            from={from}
-            to={to}
-            onChange={({ preset: p, from: f, to: t }) => {
-              setPreset(p);
-              setFrom(f);
-              setTo(t);
-            }}
-          />
+      <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-[200px] flex-1">
+            <DateRangeFilter
+              preset={preset}
+              from={from}
+              to={to}
+              onChange={({ preset: p, from: f, to: t }) => {
+                setPreset(p);
+                setFrom(f);
+                setTo(t);
+                if (p !== "custom" && f && t) {
+                  setAppliedFrom(f);
+                  setAppliedTo(t);
+                }
+              }}
+            />
+          </div>
+          {preset === "custom" ? (
+            <button
+              type="button"
+              onClick={applyRange}
+              className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Apply dates
+            </button>
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={applyRange}
-          className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
-        >
-          Apply
-        </button>
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Shift
+          </p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by shift">
+            {SHIFT_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setShiftFilter(option.id)}
+                className={shiftFilterButtonClass(shiftFilter === option.id)}
+                aria-pressed={shiftFilter === option.id}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {isAdmin ? (
@@ -442,6 +501,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
             <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
               <tr>
                 <th className={thClass}>User</th>
+                <th className={thClass}>Shift</th>
                 <th className={thClass}>100%</th>
                 <th className={thClass}>90%</th>
                 <th className={thClass}>Partial</th>
@@ -462,6 +522,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
                   }}
                 >
                   <td className={tdClass}>{row.username}</td>
+                  <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
                   <td className={tdClass}>{row.daysFullPoints}</td>
                   <td className={tdClass}>{row.daysTier90}</td>
                   <td className={tdClass}>{row.daysPartialPoints}</td>
@@ -484,7 +545,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
             onChange={(e) => setSelectedUserId(Number(e.target.value))}
             className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-950"
           >
-            {users.map((u) => (
+            {filteredUsers.map((u) => (
               <option key={u.id} value={u.id}>{u.username}</option>
             ))}
           </select>
