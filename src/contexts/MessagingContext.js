@@ -245,6 +245,50 @@ export function MessagingProvider({ children }) {
       }
     });
 
+    socket.on("message:updated", (payload) => {
+      const conversationId = Number(payload?.conversationId);
+      const message = payload?.message;
+      if (!Number.isInteger(conversationId) || conversationId <= 0 || !message) return;
+
+      window.dispatchEvent(
+        new CustomEvent("dialer:message:updated", {
+          detail: { conversationId, message, self: Boolean(payload?.self) },
+        }),
+      );
+
+      setConversations((prev) => {
+        const existing = prev.find((c) => Number(c.id) === conversationId);
+        if (!existing) return prev;
+        const isLast = Number(existing.lastMessage?.id) === Number(message.id);
+        if (!isLast) return prev;
+        const next = upsertConversation(prev, {
+          ...existing,
+          lastMessage: message,
+        });
+        return next;
+      });
+    });
+
+    socket.on("message:deleted", (payload) => {
+      const conversationId = Number(payload?.conversationId);
+      const messageId = Number(payload?.messageId);
+      if (!Number.isInteger(conversationId) || conversationId <= 0 || !messageId) return;
+
+      window.dispatchEvent(
+        new CustomEvent("dialer:message:deleted", {
+          detail: { conversationId, messageId, self: Boolean(payload?.self) },
+        }),
+      );
+
+      setConversations((prev) => {
+        const existing = prev.find((c) => Number(c.id) === conversationId);
+        if (!existing) return prev;
+        if (Number(existing.lastMessage?.id) !== messageId) return prev;
+        refreshInbox();
+        return prev;
+      });
+    });
+
     socket.on("presence:update", (payload) => {
       const userId = Number(payload?.userId);
       if (!Number.isInteger(userId) || userId <= 0) return;

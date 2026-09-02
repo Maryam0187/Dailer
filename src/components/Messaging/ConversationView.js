@@ -97,6 +97,107 @@ function CopyMessageButton({ text, mine }) {
   );
 }
 
+function actionButtonClass(mine) {
+  return mine
+    ? "text-sky-100/80 hover:bg-sky-500 hover:text-white"
+    : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
+}
+
+function EditMessageButton({ onClick, mine, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label="Edit message"
+      title="Edit message"
+      className={`inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${actionButtonClass(mine)}`}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+        <path d="m2.695 14.763-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343Z" />
+      </svg>
+    </button>
+  );
+}
+
+function DeleteMessageButton({ onClick, mine, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label="Delete message"
+      title="Delete message"
+      className={`inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${actionButtonClass(mine)}`}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+        <path
+          fillRule="evenodd"
+          d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z"
+          clipRule="evenodd"
+        />
+      </svg>
+    </button>
+  );
+}
+
+function DeleteMessageConfirmDialog({ preview, deleting, onConfirm, onCancel }) {
+  const trimmed = typeof preview === "string" ? preview.trim() : "";
+  const snippet =
+    trimmed.length > 120 ? `${trimmed.slice(0, 120).trimEnd()}…` : trimmed;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[60] bg-zinc-950/50 backdrop-blur-[2px]"
+        aria-label="Close dialog"
+        onClick={onCancel}
+      />
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-message-title"
+          className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-700">
+            <h3 id="delete-message-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Delete message?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              This cannot be undone. The message will be removed for everyone in this conversation.
+            </p>
+            {snippet ? (
+              <p className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                “{snippet}”
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={deleting}
+              className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={deleting}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function NewMessagesDivider({ count, onDismiss }) {
   if (!count || count <= 0) return null;
   return (
@@ -119,9 +220,12 @@ function NewMessagesDivider({ count, onDismiss }) {
 export default function ConversationView({
   conversation,
   currentUserId,
+  isAdmin = false,
   initialUnreadCount = 0,
   onBack = null,
   onMessageSent,
+  onMessageUpdated = null,
+  onMessageDeleted = null,
   onNewMessageCountChange = null,
   onExpandInbox = null,
   className = "",
@@ -134,6 +238,10 @@ export default function ConversationView({
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [attachmentUploadConfig, setAttachmentUploadConfig] = useState(null);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_DEFAULT_HEIGHT);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [moderating, setModerating] = useState(false);
+  const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState(null);
   // WhatsApp-style: show a divider before this message id
   const [dividerBeforeId, setDividerBeforeId] = useState(null);
   const [nearBottom, setNearBottom] = useState(true);
@@ -210,6 +318,9 @@ export default function ConversationView({
     setDraft(readMessageDraft(conversationId));
     setPendingAttachments([]);
     setNearBottomState(true);
+    setEditingMessageId(null);
+    setEditDraft("");
+    setPendingDeleteMessageId(null);
   }, [conversationId, initialUnreadCount]);
 
   useEffect(() => {
@@ -259,7 +370,11 @@ export default function ConversationView({
         return;
       }
       const rows = Array.isArray(data.messages) ? data.messages : [];
-      setMessages(rows);
+      setMessages(
+        isAdmin
+          ? rows
+          : rows.map((m) => ({ ...m, canEdit: false, canDelete: false })),
+      );
 
       const unread = unreadOnOpenRef.current;
       if (unread > 0 && rows.length > 0) {
@@ -280,7 +395,7 @@ export default function ConversationView({
     } finally {
       setLoading(false);
     }
-  }, [conversationId]);
+  }, [conversationId, isAdmin]);
 
   useEffect(() => {
     loadMessages();
@@ -306,7 +421,8 @@ export default function ConversationView({
 
       setMessages((prev) => {
         if (prev.some((m) => m.id === message.id)) return prev;
-        return [...prev, message];
+        const next = isAdmin ? message : { ...message, canEdit: false, canDelete: false };
+        return [...prev, next];
       });
 
       // Incoming message while this chat is open → WhatsApp-style new-messages line
@@ -320,7 +436,34 @@ export default function ConversationView({
     }
     window.addEventListener("dialer:message:new", onRealtime);
     return () => window.removeEventListener("dialer:message:new", onRealtime);
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, isAdmin]);
+
+  useEffect(() => {
+    function onUpdated(event) {
+      const detail = event.detail;
+      if (!detail || Number(detail.conversationId) !== Number(conversationId)) return;
+      const message = detail.message;
+      if (!message?.id) return;
+      const next = isAdmin ? message : { ...message, canEdit: false, canDelete: false };
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? next : m)));
+    }
+
+    function onDeleted(event) {
+      const detail = event.detail;
+      if (!detail || Number(detail.conversationId) !== Number(conversationId)) return;
+      const messageId = Number(detail.messageId);
+      if (!Number.isInteger(messageId) || messageId <= 0) return;
+      setMessages((prev) => prev.filter((m) => Number(m.id) !== messageId));
+      setEditingMessageId((current) => (Number(current) === messageId ? null : current));
+    }
+
+    window.addEventListener("dialer:message:updated", onUpdated);
+    window.addEventListener("dialer:message:deleted", onDeleted);
+    return () => {
+      window.removeEventListener("dialer:message:updated", onUpdated);
+      window.removeEventListener("dialer:message:deleted", onDeleted);
+    };
+  }, [conversationId, isAdmin]);
 
   const peerLabel = useMemo(
     () => conversation?.peer?.username || "Conversation",
@@ -476,6 +619,87 @@ export default function ConversationView({
     setPendingAttachments((prev) => prev.filter((item) => item.localKey !== localKey));
   }
 
+  function startEditMessage(message) {
+    setEditingMessageId(message.id);
+    setEditDraft(message.body || "");
+    setError(null);
+  }
+
+  function cancelEditMessage() {
+    setEditingMessageId(null);
+    setEditDraft("");
+  }
+
+  async function saveEditMessage(messageId) {
+    const body = editDraft.trim();
+    if (!body || moderating) return;
+
+    setModerating(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/messages/${messageId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to update message");
+        return;
+      }
+      if (data.message) {
+        setMessages((prev) => prev.map((m) => (m.id === data.message.id ? data.message : m)));
+        onMessageUpdated?.(data.message, conversation);
+      }
+      cancelEditMessage();
+    } catch {
+      setError("Failed to update message");
+    } finally {
+      setModerating(false);
+    }
+  }
+
+  function requestDeleteMessage(messageId) {
+    if (moderating) return;
+    setPendingDeleteMessageId(messageId);
+    setError(null);
+  }
+
+  function cancelDeleteMessage() {
+    if (moderating) return;
+    setPendingDeleteMessageId(null);
+  }
+
+  async function confirmDeleteMessage() {
+    const messageId = pendingDeleteMessageId;
+    if (!messageId || moderating) return;
+
+    setModerating(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/messages/${messageId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to delete message");
+        return;
+      }
+      setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(messageId)));
+      if (Number(editingMessageId) === Number(messageId)) {
+        cancelEditMessage();
+      }
+      setPendingDeleteMessageId(null);
+      onMessageDeleted?.(messageId, conversation);
+    } catch {
+      setError("Failed to delete message");
+    } finally {
+      setModerating(false);
+    }
+  }
+
   async function handleSend(event) {
     event.preventDefault();
     const body = draft.trim();
@@ -529,6 +753,11 @@ export default function ConversationView({
 
   const canSend = conversation.canSend !== false && !conversation.isOversight;
 
+  const pendingDeleteMessage = useMemo(() => {
+    if (pendingDeleteMessageId == null) return null;
+    return messages.find((m) => Number(m.id) === Number(pendingDeleteMessageId)) || null;
+  }, [messages, pendingDeleteMessageId]);
+
   return (
     <div className={`flex h-full min-h-0 flex-col bg-white dark:bg-zinc-950 ${className}`}>
       <div className="flex items-center gap-2 border-b border-zinc-200/80 bg-white/90 px-3 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
@@ -581,7 +810,7 @@ export default function ConversationView({
           </div>
           {conversation.isOversight ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Read-only view of this conversation
+              Admin oversight — edit or delete messages using the actions on each bubble
             </p>
           ) : (
             <div className="mt-0.5 flex items-center gap-2">
@@ -626,6 +855,9 @@ export default function ConversationView({
               const dayKey = messageDayKey(message.createdAt);
               const prevDayKey = index > 0 ? messageDayKey(messages[index - 1]?.createdAt) : null;
               const showDateSeparator = Boolean(dayKey) && dayKey !== prevDayKey;
+              const isEditing = Number(editingMessageId) === Number(message.id);
+              const showModeration =
+                isAdmin && (message.canEdit || message.canDelete);
               return (
                 <Fragment key={message.id}>
                   {showDateSeparator ? (
@@ -652,8 +884,49 @@ export default function ConversationView({
                           />
                         </p>
                       ) : null}
-                      {message.body ? (
+                      {message.body && !isEditing ? (
                         <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
+                      ) : null}
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editDraft}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            rows={3}
+                            className={`block w-full resize-y rounded-lg border px-2.5 py-2 text-sm outline-none focus:ring-2 ${
+                              mine
+                                ? "border-sky-400/50 bg-sky-700/40 text-white placeholder:text-sky-100/60 focus:ring-sky-300/40"
+                                : "border-zinc-300 bg-white text-zinc-900 focus:ring-sky-400/30 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
+                            }`}
+                            autoFocus
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={cancelEditMessage}
+                              disabled={moderating}
+                              className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                                mine
+                                  ? "text-sky-100 hover:bg-sky-500/60"
+                                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                              }`}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void saveEditMessage(message.id)}
+                              disabled={moderating || !editDraft.trim()}
+                              className={`rounded-md px-2 py-1 text-xs font-semibold disabled:opacity-40 ${
+                                mine
+                                  ? "bg-white/20 text-white hover:bg-white/30"
+                                  : "bg-sky-600 text-white hover:bg-sky-500"
+                              }`}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
                       ) : null}
                       <MessageAttachmentList
                         attachments={message.attachments}
@@ -666,8 +939,27 @@ export default function ConversationView({
                           }`}
                         >
                           {formatMessageClock(message.createdAt)}
+                          {message.editedAt ? " · edited" : ""}
                         </p>
-                        <CopyMessageButton text={message.body} mine={mine} />
+                        {!isEditing ? (
+                          <>
+                            <CopyMessageButton text={message.body} mine={mine} />
+                            {showModeration && message.canEdit && message.body?.trim() ? (
+                              <EditMessageButton
+                                onClick={() => startEditMessage(message)}
+                                mine={mine}
+                                disabled={moderating}
+                              />
+                            ) : null}
+                            {showModeration && message.canDelete ? (
+                              <DeleteMessageButton
+                                onClick={() => requestDeleteMessage(message.id)}
+                                mine={mine}
+                                disabled={moderating}
+                              />
+                            ) : null}
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -775,9 +1067,17 @@ export default function ConversationView({
         </form>
       ) : (
         <div className="border-t border-amber-200/70 bg-amber-50 px-3 py-3 text-center text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          Admin oversight — view only. You cannot send in this thread.
+          Admin oversight — you cannot send in this thread, but you can edit or delete messages.
         </div>
       )}
+      {pendingDeleteMessage ? (
+        <DeleteMessageConfirmDialog
+          preview={pendingDeleteMessage.body}
+          deleting={moderating}
+          onConfirm={() => void confirmDeleteMessage()}
+          onCancel={cancelDeleteMessage}
+        />
+      ) : null}
     </div>
   );
 }

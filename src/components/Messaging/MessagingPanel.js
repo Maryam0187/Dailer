@@ -28,6 +28,7 @@ function writeInboxCollapsed(collapsed) {
 
 export default function MessagingPanel({
   currentUserId,
+  isAdmin = false,
   mode = "slideover",
   onClose = null,
   hideMobileClose = false,
@@ -150,6 +151,24 @@ export default function MessagingPanel({
     });
   }
 
+  function handleMessageUpdated(message, conversation) {
+    if (!conversation?.id || !message) return;
+    mergeConversation({
+      ...conversation,
+      lastMessage:
+        Number(conversation.lastMessage?.id) === Number(message.id)
+          ? message
+          : conversation.lastMessage,
+    });
+  }
+
+  function handleMessageDeleted(messageId, conversation) {
+    if (!conversation?.id) return;
+    if (Number(conversation.lastMessage?.id) === Number(messageId)) {
+      refreshInbox();
+    }
+  }
+
   function handleBackToList() {
     setMobileShowThread(false);
     setShowCompose(false);
@@ -252,9 +271,12 @@ export default function MessagingPanel({
           <ConversationView
             conversation={activeConversation}
             currentUserId={currentUserId}
+            isAdmin={isAdmin}
             initialUnreadCount={initialUnreadCount}
             onBack={handleBackToList}
             onMessageSent={handleMessageSent}
+            onMessageUpdated={handleMessageUpdated}
+            onMessageDeleted={handleMessageDeleted}
             onNewMessageCountChange={setActiveNewCount}
             onExpandInbox={listCollapsed ? () => setCollapsed(false) : null}
             className="min-h-0 flex-1"
