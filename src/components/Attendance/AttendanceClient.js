@@ -1,12 +1,108 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import DateRangeFilter, { getPresetRange } from "@/components/DateRangeFilter";
 
 const tableClass = "min-w-full text-left text-sm";
 const thClass =
-  "px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
-const tdClass = "px-3 py-2 text-zinc-800 dark:text-zinc-200";
+  "px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 align-middle";
+const tdClass = "px-3 py-2 align-middle text-zinc-800 dark:text-zinc-200";
+const tdClassRight = `${tdClass} text-right tabular-nums whitespace-nowrap`;
+
+const TEXT_SORT_KEYS = new Set(["username", "shiftKey", "firstLoginDeviceLabel", "date"]);
+
+function compareAttendanceValue(a, b, key, dir) {
+  const mult = dir === "asc" ? 1 : -1;
+
+  if (key === "firstLoginAt" || key === "officeFingerprintAt") {
+    const av = a[key] ? new Date(a[key]).getTime() : null;
+    const bv = b[key] ? new Date(b[key]).getTime() : null;
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return mult * (av - bv);
+  }
+
+  if (key === "tierSort") {
+    const av = tierSortValue(a);
+    const bv = tierSortValue(b);
+    if (av !== bv) return mult * (av - bv);
+    return mult * String(a.date ?? "").localeCompare(String(b.date ?? ""));
+  }
+
+  if (TEXT_SORT_KEYS.has(key)) {
+    const av = String(a[key] ?? "").toLowerCase();
+    const bv = String(b[key] ?? "").toLowerCase();
+    return mult * av.localeCompare(bv);
+  }
+
+  const av = Number(a[key]) || 0;
+  const bv = Number(b[key]) || 0;
+  if (av !== bv) return mult * (av - bv);
+  return String(a.username ?? a.date ?? "").localeCompare(String(b.username ?? b.date ?? ""));
+}
+
+function sortAttendanceRows(rows, sortKey, sortDir) {
+  return [...rows].sort((a, b) => compareAttendanceValue(a, b, sortKey, sortDir));
+}
+
+function tierSortValue(day) {
+  if (day.status === "on_leave" || day.status === "exempt") return -3;
+  if (day.status === "absent") return -2;
+  return day.pointPercent ?? 0;
+}
+
+function useTableSort(defaultKey, defaultDir = "desc") {
+  const [sortKey, setSortKey] = useState(defaultKey);
+  const [sortDir, setSortDir] = useState(defaultDir);
+
+  function onSort(columnKey) {
+    if (sortKey === columnKey) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(columnKey);
+    setSortDir(TEXT_SORT_KEYS.has(columnKey) ? "asc" : "desc");
+  }
+
+  return { sortKey, sortDir, onSort };
+}
+
+function SortableHeader({ label, columnKey, sortKey, sortDir, onSort, align = "left", className = "" }) {
+  const active = sortKey === columnKey;
+  const isRight = align === "right";
+
+  return (
+    <th
+      className={`${thClass} ${isRight ? "text-right" : "text-left"} ${className}`}
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={`flex w-full items-center gap-1 whitespace-nowrap hover:text-zinc-800 dark:hover:text-zinc-200 ${
+          isRight ? "justify-end text-right tabular-nums" : "justify-start text-left"
+        } ${active ? "text-emerald-700 dark:text-emerald-400" : ""}`}
+      >
+        <span>{label}</span>
+        <span className="shrink-0 text-[10px] leading-none opacity-60" aria-hidden>
+          {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
+function StaticHeader({ label, align = "left", className = "" }) {
+  const isRight = align === "right";
+  return (
+    <th
+      className={`${thClass} ${isRight ? "text-right tabular-nums" : "text-left"} ${className}`}
+    >
+      {label}
+    </th>
+  );
+}
 
 const SHIFT_FILTER_OPTIONS = [
   { id: "all", label: "All shifts" },
@@ -226,6 +322,12 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
   const [expanded, setExpanded] = useState(null);
   const [loginCache, setLoginCache] = useState({});
   const [loginLoading, setLoginLoading] = useState(null);
+  const { sortKey, sortDir, onSort } = useTableSort("date", "desc");
+
+  const sortedDays = useMemo(
+    () => sortAttendanceRows(days, sortKey, sortDir),
+    [days, sortKey, sortDir],
+  );
 
   async function loadLoginsForDay(date) {
     if (loginCache[date]) return;
@@ -257,26 +359,26 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
       <table className={tableClass}>
         <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
           <tr>
-            <th className={thClass}>Date</th>
-            <th className={thClass}>First login</th>
-            <th className={thClass}>Device</th>
-            <th className={thClass}>Office fingerprint</th>
-            <th className={thClass}>Tier</th>
-            <th className={thClass}>Points</th>
-            <th className={thClass}>Logins</th>
+            <SortableHeader label="Date" columnKey="date" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableHeader label="Device" columnKey="firstLoginDeviceLabel" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <StaticHeader label="Office fingerprint" className="min-w-[11rem]" />
+            <SortableHeader label="Tier" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableHeader label="Points" columnKey="pointsEarned" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Logins" columnKey="loginCount" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {days.map((day) => (
+          {sortedDays.map((day) => (
             <Fragment key={day.date}>
               <tr
                 className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
                 onClick={() => void toggleDay(day.date)}
               >
                 <td className={tdClass}>{day.date}</td>
-                <td className={tdClass}>{formatTime(day.firstLoginAt)}</td>
+                <td className={`${tdClass} tabular-nums`}>{formatTime(day.firstLoginAt)}</td>
                 <td className={tdClass}>{formatDevice(day.firstLoginDeviceLabel)}</td>
-                <td className={tdClass}>
+                <td className={`${tdClass} min-w-[11rem]`}>
                   <OfficeFingerprintCell
                     day={day}
                     userId={userId}
@@ -285,8 +387,8 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
                   />
                 </td>
                 <td className={tdClass}>{tierBadge(day)}</td>
-                <td className={tdClass}>{day.pointsEarned ?? 0}</td>
-                <td className={tdClass}>{day.loginCount}</td>
+                <td className={tdClassRight}>{day.pointsEarned ?? 0}</td>
+                <td className={tdClassRight}>{day.loginCount}</td>
               </tr>
               {expanded === day.date ? (
                 <tr>
@@ -330,6 +432,15 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
+  const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
+    "daysAbsent",
+    "desc",
+  );
+
+  const sortedSummaryRows = useMemo(
+    () => sortAttendanceRows(summaryRows, summarySortKey, summarySortDir),
+    [summaryRows, summarySortKey, summarySortDir],
+  );
 
   const filteredUsers = usersForShift(users, shiftFilter);
 
@@ -500,20 +611,20 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
           <table className={tableClass}>
             <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
               <tr>
-                <th className={thClass}>User</th>
-                <th className={thClass}>Shift</th>
-                <th className={thClass}>First login</th>
-                <th className={thClass}>100%</th>
-                <th className={thClass}>90%</th>
-                <th className={thClass}>Partial</th>
-                <th className={thClass}>0%</th>
-                <th className={thClass}>Absent</th>
-                <th className={thClass}>Points</th>
-                <th className={thClass}>Streak</th>
+                <SortableHeader label="User" columnKey="username" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                <SortableHeader label="Shift" columnKey="shiftKey" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                <SortableHeader label="100%" columnKey="daysFullPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="90%" columnKey="daysTier90" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="Partial" columnKey="daysPartialPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="0%" columnKey="daysZeroPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="Points" columnKey="totalPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                <SortableHeader label="Streak" columnKey="currentStreak" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {summaryRows.map((row) => (
+              {sortedSummaryRows.map((row) => (
                 <tr
                   key={row.userId}
                   className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
@@ -524,14 +635,14 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
                 >
                   <td className={tdClass}>{row.username}</td>
                   <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
-                  <td className={tdClass}>{formatTime(row.firstLoginAt)}</td>
-                  <td className={tdClass}>{row.daysFullPoints}</td>
-                  <td className={tdClass}>{row.daysTier90}</td>
-                  <td className={tdClass}>{row.daysPartialPoints}</td>
-                  <td className={tdClass}>{row.daysZeroPoints}</td>
-                  <td className={tdClass}>{row.daysAbsent}</td>
-                  <td className={tdClass}>{row.totalPoints}</td>
-                  <td className={tdClass}>{row.currentStreak}</td>
+                  <td className={`${tdClass} tabular-nums`}>{formatTime(row.firstLoginAt)}</td>
+                  <td className={tdClassRight}>{row.daysFullPoints}</td>
+                  <td className={tdClassRight}>{row.daysTier90}</td>
+                  <td className={tdClassRight}>{row.daysPartialPoints}</td>
+                  <td className={tdClassRight}>{row.daysZeroPoints}</td>
+                  <td className={tdClassRight}>{row.daysAbsent}</td>
+                  <td className={tdClassRight}>{row.totalPoints}</td>
+                  <td className={tdClassRight}>{row.currentStreak}</td>
                 </tr>
               ))}
             </tbody>
