@@ -153,6 +153,8 @@ function summarizeDays(days) {
     else daysPartialPoints += 1;
   }
 
+  const anchorDay = days.length > 0 ? days[days.length - 1] : null;
+
   return {
     daysFullPoints,
     daysTier90,
@@ -163,6 +165,8 @@ function summarizeDays(days) {
     daysExempt,
     totalLogins,
     daysOnTime: daysFullPoints + daysTier90,
+    firstLoginAt: anchorDay?.firstLoginAt ?? null,
+    firstLoginDeviceLabel: anchorDay?.firstLoginDeviceLabel ?? null,
   };
 }
 

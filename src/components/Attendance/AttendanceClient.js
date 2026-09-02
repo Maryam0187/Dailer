@@ -502,6 +502,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
               <tr>
                 <th className={thClass}>User</th>
                 <th className={thClass}>Shift</th>
+                <th className={thClass}>First login</th>
                 <th className={thClass}>100%</th>
                 <th className={thClass}>90%</th>
                 <th className={thClass}>Partial</th>
@@ -523,6 +524,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
                 >
                   <td className={tdClass}>{row.username}</td>
                   <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
+                  <td className={tdClass}>{formatTime(row.firstLoginAt)}</td>
                   <td className={tdClass}>{row.daysFullPoints}</td>
                   <td className={tdClass}>{row.daysTier90}</td>
                   <td className={tdClass}>{row.daysPartialPoints}</td>
