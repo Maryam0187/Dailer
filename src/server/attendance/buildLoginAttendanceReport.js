@@ -280,7 +280,10 @@ async function resolveUserIds(userIds, allActiveUsers) {
   if (!allActiveUsers) return [];
 
   const rows = await db.User.findAll({
-    where: { isActive: { [Op.ne]: false } },
+    where: {
+      isActive: { [Op.ne]: false },
+      isOutside: { [Op.ne]: true },
+    },
     attributes: ["id"],
     order: [["username", "ASC"]],
   });
@@ -417,7 +420,11 @@ export async function buildLoginAttendanceReport(userIds, fromDate, toDate, opti
   }
 
   const users = await db.User.findAll({
-    where: { id: { [Op.in]: ids }, isActive: { [Op.ne]: false } },
+    where: {
+      id: { [Op.in]: ids },
+      isActive: { [Op.ne]: false },
+      isOutside: { [Op.ne]: true },
+    },
     attributes: ["id", "username", "role", "shiftKey", "isOutside"],
   });
 

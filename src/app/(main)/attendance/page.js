@@ -10,7 +10,10 @@ export default async function AttendancePage() {
   if (authedUser.role !== "admin") redirect("/");
 
   const rows = await db.User.findAll({
-    where: { isActive: { [Op.ne]: false } },
+    where: {
+      isActive: { [Op.ne]: false },
+      isOutside: { [Op.ne]: true },
+    },
     attributes: ["id", "username", "shiftKey"],
     order: [["username", "ASC"]],
   });
