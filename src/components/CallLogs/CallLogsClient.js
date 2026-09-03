@@ -5,6 +5,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { formatDuration } from "@/lib/formatDuration";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 
 const inputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -57,6 +58,7 @@ function isInProgressCallStatus(status) {
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
   const isAdmin = userRole === "admin";
   const { session, beginSession } = useActiveCall();
+  const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
     registered,
@@ -73,6 +75,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [callingId, setCallingId] = useState(null);
+  const [callingLine2Id, setCallingLine2Id] = useState(null);
   const [endingCallId, setEndingCallId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState(null);
@@ -95,6 +98,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
   /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. */
   const [logAudience, setLogAudience] = useState("mine");
+  /** `all` | `1` | `2` — Line 1 / Line 2 outbound. Default all so current list is unchanged. */
+  const [lineFilter, setLineFilter] = useState("all");
 
   const loadCalls = useCallback(
     async ({
@@ -105,12 +110,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       toDate,
       scope: scopeOverride,
       audience: audienceOverride,
+      line: lineOverride,
     } = {}) => {
     const resolvedPage = targetPage ?? page;
     const resolvedFromDate = fromDate ?? appliedFrom;
     const resolvedToDate = toDate ?? appliedTo;
     const resolvedScope = scopeOverride ?? listScope;
     const resolvedAudience = audienceOverride ?? logAudience;
+    const resolvedLine = lineOverride ?? lineFilter;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -134,6 +141,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
       if (isAdmin && resolvedAudience === "all") {
         qs.set("view", "all");
+      }
+      if (resolvedLine === "1" || resolvedLine === "2") {
+        qs.set("dialerIndex", resolvedLine);
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -159,10 +169,43 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, appliedFrom, appliedTo, listScope, logAudience, isAdmin],
+    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, isAdmin],
   );
 
   async function redial(call) {
+    const useLine2 = Number(call.dialerIndex) === 2;
+    if (useLine2) {
+      if (line2Session) return;
+      if (!canUseDialer2) {
+        setError("Second dialer is not enabled for this account");
+        return;
+      }
+      const id = call.id;
+      const toNumber = call.toNumber;
+      setError(null);
+      setCallingLine2Id(id);
+      try {
+        await placeLine2Call({
+          leadId: call.leadId || undefined,
+          toNumber: call.leadId ? undefined : toNumber,
+          phoneLabel: toNumber,
+          customerName: call.leadName || call.contactName || undefined,
+          callKind: call.callKind || (call.leadId ? "lead" : null),
+          extra: {
+            city: call.city || undefined,
+            state: call.state || undefined,
+            zipCode: call.zipCode || undefined,
+          },
+        });
+        await loadCalls({ silent: true, targetPage: page, fromDate: appliedFrom, toDate: appliedTo });
+      } catch (e) {
+        setError(e.message || "Failed to place Line 2 call");
+      } finally {
+        setCallingLine2Id(null);
+      }
+      return;
+    }
+
     if (session) return;
     const id = call.id;
     const toNumber = call.toNumber;
@@ -472,7 +515,40 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   ? "Lead = agent-first follow-ups placed from Leads."
                   : listScope === "conference"
                       ? "Conference list includes calls where another agent was invited via “Add agent”."
-                      : "Filter by call type or date range."}
+                      : "Filter by call type, dialer line, or date range."}
+            </p>
+          </div>
+          <div className="mb-3">
+            <label className={labelClass}>Dialer line</label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "all", label: "All lines" },
+                { id: "1", label: "Line 1" },
+                { id: "2", label: "Line 2" },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    setLineFilter(opt.id);
+                    setPage(1);
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    lineFilter === opt.id
+                      ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              {lineFilter === "2"
+                ? "Only outbound calls placed on Line 2 (second number)."
+                : lineFilter === "1"
+                  ? "Only outbound calls placed on Line 1 (current number)."
+                  : "Shows both Line 1 and Line 2. Choose a line to search that dialer only."}
             </p>
           </div>
           <div className="mb-3">
@@ -560,9 +636,13 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 ? logAudience === "all"
                   ? "No conference calls in this range."
                   : "No conference calls in this range (no agent invites on record)."
-                : logAudience === "all"
-                  ? "No calls in this range."
-                  : "No calls yet."}
+                : lineFilter === "2"
+                  ? "No Line 2 calls in this range."
+                  : lineFilter === "1"
+                    ? "No Line 1 calls in this range."
+                    : logAudience === "all"
+                      ? "No calls in this range."
+                      : "No calls yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -570,6 +650,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               <thead>
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
+                  <th className="py-2 pr-3">Line</th>
                   <th className="py-2 pr-3">Agent</th>
                   {listScope === "conference" ? (
                     <th className="py-2 pr-3">Invited</th>
@@ -594,6 +675,17 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   <tr key={c.id} className="border-b border-zinc-100 dark:border-zinc-800">
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {new Date(c.createdAt).toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          Number(c.dialerIndex) === 2
+                            ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                            : "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200"
+                        }`}
+                      >
+                        {Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
+                      </span>
                     </td>
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
@@ -650,24 +742,41 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                             {endingCallId === c.id ? "Ending..." : "End"}
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => redial(c)}
-                          disabled={callingId === c.id || Boolean(session) || !canStartCall}
-                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
-                        >
-                          {session
-                            ? "Call in progress"
-                            : isPrimaryTab === false
-                              ? "Active in other tab"
-                              : voiceDisplaced
-                                ? "Use this tab"
-                                : !canStartCall
-                                  ? "Voice Not Ready"
-                                  : callingId === c.id
-                                    ? "Calling..."
-                                    : "Call"}
-                        </button>
+                        {(() => {
+                          const isLine2 = Number(c.dialerIndex) === 2;
+                          const isCalling = isLine2 ? callingLine2Id === c.id : callingId === c.id;
+                          const lineBusy = isLine2 ? Boolean(line2Session) : Boolean(session);
+                          const voiceReady = isLine2 ? canStartLine2 : canStartCall;
+                          const blockedNoLine2 = isLine2 && !canUseDialer2;
+                          const disabled =
+                            isCalling || lineBusy || isPrimaryTab === false || blockedNoLine2 || !voiceReady;
+                          let label = "Call";
+                          if (isCalling) label = "Calling...";
+                          else if (lineBusy) label = "Call in progress";
+                          else if (isPrimaryTab === false) label = "Active in other tab";
+                          else if (blockedNoLine2) label = "Line 2 disabled";
+                          else if (!isLine2 && voiceDisplaced) label = "Use this tab";
+                          else if (!voiceReady) label = "Voice Not Ready";
+                          return (
+                            <button
+                              type="button"
+                              title={
+                                isLine2
+                                  ? "Redial on Line 2 (same line as this call)"
+                                  : "Redial on Line 1 (same line as this call)"
+                              }
+                              onClick={() => redial(c)}
+                              disabled={disabled}
+                              className={`rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-50 ${
+                                isLine2
+                                  ? "border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-950/60"
+                                  : "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>

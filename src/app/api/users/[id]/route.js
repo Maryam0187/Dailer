@@ -45,6 +45,7 @@ export async function GET(_req, { params }) {
       "activeSessionLastSeenAt",
       "totpEnabled",
       "totpEnabledAt",
+      "canUseDialer2",
     ],
     include: [
       {
@@ -101,6 +102,7 @@ export async function GET(_req, { params }) {
       lastActiveAt: presence.lastActiveAt,
       totpEnabled: authedUser.role === "admin" ? target.totpEnabled === true : undefined,
       totpEnabledAt: authedUser.role === "admin" ? target.totpEnabledAt ?? null : undefined,
+      canUseDialer2: authedUser.role === "admin" ? Boolean(target.canUseDialer2) : undefined,
     },
   });
 }
@@ -239,6 +241,10 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.isOutside !== undefined) {
     updates.isOutside = effectiveRole === "admin" ? false : Boolean(body.isOutside);
+  }
+
+  if (isAdmin && body.canUseDialer2 !== undefined) {
+    updates.canUseDialer2 = Boolean(body.canUseDialer2);
   }
 
   const globalGrantDuration = isAdmin ? await getDefaultGrantDurationMinutes() : null;
@@ -423,6 +429,7 @@ export async function PATCH(req, { params }) {
       "afterShiftGrantDurationMinutes",
       "totpEnabled",
       "totpEnabledAt",
+      "canUseDialer2",
     ],
     include: [
       {

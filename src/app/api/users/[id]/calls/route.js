@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canViewTargetCalls } from "@/server/auth/userAccess";
+import { applyDialerIndexToWhere, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -46,6 +47,7 @@ export async function GET(req, { params }) {
     searchParams.get("hasRecording") === "1";
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const conferenceOnly = scope === "conference";
+  const dialerIndexFilter = parseDialerIndexFilter(searchParams.get("dialerIndex"));
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json(
@@ -114,6 +116,7 @@ export async function GET(req, { params }) {
   if (hasRecording) {
     where.recordingSid = { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: "" }] };
   }
+  where = applyDialerIndexToWhere(where, dialerIndexFilter);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,
@@ -135,6 +138,7 @@ export async function GET(req, { params }) {
       "recordingSid",
       "recordingStatus",
       "recordingDurationSeconds",
+      "dialerIndex",
       "createdAt",
     ],
   });
@@ -186,6 +190,7 @@ export async function GET(req, { params }) {
           ? `/api/calls/recording/download/${call.id}`
           : null,
         createdAt: call.createdAt,
+        dialerIndex: Number(call.dialerIndex) === 2 ? 2 : 1,
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),

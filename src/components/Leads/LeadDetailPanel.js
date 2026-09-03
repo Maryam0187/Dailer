@@ -202,6 +202,10 @@ export default function LeadDetailPanel({
   calling,
   canCall,
   hasActiveCall,
+  onCallLeadLine2,
+  callingLine2,
+  canCallLine2,
+  hasActiveLine2Call,
   phonesRedacted = false,
   workflowTagLookup = {},
   preferShortLabels = true,
@@ -630,6 +634,25 @@ export default function LeadDetailPanel({
                 }
                 onClick={async () => {
                   await onCallLead?.(lead);
+                  await loadCalls();
+                }}
+              >
+                <CallIcon />
+              </IconTooltipButton>
+            ) : null}
+            {!phonesRedacted && onCallLeadLine2 ? (
+              <IconTooltipButton
+                title={callingLine2 ? "Calling Line 2…" : "Call Line 2"}
+                variant="accent"
+                disabled={
+                  callingLine2 ||
+                  !canCallLine2 ||
+                  hasActiveLine2Call ||
+                  lead.status === "dnc" ||
+                  lead.leadPhase === "cancelled"
+                }
+                onClick={async () => {
+                  await onCallLeadLine2?.(lead);
                   await loadCalls();
                 }}
               >

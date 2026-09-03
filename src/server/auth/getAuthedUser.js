@@ -184,6 +184,7 @@ async function resolveAuthedUser() {
       afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,
       shiftKey: user.shiftKey === "night" ? "night" : "day",
       sessionPurpose: "full",
+      canUseDialer2: Boolean(user.canUseDialer2),
     },
     logoutReason: null,
   };

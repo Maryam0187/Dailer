@@ -2,8 +2,12 @@
 
 import { ActiveCallProvider } from "@/contexts/ActiveCallContext";
 import { TwilioVoiceProvider } from "@/contexts/TwilioVoiceContext";
+import { Line2CallProvider } from "@/contexts/Line2CallContext";
+import { TwilioVoiceLine2Provider } from "@/contexts/TwilioVoiceLine2Context";
+import { DialerCapabilitiesProvider } from "@/contexts/DialerCapabilitiesContext";
 import { MessagingProvider } from "@/contexts/MessagingContext";
 import GlobalWebCallInterface from "@/components/Dialer/GlobalWebCallInterface";
+import Line2CallInterface from "@/components/Dialer/Line2CallInterface";
 import MessagingSlideOver from "@/components/Messaging/MessagingSlideOver";
 import IvrStaffAlert from "@/components/layout/IvrStaffAlert";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
@@ -15,6 +19,7 @@ export default function MainAppShell({
   currentUserId = null,
   userRole = null,
   isOutside = false,
+  canUseDialer2 = false,
 }) {
   const outsideManager = userRole === "manager" && isOutside;
 
@@ -28,18 +33,29 @@ export default function MainAppShell({
       )}
       {outsideManager ? null : <IvrStaffAlert userRole={userRole} />}
       {outsideManager ? null : <GlobalWebCallInterface />}
+      {outsideManager ? null : <Line2CallInterface />}
     </ThemeProvider>
   );
 
   if (outsideManager) {
-    return <ActiveCallProvider>{inner}</ActiveCallProvider>;
+    return (
+      <DialerCapabilitiesProvider canUseDialer2={false}>
+        <ActiveCallProvider>{inner}</ActiveCallProvider>
+      </DialerCapabilitiesProvider>
+    );
   }
 
   return (
-    <ActiveCallProvider>
-      <TwilioVoiceProvider>
-        <MessagingProvider>{inner}</MessagingProvider>
-      </TwilioVoiceProvider>
-    </ActiveCallProvider>
+    <DialerCapabilitiesProvider canUseDialer2={canUseDialer2}>
+      <ActiveCallProvider>
+        <TwilioVoiceProvider>
+          <Line2CallProvider>
+            <TwilioVoiceLine2Provider>
+              <MessagingProvider>{inner}</MessagingProvider>
+            </TwilioVoiceLine2Provider>
+          </Line2CallProvider>
+        </TwilioVoiceProvider>
+      </ActiveCallProvider>
+    </DialerCapabilitiesProvider>
   );
 }

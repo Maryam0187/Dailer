@@ -121,6 +121,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(64),
         allowNull: true,
       },
+      /** 1 = current outbound line; 2 = sidecar second dialer. */
+      dialerIndex: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1,
+      },
     },
     {
       tableName: "CallLogs",

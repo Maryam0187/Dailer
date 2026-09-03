@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
+  const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
     registered,
@@ -22,9 +24,12 @@ export default function QuickDialPanel() {
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
   const [loading, setLoading] = useState(false);
+  const [loadingLine2, setLoadingLine2] = useState(false);
   const [error, setError] = useState(null);
 
   const hasActiveCall = Boolean(session);
+  const hasActiveLine2Call = Boolean(line2Session);
+  const phoneBusy = hasActiveCall && (!canUseDialer2 || hasActiveLine2Call);
   // Only the primary tab in this browser may place calls. Secondary tabs are
   // hard-disabled here; the takeover affordance lives in the banner.
   const canStartCall =
@@ -35,6 +40,13 @@ export default function QuickDialPanel() {
     !loading &&
     !hasActiveCall &&
     canStartCall;
+
+  const canPlaceLine2Call =
+    Boolean(phone.trim()) &&
+    validation.isValid &&
+    !loadingLine2 &&
+    !hasActiveLine2Call &&
+    canStartLine2;
 
   function onPhoneChange(e) {
     const v = e.target.value.replace(/[^\d*#+\-() ]/g, "");
@@ -59,6 +71,29 @@ export default function QuickDialPanel() {
     e.preventDefault();
     if (!canPlaceCall) return;
     void onCall();
+  }
+
+  async function onCallLine2() {
+    const v = validatePhone(phone);
+    setValidation(v);
+    if (!v.isValid || hasActiveLine2Call) return;
+    const toDigits = digitsOnly(phone);
+    setLoadingLine2(true);
+    setError(null);
+    try {
+      await placeLine2Call({
+        toNumber: toDigits,
+        phoneLabel: phone.trim() || formatLandline(toDigits),
+        customerName: name.trim() || undefined,
+      });
+      setPhone("");
+      setName("");
+      setValidation({ isValid: true, message: "" });
+    } catch (e) {
+      setError(e.message || "Line 2 dial failed");
+    } finally {
+      setLoadingLine2(false);
+    }
   }
 
   async function onCall() {
@@ -146,7 +181,7 @@ export default function QuickDialPanel() {
                   onPaste={onPhonePaste}
                   onKeyDown={onPhoneKeyDown}
                   placeholder="123-456-7890"
-                  disabled={hasActiveCall}
+                  disabled={phoneBusy}
                   maxLength={12}
                   className={`${phoneInputBase} ${
                     validation.isValid
@@ -177,7 +212,7 @@ export default function QuickDialPanel() {
                   </svg>
                 )}
                 {hasActiveCall
-                  ? "In call"
+                  ? "Line 1 in call"
                   : isPrimaryTab === false
                     ? "Active in other tab"
                     : voiceDisplaced
@@ -188,6 +223,26 @@ export default function QuickDialPanel() {
                           ? "Dialing..."
                           : "Start Call"}
               </button>
+              {canUseDialer2 ? (
+                <button
+                  type="button"
+                  onClick={onCallLine2}
+                  disabled={!canPlaceLine2Call}
+                  className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-6 text-base font-semibold text-white shadow-lg shadow-violet-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-violet-600 hover:to-fuchsia-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
+                >
+                  {loadingLine2 ? (
+                    <span
+                      className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {hasActiveLine2Call
+                    ? "Line 2 in call"
+                    : loadingLine2
+                      ? "Dialing Line 2..."
+                      : "Call Line 2"}
+                </button>
+              ) : null}
             </div>
             <div className="mt-2 min-h-[1.25rem]">
               {validation.message ? (

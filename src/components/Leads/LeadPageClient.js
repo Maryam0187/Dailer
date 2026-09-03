@@ -6,6 +6,7 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
+import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import {
   ADMIN_SHORT_LABELS_STORAGE_KEY,
   buildWorkflowTagLookup,
@@ -20,6 +21,7 @@ function formatLeadName(lead) {
 
 export default function LeadPageClient({ leadId, userRole, currentUserId = null }) {
   const { session, beginSession } = useActiveCall();
+  const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
     registered,
@@ -33,6 +35,7 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [callingId, setCallingId] = useState(null);
+  const [callingLine2Id, setCallingLine2Id] = useState(null);
   const [editing, setEditing] = useState(false);
   const [workflowTags, setWorkflowTags] = useState([]);
   const [adminShortLabels, setAdminShortLabels] = useState(() => {
@@ -126,6 +129,24 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
     }
   }
 
+  async function onCallLeadLine2(target) {
+    if (phonesRedacted || line2Session || target.status === "dnc" || target.leadPhase === "cancelled") return;
+    setCallingLine2Id(target.id);
+    setError(null);
+    try {
+      await placeLine2Call({
+        leadId: target.id,
+        phoneLabel: formatLeadPhoneDisplay(target.phone, phonesRedacted || target.phonesRedacted),
+        customerName: formatLeadName(target),
+        callKind: "lead",
+      });
+    } catch (e) {
+      setError(e.message || "Line 2 call failed");
+    } finally {
+      setCallingLine2Id(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-5 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400">
@@ -161,10 +182,14 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
         onLeadUpdated={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
         onEdit={() => setEditing(true)}
         onCallLead={phonesRedacted ? undefined : onCallLead}
+        onCallLeadLine2={phonesRedacted || !canUseDialer2 ? undefined : onCallLeadLine2}
         phonesRedacted={phonesRedacted || lead.phonesRedacted}
         calling={callingId === lead.id}
+        callingLine2={callingLine2Id === lead.id}
         canCall={canStartCall}
+        canCallLine2={canStartLine2}
         hasActiveCall={Boolean(session)}
+        hasActiveLine2Call={Boolean(line2Session)}
         workflowTagLookup={workflowTagLookup}
         preferShortLabels={preferShortLabels}
         canAssignLead={isAdmin}

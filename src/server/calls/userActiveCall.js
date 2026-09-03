@@ -88,6 +88,20 @@ async function isInviteLegActiveForUser(leg) {
   return false;
 }
 
+export async function userHasActiveOwnedCallOnDialer(userId, dialerIndex) {
+  if (!userId) return false;
+  const index = Number(dialerIndex) === 2 ? 2 : 1;
+  const owned = await db.CallLog.findOne({
+    where: {
+      userId,
+      dialerIndex: index,
+      status: { [Op.in]: ACTIVE_CALL_STATUSES },
+    },
+  });
+  if (!owned) return false;
+  return isOwnedCallActiveForUser(owned);
+}
+
 export async function userHasActiveCall(userId) {
   if (!userId) return false;
 
