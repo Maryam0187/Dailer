@@ -94,6 +94,27 @@ export default function MessageOversightClient({ currentUserId }) {
     setMobileShowThread(true);
   }
 
+  function handleMessageUpdated(message, conversation) {
+    if (!conversation?.id || !message) return;
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (Number(c.id) !== Number(conversation.id)) return c;
+        return {
+          ...c,
+          lastMessage:
+            Number(c.lastMessage?.id) === Number(message.id) ? message : c.lastMessage,
+        };
+      }),
+    );
+  }
+
+  function handleMessageDeleted(messageId, conversation) {
+    if (!conversation?.id) return;
+    if (Number(conversation.lastMessage?.id) === Number(messageId)) {
+      void load();
+    }
+  }
+
   return (
     <div className="flex h-[min(75vh,760px)] min-h-0 overflow-hidden rounded-2xl border border-amber-200/80 bg-white shadow-sm shadow-amber-950/5 dark:border-amber-900/40 dark:bg-zinc-950 dark:shadow-none">
       <div
@@ -230,10 +251,13 @@ export default function MessageOversightClient({ currentUserId }) {
           <ConversationView
             conversation={active}
             currentUserId={currentUserId}
+            isAdmin
             onBack={() => {
               setMobileShowThread(false);
               setActiveId(null);
             }}
+            onMessageUpdated={handleMessageUpdated}
+            onMessageDeleted={handleMessageDeleted}
             className="min-h-0 flex-1"
           />
         ) : (
@@ -242,7 +266,7 @@ export default function MessageOversightClient({ currentUserId }) {
               Select a conversation to review
             </p>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Read-only oversight of teammate DMs
+              Review teammate DMs — edit or delete messages as needed
             </p>
           </div>
         )}

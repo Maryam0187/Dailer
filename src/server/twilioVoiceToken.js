@@ -28,6 +28,11 @@ export function getAgentClientIdentity(userId, username) {
   return `${id}-${name}`;
 }
 
+/** Second outbound Device identity. Must not match Line 1. */
+export function getAgentClientIdentityLine2(userId, username) {
+  return `${getAgentClientIdentity(userId, username)}-2`;
+}
+
 export function isTwilioBrowserAgentConfigured() {
   return Boolean(
     process.env.TWILIO_ACCOUNT_SID &&

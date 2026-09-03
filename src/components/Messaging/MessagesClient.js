@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMessaging } from "@/contexts/MessagingContext";
 import MessagingPanel from "@/components/Messaging/MessagingPanel";
 
-export default function MessagesClient({ currentUserId }) {
+export default function MessagesClient({ currentUserId, isAdmin = false }) {
   const searchParams = useSearchParams();
   const { setActiveConversationId, setComposeRecipientId } = useMessaging();
 
@@ -21,6 +21,7 @@ export default function MessagesClient({ currentUserId }) {
   return (
     <MessagingPanel
       currentUserId={currentUserId}
+      isAdmin={isAdmin}
       mode="page"
       className="shadow-sm"
     />

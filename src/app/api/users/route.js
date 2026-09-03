@@ -25,6 +25,7 @@ const LIST_ATTRIBUTES = [
   "activeSessionLastSeenAt",
   "totpEnabled",
   "totpEnabledAt",
+  "canUseDialer2",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -78,6 +79,7 @@ function serializeUserRow(
           afterShiftGrantDurationMinutes: row.afterShiftGrantDurationMinutes ?? null,
           totpEnabled: row.totpEnabled === true,
           totpEnabledAt: row.totpEnabledAt ?? null,
+          canUseDialer2: Boolean(row.canUseDialer2),
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),

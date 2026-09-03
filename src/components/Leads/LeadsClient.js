@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import {
@@ -247,6 +248,7 @@ export default function LeadsClient({
   isOutside = false,
 }) {
   const { session, beginSession } = useActiveCall();
+  const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
     registered,
@@ -261,6 +263,7 @@ export default function LeadsClient({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [callingId, setCallingId] = useState(null);
+  const [callingLine2Id, setCallingLine2Id] = useState(null);
   const [showForm, setShowForm] = useState(initialShowForm);
   const [saving, setSaving] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
@@ -746,6 +749,24 @@ export default function LeadsClient({
       setError(e.message || "Call failed");
     } finally {
       setCallingId(null);
+    }
+  }
+
+  async function onCallLeadLine2(lead) {
+    if (phonesRedacted || line2Session || lead.status === "dnc" || lead.leadPhase === "cancelled") return;
+    setCallingLine2Id(lead.id);
+    setError(null);
+    try {
+      await placeLine2Call({
+        leadId: lead.id,
+        phoneLabel: formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted),
+        customerName: formatLeadName(lead),
+        callKind: "lead",
+      });
+    } catch (e) {
+      setError(e.message || "Line 2 call failed");
+    } finally {
+      setCallingLine2Id(null);
     }
   }
 
@@ -1688,6 +1709,21 @@ export default function LeadsClient({
                           <CallIcon />
                         </IconTooltipButton>
                       ) : null}
+                      {!phonesRedacted && canUseDialer2 ? (
+                        <IconTooltipButton
+                          title={callingLine2Id === lead.id ? "Calling Line 2…" : "Call Line 2"}
+                          variant="accent"
+                          disabled={
+                            Boolean(line2Session) ||
+                            callingLine2Id === lead.id ||
+                            !canStartLine2 ||
+                            lead.status === "dnc" || lead.leadPhase === "cancelled"
+                          }
+                          onClick={() => void onCallLeadLine2(lead)}
+                        >
+                          <CallIcon />
+                        </IconTooltipButton>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1705,10 +1741,14 @@ export default function LeadsClient({
           onLeadUpdated={handleLeadUpdated}
           onEdit={() => setEditingLeadId(selectedLead.id)}
           onCallLead={phonesRedacted ? undefined : onCallLead}
+          onCallLeadLine2={phonesRedacted || !canUseDialer2 ? undefined : onCallLeadLine2}
           phonesRedacted={phonesRedacted || selectedLead.phonesRedacted}
           calling={callingId === selectedLead.id}
+          callingLine2={callingLine2Id === selectedLead.id}
           canCall={canStartCall}
+          canCallLine2={canStartLine2}
           hasActiveCall={Boolean(session)}
+          hasActiveLine2Call={Boolean(line2Session)}
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
           canAssignLead={isAdmin}

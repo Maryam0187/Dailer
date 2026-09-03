@@ -97,6 +97,7 @@ export default function MessagingSlideOver({ currentUserId, userRole = null }) {
         <div className="min-h-0 flex-1">
           <MessagingPanel
             currentUserId={currentUserId}
+            isAdmin={userRole === "admin"}
             mode="slideover"
             onClose={closeInbox}
             hideMobileClose

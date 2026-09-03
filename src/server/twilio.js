@@ -34,6 +34,15 @@ export function getTwilioFromNumber(fallback) {
   );
 }
 
+/** Sidecar Line 2 caller ID. Does not fall back to Line 1. */
+export function getTwilioLine2FromNumber() {
+  const value = String(process.env.TWILIO_PHONE_NUMBER_2 || "").trim();
+  if (!value) {
+    throw new Error("TWILIO_PHONE_NUMBER_2 is required for the second dialer.");
+  }
+  return value;
+}
+
 function getWebhookBaseUrl(fallbackBaseUrl) {
   const baseUrl =
     process.env.TWILIO_WEBHOOK_BASE_URL ||

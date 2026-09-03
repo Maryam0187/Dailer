@@ -28,6 +28,7 @@ export default async function MainLayout({ children }) {
       currentUserId={authedUser.id}
       userRole={authedUser.role}
       isOutside={Boolean(authedUser.isOutside)}
+      canUseDialer2={Boolean(authedUser.canUseDialer2)}
     >
       <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
         <Navbar

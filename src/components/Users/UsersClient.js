@@ -369,15 +369,27 @@ const callsDateInputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
 
 function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, downloadingId }) {
+  const isLine2 = Number(call.dialerIndex) === 2;
   return (
     <article className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-950/40">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-zinc-700 dark:text-zinc-200">
           {new Date(call.createdAt).toLocaleString()}
         </p>
-        <span className="shrink-0 rounded-full bg-zinc-200/80 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-          {call.status || "—"}
-        </span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              isLine2
+                ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                : "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200"
+            }`}
+          >
+            {isLine2 ? "Line 2" : "Line 1"}
+          </span>
+          <span className="rounded-full bg-zinc-200/80 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+            {call.status || "—"}
+          </span>
+        </div>
       </div>
       <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100">{call.toNumber || "—"}</p>
       {showConferenceColumn ? (
@@ -679,6 +691,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   });
   const [page, setPage] = useState(1);
   const [callsFilter, setCallsFilter] = useState("all");
+  const [callsLineFilter, setCallsLineFilter] = useState("all");
   const [rangePreset, setRangePreset] = useState("today");
   const initialRange = getPresetRange("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
@@ -713,7 +726,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
       filter = callsFilter,
       fromDate = appliedFrom,
       toDate = appliedTo,
-      { silent = false } = {},
+      { silent = false, line = callsLineFilter } = {},
     ) => {
       if (silent) {
         setRefreshing(true);
@@ -735,6 +748,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         }
         if (filter === "conference") {
           qs.set("scope", "conference");
+        }
+        if (line === "1" || line === "2") {
+          qs.set("dialerIndex", line);
         }
         const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
           credentials: "include",
@@ -759,7 +775,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         }
       }
     },
-    [user.id, callsFilter, appliedFrom, appliedTo],
+    [user.id, callsFilter, callsLineFilter, appliedFrom, appliedTo],
   );
 
   const loadMetrics = useCallback(
@@ -832,6 +848,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   useEffect(() => {
     setActiveTab("calls");
     setCallsFilter("all");
+    setCallsLineFilter("all");
     setMetricsScope("all");
     setRangePreset("today");
     const next = getPresetRange("today");
@@ -853,7 +870,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     const controller = new AbortController();
     loadCalls(controller.signal, page, callsFilter, appliedFrom, appliedTo);
     return () => controller.abort();
-  }, [user.id, callsFilter, appliedFrom, appliedTo, page, loadCalls, activeTab]);
+  }, [user.id, callsFilter, callsLineFilter, appliedFrom, appliedTo, page, loadCalls, activeTab]);
 
   useEffect(() => {
     if (!isAdmin || activeTab !== "metrics") return undefined;
@@ -1368,6 +1385,32 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   Conference calls
                 </button>
               </div>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Dialer line
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {[
+                  { id: "all", label: "All lines" },
+                  { id: "1", label: "Line 1" },
+                  { id: "2", label: "Line 2" },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setCallsLineFilter(opt.id);
+                      setPage(1);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      callsLineFilter === opt.id
+                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
               {callsFilter === "conference" ? (
                 <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                   Calls where another agent was invited via “Add agent”, or where this user was
@@ -1421,7 +1464,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 ? "No calls with a recording for this user in this date range."
                 : callsFilter === "conference"
                   ? "No conference calls for this user in this date range."
-                  : "No call logs for this user in this date range."}
+                  : callsLineFilter === "2"
+                    ? "No Line 2 calls for this user in this date range."
+                    : callsLineFilter === "1"
+                      ? "No Line 1 calls for this user in this date range."
+                      : "No call logs for this user in this date range."}
             </p>
           ) : (
             <>
@@ -1442,6 +1489,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
                     <th className="whitespace-nowrap px-3 py-2.5">When</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Line</th>
                     {callsFilter === "conference" ? (
                       <th className="px-3 py-2.5">Invited</th>
                     ) : null}
@@ -1464,6 +1512,17 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     <tr key={c.id}>
                       <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
                         {new Date(c.createdAt).toLocaleString()}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            Number(c.dialerIndex) === 2
+                              ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                              : "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200"
+                          }`}
+                        >
+                          {Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
+                        </span>
                       </td>
                       {callsFilter === "conference" ? (
                         <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
@@ -1551,6 +1610,7 @@ function EditUserModal({
   const [shiftKey, setShiftKey] = useState(user.shiftKey === "night" ? "night" : "day");
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [isOutside, setIsOutside] = useState(Boolean(user.isOutside));
+  const [canUseDialer2, setCanUseDialer2] = useState(Boolean(user.canUseDialer2));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
     user.afterShiftGrantDurationMinutes ?? 120,
@@ -1577,6 +1637,7 @@ function EditUserModal({
     setShiftKey(user.shiftKey === "night" ? "night" : "day");
     setIsActive(user.isActive !== false);
     setIsOutside(Boolean(user.isOutside));
+    setCanUseDialer2(Boolean(user.canUseDialer2));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
@@ -1681,6 +1742,9 @@ function EditUserModal({
       if (isActive !== (user.isActive !== false)) payload.isActive = isActive;
       if (isAdmin && editRole !== "admin" && Boolean(isOutside) !== Boolean(user.isOutside)) {
         payload.isOutside = isOutside;
+      }
+      if (isAdmin && Boolean(canUseDialer2) !== Boolean(user.canUseDialer2)) {
+        payload.canUseDialer2 = canUseDialer2;
       }
       if (isAdmin && editRole === "admin" && user.isOutside) {
         payload.isOutside = false;
@@ -2060,6 +2124,24 @@ function EditUserModal({
             </div>
           ) : null}
 
+          {isAdmin ? (
+            <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-800 dark:bg-violet-950/30">
+              <input
+                id="edit-dialer2"
+                type="checkbox"
+                checked={canUseDialer2}
+                onChange={(e) => setCanUseDialer2(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+              />
+              <label htmlFor="edit-dialer2" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Allow second dialer
+                <span className="ml-1 font-normal text-zinc-500">
+                  (parallel outbound Line 2)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           {isAdmin && user.role !== "admin" ? (
             <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
@@ -2176,6 +2258,7 @@ function normalizeUsersList(list) {
     ...u,
     isActive: u.isActive !== false && u.isActive !== 0,
     isOutside: Boolean(u.isOutside),
+    canUseDialer2: Boolean(u.canUseDialer2),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,

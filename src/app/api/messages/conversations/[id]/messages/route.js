@@ -5,6 +5,7 @@ import {
   getConversationForUser,
   listMessages,
   otherDmUserId,
+  stripMessageModerationFlags,
 } from "@/server/messages/messageAccess";
 import { emitToUser } from "@/server/socketHub";
 
@@ -29,6 +30,7 @@ export async function GET(req, { params }) {
   const messages = await listMessages(access.conversation.id, {
     beforeId: beforeId ? Number(beforeId) : null,
     limit: limit ? Number(limit) : 50,
+    viewer: authedUser,
   });
 
   return NextResponse.json({
@@ -71,7 +73,7 @@ export async function POST(req, { params }) {
   if (recipientId) {
     emitToUser(recipientId, "message:new", {
       conversationId: access.conversation.id,
-      message: result.message,
+      message: stripMessageModerationFlags(result.message),
     });
   }
 

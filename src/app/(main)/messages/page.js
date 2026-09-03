@@ -25,7 +25,7 @@ export default async function MessagesPage() {
           <div className="h-[min(72vh,760px)] animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900" />
         }
       >
-        <MessagesClient currentUserId={authedUser.id} />
+        <MessagesClient currentUserId={authedUser.id} isAdmin={authedUser.role === "admin"} />
       </Suspense>
     </>
   );

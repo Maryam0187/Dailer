@@ -10,11 +10,18 @@ export default async function AttendancePage() {
   if (authedUser.role !== "admin") redirect("/");
 
   const rows = await db.User.findAll({
-    where: { isActive: { [Op.ne]: false } },
-    attributes: ["id", "username"],
+    where: {
+      isActive: { [Op.ne]: false },
+      isOutside: { [Op.ne]: true },
+    },
+    attributes: ["id", "username", "shiftKey"],
     order: [["username", "ASC"]],
   });
-  const users = rows.map((row) => ({ id: row.id, username: row.username }));
+  const users = rows.map((row) => ({
+    id: row.id,
+    username: row.username,
+    shiftKey: row.shiftKey === "night" ? "night" : "day",
+  }));
 
   return (
     <>

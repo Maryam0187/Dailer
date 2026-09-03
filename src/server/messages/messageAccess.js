@@ -155,7 +155,17 @@ export async function findOrCreateDm(viewerId, recipientUserId) {
   return { conversation };
 }
 
-export function serializeMessage(message) {
+export function canModerateMessage(user) {
+  return isAdminRole(user?.role);
+}
+
+/** Remove moderation flags before broadcasting to non-admin clients. */
+export function stripMessageModerationFlags(message) {
+  if (!message || typeof message !== "object") return message;
+  return { ...message, canEdit: false, canDelete: false };
+}
+
+export function serializeMessage(message, viewer = null) {
   const plain = typeof message.toJSON === "function" ? message.toJSON() : message;
   const author = plain.author || null;
   const attachments = Array.isArray(plain.attachments)
@@ -163,16 +173,20 @@ export function serializeMessage(message) {
         .filter((item) => item.status === "attached")
         .map(serializeAttachment)
     : [];
+  const canModerate = canModerateMessage(viewer) && !plain.deletedAt;
   return {
     id: plain.id,
     conversationId: plain.conversationId,
     userId: plain.userId,
     body: plain.body,
     createdAt: plain.createdAt,
+    editedAt: plain.editedAt || null,
     attachments,
     author: author
       ? { id: author.id, username: author.username, role: author.role }
       : null,
+    canEdit: canModerate,
+    canDelete: canModerate,
   };
 }
 
@@ -263,7 +277,10 @@ async function loadLastMessages(conversationIds) {
   if (!conversationIds.length) return new Map();
 
   const messages = await db.Message.findAll({
-    where: { conversationId: { [Op.in]: conversationIds } },
+    where: {
+      conversationId: { [Op.in]: conversationIds },
+      deletedAt: null,
+    },
     include: [
       {
         model: db.User,
@@ -296,6 +313,7 @@ async function countUnread(conversationId, userId, lastReadAt) {
   const where = {
     conversationId,
     userId: { [Op.ne]: Number(userId) },
+    deletedAt: null,
   };
   if (lastReadAt) {
     where.createdAt = { [Op.gt]: lastReadAt };
@@ -311,6 +329,7 @@ function serializeInboxItem({
   unreadCount,
   isOversight,
   now,
+  viewer = null,
 }) {
   if (isOversight && peers) {
     const [a, b] = peers;
@@ -329,7 +348,7 @@ function serializeInboxItem({
         lastActiveAt: null,
       },
       participants: peers.map((p) => (p ? serializeContact(p, now) : unknownContact())),
-      lastMessage: lastMessage ? serializeMessage(lastMessage) : null,
+      lastMessage: lastMessage ? serializeMessage(lastMessage, viewer) : null,
     };
   }
 
@@ -343,7 +362,7 @@ function serializeInboxItem({
       ? serializeContact(peer, now)
       : unknownContact(peer?.id),
     participants: null,
-    lastMessage: lastMessage ? serializeMessage(lastMessage) : null,
+    lastMessage: lastMessage ? serializeMessage(lastMessage, viewer) : null,
   };
 }
 
@@ -404,6 +423,7 @@ export async function listConversationsForUser(user) {
         unreadCount,
         isOversight: false,
         now,
+        viewer: user,
       }),
     );
   }
@@ -456,6 +476,7 @@ export async function listAllConversationsForAdmin(adminUser) {
       unreadCount: 0,
       isOversight: true,
       now,
+      viewer: adminUser,
     });
   });
 
@@ -485,9 +506,15 @@ export async function markConversationRead(conversationId, userId) {
   return participant;
 }
 
-export async function listMessages(conversationId, { beforeId = null, limit = 50 } = {}) {
+export async function listMessages(
+  conversationId,
+  { beforeId = null, limit = 50, viewer = null } = {},
+) {
   const capped = Math.min(Math.max(Number(limit) || 50, 1), 100);
-  const where = { conversationId: Number(conversationId) };
+  const where = {
+    conversationId: Number(conversationId),
+    deletedAt: null,
+  };
   if (beforeId != null) {
     const bid = Number(beforeId);
     if (Number.isInteger(bid) && bid > 0) {
@@ -515,7 +542,7 @@ export async function listMessages(conversationId, { beforeId = null, limit = 50
   });
 
   // Return chronological (oldest → newest) for the UI
-  return rows.reverse().map(serializeMessage);
+  return rows.reverse().map((row) => serializeMessage(row, viewer));
 }
 
 export async function createMessage(conversation, authorUser, body, { attachmentIds = [] } = {}) {
@@ -587,9 +614,122 @@ export async function createMessage(conversation, authorUser, body, { attachment
       ],
     });
 
-    return { message: serializeMessage(withAuthor) };
+    return { message: serializeMessage(withAuthor, authorUser) };
   } catch (err) {
     await tx.rollback();
     throw err;
   }
+}
+
+const messageInclude = [
+  {
+    model: db.User,
+    as: "author",
+    attributes: ["id", "username", "role"],
+    required: false,
+  },
+  {
+    model: db.MessageAttachment,
+    as: "attachments",
+    required: false,
+  },
+];
+
+async function refreshConversationLastMessageAt(conversationId, transaction = null) {
+  const last = await db.Message.findOne({
+    where: { conversationId: Number(conversationId), deletedAt: null },
+    order: [["id", "DESC"]],
+    transaction,
+  });
+  await db.Conversation.update(
+    { lastMessageAt: last?.createdAt ?? null },
+    { where: { id: Number(conversationId) }, transaction },
+  );
+}
+
+/** Admin-only: load a message the viewer may edit or delete. */
+export async function getMessageForModeration(messageId, user) {
+  if (!canModerateMessage(user)) {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const id = Number(messageId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { error: "Message not found", status: 404 };
+  }
+
+  const message = await db.Message.findByPk(id, { include: messageInclude });
+  if (!message || message.deletedAt) {
+    return { error: "Message not found", status: 404 };
+  }
+
+  const access = await getConversationForUser(message.conversationId, user);
+  if (!access) {
+    return { error: "Message not found", status: 404 };
+  }
+
+  return { message, conversation: access.conversation };
+}
+
+export async function updateMessage(messageId, user, body) {
+  const loaded = await getMessageForModeration(messageId, user);
+  if (loaded.error) return loaded;
+
+  const text = typeof body === "string" ? body.trim() : "";
+  if (!text) {
+    return { error: "Message body is required", status: 400 };
+  }
+  if (text.length > 5000) {
+    return { error: "Message is too long (max 5000 characters)", status: 400 };
+  }
+
+  const now = new Date();
+  await loaded.message.update({ body: text, editedAt: now });
+
+  const withAuthor = await db.Message.findByPk(loaded.message.id, {
+    include: [
+      {
+        model: db.User,
+        as: "author",
+        attributes: ["id", "username", "role"],
+        required: false,
+      },
+      {
+        model: db.MessageAttachment,
+        as: "attachments",
+        where: { status: "attached" },
+        required: false,
+      },
+    ],
+  });
+
+  return {
+    message: serializeMessage(withAuthor, user),
+    conversationId: loaded.conversation.id,
+  };
+}
+
+export async function deleteMessage(messageId, user) {
+  const loaded = await getMessageForModeration(messageId, user);
+  if (loaded.error) return loaded;
+
+  const tx = await db.sequelize.transaction();
+  try {
+    const now = new Date();
+    await loaded.message.update({ deletedAt: now }, { transaction: tx });
+    await db.MessageAttachment.update(
+      { status: "deleted" },
+      { where: { messageId: loaded.message.id }, transaction: tx },
+    );
+    await refreshConversationLastMessageAt(loaded.conversation.id, tx);
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
+
+  return {
+    messageId: loaded.message.id,
+    conversationId: loaded.conversation.id,
+  };
 }

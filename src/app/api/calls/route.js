@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { applyCallKindToWhere, parseCallScope } from "@/server/calls/callKindFilter";
+import { applyCallKindToWhere, applyDialerIndexToWhere, parseCallScope, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -30,6 +30,7 @@ export async function GET(req) {
   /** `all` | `lead` | `conference` */
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const { kind: callKindFilter, conferenceOnly } = parseCallScope(scope);
+  const dialerIndexFilter = parseDialerIndexFilter(searchParams.get("dialerIndex"));
   const hasRecording =
     searchParams.get("hasRecording") === "true" ||
     searchParams.get("hasRecording") === "1";
@@ -131,6 +132,7 @@ export async function GET(req) {
   }
 
   where = applyCallKindToWhere(where, callKindFilter);
+  where = applyDialerIndexToWhere(where, dialerIndexFilter);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,
@@ -160,6 +162,7 @@ export async function GET(req) {
       "city",
       "state",
       "zipCode",
+      "dialerIndex",
       "createdAt",
     ],
     include: [
@@ -237,6 +240,7 @@ export async function GET(req) {
         city: call.city || null,
         state: call.state || null,
         zipCode: call.zipCode || null,
+        dialerIndex: Number(call.dialerIndex) === 2 ? 2 : 1,
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),
