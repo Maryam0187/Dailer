@@ -12,6 +12,7 @@ import {
   roleLabel,
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
+import { formatAllowedAttachmentTypesLabel } from "@/lib/messageAttachments";
 import {
   AttachFileIcon,
   MessageAttachmentList,
@@ -505,6 +506,11 @@ export default function ConversationView({
   const maxAttachmentsPerMessage = attachmentUploadConfig?.maxAttachmentsPerMessage ?? 5;
   const maxAttachmentSizeBytes = attachmentUploadConfig?.maxSizeBytes ?? 10 * 1024 * 1024;
   const allowedMimeTypeSet = attachmentUploadConfig?.mimeTypeSet ?? new Set();
+  const allowedTypesLabel = formatAllowedAttachmentTypesLabel(
+    attachmentUploadConfig?.accept,
+    ".doc, .docx",
+  );
+  const maxSizeMbLabel = Math.round(maxAttachmentSizeBytes / (1024 * 1024));
 
   async function uploadSelectedFile(file) {
     if (!conversationId || !file) return;
@@ -1061,8 +1067,8 @@ export default function ConversationView({
             </button>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Enter to send · Shift+Enter for new line · Drag top edge to resize · Word files only (.doc, .docx), up to{" "}
-            {Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB each
+            Enter to send · Shift+Enter for new line · Drag top edge to resize · Allowed:{" "}
+            {allowedTypesLabel} · up to {maxSizeMbLabel} MB each
           </p>
         </form>
       ) : (

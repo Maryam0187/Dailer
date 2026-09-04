@@ -6,6 +6,17 @@ export function formatBytes(bytes) {
   return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
+/** Turn accept string like ".doc,.docx,.pdf" into a short UI label. */
+export function formatAllowedAttachmentTypesLabel(accept, fallback = ".doc, .docx") {
+  const parts = String(accept || "")
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean)
+    .map((part) => (part.startsWith(".") ? part : `.${part}`));
+  if (!parts.length) return fallback;
+  return [...new Set(parts)].join(", ");
+}
+
 export function isImageAttachment(mimeType) {
   return String(mimeType || "").toLowerCase().startsWith("image/");
 }
