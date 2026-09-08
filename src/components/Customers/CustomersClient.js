@@ -227,6 +227,7 @@ function emptyLeadForm(customer, { lockedManagerId = "" } = {}) {
     phone: customer?.phone ? formatLandline(customer.phone) : "",
     fullName: customer?.fullName?.trim() || customer?.displayName?.trim() || "",
     cellNumber: customer?.cellNumber ? formatCellNumber(customer.cellNumber) : "",
+    address: customer?.address || "",
     city: customer?.city || "",
     state: customer?.state || "",
     zipCode: customer?.zipCode || "",
@@ -284,6 +285,7 @@ function outsideLeadRequestPayload(form, customer = null) {
     phone: digitsOnly(customer?.phone || form.phone),
     fullName: (customer?.fullName || customer?.displayName || form.fullName || "").trim(),
     cellNumber: cellRaw && String(cellRaw).trim() ? digitsOnly(cellRaw) : undefined,
+    address: (customer?.address || form.address || "").trim() || undefined,
     city: (customer?.city || form.city || "").trim() || undefined,
     state: (customer?.state || form.state || "").trim() || undefined,
     zipCode: (customer?.zipCode || form.zipCode || "").trim() || undefined,
@@ -1717,6 +1719,15 @@ export default function CustomersClient({
                 inputMode="numeric"
                 maxLength={12}
                 placeholder="Optional"
+              />
+            </label>
+            <label className={`${labelClass} sm:col-span-2`}>
+              Address
+              <input
+                className={inputClass}
+                value={form.address || ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                placeholder="Street address"
               />
             </label>
             <StateSelectField

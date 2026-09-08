@@ -19,6 +19,7 @@ function customerTouchFromLeadBody(body, fullName) {
   return {
     fullName: fullName || null,
     cellNumber: body.cellNumber || null,
+    address: body.address || null,
     city: body.city || null,
     state: body.state || null,
     zipCode: body.zipCode || null,
@@ -45,6 +46,7 @@ async function resolveOutsideCustomer(authedUser, { phone, fullName, profile, st
   const fillKeys = [
     "fullName",
     "cellNumber",
+    "address",
     "city",
     "state",
     "zipCode",
@@ -176,6 +178,7 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
     {
       ...saleData,
       cellNumber,
+      address: trimCustomerField(knownCustomer?.address ?? src.address, 255),
       city: trimCustomerField(knownCustomer?.city ?? src.city, 128),
       state,
       zipCode: trimCustomerField(knownCustomer?.zipCode ?? src.zipCode, 16),
