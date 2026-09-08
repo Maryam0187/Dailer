@@ -251,21 +251,24 @@ function alertMatchQuery(alert) {
     amountRaw != null && amountRaw !== "" && Number.isFinite(Number(amountRaw))
       ? String(amountRaw)
       : "";
-  const transactionDate = String(nt.created_at || alert?.created_at || "").trim();
+  // Network purchase date — not alert ingest date.
+  const transactionDate = String(nt.created_at || "").trim();
   if (authCode) params.set("authCode", authCode);
   if (arn) params.set("arn", arn);
   if (transaction) params.set("processorTransactionId", transaction);
   if (last4) params.set("cardLast4", last4);
   if (amount) params.set("amount", amount);
   if (transactionDate) params.set("transactionDate", transactionDate);
+  // Fall back to alert created_at only when network txn date is missing.
+  if (!transactionDate) {
+    const alertDate = String(alert?.created_at || "").trim();
+    if (alertDate) params.set("transactionDate", alertDate);
+  }
   return params;
 }
 
 function canMatchAlert(query) {
-  const hasStrong =
-    query.has("authCode") || query.has("arn") || query.has("processorTransactionId");
-  const hasSoft = query.has("amount") && query.has("transactionDate");
-  return hasStrong || hasSoft;
+  return query.has("cardLast4") && query.has("amount") && query.has("transactionDate");
 }
 
 function FindCustomerButton({ alert }) {
@@ -308,7 +311,8 @@ function FindCustomerButton({ alert }) {
             Match dialer customer
           </p>
           <p className="mt-0.5 text-xs text-sky-800/80 dark:text-sky-200/80">
-            Prefers auth / ARN / txn id; otherwise amount + date (shows if last4 matched or not).
+            Matches last4 + amount + transaction date (±1 day). Auth / ARN / txn id used only if
+            saved on the charge.
           </p>
         </div>
         <button
@@ -323,7 +327,7 @@ function FindCustomerButton({ alert }) {
 
       {!canSearch ? (
         <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-          Need auth code / ARN / txn id, or amount + transaction date.
+          Need last4, amount, and network transaction date on this alert.
         </p>
       ) : null}
 
@@ -335,7 +339,7 @@ function FindCustomerButton({ alert }) {
 
       {state.status === "done" && !state.error && state.matches.length === 0 ? (
         <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-          No customer charge matched amount + transaction date (or strong ids).
+          No dialer charge matched last4 + amount within ±1 day of the network transaction date.
         </p>
       ) : null}
 
@@ -347,9 +351,9 @@ function FindCustomerButton({ alert }) {
             const matched = m.matched || {};
             const meta = [
               m.leadId ? `Lead #${m.leadId}` : m.customer?.isOutside ? "Outside" : null,
-              `Last4 ${matched.last4 ? "matched" : "not matched"}`,
+              matched.last4 ? "Last4 matched" : null,
               matched.amount ? "Amount matched" : null,
-              matched.date ? "Date matched" : null,
+              matched.date ? "Date matched (±1d)" : null,
               m.cardLast4 ? `···· ${m.cardLast4}` : null,
             ]
               .filter(Boolean)

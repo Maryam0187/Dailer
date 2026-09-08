@@ -6,8 +6,8 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/chargeflow/match-customer
- * Strong: authCode, arn, processorTransactionId
- * Soft fallback: amount + transactionDate (last4 matched or not)
+ * Primary: cardLast4 + amount + transactionDate (±1 day)
+ * Optional: authCode / arn / processorTransactionId when saved on charge
  */
 export async function GET(request) {
   const { errorResponse } = await requireAdmin();
@@ -34,8 +34,7 @@ export async function GET(request) {
     if (result.reason === "no_match_fields") {
       return NextResponse.json(
         {
-          error:
-            "Provide authCode/arn/processorTransactionId, or amount + transactionDate",
+          error: "Provide cardLast4 + amount + transactionDate",
           fields: result.fields,
           matches: [],
         },

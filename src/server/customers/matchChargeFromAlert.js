@@ -1,6 +1,8 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
 
+const SOFT_DATE_DAYS = 1;
+
 function trimField(value, maxLen) {
   const s = String(value ?? "").trim();
   if (!s) return null;
@@ -20,15 +22,15 @@ function parseDateMs(value) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** Calendar-day window around a txn time (±1 day) for soft matching. */
-function dateWindowAround(ms, { days = 1 } = {}) {
+/** Soft date window around network txn time (±1 day). */
+function dateWindowAround(ms, { days = SOFT_DATE_DAYS } = {}) {
   if (ms == null) return null;
   const start = new Date(ms);
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - days);
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCDate(start.getUTCDate() - days);
   const end = new Date(ms);
-  end.setHours(23, 59, 59, 999);
-  end.setDate(end.getDate() + days);
+  end.setUTCHours(23, 59, 59, 999);
+  end.setUTCDate(end.getUTCDate() + days);
   return { from: start, to: end };
 }
 
@@ -57,7 +59,7 @@ export function extractAlertMatchFields(alert) {
     authCode: trimField(nt.auth_code ?? alert?.auth_code ?? alert?.authCode, 64),
     arn: trimField(nt.arn ?? alert?.arn, 128),
     processorTransactionId: trimField(
-      alert?.transaction ?? nt.id ?? alert?.processorTransactionId,
+      alert?.processorTransactionId ?? alert?.transaction,
       128,
     ),
     cardLast4: trimField(nt.last4 ?? alert?.last4, 4),
@@ -85,38 +87,51 @@ function fieldMatches(row, fields) {
     const rowMs = new Date(row.createdAt).getTime();
     if (!Number.isNaN(rowMs)) {
       dateDiffDays = Math.abs(rowMs - fields.transactionDateMs) / (24 * 60 * 60 * 1000);
-      dateMatched = dateDiffDays <= 1;
+      dateMatched = dateDiffDays <= SOFT_DATE_DAYS;
     }
   }
 
-  return { last4Matched, amountMatched, dateMatched, dateDiffDays };
+  const authMatched = Boolean(
+    fields.authCode &&
+      row.authCode &&
+      String(row.authCode).trim().toUpperCase() === fields.authCode.toUpperCase(),
+  );
+  const arnMatched = Boolean(
+    fields.arn && row.arn && String(row.arn).trim() === fields.arn,
+  );
+  const txnMatched = Boolean(
+    fields.processorTransactionId &&
+      row.processorTransactionId &&
+      String(row.processorTransactionId).trim() === fields.processorTransactionId,
+  );
+
+  return {
+    last4Matched,
+    amountMatched,
+    dateMatched,
+    dateDiffDays,
+    authMatched,
+    arnMatched,
+    txnMatched,
+  };
 }
 
-function scoreCharge(row, fields, { softOnly = false } = {}) {
+function scoreCharge(row, fields) {
   const flags = fieldMatches(row, fields);
   let score = 0;
 
-  if (!softOnly) {
-    if (fields.arn && row.arn && String(row.arn).trim() === fields.arn) score += 100;
-    if (
-      fields.processorTransactionId &&
-      row.processorTransactionId &&
-      String(row.processorTransactionId).trim() === fields.processorTransactionId
-    ) {
-      score += 80;
-    }
-    if (fields.authCode && row.authCode && String(row.authCode).trim() === fields.authCode) {
-      score += 40;
-    }
+  if (flags.arnMatched) score += 100;
+  if (flags.txnMatched) score += 80;
+  if (flags.authMatched) score += 60;
+
+  // Primary: last4 + amount + date (±1).
+  if (flags.last4Matched) score += 40;
+  if (flags.amountMatched) score += 35;
+  if (flags.dateMatched) {
+    const closeness =
+      flags.dateDiffDays == null ? 0 : Math.max(0, SOFT_DATE_DAYS - flags.dateDiffDays);
+    score += 25 + Math.round(closeness * 5);
   }
-
-  // Soft: amount + date are the match; last4 is optional (matched or not).
-  if (flags.amountMatched) score += softOnly ? 40 : 8;
-  if (flags.dateMatched) score += softOnly ? 35 : 5;
-  else if (flags.dateDiffDays != null && flags.dateDiffDays <= 2) score += softOnly ? 10 : 2;
-
-  if (flags.last4Matched) score += softOnly ? 30 : 10;
-  else if (softOnly && fields.cardLast4) score -= 5; // prefer last4 matches when alert has last4
 
   return { score, flags };
 }
@@ -139,6 +154,9 @@ function serializeMatch(row, flags = {}) {
       last4: Boolean(flags.last4Matched),
       amount: Boolean(flags.amountMatched),
       date: Boolean(flags.dateMatched),
+      authCode: Boolean(flags.authMatched),
+      arn: Boolean(flags.arnMatched),
+      processorTransactionId: Boolean(flags.txnMatched),
     },
     customer: customer
       ? {
@@ -164,25 +182,25 @@ const customerInclude = {
   required: false,
 };
 
-function rankRows(rows, fields, { softOnly = false } = {}) {
+function rankRows(rows, fields) {
   return rows
     .map((row) => {
-      const { score, flags } = scoreCharge(row, fields, { softOnly });
+      const { score, flags } = scoreCharge(row, fields);
       return { row, score, flags };
     })
     .filter((entry) => {
-      if (softOnly) {
-        // Soft results must match amount + date; last4 may or may not.
-        return entry.flags.amountMatched && entry.flags.dateMatched;
+      if (entry.flags.arnMatched || entry.flags.txnMatched || entry.flags.authMatched) {
+        return true;
       }
-      return entry.score > 0;
+      // Primary: last4 + amount + date (±1).
+      return (
+        entry.flags.last4Matched &&
+        entry.flags.amountMatched &&
+        entry.flags.dateMatched
+      );
     })
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      // Prefer last4 matched when scores tie
-      if (Boolean(b.flags.last4Matched) !== Boolean(a.flags.last4Matched)) {
-        return b.flags.last4Matched ? 1 : -1;
-      }
       const at = a.row.createdAt ? new Date(a.row.createdAt).getTime() : 0;
       const bt = b.row.createdAt ? new Date(b.row.createdAt).getTime() : 0;
       return bt - at;
@@ -190,14 +208,14 @@ function rankRows(rows, fields, { softOnly = false } = {}) {
     .map(({ row, score, flags }) => ({
       ...serializeMatch(row, flags),
       matchScore: score,
-      matchMode: softOnly ? "soft" : "strong",
+      matchMode:
+        flags.arnMatched || flags.txnMatched || flags.authMatched ? "strong" : "soft",
     }));
 }
 
 /**
- * Find CustomerCharge rows that match Chargeflow alert identifiers.
- * Prefer ARN / processor txn id / auth code.
- * Soft fallback: amount + transaction date (last4 matched or not — ranked higher if yes).
+ * Primary match: last4 + amount + txn date (±1 day).
+ * Auth / ARN / processor txn id are optional boosts when saved on the charge.
  */
 export async function matchChargesFromAlertFields(rawFields = {}) {
   const transactionDateMs = parseDateMs(rawFields.transactionDate);
@@ -213,30 +231,13 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     transactionDateMs,
   };
 
-  const strongOr = [];
-  if (fields.arn) strongOr.push({ arn: fields.arn });
-  if (fields.processorTransactionId) {
-    strongOr.push({ processorTransactionId: fields.processorTransactionId });
-  }
-  if (fields.authCode) strongOr.push({ authCode: fields.authCode });
+  const hasSoft =
+    Boolean(fields.cardLast4) && fields.amount != null && transactionDateMs != null;
+  const hasStrong = Boolean(
+    fields.arn || fields.processorTransactionId || fields.authCode,
+  );
 
-  if (strongOr.length > 0) {
-    const rows = await db.CustomerCharge.findAll({
-      where: { [Op.or]: strongOr },
-      include: [customerInclude],
-      order: [["createdAt", "DESC"]],
-      limit: 25,
-    });
-
-    return {
-      fields: publicFields(fields),
-      matchMode: "strong",
-      matches: rankRows(rows, fields, { softOnly: false }),
-    };
-  }
-
-  // Soft fallback: amount + transaction date required; last4 optional (matched or not).
-  if (fields.amount == null || transactionDateMs == null) {
+  if (!hasSoft && !hasStrong) {
     return {
       fields: publicFields(fields),
       matches: [],
@@ -244,23 +245,48 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     };
   }
 
-  const window = dateWindowAround(transactionDateMs, { days: 1 });
-  const where = {
-    amount: fields.amount,
-    createdAt: { [Op.between]: [window.from, window.to] },
-    status: { [Op.in]: ["charged", "chargeback"] },
-  };
+  const or = [];
+
+  // Start with last4 + amount + date (±1).
+  if (hasSoft) {
+    const window = dateWindowAround(transactionDateMs, { days: SOFT_DATE_DAYS });
+    or.push({
+      cardLast4: fields.cardLast4,
+      amount: fields.amount,
+      createdAt: { [Op.between]: [window.from, window.to] },
+      status: { [Op.in]: ["charged", "chargeback"] },
+    });
+  }
+
+  if (fields.arn) or.push({ arn: fields.arn });
+  if (fields.processorTransactionId) {
+    or.push({ processorTransactionId: fields.processorTransactionId });
+  }
+  if (fields.authCode) {
+    or.push({ authCode: fields.authCode });
+    const upper = fields.authCode.toUpperCase();
+    const lower = fields.authCode.toLowerCase();
+    if (upper !== fields.authCode) or.push({ authCode: upper });
+    if (lower !== fields.authCode) or.push({ authCode: lower });
+  }
 
   const rows = await db.CustomerCharge.findAll({
-    where,
+    where: { [Op.or]: or },
     include: [customerInclude],
     order: [["createdAt", "DESC"]],
-    limit: 40,
+    limit: 50,
   });
+
+  const byId = new Map();
+  for (const row of rows) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+
+  const matches = rankRows([...byId.values()], fields).slice(0, 25);
 
   return {
     fields: publicFields(fields),
-    matchMode: "soft",
-    matches: rankRows(rows, fields, { softOnly: true }).slice(0, 25),
+    matchMode: matches[0]?.matchMode || (hasSoft ? "soft" : "strong"),
+    matches,
   };
 }
