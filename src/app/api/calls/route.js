@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { applyCallKindToWhere, applyDialerIndexToWhere, parseCallScope, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
+import { conferenceCallIds, invitedConferenceCallIds } from "@/server/calls/aggregateMetrics";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -45,21 +46,16 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
+  const dateOpts = fromDate && toDate ? { fromDate, toDate } : {};
+
   // Home page lists only the signed-in user's own calls unless admin passes view=all.
   // For conference scope, also include calls where this user was invited as an agent.
   let where;
   if (viewAll) {
     if (conferenceOnly) {
-      const confRows = await db.InviteDialLeg.findAll({
-        attributes: ["callLogId"],
-        group: ["callLogId"],
-        raw: true,
-      });
-      const conferenceCallIds = confRows
-        .map((r) => r.callLogId)
-        .filter((id) => Number.isInteger(id));
+      const conferenceIdList = await conferenceCallIds(dateOpts);
 
-      if (conferenceCallIds.length === 0) {
+      if (conferenceIdList.length === 0) {
         return NextResponse.json({
           calls: [],
           pagination: {
@@ -73,31 +69,15 @@ export async function GET(req) {
         });
       }
 
-      where = { id: { [Op.in]: conferenceCallIds } };
+      where = { id: { [Op.in]: conferenceIdList } };
     } else {
       where = {};
     }
   } else if (conferenceOnly) {
-    const ownedConfRows = await db.InviteDialLeg.findAll({
-      attributes: ["callLogId"],
-      group: ["callLogId"],
-      raw: true,
-    });
-    const conferenceCallIds = ownedConfRows
-      .map((r) => r.callLogId)
-      .filter((id) => Number.isInteger(id));
+    const conferenceIdList = await conferenceCallIds(dateOpts);
+    const invitedCallIds = await invitedConferenceCallIds(authedUser.id, dateOpts);
 
-    const invitedRows = await db.InviteDialLeg.findAll({
-      where: { invitedUserId: authedUser.id },
-      attributes: ["callLogId"],
-      group: ["callLogId"],
-      raw: true,
-    });
-    const invitedCallIds = invitedRows
-      .map((r) => r.callLogId)
-      .filter((id) => Number.isInteger(id));
-
-    if (conferenceCallIds.length === 0 && invitedCallIds.length === 0) {
+    if (conferenceIdList.length === 0 && invitedCallIds.length === 0) {
       return NextResponse.json({
         calls: [],
         pagination: {
@@ -113,8 +93,8 @@ export async function GET(req) {
 
     where = {
       [Op.or]: [
-        ...(conferenceCallIds.length > 0
-          ? [{ [Op.and]: [{ userId: authedUser.id }, { id: { [Op.in]: conferenceCallIds } }] }]
+        ...(conferenceIdList.length > 0
+          ? [{ [Op.and]: [{ userId: authedUser.id }, { id: { [Op.in]: conferenceIdList } }] }]
           : []),
         ...(invitedCallIds.length > 0 ? [{ id: { [Op.in]: invitedCallIds } }] : []),
       ],

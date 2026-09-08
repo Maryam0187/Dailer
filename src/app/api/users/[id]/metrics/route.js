@@ -49,7 +49,7 @@ export async function GET(req, { params }) {
   };
 
   if (conferenceOnly) {
-    const ids = await conferenceCallIds();
+    const ids = await conferenceCallIds({ fromDate, toDate });
     if (ids.length === 0) {
       return NextResponse.json({
         metrics: {

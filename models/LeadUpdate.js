@@ -43,6 +43,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["leadId"] },
         { fields: ["userId"] },
         { fields: ["createdAt"] },
+        { fields: ["type", "createdAt"] },
       ],
     },
   );

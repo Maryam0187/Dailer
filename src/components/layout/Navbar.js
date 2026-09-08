@@ -100,6 +100,11 @@ function buildAdminDropdownItems(pathname) {
       label: "Security",
       active: pathname === "/security",
     },
+    {
+      href: "/sql-health",
+      label: "SQL health",
+      active: pathname === "/sql-health",
+    },
   ];
 }
 
