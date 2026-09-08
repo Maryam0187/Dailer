@@ -5,6 +5,7 @@ import { getConversationForUser } from "@/server/messages/messageAccess";
 import {
   getAttachmentDownloadUrl,
   markAttachmentDownloadedByReceiver,
+  serializeAttachment,
 } from "@/server/messages/messageAttachments";
 
 export const runtime = "nodejs";
@@ -31,16 +32,16 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
   }
 
-  await markAttachmentDownloadedByReceiver(attachment, authedUser);
-
   const result = await getAttachmentDownloadUrl(attachment);
   if (result.error) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
+  await markAttachmentDownloadedByReceiver(attachment, authedUser);
+
   return NextResponse.json({
     downloadUrl: result.downloadUrl,
     expiresIn: result.expiresIn,
-    attachment: result.attachment,
+    attachment: serializeAttachment(attachment),
   });
 }

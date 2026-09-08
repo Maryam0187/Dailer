@@ -8,6 +8,7 @@ import {
 import {
   createDownloadTarget,
   createUploadTarget,
+  deleteStoredAttachment,
   headStoredAttachment,
   isAttachmentStorageAvailable,
 } from "@/server/messages/attachmentStorage";
@@ -338,11 +339,91 @@ export async function getAttachmentDownloadUrl(attachment) {
     return { error: "File attachments are not configured on this server", status: 503 };
   }
 
-  const downloadTarget = await createDownloadTarget(attachment);
+  try {
+    await headStoredAttachment(attachment.storageKey);
+  } catch (err) {
+    if (isMissingStoredAttachmentError(err)) {
+      return {
+        error: "This file is no longer available. It may have been removed from storage.",
+        status: 404,
+      };
+    }
+    return {
+      error: "Could not access the file. Please try again.",
+      status: 503,
+    };
+  }
+
+  try {
+    const downloadTarget = await createDownloadTarget(attachment);
+    return {
+      downloadUrl: downloadTarget.downloadUrl,
+      expiresIn: downloadTarget.expiresIn,
+      attachment: serializeAttachment(attachment),
+    };
+  } catch {
+    return {
+      error: "Could not prepare the download. Please try again.",
+      status: 503,
+    };
+  }
+}
+
+function isMissingStoredAttachmentError(err) {
+  if (!err) return false;
+  const code = String(err.name || err.code || err.Code || "").toLowerCase();
+  const status = Number(err.$metadata?.httpStatusCode || err.statusCode || err.status || 0);
+  const message = String(err.message || "").toLowerCase();
+  if (status === 404) return true;
+  if (code.includes("notfound") || code === "nosuchkey" || code === "enoent") return true;
+  if (message.includes("no such file") || message.includes("not found") || message.includes("nosuchkey")) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Admin-only: remove file from storage and mark the DB row as deleted.
+ */
+export async function deleteAttachmentForAdmin(adminUser, attachmentId) {
+  if (adminUser?.role !== "admin") {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const id = Number(attachmentId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { error: "Invalid attachment", status: 400 };
+  }
+
+  const attachment = await db.MessageAttachment.findByPk(id);
+  if (!attachment) {
+    return { error: "Attachment not found", status: 404 };
+  }
+
+  if (attachment.status === "deleted") {
+    return {
+      attachment: serializeAttachment(attachment),
+      alreadyDeleted: true,
+      conversationId: attachment.conversationId,
+      messageId: attachment.messageId,
+    };
+  }
+
+  try {
+    await deleteStoredAttachment(attachment.storageKey);
+  } catch {
+    return {
+      error: "Failed to delete file from storage. Please try again.",
+      status: 503,
+    };
+  }
+
+  await attachment.update({ status: "deleted" });
 
   return {
-    downloadUrl: downloadTarget.downloadUrl,
-    expiresIn: downloadTarget.expiresIn,
     attachment: serializeAttachment(attachment),
+    alreadyDeleted: false,
+    conversationId: attachment.conversationId,
+    messageId: attachment.messageId,
   };
 }

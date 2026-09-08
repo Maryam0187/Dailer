@@ -9,6 +9,13 @@ import { markAttachmentDownloadedByReceiver } from "@/server/messages/messageAtt
 
 export const runtime = "nodejs";
 
+function isMissingFileError(err) {
+  if (!err) return false;
+  const code = String(err.code || err.name || "").toLowerCase();
+  const message = String(err.message || "").toLowerCase();
+  return code === "enoent" || message.includes("no such file") || message.includes("not found");
+}
+
 export async function GET(_req, { params }) {
   if (getAttachmentStorageMode() !== "local") {
     return NextResponse.json({ error: "Local file download is not enabled" }, { status: 404 });
@@ -47,7 +54,13 @@ export async function GET(_req, { params }) {
         "Cache-Control": "private, no-store",
       },
     });
-  } catch {
+  } catch (err) {
+    if (isMissingFileError(err)) {
+      return NextResponse.json(
+        { error: "This file is no longer available. It may have been removed from storage." },
+        { status: 404 },
+      );
+    }
     return NextResponse.json({ error: "Failed to read attachment file" }, { status: 404 });
   }
 }

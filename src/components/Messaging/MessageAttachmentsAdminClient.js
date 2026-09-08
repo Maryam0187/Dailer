@@ -43,6 +43,7 @@ export default function MessageAttachmentsAdminClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = useCallback(async (nextPage = 1) => {
     const target = Number.isInteger(nextPage) && nextPage > 0 ? nextPage : 1;
@@ -79,7 +80,7 @@ export default function MessageAttachmentsAdminClient() {
   }, [load]);
 
   async function onDownload(attachment) {
-    if (attachment.status !== "attached" || downloadingId) return;
+    if (attachment.status !== "attached" || downloadingId || deletingId) return;
     setDownloadingId(attachment.id);
     setError(null);
     try {
@@ -96,8 +97,48 @@ export default function MessageAttachmentsAdminClient() {
     }
   }
 
+  async function onDelete(attachment) {
+    if (attachment.status === "deleted" || deletingId || downloadingId) return;
+    const name = attachment.originalName || "this file";
+    const confirmed = window.confirm(
+      `Delete "${name}"?\n\nThis removes the file from storage and marks it deleted in the database. Chat users will no longer be able to download it.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(attachment.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/messages/admin/attachments/${attachment.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete file");
+
+      const deleted = data.attachment || { ...attachment, status: "deleted" };
+      setRows((prev) =>
+        prev.map((row) =>
+          Number(row.id) === Number(attachment.id)
+            ? {
+                ...row,
+                ...deleted,
+                status: "deleted",
+                uploader: row.uploader,
+                receiver: row.receiver,
+              }
+            : row,
+        ),
+      );
+    } catch (err) {
+      setError(err?.message || "Failed to delete file");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const showingFrom = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
   const showingTo = Math.min(pagination.page * pagination.pageSize, pagination.total);
+  const busy = Boolean(downloadingId || deletingId);
 
   return (
     <div className="space-y-4">
@@ -110,7 +151,7 @@ export default function MessageAttachmentsAdminClient() {
         <button
           type="button"
           onClick={() => void load(page)}
-          disabled={loading}
+          disabled={loading || busy}
           className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
           Refresh
@@ -142,7 +183,7 @@ export default function MessageAttachmentsAdminClient() {
                   <th className="px-4 py-3 text-left whitespace-nowrap">Receiver download</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded</th>
-                  <th className="px-4 py-3 text-right"> </th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 bg-white dark:divide-zinc-800 dark:bg-zinc-950">
@@ -198,16 +239,26 @@ export default function MessageAttachmentsAdminClient() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {row.status === "attached" ? (
-                        <button
-                          type="button"
-                          onClick={() => void onDownload(row)}
-                          disabled={downloadingId === row.id}
-                          className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                        >
-                          {downloadingId === row.id ? "…" : "Download"}
-                        </button>
+                        <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void onDownload(row)}
+                            disabled={busy}
+                            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          >
+                            {downloadingId === row.id ? "…" : "Download"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onDelete(row)}
+                            disabled={busy}
+                            className="rounded-md border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                          >
+                            {deletingId === row.id ? "…" : "Delete"}
+                          </button>
+                        </div>
                       ) : (
-                        <span className="text-xs text-zinc-400">—</span>
+                        <span className="text-xs text-zinc-400">Deleted</span>
                       )}
                     </td>
                   </tr>
@@ -225,7 +276,7 @@ export default function MessageAttachmentsAdminClient() {
               <button
                 type="button"
                 onClick={() => void load(page - 1)}
-                disabled={!pagination.hasPrev || loading}
+                disabled={!pagination.hasPrev || loading || busy}
                 className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 Prev
@@ -233,7 +284,7 @@ export default function MessageAttachmentsAdminClient() {
               <button
                 type="button"
                 onClick={() => void load(page + 1)}
-                disabled={!pagination.hasNext || loading}
+                disabled={!pagination.hasNext || loading || busy}
                 className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 Next
