@@ -29,6 +29,64 @@ function statusTone(status) {
   return "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200";
 }
 
+function DeleteAttachmentConfirmDialog({ fileName, deleting, onConfirm, onCancel }) {
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[60] bg-zinc-950/50 backdrop-blur-[2px]"
+        aria-label="Close dialog"
+        onClick={onCancel}
+        disabled={deleting}
+      />
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-attachment-title"
+          className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-700">
+            <h3
+              id="delete-attachment-title"
+              className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
+            >
+              Delete attachment?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              This removes the file from storage and marks it deleted in the database. Chat users will
+              no longer be able to download it.
+            </p>
+            {fileName ? (
+              <p className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                {fileName}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 px-5 py-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={deleting}
+              className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={deleting}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function MessageAttachmentsAdminClient() {
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
@@ -44,6 +102,7 @@ export default function MessageAttachmentsAdminClient() {
   const [error, setError] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const load = useCallback(async (nextPage = 1) => {
     const target = Number.isInteger(nextPage) && nextPage > 0 ? nextPage : 1;
@@ -80,7 +139,7 @@ export default function MessageAttachmentsAdminClient() {
   }, [load]);
 
   async function onDownload(attachment) {
-    if (attachment.status !== "attached" || downloadingId || deletingId) return;
+    if (attachment.status !== "attached" || downloadingId || deletingId || pendingDelete) return;
     setDownloadingId(attachment.id);
     setError(null);
     try {
@@ -97,14 +156,15 @@ export default function MessageAttachmentsAdminClient() {
     }
   }
 
-  async function onDelete(attachment) {
+  function requestDelete(attachment) {
     if (attachment.status === "deleted" || deletingId || downloadingId) return;
-    const name = attachment.originalName || "this file";
-    const confirmed = window.confirm(
-      `Delete "${name}"?\n\nThis removes the file from storage and marks it deleted in the database. Chat users will no longer be able to download it.`,
-    );
-    if (!confirmed) return;
+    setError(null);
+    setPendingDelete(attachment);
+  }
 
+  async function confirmDelete() {
+    if (!pendingDelete || deletingId) return;
+    const attachment = pendingDelete;
     setDeletingId(attachment.id);
     setError(null);
     try {
@@ -129,6 +189,7 @@ export default function MessageAttachmentsAdminClient() {
             : row,
         ),
       );
+      setPendingDelete(null);
     } catch (err) {
       setError(err?.message || "Failed to delete file");
     } finally {
@@ -243,18 +304,18 @@ export default function MessageAttachmentsAdminClient() {
                           <button
                             type="button"
                             onClick={() => void onDownload(row)}
-                            disabled={busy}
+                            disabled={busy || Boolean(pendingDelete)}
                             className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
                           >
                             {downloadingId === row.id ? "…" : "Download"}
                           </button>
                           <button
                             type="button"
-                            onClick={() => void onDelete(row)}
-                            disabled={busy}
+                            onClick={() => requestDelete(row)}
+                            disabled={busy || Boolean(pendingDelete)}
                             className="rounded-md border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
                           >
-                            {deletingId === row.id ? "…" : "Delete"}
+                            Delete
                           </button>
                         </div>
                       ) : (
@@ -293,6 +354,18 @@ export default function MessageAttachmentsAdminClient() {
           </div>
         </>
       )}
+
+      {pendingDelete ? (
+        <DeleteAttachmentConfirmDialog
+          fileName={pendingDelete.originalName || "this file"}
+          deleting={deletingId === pendingDelete.id}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => {
+            if (deletingId) return;
+            setPendingDelete(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
