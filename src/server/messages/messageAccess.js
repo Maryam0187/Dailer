@@ -529,9 +529,26 @@ export async function listMessages(
     }
   }
 
-  // Fetch one extra row to know if older messages remain.
-  const rows = await db.Message.findAll({
+  // IDs first (no hasMany join) so LIMIT applies to messages, not attachment rows.
+  const idRows = await db.Message.findAll({
     where,
+    attributes: ["id"],
+    order: [["id", "DESC"]],
+    limit: capped + 1,
+    raw: true,
+  });
+
+  const hasMore = idRows.length > capped;
+  const pageIds = (hasMore ? idRows.slice(0, capped) : idRows)
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (pageIds.length === 0) {
+    return { messages: [], hasMore: false };
+  }
+
+  const rows = await db.Message.findAll({
+    where: { id: { [Op.in]: pageIds } },
     include: [
       {
         model: db.User,
@@ -545,16 +562,18 @@ export async function listMessages(
         required: false,
       },
     ],
-    order: [["id", "DESC"]],
-    limit: capped + 1,
   });
 
-  const hasMore = rows.length > capped;
-  const page = hasMore ? rows.slice(0, capped) : rows;
+  const byId = new Map(rows.map((row) => [Number(row.id), row]));
+  // Chronological (oldest → newest) for the UI
+  const ordered = pageIds
+    .slice()
+    .reverse()
+    .map((id) => byId.get(id))
+    .filter(Boolean);
 
-  // Return chronological (oldest → newest) for the UI
   return {
-    messages: page.reverse().map((row) => serializeMessage(row, viewer)),
+    messages: ordered.map((row) => serializeMessage(row, viewer)),
     hasMore,
   };
 }

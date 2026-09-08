@@ -260,6 +260,8 @@ export default function ConversationView({
   const loadingOlderRef = useRef(false);
   const hasMoreRef = useRef(false);
   const messagesRef = useRef([]);
+  const loadOlderMessagesRef = useRef(async () => {});
+  const topSentinelRef = useRef(null);
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
   const skipDraftPersistRef = useRef(false);
@@ -315,14 +317,13 @@ export default function ConversationView({
   function onListScroll() {
     const el = listRef.current;
     setNearBottomState(isNearBottom(el));
-    // Keep the new-messages line until hover, send, or jump-to-new click
     if (
       el &&
       el.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
       hasMoreRef.current &&
       !loadingOlderRef.current
     ) {
-      void loadOlderMessages();
+      void loadOlderMessagesRef.current();
     }
   }
 
@@ -330,6 +331,14 @@ export default function ConversationView({
     return isAdmin
       ? rows
       : rows.map((m) => ({ ...m, canEdit: false, canDelete: false }));
+  }
+
+  function maybeFillOlderIfShort() {
+    const el = listRef.current;
+    if (!el || !hasMoreRef.current || loadingOlderRef.current) return;
+    if (el.scrollHeight <= el.clientHeight + 4) {
+      void loadOlderMessagesRef.current();
+    }
   }
 
   const loadMessages = useCallback(async () => {
@@ -364,10 +373,14 @@ export default function ConversationView({
         requestAnimationFrame(() => {
           dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
           setNearBottomState(isNearBottom(listRef.current));
+          maybeFillOlderIfShort();
         });
       } else {
         setDividerBeforeId(null);
-        requestAnimationFrame(() => scrollToBottom(false));
+        requestAnimationFrame(() => {
+          scrollToBottom(false);
+          maybeFillOlderIfShort();
+        });
       }
     } catch {
       setError("Failed to load messages");
@@ -387,6 +400,7 @@ export default function ConversationView({
     const el = listRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     const prevTop = el?.scrollTop ?? 0;
+    const shortViewport = el != null && el.scrollHeight <= el.clientHeight + 4;
 
     try {
       const qs = new URLSearchParams({
@@ -398,14 +412,21 @@ export default function ConversationView({
         { credentials: "include" },
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error("[messages] load older failed", data?.error || res.status);
+        return;
+      }
 
       const rows = normalizeRows(Array.isArray(data.messages) ? data.messages : []);
       const more = data.hasMore === true;
       setHasMore(more);
       hasMoreRef.current = more;
 
-      if (rows.length === 0) return;
+      if (rows.length === 0) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+        return;
+      }
 
       setMessages((prev) => {
         const seen = new Set(prev.map((m) => Number(m.id)));
@@ -416,17 +437,45 @@ export default function ConversationView({
       requestAnimationFrame(() => {
         const list = listRef.current;
         if (!list) return;
-        list.scrollTop = prevTop + (list.scrollHeight - prevHeight);
+        if (shortViewport) {
+          scrollToBottom(false);
+        } else {
+          list.scrollTop = prevTop + (list.scrollHeight - prevHeight);
+        }
+        maybeFillOlderIfShort();
       });
+    } catch (err) {
+      console.error("[messages] load older error", err);
     } finally {
       loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
   }, [conversationId, isAdmin]);
 
+  loadOlderMessagesRef.current = loadOlderMessages;
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Top sentinel: load older when user scrolls up (or list is short and sentinel is visible).
+  useEffect(() => {
+    const root = listRef.current;
+    const target = topSentinelRef.current;
+    if (!root || !target || loading) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (!hasMoreRef.current || loadingOlderRef.current) return;
+        void loadOlderMessagesRef.current();
+      },
+      { root, rootMargin: "120px 0px 0px 0px", threshold: 0 },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, conversationId, hasMore, messages.length]);
 
   // Capture unread seed for this open + restore draft
   useEffect(() => {
@@ -935,14 +984,19 @@ export default function ConversationView({
             </div>
           ) : (
             <>
+              <div ref={topSentinelRef} className="h-px w-full shrink-0" aria-hidden />
               {loadingOlder ? (
                 <div className="py-2 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Loading older messages…
                 </div>
               ) : hasMore ? (
-                <div className="py-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-                  Scroll up for older messages
-                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadOlderMessagesRef.current()}
+                  className="mx-auto block py-1 text-center text-[11px] font-medium text-sky-600 hover:underline dark:text-sky-400"
+                >
+                  Load older messages
+                </button>
               ) : messages.length > 0 ? (
                 <div className="py-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
                   Beginning of conversation
