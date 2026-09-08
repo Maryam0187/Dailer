@@ -311,8 +311,8 @@ function FindCustomerButton({ alert }) {
             Match dialer customer
           </p>
           <p className="mt-0.5 text-xs text-sky-800/80 dark:text-sky-200/80">
-            Matches last4 + amount + transaction date (±1 day). Uses card on file when charge
-            last4 was not saved. In-house and outside.
+            Matches amount + date (±1 day), prefers last4. If charge last4 was never saved, shows
+            amount/date candidates (common for older outside charges).
           </p>
         </div>
         <button
@@ -339,7 +339,7 @@ function FindCustomerButton({ alert }) {
 
       {state.status === "done" && !state.error && state.matches.length === 0 ? (
         <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-          No dialer charge matched last4 + amount within ±1 day of the network transaction date.
+          No dialer charge with this amount within ±1 day of the network transaction date.
         </p>
       ) : null}
 
@@ -351,10 +351,15 @@ function FindCustomerButton({ alert }) {
             const matched = m.matched || {};
             const meta = [
               m.leadId ? `Lead #${m.leadId}` : m.customer?.isOutside ? "Outside" : null,
-              matched.last4 ? "Last4 matched" : null,
+              m.matchMode === "partial" || matched.last4Unknown
+                ? "Last4 not on charge (amount + date)"
+                : matched.last4
+                  ? "Last4 matched"
+                  : null,
               matched.amount ? "Amount matched" : null,
               matched.date ? "Date matched (±1d)" : null,
               m.cardLast4 ? `···· ${m.cardLast4}` : null,
+              m.status || null,
             ]
               .filter(Boolean)
               .join(" · ");
