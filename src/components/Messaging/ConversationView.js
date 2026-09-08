@@ -22,6 +22,9 @@ import {
 const COMPOSER_MIN_HEIGHT = 80;
 const COMPOSER_MAX_HEIGHT = 224;
 const COMPOSER_DEFAULT_HEIGHT = 80;
+/** Latest messages per open / older batch on scroll-up. */
+const MESSAGE_PAGE_SIZE = 10;
+const LOAD_OLDER_SCROLL_TOP_PX = 80;
 
 function DateSeparator({ label }) {
   if (!label) return null;
@@ -233,6 +236,8 @@ export default function ConversationView({
 }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
@@ -252,6 +257,9 @@ export default function ConversationView({
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const nearBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const messagesRef = useRef([]);
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
   const skipDraftPersistRef = useRef(false);
@@ -308,7 +316,117 @@ export default function ConversationView({
     const el = listRef.current;
     setNearBottomState(isNearBottom(el));
     // Keep the new-messages line until hover, send, or jump-to-new click
+    if (
+      el &&
+      el.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
+      hasMoreRef.current &&
+      !loadingOlderRef.current
+    ) {
+      void loadOlderMessages();
+    }
   }
+
+  function normalizeRows(rows) {
+    return isAdmin
+      ? rows
+      : rows.map((m) => ({ ...m, canEdit: false, canDelete: false }));
+  }
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId) return;
+    setLoading(true);
+    setError(null);
+    setHasMore(false);
+    hasMoreRef.current = false;
+    try {
+      const qs = new URLSearchParams({ limit: String(MESSAGE_PAGE_SIZE) });
+      const res = await fetch(
+        `/api/messages/conversations/${conversationId}/messages?${qs}`,
+        { credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to load messages");
+        return;
+      }
+      const rows = Array.isArray(data.messages) ? data.messages : [];
+      const more = data.hasMore === true;
+      setHasMore(more);
+      hasMoreRef.current = more;
+      setMessages(normalizeRows(rows));
+
+      const unread = unreadOnOpenRef.current;
+      if (unread > 0 && rows.length > 0) {
+        const startIdx = Math.max(0, rows.length - unread);
+        const firstNewId = rows[startIdx]?.id ?? null;
+        setDividerBeforeId(firstNewId);
+        // Scroll to the new-messages line (WhatsApp-style)
+        requestAnimationFrame(() => {
+          dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
+          setNearBottomState(isNearBottom(listRef.current));
+        });
+      } else {
+        setDividerBeforeId(null);
+        requestAnimationFrame(() => scrollToBottom(false));
+      }
+    } catch {
+      setError("Failed to load messages");
+    } finally {
+      setLoading(false);
+    }
+  }, [conversationId, isAdmin]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || loadingOlderRef.current || !hasMoreRef.current) return;
+
+    const oldestId = messagesRef.current[0]?.id;
+    if (!oldestId) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = listRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+
+    try {
+      const qs = new URLSearchParams({
+        limit: String(MESSAGE_PAGE_SIZE),
+        beforeId: String(oldestId),
+      });
+      const res = await fetch(
+        `/api/messages/conversations/${conversationId}/messages?${qs}`,
+        { credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+
+      const rows = normalizeRows(Array.isArray(data.messages) ? data.messages : []);
+      const more = data.hasMore === true;
+      setHasMore(more);
+      hasMoreRef.current = more;
+
+      if (rows.length === 0) return;
+
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => Number(m.id)));
+        const fresh = rows.filter((m) => !seen.has(Number(m.id)));
+        return fresh.length ? [...fresh, ...prev] : prev;
+      });
+
+      requestAnimationFrame(() => {
+        const list = listRef.current;
+        if (!list) return;
+        list.scrollTop = prevTop + (list.scrollHeight - prevHeight);
+      });
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [conversationId, isAdmin]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Capture unread seed for this open + restore draft
   useEffect(() => {
@@ -322,6 +440,10 @@ export default function ConversationView({
     setEditingMessageId(null);
     setEditDraft("");
     setPendingDeleteMessageId(null);
+    setHasMore(false);
+    hasMoreRef.current = false;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
   }, [conversationId, initialUnreadCount]);
 
   useEffect(() => {
@@ -356,47 +478,6 @@ export default function ConversationView({
     }
     writeMessageDraft(conversationId, draft);
   }, [conversationId, draft]);
-
-  const loadMessages = useCallback(async () => {
-    if (!conversationId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/messages/conversations/${conversationId}/messages`, {
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Failed to load messages");
-        return;
-      }
-      const rows = Array.isArray(data.messages) ? data.messages : [];
-      setMessages(
-        isAdmin
-          ? rows
-          : rows.map((m) => ({ ...m, canEdit: false, canDelete: false })),
-      );
-
-      const unread = unreadOnOpenRef.current;
-      if (unread > 0 && rows.length > 0) {
-        const startIdx = Math.max(0, rows.length - unread);
-        const firstNewId = rows[startIdx]?.id ?? null;
-        setDividerBeforeId(firstNewId);
-        // Scroll to the new-messages line (WhatsApp-style)
-        requestAnimationFrame(() => {
-          dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
-          setNearBottomState(isNearBottom(listRef.current));
-        });
-      } else {
-        setDividerBeforeId(null);
-        requestAnimationFrame(() => scrollToBottom(false));
-      }
-    } catch {
-      setError("Failed to load messages");
-    } finally {
-      setLoading(false);
-    }
-  }, [conversationId, isAdmin]);
 
   useEffect(() => {
     loadMessages();
@@ -853,7 +934,21 @@ export default function ConversationView({
               </p>
             </div>
           ) : (
-            messages.map((message, index) => {
+            <>
+              {loadingOlder ? (
+                <div className="py-2 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Loading older messages…
+                </div>
+              ) : hasMore ? (
+                <div className="py-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                  Scroll up for older messages
+                </div>
+              ) : messages.length > 0 ? (
+                <div className="py-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                  Beginning of conversation
+                </div>
+              ) : null}
+              {messages.map((message, index) => {
               const mine =
                 !conversation.isOversight &&
                 Number(message.userId) === Number(currentUserId);
@@ -971,7 +1066,8 @@ export default function ConversationView({
                   </div>
                 </Fragment>
               );
-            })
+            })}
+            </>
           )}
           <div ref={bottomRef} />
         </div>

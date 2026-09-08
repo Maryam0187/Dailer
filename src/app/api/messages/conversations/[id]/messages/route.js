@@ -27,14 +27,15 @@ export async function GET(req, { params }) {
   const beforeId = url.searchParams.get("beforeId");
   const limit = url.searchParams.get("limit");
 
-  const messages = await listMessages(access.conversation.id, {
+  const { messages, hasMore } = await listMessages(access.conversation.id, {
     beforeId: beforeId ? Number(beforeId) : null,
-    limit: limit ? Number(limit) : 50,
+    limit: limit ? Number(limit) : 10,
     viewer: authedUser,
   });
 
   return NextResponse.json({
     messages,
+    hasMore,
     isOversight: access.isOversight,
     canSend: access.isParticipant,
   });
