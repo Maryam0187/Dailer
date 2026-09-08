@@ -66,6 +66,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/message-oversight",
     },
     {
+      href: "/message-attachments",
+      label: "Chat attachments",
+      active: pathname === "/message-attachments",
+    },
+    {
       href: "/reports",
       label: "Reports",
       active: pathname === "/reports",

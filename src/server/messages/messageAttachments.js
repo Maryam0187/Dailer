@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import db from "@/server/db";
 import {
   getAllowedAttachmentMimeTypes,
@@ -26,6 +27,115 @@ export function serializeAttachment(attachment) {
     sizeBytes: plain.sizeBytes,
     status: plain.status,
     createdAt: plain.createdAt,
+  };
+}
+
+function serializeUserBrief(user) {
+  if (!user) return null;
+  const plain = typeof user.toJSON === "function" ? user.toJSON() : user;
+  return {
+    id: plain.id,
+    username: plain.username || "Unknown",
+  };
+}
+
+function receiverFromConversation(conversation, uploaderId) {
+  if (!conversation) return null;
+  const uid = Number(uploaderId);
+  if (Number(conversation.dmUserLowId) === uid) {
+    return serializeUserBrief(conversation.dmUserHigh);
+  }
+  if (Number(conversation.dmUserHighId) === uid) {
+    return serializeUserBrief(conversation.dmUserLow);
+  }
+  return null;
+}
+
+/**
+ * Admin-only inventory of chat attachment files with uploader + DM receiver.
+ * Kept here (not messageAccess) to avoid a circular import with that module.
+ */
+export async function listAttachmentsForAdmin(adminUser, { page = 1, pageSize = 25 } = {}) {
+  if (adminUser?.role !== "admin") {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const limit = Math.min(Math.max(Number(pageSize) || 25, 1), 100);
+  const requestedPage = Number.isInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+
+  const where = {
+    status: { [Op.in]: ["attached", "deleted"] },
+  };
+
+  const total = await db.MessageAttachment.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(requestedPage, totalPages);
+  const offset = (safePage - 1) * limit;
+
+  const rows = await db.MessageAttachment.findAll({
+    where,
+    include: [
+      {
+        model: db.User,
+        as: "uploader",
+        attributes: ["id", "username"],
+        required: false,
+      },
+      {
+        model: db.Conversation,
+        as: "conversation",
+        attributes: ["id", "dmUserLowId", "dmUserHighId"],
+        required: false,
+        include: [
+          {
+            model: db.User,
+            as: "dmUserLow",
+            attributes: ["id", "username"],
+            required: false,
+          },
+          {
+            model: db.User,
+            as: "dmUserHigh",
+            attributes: ["id", "username"],
+            required: false,
+          },
+        ],
+      },
+    ],
+    order: [
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+    limit,
+    offset,
+  });
+
+  const attachments = rows.map((row) => {
+    const plain = typeof row.toJSON === "function" ? row.toJSON() : row;
+    return {
+      id: plain.id,
+      messageId: plain.messageId,
+      conversationId: plain.conversationId,
+      originalName: plain.originalName,
+      mimeType: plain.mimeType,
+      sizeBytes: plain.sizeBytes,
+      status: plain.status,
+      createdAt: plain.createdAt,
+      uploader: serializeUserBrief(plain.uploader),
+      receiver: receiverFromConversation(plain.conversation, plain.userId),
+    };
+  });
+
+  return {
+    attachments,
+    pagination: {
+      page: safePage,
+      pageSize: limit,
+      total,
+      totalPages,
+      hasNext: safePage < totalPages,
+      hasPrev: safePage > 1,
+    },
   };
 }
 
