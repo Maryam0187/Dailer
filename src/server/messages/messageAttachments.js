@@ -27,6 +27,7 @@ export function serializeAttachment(attachment) {
     sizeBytes: plain.sizeBytes,
     status: plain.status,
     createdAt: plain.createdAt,
+    receiverDownloadedAt: plain.receiverDownloadedAt || null,
   };
 }
 
@@ -121,6 +122,7 @@ export async function listAttachmentsForAdmin(adminUser, { page = 1, pageSize = 
       sizeBytes: plain.sizeBytes,
       status: plain.status,
       createdAt: plain.createdAt,
+      receiverDownloadedAt: plain.receiverDownloadedAt || null,
       uploader: serializeUserBrief(plain.uploader),
       receiver: receiverFromConversation(plain.conversation, plain.userId),
     };
@@ -301,6 +303,30 @@ export async function linkAttachmentsToMessage({
   });
 
   return { attachments: attached.map(serializeAttachment) };
+}
+
+/**
+ * Record first download/view by the DM receiver (not uploader, not admin oversight).
+ */
+export async function markAttachmentDownloadedByReceiver(attachment, viewer) {
+  if (!attachment || !viewer?.id) return attachment;
+  if (attachment.receiverDownloadedAt) return attachment;
+  if (attachment.status !== "attached") return attachment;
+  if (Number(attachment.userId) === Number(viewer.id)) return attachment;
+
+  const conversation = await db.Conversation.findByPk(attachment.conversationId, {
+    attributes: ["id", "dmUserLowId", "dmUserHighId"],
+  });
+  if (!conversation) return attachment;
+
+  const viewerId = Number(viewer.id);
+  const isParticipant =
+    Number(conversation.dmUserLowId) === viewerId ||
+    Number(conversation.dmUserHighId) === viewerId;
+  if (!isParticipant) return attachment;
+
+  await attachment.update({ receiverDownloadedAt: new Date() });
+  return attachment;
 }
 
 export async function getAttachmentDownloadUrl(attachment) {

@@ -18,7 +18,8 @@ export default async function MessageAttachmentsAdminPage() {
           Chat attachments
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          All files shared in teammate DMs — filename, size, who uploaded, and who received.
+          All files shared in teammate DMs — filename, size, who uploaded, who received, and whether
+          the receiver downloaded the file.
         </p>
       </div>
       <MessageAttachmentsAdminClient />

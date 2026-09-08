@@ -5,6 +5,7 @@ import { getConversationForUser } from "@/server/messages/messageAccess";
 import { getAttachmentStorageMode } from "@/server/messages/attachmentStorage";
 import { readLocalAttachment } from "@/server/messages/localAttachmentStorage";
 import { sanitizeAttachmentFilename } from "@/server/messages/objectStorage";
+import { markAttachmentDownloadedByReceiver } from "@/server/messages/messageAttachments";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,7 @@ export async function GET(_req, { params }) {
 
   try {
     const fileBuffer = await readLocalAttachment(attachment.storageKey);
+    await markAttachmentDownloadedByReceiver(attachment, authedUser);
     const filename = sanitizeAttachmentFilename(attachment.originalName, "download");
     return new NextResponse(fileBuffer, {
       status: 200,

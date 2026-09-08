@@ -139,6 +139,7 @@ export default function MessageAttachmentsAdminClient() {
                   <th className="px-4 py-3 text-left whitespace-nowrap">Size</th>
                   <th className="px-4 py-3 text-left">Uploaded by</th>
                   <th className="px-4 py-3 text-left">Receiver</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">Receiver download</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">Uploaded</th>
                   <th className="px-4 py-3 text-right"> </th>
@@ -168,6 +169,22 @@ export default function MessageAttachmentsAdminClient() {
                     </td>
                     <td className="px-4 py-3 text-zinc-800 dark:text-zinc-200">
                       {row.receiver?.username || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.receiverDownloadedAt ? (
+                        <div>
+                          <span className="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+                            Downloaded
+                          </span>
+                          <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                            {formatWhen(row.receiverDownloadedAt)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-semibold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-300">
+                          Not downloaded
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span

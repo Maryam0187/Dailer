@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import db from "@/server/db";
 import { getConversationForUser } from "@/server/messages/messageAccess";
-import { getAttachmentDownloadUrl } from "@/server/messages/messageAttachments";
+import {
+  getAttachmentDownloadUrl,
+  markAttachmentDownloadedByReceiver,
+} from "@/server/messages/messageAttachments";
 
 export const runtime = "nodejs";
 
@@ -27,6 +30,8 @@ export async function GET(_req, { params }) {
   if (!access) {
     return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
   }
+
+  await markAttachmentDownloadedByReceiver(attachment, authedUser);
 
   const result = await getAttachmentDownloadUrl(attachment);
   if (result.error) {
