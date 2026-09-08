@@ -311,8 +311,8 @@ function FindCustomerButton({ alert }) {
             Match dialer customer
           </p>
           <p className="mt-0.5 text-xs text-sky-800/80 dark:text-sky-200/80">
-            Matches last4 + amount + transaction date (±1 day). Auth / ARN / txn id used only if
-            saved on the charge.
+            Matches last4 + amount + transaction date (±1 day). Uses card on file when charge
+            last4 was not saved. In-house and outside.
           </p>
         </div>
         <button
