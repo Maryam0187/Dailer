@@ -236,6 +236,162 @@ function orderedEntries(obj, preferredOrder) {
   return [...preferred, ...rest].map((key) => [key, obj[key]]);
 }
 
+function alertMatchQuery(alert) {
+  const nt =
+    alert?.network_transaction && typeof alert.network_transaction === "object"
+      ? alert.network_transaction
+      : {};
+  const params = new URLSearchParams();
+  const authCode = String(nt.auth_code ?? "").trim();
+  const arn = String(nt.arn ?? "").trim();
+  const transaction = String(alert?.transaction ?? "").trim();
+  const last4 = String(nt.last4 ?? "").trim();
+  const amountRaw = nt.amount ?? alert?.amount;
+  const amount =
+    amountRaw != null && amountRaw !== "" && Number.isFinite(Number(amountRaw))
+      ? String(amountRaw)
+      : "";
+  const transactionDate = String(nt.created_at || alert?.created_at || "").trim();
+  if (authCode) params.set("authCode", authCode);
+  if (arn) params.set("arn", arn);
+  if (transaction) params.set("processorTransactionId", transaction);
+  if (last4) params.set("cardLast4", last4);
+  if (amount) params.set("amount", amount);
+  if (transactionDate) params.set("transactionDate", transactionDate);
+  return params;
+}
+
+function canMatchAlert(query) {
+  const hasStrong =
+    query.has("authCode") || query.has("arn") || query.has("processorTransactionId");
+  const hasSoft = query.has("amount") && query.has("transactionDate");
+  return hasStrong || hasSoft;
+}
+
+function FindCustomerButton({ alert }) {
+  const [state, setState] = useState({ status: "idle", error: null, matches: [] });
+  const query = alertMatchQuery(alert);
+  const canSearch = canMatchAlert(query);
+
+  async function onFind(e) {
+    e.stopPropagation();
+    if (!canSearch) return;
+    setState({ status: "loading", error: null, matches: [] });
+    try {
+      const res = await fetch(`/api/chargeflow/match-customer?${query}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Lookup failed");
+      }
+      setState({
+        status: "done",
+        error: null,
+        matches: Array.isArray(json.matches) ? json.matches : [],
+      });
+    } catch (err) {
+      setState({
+        status: "done",
+        error: err?.message || "Lookup failed",
+        matches: [],
+      });
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-sky-200/90 bg-sky-50/80 px-3.5 py-3 dark:border-sky-900/50 dark:bg-sky-950/30">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-sky-950 dark:text-sky-50">
+            Match dialer customer
+          </p>
+          <p className="mt-0.5 text-xs text-sky-800/80 dark:text-sky-200/80">
+            Prefers auth / ARN / txn id; otherwise amount + date (shows if last4 matched or not).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onFind}
+          disabled={!canSearch || state.status === "loading"}
+          className="h-9 shrink-0 rounded-lg border border-sky-300 bg-white px-3.5 text-sm font-semibold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950 dark:text-sky-100 dark:hover:bg-sky-900"
+        >
+          {state.status === "loading" ? "Searching…" : "Find customer"}
+        </button>
+      </div>
+
+      {!canSearch ? (
+        <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+          Need auth code / ARN / txn id, or amount + transaction date.
+        </p>
+      ) : null}
+
+      {state.error ? (
+        <p className="mt-2 text-xs font-medium text-rose-700 dark:text-rose-300" role="alert">
+          {state.error}
+        </p>
+      ) : null}
+
+      {state.status === "done" && !state.error && state.matches.length === 0 ? (
+        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+          No customer charge matched amount + transaction date (or strong ids).
+        </p>
+      ) : null}
+
+      {state.matches.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {state.matches.map((m) => {
+            const name = m.customer?.fullName || `Customer #${m.customerId}`;
+            const phone = m.customer?.phone || "";
+            const matched = m.matched || {};
+            const meta = [
+              m.leadId ? `Lead #${m.leadId}` : m.customer?.isOutside ? "Outside" : null,
+              `Last4 ${matched.last4 ? "matched" : "not matched"}`,
+              matched.amount ? "Amount matched" : null,
+              matched.date ? "Date matched" : null,
+              m.cardLast4 ? `···· ${m.cardLast4}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <li
+                key={m.chargeId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950/70"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    {name}
+                    {phone ? (
+                      <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">
+                        {phone}
+                      </span>
+                    ) : null}
+                  </p>
+                  {meta ? (
+                    <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">{meta}</p>
+                  ) : null}
+                </div>
+                {m.href ? (
+                  <a
+                    href={m.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex h-8 shrink-0 items-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    Open {m.leadId ? "lead" : "customer"}
+                  </a>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function AlertDetailPanel({ alert }) {
   const nt =
     alert?.network_transaction && typeof alert.network_transaction === "object"
@@ -257,6 +413,8 @@ function AlertDetailPanel({ alert }) {
 
   return (
     <div className="space-y-5 rounded-xl border border-sky-200/80 bg-white/90 p-4 dark:border-sky-900/50 dark:bg-zinc-950/50">
+      <FindCustomerButton alert={alert} />
+
       <DetailSection title="Alert">
         {topEntries.map(([key, raw]) => {
           const display = formatDetailValue(key, raw, alert.currency);
