@@ -23,7 +23,7 @@ function normalizePresence(value) {
   return "offline";
 }
 
-function activityActionLabel(action) {
+function activityActionLabel(action, metadata) {
   if (action === "login_success") return "Login";
   if (action === "login_failed") return "Login failed";
   if (action === "logout") return "Logout";
@@ -34,6 +34,13 @@ function activityActionLabel(action) {
   if (action === "lead_status_change") return "Lead status changed";
   if (action === "lead_note_edit") return "Lead notes edited";
   if (action === "lead_breakdown_edit") return "Lead breakdown edited";
+  if (action === "lead_workflow_change") {
+    // Progress tags keep LeadUpdate type lead_phase_change / action lead_workflow_change.
+    if (String(metadata?.summary || "").startsWith("Progress:")) {
+      return "Lead progress tags updated";
+    }
+    return "Lead workflow updated";
+  }
   if (action === "lead_comment") return "Lead comment";
   if (action === "lead_assigned") return "Lead assigned";
   if (action === "lead_processor_assigned") return "Processor assigned";
@@ -1249,7 +1256,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                               {new Date(row.createdAt).toLocaleString()}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
-                              {activityActionLabel(row.action)}
+                              {activityActionLabel(row.action, row.metadata)}
                             </td>
                             <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
                               <p

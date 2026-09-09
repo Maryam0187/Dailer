@@ -7,6 +7,7 @@ import { hasLeadMonitorAccess, shouldHideLeadNotes } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
+import { buildTextActivityDiff } from "@/server/leads/buildTextActivityDiff";
 import { logLeadUpdateActivity, logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { applyLeadWorkflowPatch } from "@/server/leads/applyLeadWorkflowPatch";
 import { hasLeadWorkflowPatch } from "@/lib/leadWorkflow";
@@ -138,7 +139,7 @@ export async function PATCH(req, { params }) {
       update.notes = nextNotes;
       activity.push({
         type: "note_edit",
-        body: nextNotes || "(cleared notes)",
+        body: buildTextActivityDiff(prevNotes, nextNotes, { clearedLabel: "(cleared notes)" }),
       });
     }
   }
@@ -150,7 +151,9 @@ export async function PATCH(req, { params }) {
       update.breakdown = nextBreakdown;
       activity.push({
         type: "breakdown_edit",
-        body: nextBreakdown || "(cleared breakdown)",
+        body: buildTextActivityDiff(prevBreakdown, nextBreakdown, {
+          clearedLabel: "(cleared breakdown)",
+        }),
       });
     }
   }

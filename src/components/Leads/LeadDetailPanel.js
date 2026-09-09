@@ -66,7 +66,29 @@ function WorkflowHeaderBadge({ lead, workflowTagLookup, preferShortLabels }) {
   );
 }
 
-function ActivityIcon({ type }) {
+/** Progress tags stay typed as lead_phase_change; distinguish by body prefix only. */
+function isProgressTagActivity(update) {
+  return (
+    update?.type === "lead_phase_change" && String(update.body || "").startsWith("Progress:")
+  );
+}
+
+const ACTIVITY_FILTERS = [
+  { key: "all", label: "All activity" },
+  { key: "notes", label: "Notes" },
+  { key: "breakdown", label: "Breakdown" },
+  { key: "workflow", label: "Workflow" },
+];
+
+function matchesActivityFilter(update, filter) {
+  if (filter === "all") return true;
+  if (filter === "notes") return update.type === "note_edit";
+  if (filter === "breakdown") return update.type === "breakdown_edit";
+  if (filter === "workflow") return update.type === "lead_phase_change";
+  return true;
+}
+
+function ActivityIcon({ type, progressTag = false }) {
   const base = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold";
   if (type === "comment") {
     return (
@@ -93,6 +115,13 @@ function ActivityIcon({ type }) {
     return (
       <div className={`${base} bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-200`}>
         📋
+      </div>
+    );
+  }
+  if (progressTag) {
+    return (
+      <div className={`${base} bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200`}>
+        ◆
       </div>
     );
   }
@@ -131,6 +160,7 @@ function activityTitle(update) {
   }
   if (update.type === "note_edit") return "Notes updated";
   if (update.type === "breakdown_edit") return "Breakdown updated";
+  if (isProgressTagActivity(update)) return "Progress tags updated";
   if (update.type === "lead_phase_change") return "Lead workflow updated";
   if (update.type === "payment_charged") return "Payment charged";
   if (update.type === "payment_declined") return "Payment declined";
@@ -140,14 +170,49 @@ function activityTitle(update) {
   return "Update";
 }
 
+function DiffActivityBody({ body }) {
+  const lines = String(body || "").split("\n");
+  return (
+    <div className="mt-2 space-y-0.5 font-mono text-[13px] leading-relaxed">
+      {lines.map((line, idx) => {
+        if (!line) return <div key={idx} className="h-2" />;
+        if (line.startsWith("− ")) {
+          return (
+            <p key={idx} className="rounded-md bg-red-50 px-2 py-0.5 text-red-800 dark:bg-red-950/40 dark:text-red-200">
+              {line}
+            </p>
+          );
+        }
+        if (line.startsWith("+ ")) {
+          return (
+            <p
+              key={idx}
+              className="rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+            >
+              {line}
+            </p>
+          );
+        }
+        // Unchanged context line (above / below)
+        return (
+          <p key={idx} className="px-2 text-zinc-500 dark:text-zinc-400">
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
+  const progressTag = isProgressTagActivity(update);
   const body =
     update.type === "lead_phase_change"
       ? formatActivityBodyWithTags(update.body, workflowTagLookup, preferShortLabels)
       : update.body;
   return (
     <li className="flex gap-3">
-      <ActivityIcon type={update.type} />
+      <ActivityIcon type={update.type} progressTag={progressTag} />
       <div className="min-w-0 flex-1 rounded-xl border border-zinc-200/80 bg-zinc-50/80 px-3.5 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{activityTitle(update)}</p>
@@ -158,9 +223,13 @@ function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
         </p>
         {body ? (
           update.type === "note_edit" || update.type === "breakdown_edit" ? (
-            <div className="mt-2">
-              <RichHtmlContent html={body} />
-            </div>
+            /[<>]/.test(String(body)) ? (
+              <div className="mt-2">
+                <RichHtmlContent html={body} />
+              </div>
+            ) : (
+              <DiffActivityBody body={body} />
+            )
           ) : (
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
               {body}
@@ -231,6 +300,7 @@ export default function LeadDetailPanel({
   const [savingNotes, setSavingNotes] = useState(false);
   const [savingBreakdown, setSavingBreakdown] = useState(false);
   const [activeTab, setActiveTab] = useState("activity");
+  const [activityFilter, setActivityFilter] = useState("all");
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [loadingAssignableUsers, setLoadingAssignableUsers] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
@@ -283,6 +353,10 @@ export default function LeadDetailPanel({
     void loadUpdates();
     void loadCalls();
   }, [lead?.id, lead?.notes, lead?.breakdown, lead?.updatedAt, loadUpdates, loadCalls]);
+
+  useEffect(() => {
+    setActivityFilter("all");
+  }, [lead?.id]);
 
   useEffect(() => {
     const onCallEnded = () => {
@@ -503,6 +577,10 @@ export default function LeadDetailPanel({
   const activityUpdates = useMemo(
     () => (updates || []).filter((u) => u.type !== "comment"),
     [updates],
+  );
+  const filteredActivityUpdates = useMemo(
+    () => activityUpdates.filter((u) => matchesActivityFilter(u, activityFilter)),
+    [activityUpdates, activityFilter],
   );
 
   if (!lead) return null;
@@ -944,16 +1022,38 @@ export default function LeadDetailPanel({
                   No activity yet. Update lead status to start the timeline.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-3">
-                  {activityUpdates.map((u) => (
-                    <ActivityItem
-                      key={u.id}
-                      update={u}
-                      workflowTagLookup={workflowTagLookup}
-                      preferShortLabels={preferShortLabels}
-                    />
-                  ))}
-                </ul>
+                <div className="space-y-3">
+                  <label className="flex items-center justify-end gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Show
+                    <select
+                      value={activityFilter}
+                      onChange={(e) => setActivityFilter(e.target.value)}
+                      className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-800 outline-none focus:border-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                    >
+                      {ACTIVITY_FILTERS.map((f) => (
+                        <option key={f.key} value={f.key}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {filteredActivityUpdates.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600">
+                      No matching activity.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-3">
+                      {filteredActivityUpdates.map((u) => (
+                        <ActivityItem
+                          key={u.id}
+                          update={u}
+                          workflowTagLookup={workflowTagLookup}
+                          preferShortLabels={preferShortLabels}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )
             )}
           </section>
