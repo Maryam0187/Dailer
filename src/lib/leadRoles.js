@@ -24,6 +24,11 @@ export function canViewLeadPaymentChargeInfo(role) {
   return role === "admin";
 }
 
+/** Payment method admin notes — admin only. */
+export function canViewPaymentAdminNotes(role) {
+  return role === "admin";
+}
+
 /**
  * Reserved for cases where a payment method should be omitted entirely.
  * Admins always see every method.

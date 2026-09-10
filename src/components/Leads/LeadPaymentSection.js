@@ -14,6 +14,7 @@ import {
   formatLeadPaymentChargeAmount,
   getLeadPaymentMethodMeta,
 } from "@/lib/leadWorkflow";
+import { canViewPaymentAdminNotes } from "@/lib/leadRoles";
 
 const PAYMENT_TYPES = [
   { value: "card", label: "Card" },
@@ -117,7 +118,12 @@ function paymentSummary(pm) {
     return `${bank} ${acct}`.trim();
   }
   if (pm.type === "check_mail") {
-    const parts = [pm.bankName, pm.checkNumber ? `#${pm.checkNumber}` : null].filter(Boolean);
+    const acct = pm.sensitiveLocked ? pm.accountNumber || "" : maskTail(pm.accountNumber);
+    const parts = [
+      pm.bankName,
+      acct || null,
+      pm.checkNumber ? `#${pm.checkNumber}` : null,
+    ].filter(Boolean);
     return parts.join(" · ") || "Check mail";
   }
   return pm.email || pm.notes?.slice(0, 60) || "POS";
@@ -134,7 +140,7 @@ function ViewField({ label, value }) {
   );
 }
 
-function PaymentViewDetails({ pm }) {
+function PaymentViewDetails({ pm, showAdminNotes = false }) {
   return (
     <dl className="grid gap-3 sm:grid-cols-2">
       <ViewField label="Type" value={paymentTypeLabel(pm.type)} />
@@ -159,14 +165,18 @@ function PaymentViewDetails({ pm }) {
       ) : null}
       {pm.type === "check_mail" ? (
         <>
+          <ViewField label="Routing number" value={pm.routingNumber} />
+          <ViewField label="Account number" value={pm.accountNumber} />
           <ViewField label="Check number" value={pm.checkNumber} />
           <ViewField label="Bank name" value={pm.bankName} />
         </>
       ) : null}
       {pm.type === "pos_link" ? <ViewField label="Email" value={pm.email} /> : null}
-      <div className="sm:col-span-2">
-        <ViewField label="Notes" value={pm.notes} />
-      </div>
+      {showAdminNotes ? (
+        <div className="sm:col-span-2">
+          <ViewField label="Admin notes" value={pm.notes} />
+        </div>
+      ) : null}
       <ViewField label="Added by" value={addedByLabel(pm)} />
     </dl>
   );
@@ -179,7 +189,9 @@ export default function LeadPaymentSection({
   labelClass,
   inputClass,
   canEditChargeAmount = false,
+  userRole = null,
 }) {
+  const showAdminNotes = canViewPaymentAdminNotes(userRole);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -298,7 +310,7 @@ export default function LeadPaymentSection({
         checkNumber: paymentForm.checkNumber || null,
         bankName: paymentForm.bankName || null,
         email: paymentForm.type === "pos_link" ? paymentForm.email || null : null,
-        notes: paymentForm.notes || null,
+        notes: showAdminNotes ? paymentForm.notes || null : null,
       };
 
       const res = await fetch(`/api/leads/${lead.id}/payment-methods`, {
@@ -488,7 +500,7 @@ export default function LeadPaymentSection({
               Close
             </button>
           </div>
-          <PaymentViewDetails pm={viewingPayment} />
+          <PaymentViewDetails pm={viewingPayment} showAdminNotes={showAdminNotes} />
         </div>
       ) : null}
 
@@ -748,6 +760,30 @@ export default function LeadPaymentSection({
           {paymentForm.type === "check_mail" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <label className={labelClass}>
+                Routing number
+                <input
+                  className={inputClass}
+                  value={paymentForm.routingNumber}
+                  onChange={(e) =>
+                    setPaymentForm((prev) => ({ ...prev, routingNumber: e.target.value }))
+                  }
+                  inputMode="numeric"
+                  {...noBrowserSaveProps}
+                />
+              </label>
+              <label className={labelClass}>
+                Account number
+                <input
+                  className={inputClass}
+                  value={paymentForm.accountNumber}
+                  onChange={(e) =>
+                    setPaymentForm((prev) => ({ ...prev, accountNumber: e.target.value }))
+                  }
+                  inputMode="numeric"
+                  {...noBrowserSaveProps}
+                />
+              </label>
+              <label className={labelClass}>
                 Check number
                 <input
                   className={inputClass}
@@ -773,33 +809,22 @@ export default function LeadPaymentSection({
           ) : null}
 
           {paymentForm.type === "pos_link" ? (
-            <>
-              <label className={labelClass}>
-                Email
-                <input
-                  className={inputClass}
-                  type="email"
-                  value={paymentForm.email}
-                  onChange={(e) => setPaymentForm((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder="customer@example.com"
-                  {...noBrowserSaveProps}
-                />
-              </label>
-              <label className={labelClass}>
-                Notes
-                <textarea
-                  className={inputClass}
-                  rows={2}
-                  value={paymentForm.notes}
-                  onChange={(e) => setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  placeholder="POS reference…"
-                  {...noBrowserSaveProps}
-                />
-              </label>
-            </>
-          ) : (
             <label className={labelClass}>
-              Notes
+              Email
+              <input
+                className={inputClass}
+                type="email"
+                value={paymentForm.email}
+                onChange={(e) => setPaymentForm((prev) => ({ ...prev, email: e.target.value }))}
+                placeholder="customer@example.com"
+                {...noBrowserSaveProps}
+              />
+            </label>
+          ) : null}
+
+          {showAdminNotes ? (
+            <label className={labelClass}>
+              Admin notes
               <textarea
                 className={inputClass}
                 rows={2}
@@ -808,7 +833,7 @@ export default function LeadPaymentSection({
                 {...noBrowserSaveProps}
               />
             </label>
-          )}
+          ) : null}
 
           <div className="flex flex-wrap gap-2">
             <button type="submit" className={btnPrimary} disabled={saving}>

@@ -876,6 +876,7 @@ export default function LeadDetailPanel({
               labelClass={labelClass}
               inputClass={inputClass}
               canEditChargeAmount={canEditChargeAmount}
+              userRole={userRole}
             />
           )}
 

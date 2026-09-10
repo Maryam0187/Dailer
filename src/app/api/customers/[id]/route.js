@@ -82,7 +82,9 @@ export async function GET(_req, { params }) {
         : Promise.resolve([]),
     ]);
 
-  const paymentMethodsSerialized = paymentMethods.map(serializePaymentMethod);
+  const paymentMethodsSerialized = paymentMethods.map((row) =>
+    serializePaymentMethod(row, { viewerRole: authedUser.role }),
+  );
 
   const [leads, sales] = await Promise.all([
     finalizeLeadBundle(inHouseBundle, paymentMethodsSerialized),

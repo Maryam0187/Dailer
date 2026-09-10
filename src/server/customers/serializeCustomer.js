@@ -1,4 +1,5 @@
 import { formatLeadService } from "@/lib/leadService";
+import { canViewPaymentAdminNotes } from "@/lib/leadRoles";
 import {
   getLeadPaymentMethodMeta,
   parsePaymentMethodIdFromActivityBody,
@@ -34,7 +35,7 @@ export const leadAgentInclude = {
   required: false,
 };
 
-export function serializePaymentMethod(row) {
+export function serializePaymentMethod(row, { viewerRole } = {}) {
   return {
     id: row.id,
     customerId: row.customerId,
@@ -51,7 +52,7 @@ export function serializePaymentMethod(row) {
     checkNumber: row.checkNumber,
     bankName: row.bankName,
     email: row.email,
-    notes: row.notes,
+    notes: canViewPaymentAdminNotes(viewerRole) ? row.notes : null,
     createdByUserId: row.createdByUserId,
     createdByUsername: row.createdBy?.username ?? null,
     createdAt: row.createdAt,

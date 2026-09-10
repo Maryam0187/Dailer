@@ -7,6 +7,7 @@ import {
   parsePaymentBody,
   clearUnusedPaymentFields,
 } from "@/server/customers/parsePaymentBody";
+import { canViewPaymentAdminNotes } from "@/lib/leadRoles";
 
 export async function PATCH(req, { params }) {
   const { authedUser, errorResponse } = await requireCustomerAccess();
@@ -41,6 +42,7 @@ export async function PATCH(req, { params }) {
 
   const nextType = data.type || row.type;
   const cleaned = clearUnusedPaymentFields(nextType, { ...row.toJSON(), ...data });
+  const canEditNotes = canViewPaymentAdminNotes(authedUser.role);
   // Only persist fields that belong on the model update payload
   const update = {
     type: nextType,
@@ -55,7 +57,11 @@ export async function PATCH(req, { params }) {
     accountNumber: cleaned.accountNumber,
     checkNumber: cleaned.checkNumber,
     bankName: cleaned.bankName,
-    notes: cleaned.notes !== undefined ? cleaned.notes : row.notes,
+    notes: canEditNotes
+      ? cleaned.notes !== undefined
+        ? cleaned.notes
+        : row.notes
+      : row.notes,
   };
 
   await db.sequelize.transaction(async (transaction) => {
@@ -82,7 +88,9 @@ export async function PATCH(req, { params }) {
     ],
   });
 
-  return NextResponse.json({ paymentMethod: serializePaymentMethod(withUser) });
+  return NextResponse.json({
+    paymentMethod: serializePaymentMethod(withUser, { viewerRole: authedUser.role }),
+  });
 }
 
 export async function DELETE(_req, { params }) {

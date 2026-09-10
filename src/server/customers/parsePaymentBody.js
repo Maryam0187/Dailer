@@ -103,8 +103,6 @@ export function clearUnusedPaymentFields(type, data) {
     next.cardNumber = null;
     next.expDate = null;
     next.cvv = null;
-    next.routingNumber = null;
-    next.accountNumber = null;
     next.email = null;
   } else if (type === "pos_link") {
     next.nameOnCard = null;

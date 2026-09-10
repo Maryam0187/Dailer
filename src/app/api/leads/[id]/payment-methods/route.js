@@ -3,7 +3,11 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { canAccessLead } from "@/server/leads/leadAccess";
-import { canViewLeadPaymentChargeInfo, shouldHideLeadPaymentSection } from "@/lib/leadRoles";
+import {
+  canViewLeadPaymentChargeInfo,
+  canViewPaymentAdminNotes,
+  shouldHideLeadPaymentSection,
+} from "@/lib/leadRoles";
 import {
   serializePaymentMethodForLeadViewer,
   serializePaymentMethodsForLeadViewer,
@@ -155,6 +159,9 @@ export async function POST(req, { params }) {
   }
 
   const cleaned = clearUnusedPaymentFields(data.type, data);
+  if (!canViewPaymentAdminNotes(authedUser.role)) {
+    cleaned.notes = null;
+  }
   const previousPmId = lead.customerPaymentMethodId;
 
   let chargeAmount;

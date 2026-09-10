@@ -197,7 +197,12 @@ function paymentSummary(pm) {
     return `${bank} ${acct}`.trim();
   }
   if (pm.type === "check_mail") {
-    const parts = [pm.bankName, pm.checkNumber ? `#${pm.checkNumber}` : null].filter(Boolean);
+    const acct = maskTail(pm.accountNumber);
+    const parts = [
+      pm.bankName,
+      acct || null,
+      pm.checkNumber ? `#${pm.checkNumber}` : null,
+    ].filter(Boolean);
     return parts.join(" · ") || "Check mail";
   }
   return pm.email || pm.notes?.slice(0, 60) || "POS";
@@ -394,7 +399,7 @@ function ViewField({ label, value }) {
   );
 }
 
-function PaymentViewDetails({ pm }) {
+function PaymentViewDetails({ pm, showAdminNotes = false }) {
   return (
     <dl className="grid gap-3 sm:grid-cols-2">
       <ViewField label="Type" value={paymentTypeLabel(pm.type)} />
@@ -420,14 +425,18 @@ function PaymentViewDetails({ pm }) {
       ) : null}
       {pm.type === "check_mail" ? (
         <>
+          <ViewField label="Routing number" value={pm.routingNumber} />
+          <ViewField label="Account number" value={pm.accountNumber} />
           <ViewField label="Check number" value={pm.checkNumber} />
           <ViewField label="Bank name" value={pm.bankName} />
         </>
       ) : null}
       {pm.type === "pos_link" ? <ViewField label="Email" value={pm.email} /> : null}
-      <div className="sm:col-span-2">
-        <ViewField label="Notes" value={pm.notes} />
-      </div>
+      {showAdminNotes ? (
+        <div className="sm:col-span-2">
+          <ViewField label="Admin notes" value={pm.notes} />
+        </div>
+      ) : null}
       <ViewField label="Created" value={formatWhen(pm.createdAt)} />
       <ViewField label="Created by" value={pm.createdByUsername} />
     </dl>
@@ -1208,7 +1217,7 @@ export default function CustomersClient({
         checkNumber: paymentForm.checkNumber || null,
         bankName: paymentForm.bankName || null,
         email: paymentForm.type === "pos_link" ? paymentForm.email || null : null,
-        notes: paymentForm.notes || null,
+        notes: isAdmin ? paymentForm.notes || null : null,
       };
 
       const url = editingPaymentId
@@ -2883,7 +2892,7 @@ export default function CustomersClient({
                         </button>
                       </div>
                     </div>
-                    <PaymentViewDetails pm={viewingPayment} />
+                    <PaymentViewDetails pm={viewingPayment} showAdminNotes={isAdmin} />
                   </div>
                 ) : null}
 
@@ -3124,6 +3133,28 @@ export default function CustomersClient({
                   {paymentForm.type === "check_mail" ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className={labelClass}>
+                        Routing number
+                        <input
+                          className={inputClass}
+                          value={paymentForm.routingNumber}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, routingNumber: e.target.value }))
+                          }
+                          inputMode="numeric"
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        Account number
+                        <input
+                          className={inputClass}
+                          value={paymentForm.accountNumber}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, accountNumber: e.target.value }))
+                          }
+                          inputMode="numeric"
+                        />
+                      </label>
+                      <label className={labelClass}>
                         Check number
                         <input
                           className={inputClass}
@@ -3162,17 +3193,19 @@ export default function CustomersClient({
                     </label>
                   ) : null}
 
-                  <label className={labelClass}>
-                    Notes
-                    <textarea
-                      className={inputClass}
-                      rows={2}
-                      value={paymentForm.notes}
-                      onChange={(e) =>
-                        setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))
-                      }
-                    />
-                  </label>
+                  {isAdmin ? (
+                    <label className={labelClass}>
+                      Admin notes
+                      <textarea
+                        className={inputClass}
+                        rows={2}
+                        value={paymentForm.notes}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ) : null}
 
                   <label className="inline-flex items-center gap-2 text-sm text-zinc-800 dark:text-zinc-200">
                     <input
