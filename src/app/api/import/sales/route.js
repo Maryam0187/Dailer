@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { parseCsv } from "@/server/import/parseCsv";
 import { runSalesImport } from "@/server/import/runSalesImport";
 import { IMPORT_TARGET_VALUES } from "@/lib/importSalesTargets";
+import { isSpreadsheetFileName, parseSpreadsheet, spreadsheetExtension } from "@/lib/parseSpreadsheet";
 
 export const runtime = "nodejs";
 
@@ -26,12 +26,15 @@ export async function POST(req) {
   const form = await req.formData();
   const file = form.get("file");
   if (!file || typeof file === "string") {
-    return NextResponse.json({ error: "CSV file is required" }, { status: 400 });
+    return NextResponse.json({ error: "Spreadsheet file is required" }, { status: 400 });
   }
 
   const name = String(file.name || "").toLowerCase();
-  if (name && !name.endsWith(".csv") && !name.endsWith(".txt")) {
-    return NextResponse.json({ error: "Only CSV files are supported" }, { status: 400 });
+  if (name && !isSpreadsheetFileName(name)) {
+    return NextResponse.json(
+      { error: "Unsupported file type. Use CSV, TSV, Excel (.xlsx/.xls), or ODS." },
+      { status: 400 },
+    );
   }
 
   let columnMap;
@@ -53,10 +56,26 @@ export async function POST(req) {
     }
   }
 
-  const text = await file.text();
-  const { headers, rows } = parseCsv(text);
+  const ext = spreadsheetExtension(name);
+  const isText = ext === ".csv" || ext === ".txt" || ext === ".tsv";
+  let headers;
+  let rows;
+  try {
+    if (isText) {
+      ({ headers, rows } = parseSpreadsheet(await file.text(), name));
+    } else {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      ({ headers, rows } = parseSpreadsheet(buf, name));
+    }
+  } catch (e) {
+    return NextResponse.json(
+      { error: e?.message || "Could not parse spreadsheet" },
+      { status: 400 },
+    );
+  }
+
   if (headers.length === 0 || rows.length === 0) {
-    return NextResponse.json({ error: "CSV has no data rows" }, { status: 400 });
+    return NextResponse.json({ error: "File has no data rows" }, { status: 400 });
   }
 
   for (const header of Object.keys(columnMap)) {
