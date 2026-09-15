@@ -86,7 +86,7 @@ function roleLabel(role) {
     agent: "Agent",
     manager: "Manager",
     processor: "Processor",
-    lead_monitor: "Lead monitor",
+    lead_supervisor: "Lead supervisor",
   };
   return map[role] || role;
 }

@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { canAccessUsersPage } from "@/server/auth/userAccess";
 import { isOutsideManager } from "@/server/customers/customerAccess";
+import { ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
@@ -13,11 +15,7 @@ export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   if (isOutsideManager(authedUser)) redirect("/customers");
-  if (
-    authedUser.role !== "admin" &&
-    authedUser.role !== "manager" &&
-    authedUser.role !== "supervisor"
-  ) {
+  if (!canAccessUsersPage(authedUser.role)) {
     redirect("/");
   }
 
@@ -53,7 +51,7 @@ export default async function UsersPage() {
     usersWhere = undefined;
   } else if (authedUser.role === "manager") {
     usersWhere = {
-      role: { [Op.in]: ["agent", "supervisor", "processor", "lead_monitor"] },
+      role: { [Op.in]: ["agent", "supervisor", "processor", "lead_supervisor"] },
       managerId: authedUser.id,
     };
   } else {
@@ -122,10 +120,11 @@ export default async function UsersPage() {
 
   const managers = managersRows.map((r) => ({ id: r.id, username: r.username }));
   const supervisors = users
-    .filter((u) => u.role === "supervisor" && u.isActive)
+    .filter((u) => ROLES_WITH_ASSIGNED_AGENTS.includes(u.role) && u.isActive)
     .map((u) => ({
       id: u.id,
       username: u.username,
+      role: u.role,
       managerId: u.managerId,
       shiftKey: u.shiftKey === "night" ? "night" : "day",
     }));

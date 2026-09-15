@@ -12,6 +12,7 @@ const ROLE_FILTERS = [
   { id: "all", label: "All" },
   { id: "agent", label: "Agent" },
   { id: "supervisor", label: "Supervisor" },
+  { id: "lead_supervisor", label: "Lead supervisor" },
   { id: "processor", label: "Processor" },
 ];
 
@@ -21,7 +22,7 @@ const ROLE_LABELS = {
   processor: "Processor",
   manager: "Manager",
   admin: "Admin",
-  lead_monitor: "Lead monitor",
+  lead_supervisor: "Lead supervisor",
 };
 
 function filterChipClass(active) {
@@ -31,6 +32,7 @@ function filterChipClass(active) {
 function formatAssigneeLabel(user) {
   if (!user) return "Unassigned";
   if (user.role === "supervisor") return `${user.username} (Supervisor)`;
+  if (user.role === "lead_supervisor") return `${user.username} (Lead supervisor)`;
   if (user.role === "agent" && user.supervisorName) return `${user.username} (${user.supervisorName})`;
   const roleLabel = ROLE_LABELS[user.role] || user.role;
   return `${user.username} (${roleLabel})`;

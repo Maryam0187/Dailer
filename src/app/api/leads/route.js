@@ -5,7 +5,7 @@ import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
-import { hasFullLeadAccess, hasLeadMonitorAccess } from "@/lib/leadRoles";
+import { canHaveAssignedAgents, hasFullLeadAccess, isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import {
   andWhereClause,
   canAssignLeadToAgent,
@@ -204,7 +204,7 @@ export async function GET(req) {
     return NextResponse.json({ error: "Invalid supervisorId" }, { status: 400 });
   }
 
-  if (authedUser.role === "supervisor" && supervisorIdRaw) {
+  if (canHaveAssignedAgents(authedUser.role) && supervisorIdRaw) {
     return NextResponse.json({ error: "Invalid supervisorId" }, { status: 403 });
   }
 
@@ -218,7 +218,7 @@ export async function GET(req) {
 
   where = await resolveLeadsListWhere(authedUser, {
     creatorId,
-    supervisorId: authedUser.role === "supervisor" ? null : supervisorId,
+    supervisorId: canHaveAssignedAgents(authedUser.role) ? null : supervisorId,
     assignedScope: assignedScopeRaw,
     processorScope: processorScopeRaw,
   });
@@ -399,7 +399,7 @@ export async function POST(req) {
   let createdFromCallLogId = null;
   if (Number.isInteger(callLogId) && callLogId > 0) {
     const call = await db.CallLog.findByPk(callLogId);
-    if (call && (call.userId === authedUser.id || hasLeadMonitorAccess(authedUser.role))) {
+    if (call && (call.userId === authedUser.id || authedUser.role === "admin")) {
       createdFromCallLogId = call.id;
     }
   }
@@ -418,12 +418,12 @@ export async function POST(req) {
     const supervisorId = agent?.supervisorId;
     if (Number.isInteger(supervisorId) && supervisorId > 0) {
       const supervisor = await db.User.findOne({
-        where: { id: supervisorId, role: "supervisor", isActive: true },
+        where: { id: supervisorId, role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true },
         attributes: ["id"],
       });
       if (supervisor) assignedUserId = supervisor.id;
     }
-  } else if (hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor") {
+  } else if (isLeadSupervisor(authedUser.role) || authedUser.role === "supervisor") {
     const requested = Number(body?.assignedUserId);
     if (Number.isInteger(requested) && requested > 0) {
       if (!(await canAssignLeadToAgent(authedUser, requested))) {

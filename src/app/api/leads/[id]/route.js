@@ -3,7 +3,7 @@ import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { hasLeadMonitorAccess, shouldHideLeadNotes } from "@/lib/leadRoles";
+import { isLeadSupervisor, shouldHideLeadNotes } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
@@ -193,7 +193,9 @@ export async function PATCH(req, { params }) {
     }
 
     const canReassign =
-      hasLeadMonitorAccess(authedUser.role) || authedUser.role === "supervisor";
+      authedUser.role === "admin" ||
+      isLeadSupervisor(authedUser.role) ||
+      authedUser.role === "supervisor";
 
     if (!canReassign) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
