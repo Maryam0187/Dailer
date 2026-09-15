@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
 import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 
 function roleLabel(role) {
@@ -2620,7 +2621,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       ? "Everyone in the system."
       : isManager
         ? "Day and night agents, supervisors, processors, and lead supervisors assigned to you."
-        : "Agents assigned to you as their supervisor.";
+        : isLeadSupervisor(role)
+          ? "In-house agents on your shift."
+          : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showLeaveColumn = true;
   const showShiftColumn = role === "admin" || isManager;

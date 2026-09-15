@@ -122,14 +122,41 @@ export async function getAssignableAgents(authedUser) {
     if (!ownShift) return agents;
     return agents.filter((a) => userMatchesShift(a, ownShift));
   }
-  if (authedUser.role === "supervisor" || isLeadSupervisor(authedUser.role)) {
+  if (authedUser.role === "supervisor") {
     return db.User.findAll({
       where: { role: "agent", supervisorId: Number(authedUser.id), isActive: true },
       attributes: ["id", "username", "supervisorId", "shiftKey"],
       order: [["username", "ASC"]],
     });
   }
+  if (isLeadSupervisor(authedUser.role)) {
+    return db.User.findAll({
+      where: leadSupervisorVisibleAgentWhere(authedUser),
+      attributes: ["id", "username", "supervisorId", "shiftKey"],
+      order: [["username", "ASC"]],
+    });
+  }
   return [];
+}
+
+/** In-house agents on the lead supervisor's own shift. */
+export function leadSupervisorVisibleAgentWhere(authedUser) {
+  return {
+    role: "agent",
+    supervisorId: Number(authedUser.id),
+    isActive: true,
+    isOutside: { [Op.ne]: true },
+    shiftKey: normalizeUserShiftKey(authedUser.shiftKey),
+  };
+}
+
+export async function getLeadSupervisorTeamAgentIds(authedUser) {
+  const rows = await db.User.findAll({
+    where: leadSupervisorVisibleAgentWhere(authedUser),
+    attributes: ["id"],
+    raw: true,
+  });
+  return rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
 }
 
 const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor"];
@@ -142,8 +169,9 @@ export async function getLeadSupervisorAssignableUsers(authedUser) {
     where: {
       isActive: true,
       role: { [Op.in]: LEAD_SUPERVISOR_ASSIGNABLE_ROLES },
+      [Op.or]: [{ role: { [Op.ne]: "agent" } }, { isOutside: { [Op.ne]: true } }],
     },
-    attributes: ["id", "username", "role", "supervisorId", "shiftKey"],
+    attributes: ["id", "username", "role", "supervisorId", "shiftKey", "isOutside"],
     order: [
       ["role", "ASC"],
       ["username", "ASC"],
@@ -578,7 +606,7 @@ export async function resolveLeadsListWhere(
   }
 
   if (isLeadSupervisor(role)) {
-    const agentIds = await getSupervisedAgentUserIds(authedUser.id);
+    const agentIds = await getLeadSupervisorTeamAgentIds(authedUser);
     const teamIds = teamCreatorIds(authedUser.id, agentIds);
     const visible = {
       [Op.or]: [
@@ -679,8 +707,8 @@ export async function canAccessLead(lead, authedUser) {
   }
 
   if (isLeadSupervisor(authedUser.role)) {
-    const teamIds = await getSupervisorTeamUserIds(authedUser.id);
-    const team = new Set(teamIds.map(Number));
+    const agentIds = await getLeadSupervisorTeamAgentIds(authedUser);
+    const team = new Set(teamCreatorIds(authedUser.id, agentIds).map(Number));
     return team.has(Number(lead.createdByUserId)) || team.has(Number(lead.assignedUserId));
   }
 

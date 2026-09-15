@@ -4,7 +4,8 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canAccessUsersPage } from "@/server/auth/userAccess";
 import { isOutsideManager } from "@/server/customers/customerAccess";
-import { ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { leadSupervisorVisibleAgentWhere } from "@/server/leads/leadAccess";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
@@ -54,6 +55,8 @@ export default async function UsersPage() {
       role: { [Op.in]: ["agent", "supervisor", "processor", "lead_supervisor"] },
       managerId: authedUser.id,
     };
+  } else if (isLeadSupervisor(authedUser.role)) {
+    usersWhere = leadSupervisorVisibleAgentWhere(authedUser);
   } else {
     usersWhere = {
       role: "agent",

@@ -3,7 +3,8 @@ import bcrypt from "bcrypt";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { canHaveAssignedAgents, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { canHaveAssignedAgents, isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { leadSupervisorVisibleAgentWhere } from "@/server/leads/leadAccess";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
@@ -124,6 +125,26 @@ export async function GET(req) {
       attributes: LIST_ATTRIBUTES,
       include: LIST_INCLUDE,
       where: { managerId: authedUser.id },
+      order: [["createdAt", "DESC"]],
+    });
+    const now = Date.now();
+    const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(rows.map((r) => r.id));
+    return NextResponse.json({
+      users: sortUsersForDisplay(
+        rows.map((r) =>
+          serializeUserRow(r, now, {
+            currentLeave: currentLeaveByUserId.get(r.id) ?? null,
+          }),
+        ),
+      ),
+    });
+  }
+
+  if (isLeadSupervisor(authedUser.role)) {
+    const rows = await db.User.findAll({
+      attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
+      where: leadSupervisorVisibleAgentWhere(authedUser),
       order: [["createdAt", "DESC"]],
     });
     const now = Date.now();
@@ -285,6 +306,7 @@ export async function POST(req) {
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
         shiftKey: supervisorShiftKey,
+        isOutside: false,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
