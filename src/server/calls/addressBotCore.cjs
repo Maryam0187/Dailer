@@ -67,6 +67,10 @@ function getAddressBotVoice() {
   return String(process.env.ADDRESS_BOT_VOICE || "Joanna-Neural").trim() || "Joanna-Neural";
 }
 
+function getTtsRate() {
+  return String(process.env.ADDRESS_BOT_TTS_RATE || "70%").trim() || "70%";
+}
+
 function getOpenAiModel() {
   return String(process.env.OPENAI_ADDRESS_BOT_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
 }
@@ -75,15 +79,90 @@ function getOpenAiApiKey() {
   return String(process.env.OPENAI_API_KEY || "").trim();
 }
 
-function buildWelcomeGreeting(address) {
-  const spoken = String(address || "").trim();
-  return [
-    "Please get a pen and paper. I will say the address slowly.",
-    spoken,
-    "I will repeat that.",
-    spoken,
-    "If you need that repeated or spelled, just ask. Your representative is still on the line.",
-  ].join(" ");
+function escapeXmlText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function addressToSsml(address) {
+  const parts = String(address || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const chunks = parts.length ? parts : [String(address || "").trim()];
+  return chunks
+    .map((part) => {
+      const withDigits = escapeXmlText(part).replace(/\d+/g, (n) => `<say-as interpret-as="digits">${n}</say-as>`);
+      return `${withDigits}<break time="700ms"/>`;
+    })
+    .join(" ");
+}
+
+function wrapSlowSsml(innerSsml) {
+  const rate = escapeXmlAttr(getTtsRate());
+  return `<speak><prosody rate="${rate}">${innerSsml}</prosody></speak>`;
+}
+
+function wrapPlainTextForTts(text) {
+  const spoken = String(text || "").trim();
+  if (!spoken) return "";
+  return wrapSlowSsml(escapeXmlText(spoken));
+}
+
+const READY_CHECK =
+  "Do you have a pen and paper ready? Please say yes when you are ready for me to say the address.";
+const READY_WAIT =
+  "No problem. Take your time. Say yes when you are ready to write down the address.";
+const READY_RETRY =
+  "Just say yes when you have a pen and paper, and I will say the address slowly.";
+
+function buildWelcomeGreeting() {
+  return READY_CHECK;
+}
+
+function buildWelcomeGreetingSsml() {
+  return wrapSlowSsml(
+    [
+      "Do you have a pen and paper ready?",
+      '<break time="700ms"/>',
+      "Please say yes when you are ready for me to say the address.",
+    ].join(" "),
+  );
+}
+
+function buildAddressReadSsml(address) {
+  const spoken = addressToSsml(address);
+  return wrapSlowSsml(
+    [
+      "Okay. I will say the address slowly.",
+      '<break time="700ms"/>',
+      spoken,
+      '<break time="1s"/>',
+      "I will repeat that.",
+      '<break time="700ms"/>',
+      spoken,
+      '<break time="800ms"/>',
+      "If you need that repeated or spelled, just ask. Your representative is still on the line.",
+    ].join(" "),
+  );
+}
+
+function classifyReadyReply(text) {
+  const t = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "unknown";
+  const saysWait = /\b(not yet|not ready|hold on|hold up|wait|one second|one sec|hang on|give me a (minute|second)|no)\b/.test(
+    t,
+  );
+  const saysReady = /\b(yes|yeah|yep|yup|ready|go ahead|okay|ok|sure|i am ready|i'm ready|go)\b/.test(t);
+  if (saysWait && !saysReady) return "wait";
+  if (saysReady) return "ready";
+  return "unknown";
 }
 
 function buildSystemPrompt(address) {
@@ -92,17 +171,19 @@ function buildSystemPrompt(address) {
     "You are a voice assistant on a live phone call. A human agent is also on the line and can take over at any time.",
     "Your only job is to help the customer write down this company address:",
     spoken,
-    "You may repeat it, say it slower, spell words, or break it into street, city, state, and ZIP.",
+    "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
+    "If they are not ready, wait. Once they are ready, say the address slowly, pause between street, city, state, and ZIP, and say numbers digit by digit. Then repeat it once.",
+    "After that, you may repeat it, say it slower, spell words, or break it into parts if they ask.",
     "Answer only questions about this address. If they ask about anything else, including a different location, say their representative is on the line and can help.",
     "Do not invent other company facts or other addresses.",
-    "Keep replies short spoken sentences. No markdown, lists, or special characters.",
+    "Keep replies short spoken sentences. No markdown, lists, SSML, or special characters.",
   ].join(" ");
 }
 
 function signRelayToken({ addressId, callId }) {
   const secret = String(process.env.JWT_SECRET || "");
   const ts = Date.now();
-  const body = `${Number(addressId)}.${Number(callId)}.${ts}`;
+  const body = `${Number(addressId) || 0}.${Number(callId)}.${ts}`;
   const sig = crypto.createHmac("sha256", secret).update(body).digest("hex");
   return `${ts}.${sig}`;
 }
@@ -116,7 +197,7 @@ function verifyRelayToken({ addressId, callId, token }) {
   const sig = raw.slice(dot + 1);
   if (!Number.isFinite(ts) || !sig) return false;
   if (Date.now() - ts > RELAY_TOKEN_TTL_MS) return false;
-  const body = `${Number(addressId)}.${Number(callId)}.${ts}`;
+  const body = `${Number(addressId) || 0}.${Number(callId)}.${ts}`;
   const expected = crypto.createHmac("sha256", secret).update(body).digest("hex");
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
@@ -148,14 +229,16 @@ function buildRelayUrl(origin, { addressId, callId, token }) {
 
 function buildConversationRelayTwiml({ relayUrl, welcomeGreeting, voice }) {
   const ttsVoice = escapeXmlAttr(voice || getAddressBotVoice());
+  const greeting = String(welcomeGreeting || "").trim();
+  const greetingAttr = greeting ? `\n      welcomeGreeting="${escapeXmlAttr(greeting)}"` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXmlAttr(relayUrl)}"
-      welcomeGreeting="${escapeXmlAttr(welcomeGreeting)}"
-      welcomeGreetingInterruptible="true"
+      url="${escapeXmlAttr(relayUrl)}"${greetingAttr}
+      welcomeGreetingInterruptible="speech"
       interruptible="true"
+      ignoreBackchannel="true"
       ttsProvider="Amazon"
       voice="${ttsVoice}"
       language="en-US"
@@ -231,9 +314,16 @@ module.exports = {
   parseCompanyAddressBody,
   serializeCompanyAddress,
   getAddressBotVoice,
+  getTtsRate,
   getOpenAiModel,
   getOpenAiApiKey,
   buildWelcomeGreeting,
+  buildWelcomeGreetingSsml,
+  buildAddressReadSsml,
+  classifyReadyReply,
+  READY_WAIT,
+  READY_RETRY,
+  wrapPlainTextForTts,
   buildSystemPrompt,
   signRelayToken,
   verifyRelayToken,

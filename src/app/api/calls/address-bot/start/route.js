@@ -3,60 +3,15 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
   ADDRESS_BOT_LABEL,
+  beginAddressBotSpeech,
   getOpenAiApiKey,
   loadCompanyAddressById,
 } from "@/server/calls/addressBot";
-import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
-import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
-import { getTwilioClient, getTwilioFromNumber } from "@/server/twilio";
+import { findLabeledParticipant, setAddressBotMuted } from "@/server/calls/addressBotJoin";
+import { waitForInProgressConference } from "@/server/calls/upgradeToConference";
+import { getTwilioClient } from "@/server/twilio";
 
 export const runtime = "nodejs";
-
-const ADDRESS_BOT_APP_NAME = "dialer-address-bot";
-
-async function removeLabeledParticipant(client, conferenceSid, label) {
-  const wanted = String(label || "").trim().toLowerCase();
-  if (!conferenceSid || !wanted) return;
-  const participants = await client.conferences(conferenceSid).participants.list({ limit: 50 });
-  const match = participants.find((p) => String(p.label || "").trim().toLowerCase() === wanted);
-  if (!match?.callSid) return;
-  await client.conferences(conferenceSid).participants(match.callSid).remove().catch(() => {});
-}
-
-/**
- * Participants.json requires `To`. `Twiml` is not accepted. `app:<APP_SID>` runs TwiML
- * without dialing a phone or a registered Client identity (which can steal the agent leg).
- */
-async function ensureAddressBotTwimlApp(client, origin) {
-  const voiceUrl = `${String(origin || "").replace(/\/$/, "")}/api/twilio/address-bot/voice`;
-  const envSid = String(process.env.TWILIO_ADDRESS_BOT_APP_SID || "").trim();
-  const mainAppSid = String(process.env.TWILIO_APP_SID || "").trim();
-
-  let sid = envSid;
-  if (!sid) {
-    const existing = await client.applications.list({
-      friendlyName: ADDRESS_BOT_APP_NAME,
-      limit: 20,
-    });
-    const match = existing.find((app) => app?.sid && app.sid !== mainAppSid);
-    sid = match?.sid || "";
-  }
-  if (sid && sid === mainAppSid) {
-    throw new Error("Address bot cannot use TWILIO_APP_SID. Set TWILIO_ADDRESS_BOT_APP_SID.");
-  }
-
-  if (sid) {
-    await client.applications(sid).update({ voiceUrl, voiceMethod: "POST" });
-    return sid;
-  }
-
-  const created = await client.applications.create({
-    friendlyName: ADDRESS_BOT_APP_NAME,
-    voiceUrl,
-    voiceMethod: "POST",
-  });
-  return created.sid;
-}
 
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -92,24 +47,12 @@ export async function POST(req) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const origin = getRequestBaseUrlFromRequest(req);
-  if (!origin) {
-    return NextResponse.json(
-      { error: "Could not determine public app URL for the address bot." },
-      { status: 500 },
-    );
-  }
-
-  const upgraded = await upgradeCallToConference({ req, authedUser, callId });
-  if (!upgraded.ok) {
-    const payload = { error: upgraded.error };
-    if (upgraded.twilioHint) payload.twilioHint = upgraded.twilioHint;
-    return NextResponse.json(payload, { status: upgraded.status });
-  }
-
-  const conferenceName = String(upgraded.conferenceName || "").trim();
+  const conferenceName = String(body?.conferenceName || call.conferenceName || "").trim();
   if (!conferenceName) {
-    return NextResponse.json({ error: "Conference is not ready yet." }, { status: 409 });
+    return NextResponse.json(
+      { error: "Address bot is not connected yet. Click Ready bot first." },
+      { status: 409 },
+    );
   }
 
   try {
@@ -122,22 +65,24 @@ export async function POST(req) {
       );
     }
 
-    await removeLabeledParticipant(client, conference.sid, ADDRESS_BOT_LABEL);
+    const bot = await findLabeledParticipant(client, conference.sid, ADDRESS_BOT_LABEL);
+    if (!bot?.callSid) {
+      return NextResponse.json(
+        { error: "Address bot is not connected yet. Click Ready bot first." },
+        { status: 409 },
+      );
+    }
 
-    const appSid = await ensureAddressBotTwimlApp(client, origin);
-    const to = `app:${appSid}?${new URLSearchParams({
-      addressId: String(address.id),
-      callId: String(callId),
-    }).toString()}`;
+    await setAddressBotMuted(client, conference.sid, false);
 
-    const participant = await client.conferences(conference.sid).participants.create({
-      from: getTwilioFromNumber(),
-      to,
-      label: ADDRESS_BOT_LABEL,
-      earlyMedia: true,
-      endConferenceOnExit: false,
-      beep: false,
-    });
+    const begun = await beginAddressBotSpeech({ callId, addressId: address.id });
+    if (!begun?.ok) {
+      await setAddressBotMuted(client, conference.sid, true).catch(() => {});
+      return NextResponse.json(
+        { error: begun?.error || "Address bot is not connected yet. Click Ready bot first." },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -145,7 +90,7 @@ export async function POST(req) {
       callMode: "conference",
       addressId: address.id,
       addressLabel: address.label,
-      botCallSid: participant?.callSid || null,
+      botCallSid: bot.callSid,
     });
   } catch (err) {
     return NextResponse.json(

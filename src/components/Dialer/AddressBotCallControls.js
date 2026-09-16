@@ -10,6 +10,8 @@ export default function AddressBotCallControls({ session, patchSession }) {
   const [activeAddressId, setActiveAddressId] = useState(null);
   const [activeLabel, setActiveLabel] = useState("");
   const [startingId, setStartingId] = useState(null);
+  const [connecting, setConnecting] = useState(false);
+  const [botReady, setBotReady] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [mutedForBot, setMutedForBot] = useState(false);
@@ -47,10 +49,41 @@ export default function AddressBotCallControls({ session, patchSession }) {
     setActiveLabel("");
     setActionError(null);
     setMutedForBot(false);
+    setBotReady(false);
+    setConnecting(false);
   }, [callId]);
 
+  async function connectBot() {
+    if (!callReady || connecting || botReady || botRunning) return;
+    setConnecting(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/calls/address-bot/connect", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to connect address bot");
+
+      if (json.conferenceName && patchSession) {
+        patchSession({
+          conferenceName: json.conferenceName,
+          callMode: json.callMode || "conference",
+        });
+      }
+      setBotReady(true);
+    } catch (e) {
+      setBotReady(false);
+      setActionError(e.message || "Failed to connect address bot");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   async function startBot(row) {
-    if (!callReady || starting || botRunning) return;
+    if (!callReady || starting || botRunning || !botReady || connecting) return;
     setStartingId(row.id);
     setActionError(null);
     try {
@@ -58,7 +91,11 @@ export default function AddressBotCallControls({ session, patchSession }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callId, addressId: row.id }),
+        body: JSON.stringify({
+          callId,
+          addressId: row.id,
+          conferenceName: session?.conferenceName || "",
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to start address bot");
@@ -88,7 +125,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
   }
 
   async function interruptBot() {
-    if (!callReady || stopping || !botRunning) return;
+    if (!callReady || stopping || (!botRunning && !botReady)) return;
     setStopping(true);
     setActionError(null);
     try {
@@ -110,6 +147,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
       setMutedForBot(false);
       setActiveAddressId(null);
       setActiveLabel("");
+      setBotReady(false);
     } catch (e) {
       setActionError(e.message || "Failed to stop address bot");
     } finally {
@@ -143,6 +181,11 @@ export default function AddressBotCallControls({ session, patchSession }) {
           Speaking: {activeLabel}…
         </p>
       ) : null}
+      {!open && !botRunning && botReady ? (
+        <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
+          Bot ready (silent)
+        </p>
+      ) : null}
       {open ? (
         <>
           {loadError ? (
@@ -154,9 +197,23 @@ export default function AddressBotCallControls({ session, patchSession }) {
             </p>
           ) : (
             <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={connectBot}
+                disabled={!callReady || connecting || botReady || botRunning || stopping}
+                className="h-9 rounded-lg border border-indigo-300 bg-white px-3 text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-700 dark:bg-zinc-900 dark:text-indigo-200 dark:hover:bg-zinc-800"
+              >
+                {connecting ? "Connecting…" : botReady || botRunning ? "Bot ready" : "Ready bot"}
+              </button>
               {addresses.map((row) => {
                 const selected = botRunning && Number(activeAddressId) === Number(row.id);
-                const disabled = !callReady || starting || stopping || (botRunning && !selected);
+                const disabled =
+                  !callReady ||
+                  !botReady ||
+                  connecting ||
+                  starting ||
+                  stopping ||
+                  (botRunning && !selected);
                 return (
                   <button
                     key={row.id}
@@ -169,12 +226,18 @@ export default function AddressBotCallControls({ session, patchSession }) {
                         : "bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-500"
                     }`}
                   >
-                    {startingId === row.id ? "Starting…" : `Speak ${row.label}`}
+                    {startingId === row.id ? "Starting…" : `Start ${row.label}`}
                   </button>
                 );
               })}
             </div>
           )}
+
+          {botReady && !botRunning ? (
+            <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
+              Address bot is on the call and silent. Click Start when you want it to speak.
+            </p>
+          ) : null}
 
           {botRunning ? (
             <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
@@ -185,7 +248,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
           <button
             type="button"
             onClick={interruptBot}
-            disabled={!botRunning || stopping}
+            disabled={(!botRunning && !botReady) || stopping}
             className="mt-2 h-9 rounded-lg border border-indigo-300 bg-white px-3 text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:bg-zinc-900 dark:text-indigo-200 dark:hover:bg-zinc-800"
           >
             {stopping ? "Stopping…" : "Interrupt"}
@@ -195,7 +258,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
             <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{actionError}</p>
           ) : (
             <p className="mt-2 text-xs text-indigo-700/80 dark:text-indigo-300/80">
-              The bot joins this call, tells the selected address, and can answer questions about it.
+              Click Ready bot first. It joins muted and stays quiet. Then Start an address.
               Interrupt drops the bot so you can talk.
             </p>
           )}

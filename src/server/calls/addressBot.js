@@ -1,6 +1,7 @@
 import db from "@/server/db";
 
 const core = require("./addressBotCore.cjs");
+const sessions = require("./addressBotSessions.cjs");
 
 export const ADDRESS_BOT_LABEL = core.ADDRESS_BOT_LABEL;
 
@@ -20,15 +21,21 @@ export async function loadCompanyAddressById(addressId) {
   });
 }
 
-export function buildAddressBotConnectTwiml({ origin, addressId, callId, addressText }) {
-  const token = core.signRelayToken({ addressId, callId });
-  const relayUrl = core.buildRelayUrl(origin, { addressId, callId, token });
-  const welcomeGreeting = core.buildWelcomeGreeting(addressText);
+export function buildAddressBotConnectTwiml({ origin, callId }) {
+  const token = core.signRelayToken({ addressId: 0, callId });
+  const relayUrl = core.buildRelayUrl(origin, { addressId: 0, callId, token });
   return core.buildConversationRelayTwiml({
     relayUrl,
-    welcomeGreeting,
     voice: core.getAddressBotVoice(),
   });
+}
+
+export function beginAddressBotSpeech(opts) {
+  return sessions.beginAddressBotSpeech(opts);
+}
+
+export function waitForAddressBotSession(callId, timeoutMs) {
+  return sessions.waitForAddressBotSession(callId, timeoutMs);
 }
 
 export const parseCompanyAddressBody = core.parseCompanyAddressBody;
