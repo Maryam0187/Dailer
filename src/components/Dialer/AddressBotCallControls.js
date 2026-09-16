@@ -13,6 +13,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [mutedForBot, setMutedForBot] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const callId = Number(session?.callId);
   const callReady = Number.isInteger(callId) && callId > 0 && session?.phase === "in_progress";
@@ -20,6 +21,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
   const starting = Number.isInteger(startingId) && startingId > 0;
 
   useEffect(() => {
+    if (!open) return undefined;
     let cancelled = false;
     async function load() {
       try {
@@ -38,7 +40,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
     return () => {
       cancelled = true;
     };
-  }, [callId]);
+  }, [callId, open]);
 
   useEffect(() => {
     setActiveAddressId(null);
@@ -117,63 +119,88 @@ export default function AddressBotCallControls({ session, patchSession }) {
 
   return (
     <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/30">
-      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-        Address bot
-      </p>
-      {loadError ? (
-        <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{loadError}</p>
-      ) : null}
-      {!loadError && addresses.length === 0 ? (
-        <p className="mt-2 text-xs text-indigo-800/80 dark:text-indigo-200/80">
-          No addresses yet. An admin can add them on Address bot settings.
-        </p>
-      ) : (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {addresses.map((row) => {
-            const selected = botRunning && Number(activeAddressId) === Number(row.id);
-            const disabled = !callReady || starting || stopping || (botRunning && !selected);
-            return (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => startBot(row)}
-                disabled={disabled || selected}
-                className={`h-9 rounded-lg px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                  selected
-                    ? "bg-indigo-800 text-white dark:bg-indigo-500"
-                    : "bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-500"
-                }`}
-              >
-                {startingId === row.id ? "Starting…" : `Speak ${row.label}`}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {botRunning ? (
-        <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
-          Address bot speaking: {activeLabel}…
-        </p>
-      ) : null}
-
       <button
         type="button"
-        onClick={interruptBot}
-        disabled={!botRunning || stopping}
-        className="mt-2 h-9 rounded-lg border border-indigo-300 bg-white px-3 text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:bg-zinc-900 dark:text-indigo-200 dark:hover:bg-zinc-800"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
       >
-        {stopping ? "Stopping…" : "Interrupt"}
-      </button>
-
-      {actionError ? (
-        <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{actionError}</p>
-      ) : (
-        <p className="mt-2 text-xs text-indigo-700/80 dark:text-indigo-300/80">
-          The bot joins this call, tells the selected address, and can answer questions about it.
-          Interrupt drops the bot so you can talk.
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+          Address bot
         </p>
-      )}
+        <svg
+          className={`h-4 w-4 shrink-0 text-indigo-700 transition-transform dark:text-indigo-300 ${open ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          aria-hidden
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {!open && botRunning ? (
+        <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
+          Speaking: {activeLabel}…
+        </p>
+      ) : null}
+      {open ? (
+        <>
+          {loadError ? (
+            <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{loadError}</p>
+          ) : null}
+          {!loadError && addresses.length === 0 ? (
+            <p className="mt-2 text-xs text-indigo-800/80 dark:text-indigo-200/80">
+              No addresses yet. An admin can add them on Address bot settings.
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {addresses.map((row) => {
+                const selected = botRunning && Number(activeAddressId) === Number(row.id);
+                const disabled = !callReady || starting || stopping || (botRunning && !selected);
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => startBot(row)}
+                    disabled={disabled || selected}
+                    className={`h-9 rounded-lg px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                      selected
+                        ? "bg-indigo-800 text-white dark:bg-indigo-500"
+                        : "bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-500"
+                    }`}
+                  >
+                    {startingId === row.id ? "Starting…" : `Speak ${row.label}`}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {botRunning ? (
+            <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
+              Address bot speaking: {activeLabel}…
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={interruptBot}
+            disabled={!botRunning || stopping}
+            className="mt-2 h-9 rounded-lg border border-indigo-300 bg-white px-3 text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-700 dark:bg-zinc-900 dark:text-indigo-200 dark:hover:bg-zinc-800"
+          >
+            {stopping ? "Stopping…" : "Interrupt"}
+          </button>
+
+          {actionError ? (
+            <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">{actionError}</p>
+          ) : (
+            <p className="mt-2 text-xs text-indigo-700/80 dark:text-indigo-300/80">
+              The bot joins this call, tells the selected address, and can answer questions about it.
+              Interrupt drops the bot so you can talk.
+            </p>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

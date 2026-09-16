@@ -10,17 +10,22 @@ export async function GET() {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const rows = await db.CompanyAddress.findAll({
-    order: [
-      ["sortOrder", "ASC"],
-      ["id", "ASC"],
-    ],
-  });
+  try {
+    const rows = await db.CompanyAddress.findAll({
+      order: [
+        ["sortOrder", "ASC"],
+        ["id", "ASC"],
+      ],
+    });
 
-  const includeAddress = authedUser.role === "admin";
-  return NextResponse.json({
-    addresses: rows.map((row) => serializeCompanyAddress(row, { includeAddress })),
-  });
+    const includeAddress = authedUser.role === "admin";
+    return NextResponse.json({
+      addresses: rows.map((row) => serializeCompanyAddress(row, { includeAddress })),
+    });
+  } catch (err) {
+    console.error("[company-addresses] list failed:", err?.message || err);
+    return NextResponse.json({ addresses: [] });
+  }
 }
 
 export async function POST(req) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import AddressBotCallControls from "@/components/Dialer/AddressBotCallControls";
+import CallPanelErrorBoundary from "@/components/Dialer/CallPanelErrorBoundary";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -47,6 +48,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
   const [emptyParticipantHits, setEmptyParticipantHits] = useState(0);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeError, setUpgradeError] = useState(null);
+  const [collabOpen, setCollabOpen] = useState(false);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
 
   async function upgradeToConference() {
@@ -149,7 +151,11 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
             const hasAnyAgent = nextParticipants.some(
               (p) => String(p?.type || "").toLowerCase() === "agent",
             );
-            const shouldAutoEnd = !hasCustomer || !hasAnyAgent;
+            const hasBot = nextParticipants.some(
+              (p) => String(p?.type || "").toLowerCase() === "bot",
+            );
+            // Address bot can join before Twilio lists the customer; do not hang up.
+            const shouldAutoEnd = !hasBot && (!hasCustomer || !hasAnyAgent);
             if (shouldAutoEnd) {
               setEmptyParticipantHits((n) => {
                 const next = n + 1;
@@ -450,65 +456,85 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
               ) : null}
               {!isDirectCall ? (
               <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-950/30">
-                <div className="mb-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setCollabOpen((open) => !open)}
+                  aria-expanded={collabOpen}
+                  className="flex w-full items-center justify-between gap-2 text-left"
+                >
                   <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
                     Agent Collaboration
                   </p>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-cyan-700/90 dark:text-cyan-300/90">
-                    Invite internal agents to join this live call.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={openAddAgentDialog}
-                    className="h-9 rounded-lg bg-cyan-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-700"
+                  <svg
+                    className={`h-4 w-4 shrink-0 text-cyan-700 transition-transform dark:text-cyan-300 ${collabOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden
                   >
-                    Add Agent
-                  </button>
-                </div>
-                <p className="mt-2 text-xs font-medium text-cyan-800 dark:text-cyan-200">
-                  Customer: {customerName}
-                </p>
-
-                <div className="mt-3 rounded-lg border border-cyan-200/80 bg-white/80 p-2.5 dark:border-cyan-900/50 dark:bg-zinc-900/40">
-                  <div className="mb-1 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
-                      Participants
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {collabOpen ? (
+                  <>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p className="text-xs text-cyan-700/90 dark:text-cyan-300/90">
+                        Invite internal agents to join this live call.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openAddAgentDialog}
+                        className="h-9 rounded-lg bg-cyan-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-cyan-700"
+                      >
+                        Add Agent
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-cyan-800 dark:text-cyan-200">
+                      Customer: {customerName}
                     </p>
-                    {participantsLoading ? (
-                      <span className="text-[11px] text-cyan-700/80 dark:text-cyan-300/80">Refreshing...</span>
-                    ) : null}
-                  </div>
-                  {participantsError ? (
-                    <p className="text-xs font-medium text-red-700 dark:text-red-300">{participantsError}</p>
-                  ) : participants.length ? (
-                    <ul className="space-y-1">
-                      {participants.map((p) => (
-                        <li
-                          key={p.callSid || `${p.label}-${p.type}`}
-                          className="flex items-center justify-between rounded-md bg-cyan-50 px-2 py-1 text-xs dark:bg-cyan-950/30"
-                        >
-                          <span className="truncate text-cyan-900 dark:text-cyan-100">{p.label}</span>
-                          <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-200">
-                            {p.type}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-cyan-700/80 dark:text-cyan-300/80">No participants joined yet.</p>
-                  )}
-                </div>
 
-                {addAgentStatus ? (
-                  <p className="mt-2 text-xs font-medium text-cyan-700 dark:text-cyan-300">{addAgentStatus}</p>
+                    <div className="mt-3 rounded-lg border border-cyan-200/80 bg-white/80 p-2.5 dark:border-cyan-900/50 dark:bg-zinc-900/40">
+                      <div className="mb-1 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                          Participants
+                        </p>
+                        {participantsLoading ? (
+                          <span className="text-[11px] text-cyan-700/80 dark:text-cyan-300/80">Refreshing...</span>
+                        ) : null}
+                      </div>
+                      {participantsError ? (
+                        <p className="text-xs font-medium text-red-700 dark:text-red-300">{participantsError}</p>
+                      ) : participants.length ? (
+                        <ul className="space-y-1">
+                          {participants.map((p) => (
+                            <li
+                              key={p.callSid || `${p.label}-${p.type}`}
+                              className="flex items-center justify-between rounded-md bg-cyan-50 px-2 py-1 text-xs dark:bg-cyan-950/30"
+                            >
+                              <span className="truncate text-cyan-900 dark:text-cyan-100">{p.label}</span>
+                              <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-200">
+                                {p.type}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-cyan-700/80 dark:text-cyan-300/80">No participants joined yet.</p>
+                      )}
+                    </div>
+
+                    {addAgentStatus ? (
+                      <p className="mt-2 text-xs font-medium text-cyan-700 dark:text-cyan-300">{addAgentStatus}</p>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
               ) : null}
 
               <div className="flex flex-col gap-2">
-              <AddressBotCallControls session={session} patchSession={patchSession} />
+              <CallPanelErrorBoundary label="Address bot">
+                <AddressBotCallControls session={session} patchSession={patchSession} />
+              </CallPanelErrorBoundary>
               <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">

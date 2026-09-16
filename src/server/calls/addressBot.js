@@ -1,7 +1,6 @@
-import coreMod from "./addressBotCore.cjs";
 import db from "@/server/db";
 
-const core = coreMod?.ADDRESS_BOT_LABEL ? coreMod : coreMod.default;
+const core = require("./addressBotCore.cjs");
 
 export const ADDRESS_BOT_LABEL = core.ADDRESS_BOT_LABEL;
 
