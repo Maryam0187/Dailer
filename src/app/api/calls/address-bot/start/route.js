@@ -22,6 +22,39 @@ async function removeLabeledParticipant(client, conferenceSid, label) {
   await client.conferences(conferenceSid).participants(match.callSid).remove().catch(() => {});
 }
 
+/** SDK participant.create() requires `to` and ignores `twiml`. REST allows From + Twiml with no To. */
+async function createTwimlConferenceParticipant({ client, conferenceSid, from, twiml, label }) {
+  const accountSid = String(client.accountSid || "").trim();
+  const authToken = String(client.password || "").trim();
+  if (!accountSid || !authToken) {
+    throw new Error("Twilio credentials not configured.");
+  }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`;
+  const body = new URLSearchParams({
+    From: String(from || "").trim(),
+    Twiml: String(twiml || ""),
+    Label: String(label || "").trim(),
+    EarlyMedia: "true",
+    EndConferenceOnExit: "false",
+    Beep: "false",
+  });
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.message || json?.error_message || `Twilio participant create failed (${res.status})`);
+  }
+  return json;
+}
+
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -95,13 +128,12 @@ export async function POST(req) {
       addressText: address.address,
     });
 
-    const participant = await client.conferences(conference.sid).participants.create({
+    const participant = await createTwimlConferenceParticipant({
+      client,
+      conferenceSid: conference.sid,
       from: getTwilioFromNumber(),
       twiml,
       label: ADDRESS_BOT_LABEL,
-      earlyMedia: true,
-      endConferenceOnExit: false,
-      beep: false,
     });
 
     return NextResponse.json({
@@ -110,7 +142,7 @@ export async function POST(req) {
       callMode: "conference",
       addressId: address.id,
       addressLabel: address.label,
-      botCallSid: participant?.callSid || null,
+      botCallSid: participant?.call_sid || participant?.callSid || null,
     });
   } catch (err) {
     return NextResponse.json(
