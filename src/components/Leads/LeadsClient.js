@@ -23,7 +23,7 @@ import {
   resolvePreferShortLabels,
   workflowTagDisplayLabel,
 } from "@/lib/workflowTagLabels";
-import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess } from "@/lib/leadRoles";
+import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess, isLeadSupervisor } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
@@ -364,7 +364,7 @@ export default function LeadsClient({
     return list.filter(
       (a) =>
         String(a.supervisorId ?? "") === supervisorFilter ||
-        (a.role === "supervisor" && String(a.id) === supervisorFilter),
+        (a.role === "supervisor" || a.role === "lead_supervisor") && String(a.id) === supervisorFilter,
     );
   }, [assignableAgents, showSupervisorFilter, supervisorFilter, canFilterByShift, shiftFilter]);
 
@@ -378,6 +378,7 @@ export default function LeadsClient({
   function creatorFilterLabel(entry) {
     if (entry.isSelf) return `${entry.username} (you)`;
     if (entry.role === "supervisor") return `${entry.username} (Supervisor)`;
+    if (entry.role === "lead_supervisor") return `${entry.username} (Lead supervisor)`;
     if (entry.role === "processor") return `${entry.username} (Processor)`;
     if (entry.supervisorName) return `${entry.username} (${entry.supervisorName})`;
     return entry.username;
@@ -1751,7 +1752,7 @@ export default function LeadsClient({
           hasActiveLine2Call={Boolean(line2Session)}
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
-          canAssignLead={isAdmin}
+          canAssignLead={isAdmin || isLeadSupervisor(userRole)}
           canEditChargeAmount={isAdmin}
           userRole={userRole}
           currentUserId={currentUserId}

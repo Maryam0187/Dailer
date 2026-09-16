@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { HeadObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   PRESIGN_DOWNLOAD_EXPIRY_SEC,
@@ -115,4 +121,14 @@ export async function headObjectMetadata(storageKey) {
     sizeBytes: Number(result.ContentLength) || 0,
     mimeType: String(result.ContentType || "").trim(),
   };
+}
+
+export async function deleteObjectAttachment(storageKey) {
+  const client = getS3Client();
+  await client.send(
+    new DeleteObjectCommand({
+      Bucket: getBucketName(),
+      Key: storageKey,
+    }),
+  );
 }

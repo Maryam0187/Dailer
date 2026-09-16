@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import db from "@/server/db";
 import { getConversationForUser } from "@/server/messages/messageAccess";
-import { getAttachmentDownloadUrl } from "@/server/messages/messageAttachments";
+import {
+  getAttachmentDownloadUrl,
+  markAttachmentDownloadedByReceiver,
+  serializeAttachment,
+} from "@/server/messages/messageAttachments";
 
 export const runtime = "nodejs";
 
@@ -33,9 +37,11 @@ export async function GET(_req, { params }) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
+  await markAttachmentDownloadedByReceiver(attachment, authedUser);
+
   return NextResponse.json({
     downloadUrl: result.downloadUrl,
     expiresIn: result.expiresIn,
-    attachment: result.attachment,
+    attachment: serializeAttachment(attachment),
   });
 }

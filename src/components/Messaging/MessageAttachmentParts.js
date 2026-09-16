@@ -9,7 +9,15 @@ async function fetchDownloadUrl(attachmentId) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || "Failed to get download link");
+    throw new Error(
+      data.error ||
+        (res.status === 404
+          ? "This file is no longer available. It may have been removed from storage."
+          : "Failed to get download link"),
+    );
+  }
+  if (!data.downloadUrl) {
+    throw new Error("This file is no longer available. It may have been removed from storage.");
   }
   return data.downloadUrl;
 }
@@ -67,9 +75,25 @@ function MessageImagePreview({ attachment, mine }) {
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={attachment.originalName} className="max-h-56 max-w-full object-contain" />
+        <img
+          src={src}
+          alt={attachment.originalName}
+          className="max-h-56 max-w-full object-contain"
+          onError={() => {
+            setSrc(null);
+            setError("This file is no longer available. It may have been removed from storage.");
+          }}
+        />
       ) : (
-        <div className="flex min-h-24 min-w-[10rem] items-center justify-center px-4 py-6 text-xs">
+        <div
+          className={`flex min-h-24 min-w-[10rem] items-center justify-center px-4 py-6 text-xs ${
+            error
+              ? mine
+                ? "text-rose-100"
+                : "text-rose-600 dark:text-rose-300"
+              : ""
+          }`}
+        >
           {loading ? "Loading image…" : error || "Tap to preview"}
         </div>
       )}
@@ -79,15 +103,28 @@ function MessageImagePreview({ attachment, mine }) {
 
 export function MessageAttachmentList({ attachments, mine = false }) {
   const [downloadingId, setDownloadingId] = useState(null);
+  const [downloadErrors, setDownloadErrors] = useState({});
 
   if (!Array.isArray(attachments) || attachments.length === 0) return null;
 
   async function onDownload(attachment) {
     if (downloadingId) return;
     setDownloadingId(attachment.id);
+    setDownloadErrors((prev) => {
+      if (!prev[attachment.id]) return prev;
+      const next = { ...prev };
+      delete next[attachment.id];
+      return next;
+    });
     try {
       const url = await fetchDownloadUrl(attachment.id);
       window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setDownloadErrors((prev) => ({
+        ...prev,
+        [attachment.id]:
+          err?.message || "This file is no longer available. It may have been removed from storage.",
+      }));
     } finally {
       setDownloadingId(null);
     }
@@ -95,34 +132,46 @@ export function MessageAttachmentList({ attachments, mine = false }) {
 
   return (
     <div className="space-y-2">
-      {attachments.map((attachment) => (
-        <div key={attachment.id}>
-          {isImageAttachment(attachment.mimeType) ? (
-            <MessageImagePreview attachment={attachment} mine={mine} />
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void onDownload(attachment)}
-            disabled={downloadingId === attachment.id}
-            className={`mt-2 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
-              mine
-                ? "border-sky-400/40 bg-sky-500/15 text-sky-50 hover:bg-sky-500/25"
-                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            }`}
-          >
-            <AttachmentIcon className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{attachment.originalName}</span>
-              <span className={mine ? "text-sky-100/80" : "text-zinc-500 dark:text-zinc-400"}>
-                {formatBytes(attachment.sizeBytes)}
+      {attachments.map((attachment) => {
+        const downloadError = downloadErrors[attachment.id];
+        return (
+          <div key={attachment.id}>
+            {isImageAttachment(attachment.mimeType) ? (
+              <MessageImagePreview attachment={attachment} mine={mine} />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void onDownload(attachment)}
+              disabled={downloadingId === attachment.id}
+              className={`mt-2 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                mine
+                  ? "border-sky-400/40 bg-sky-500/15 text-sky-50 hover:bg-sky-500/25"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              }`}
+            >
+              <AttachmentIcon className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{attachment.originalName}</span>
+                <span className={mine ? "text-sky-100/80" : "text-zinc-500 dark:text-zinc-400"}>
+                  {formatBytes(attachment.sizeBytes)}
+                </span>
               </span>
-            </span>
-            <span className="shrink-0 font-semibold">
-              {downloadingId === attachment.id ? "…" : "Download"}
-            </span>
-          </button>
-        </div>
-      ))}
+              <span className="shrink-0 font-semibold">
+                {downloadingId === attachment.id ? "…" : "Download"}
+              </span>
+            </button>
+            {downloadError ? (
+              <p
+                className={`mt-1 px-1 text-[11px] ${
+                  mine ? "text-rose-100/90" : "text-rose-600 dark:text-rose-300"
+                }`}
+              >
+                {downloadError}
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

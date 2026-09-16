@@ -1,13 +1,69 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
 
-export async function conferenceCallIds() {
+/**
+ * Distinct CallLog ids that have invite legs.
+ * When fromDate/toDate are set, only include legs whose CallLog.createdAt is in range
+ * (avoids scanning all historical InviteDialLegs for dated reports).
+ */
+export async function conferenceCallIds({ fromDate, toDate } = {}) {
+  if (fromDate && toDate) {
+    const after = new Date(`${fromDate}T00:00:00.000Z`);
+    const before = new Date(`${toDate}T23:59:59.999Z`);
+    const rows = await db.sequelize.query(
+      `SELECT DISTINCT idl.callLogId AS callLogId
+       FROM InviteDialLegs AS idl
+       INNER JOIN CallLogs AS cl ON cl.id = idl.callLogId
+       WHERE cl.createdAt BETWEEN :after AND :before`,
+      {
+        replacements: { after, before },
+        type: QueryTypes.SELECT,
+      },
+    );
+    return rows
+      .map((r) => Number(r.callLogId))
+      .filter((id) => Number.isInteger(id));
+  }
+
   const confRows = await db.InviteDialLeg.findAll({
     attributes: ["callLogId"],
     group: ["callLogId"],
     raw: true,
   });
   return confRows.map((r) => r.callLogId).filter((id) => Number.isInteger(id));
+}
+
+/** CallLog ids where the given user was an invited agent (optionally date-scoped via CallLog). */
+export async function invitedConferenceCallIds(userId, { fromDate, toDate } = {}) {
+  const id = Number(userId);
+  if (!Number.isInteger(id)) return [];
+
+  if (fromDate && toDate) {
+    const after = new Date(`${fromDate}T00:00:00.000Z`);
+    const before = new Date(`${toDate}T23:59:59.999Z`);
+    const rows = await db.sequelize.query(
+      `SELECT DISTINCT idl.callLogId AS callLogId
+       FROM InviteDialLegs AS idl
+       INNER JOIN CallLogs AS cl ON cl.id = idl.callLogId
+       WHERE idl.invitedUserId = :userId
+         AND cl.createdAt BETWEEN :after AND :before`,
+      {
+        replacements: { userId: id, after, before },
+        type: QueryTypes.SELECT,
+      },
+    );
+    return rows
+      .map((r) => Number(r.callLogId))
+      .filter((cid) => Number.isInteger(cid));
+  }
+
+  const invitedRows = await db.InviteDialLeg.findAll({
+    where: { invitedUserId: id },
+    attributes: ["callLogId"],
+    group: ["callLogId"],
+    raw: true,
+  });
+  return invitedRows.map((r) => r.callLogId).filter((cid) => Number.isInteger(cid));
 }
 
 export function dateRangeWhere(fromDate, toDate) {
@@ -67,7 +123,7 @@ export async function aggregateMetricsByUser({
   };
 
   if (conferenceOnly) {
-    const ids = await conferenceCallIds();
+    const ids = await conferenceCallIds({ fromDate, toDate });
     if (ids.length === 0) {
       if (!includeAllUsers) {
         return { metrics: [], totals: emptyTotals() };

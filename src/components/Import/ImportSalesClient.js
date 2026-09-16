@@ -6,6 +6,12 @@ import {
   IMPORT_TARGET_GROUPS,
   buildDefaultColumnMap,
 } from "@/lib/importSalesTargets";
+import {
+  SPREADSHEET_ACCEPT,
+  isSpreadsheetFileName,
+  parseSpreadsheet,
+  spreadsheetExtension,
+} from "@/lib/parseSpreadsheet";
 import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
 
 const inputClass =
@@ -14,68 +20,6 @@ const inputClass =
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 const selectClass = `${inputClass} appearance-none`;
-
-/** Client-side CSV parse (same rules as server). */
-function parseCsvClient(text) {
-  const input = String(text || "").replace(/^\uFEFF/, "");
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i];
-    const next = input[i + 1];
-    if (inQuotes) {
-      if (ch === '"' && next === '"') {
-        field += '"';
-        i += 1;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-      continue;
-    }
-    if (ch === ",") {
-      row.push(field);
-      field = "";
-      continue;
-    }
-    if (ch === "\n") {
-      row.push(field);
-      field = "";
-      if (row.some((cell) => String(cell).trim() !== "")) rows.push(row);
-      row = [];
-      continue;
-    }
-    if (ch === "\r") continue;
-    field += ch;
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    if (row.some((cell) => String(cell).trim() !== "")) rows.push(row);
-  }
-  if (rows.length === 0) return { headers: [], rows: [] };
-  const headers = rows[0].map((h, idx) => {
-    const name = String(h ?? "").trim();
-    return name || `column_${idx + 1}`;
-  });
-  const dataRows = [];
-  for (let r = 1; r < rows.length; r += 1) {
-    const cells = rows[r];
-    const obj = {};
-    for (let c = 0; c < headers.length; c += 1) {
-      obj[headers[c]] = cells[c] != null ? String(cells[c]) : "";
-    }
-    dataRows.push(obj);
-  }
-  return { headers, rows: dataRows };
-}
 
 function detectAgentKeyTarget(columnMap) {
   const targets = Object.values(columnMap || {});
@@ -208,17 +152,34 @@ export default function ImportSalesClient() {
       setColumnMap({});
       return;
     }
-    const text = await f.text();
-    const parsed = parseCsvClient(text);
-    if (!parsed.headers.length) {
-      setError("Could not read CSV headers");
+    if (!isSpreadsheetFileName(f.name)) {
+      setError("Unsupported file type. Use CSV, TSV, Excel (.xlsx/.xls), or ODS.");
+      setHeaders([]);
+      setRows([]);
+      setColumnMap({});
       return;
     }
-    setHeaders(parsed.headers);
-    setRows(parsed.rows);
-    setColumnMap(buildDefaultColumnMap(parsed.headers));
-    setAgentMap({});
-    setStep(2);
+    try {
+      const ext = spreadsheetExtension(f.name);
+      const isText = ext === ".csv" || ext === ".txt" || ext === ".tsv";
+      const parsed = isText
+        ? parseSpreadsheet(await f.text(), f.name)
+        : parseSpreadsheet(new Uint8Array(await f.arrayBuffer()), f.name);
+      if (!parsed.headers.length) {
+        setError("Could not read spreadsheet headers");
+        return;
+      }
+      setHeaders(parsed.headers);
+      setRows(parsed.rows);
+      setColumnMap(buildDefaultColumnMap(parsed.headers));
+      setAgentMap({});
+      setStep(2);
+    } catch (err) {
+      setError(err?.message || "Could not read spreadsheet");
+      setHeaders([]);
+      setRows([]);
+      setColumnMap({});
+    }
   }
 
   function setTarget(header, target) {
@@ -238,7 +199,7 @@ export default function ImportSalesClient() {
     setError("");
     setResult(null);
     if (!file) {
-      setError("Choose a CSV file first");
+      setError("Choose a spreadsheet file first");
       return;
     }
     if (!Object.values(columnMap).includes("phone")) {
@@ -440,7 +401,7 @@ export default function ImportSalesClient() {
 
         {importedLeads.length === 0 ? (
           <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-            No imported sales in this tab yet. Upload a CSV below.
+            No imported sales in this tab yet. Upload a spreadsheet below.
           </p>
         ) : (
           <ul className="mt-4 divide-y divide-violet-100 dark:divide-violet-900/40">
@@ -568,8 +529,10 @@ export default function ImportSalesClient() {
       </ol>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
-        <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">1. Upload CSV</h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">CSV only (.csv). Excel: export as CSV first.</p>
+        <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">1. Upload spreadsheet</h2>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          CSV, TSV, Excel (.xlsx, .xls), or ODS. First sheet is used for Excel/ODS.
+        </p>
         <div className="mt-4">
           <label className={labelClass} htmlFor="import-file">
             File
@@ -577,7 +540,7 @@ export default function ImportSalesClient() {
           <input
             id="import-file"
             type="file"
-            accept=".csv,text/csv,text/plain"
+            accept={SPREADSHEET_ACCEPT}
             className={inputClass}
             onChange={onFileChange}
           />
@@ -596,7 +559,7 @@ export default function ImportSalesClient() {
               <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">2. Map columns</h2>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 File header → database field. Use &quot;Append to notes&quot; for extra sale data. Phone is
-                required. Map CSV <strong>status</strong> to{" "}
+                required. Map file <strong>status</strong> to{" "}
                 <strong>Status → contact / phase / card / progress tags</strong>. Examples:{" "}
                 <code className="text-xs">no_response</code>, <code className="text-xs">voicemail</code>{" "}
                 → contact; <code className="text-xs">active</code>/<code className="text-xs">canceled</code>{" "}

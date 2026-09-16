@@ -30,7 +30,7 @@ export function serializePaymentMethodForLeadViewer(row, { viewerRole, leadPhase
   }
 
   const base = {
-    ...serializePaymentMethod(row),
+    ...serializePaymentMethod(row, { viewerRole }),
     createdByRole: creatorRole,
   };
 

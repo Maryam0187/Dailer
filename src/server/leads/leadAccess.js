@@ -1,5 +1,10 @@
 import { Op, Sequelize } from "sequelize";
-import { hasFullLeadAccess } from "@/lib/leadRoles";
+import {
+  canHaveAssignedAgents,
+  hasFullLeadAccess,
+  isLeadSupervisor,
+  ROLES_WITH_ASSIGNED_AGENTS,
+} from "@/lib/leadRoles";
 import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 import db from "@/server/db";
 
@@ -29,7 +34,6 @@ export function canViewAllLeadShifts(authedUser) {
  * Own shift for non-admin full-access roles; null when no auto-scope applies.
  * Managers are not shift-locked: they already scope by team (`managerId`), so
  * day managers can see night agents (and their leads) that report to them.
- * Lead monitors remain locked to their own shift.
  */
 export function resolveOwnLeadShiftKey(authedUser) {
   if (!authedUser || canViewAllLeadShifts(authedUser)) return null;
@@ -125,7 +129,55 @@ export async function getAssignableAgents(authedUser) {
       order: [["username", "ASC"]],
     });
   }
+  if (isLeadSupervisor(authedUser.role)) {
+    return db.User.findAll({
+      where: leadSupervisorVisibleAgentWhere(authedUser),
+      attributes: ["id", "username", "supervisorId", "shiftKey"],
+      order: [["username", "ASC"]],
+    });
+  }
   return [];
+}
+
+/** In-house agents on the lead supervisor's own shift. */
+export function leadSupervisorVisibleAgentWhere(authedUser) {
+  return {
+    role: "agent",
+    supervisorId: Number(authedUser.id),
+    isActive: true,
+    isOutside: { [Op.ne]: true },
+    shiftKey: normalizeUserShiftKey(authedUser.shiftKey),
+  };
+}
+
+export async function getLeadSupervisorTeamAgentIds(authedUser) {
+  const rows = await db.User.findAll({
+    where: leadSupervisorVisibleAgentWhere(authedUser),
+    attributes: ["id"],
+    raw: true,
+  });
+  return rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
+}
+
+const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor"];
+
+/** Same-shift agents, supervisors, and lead supervisors a lead supervisor may assign to. */
+export async function getLeadSupervisorAssignableUsers(authedUser) {
+  if (!isLeadSupervisor(authedUser.role)) return [];
+  const ownShift = normalizeUserShiftKey(authedUser.shiftKey);
+  const users = await db.User.findAll({
+    where: {
+      isActive: true,
+      role: { [Op.in]: LEAD_SUPERVISOR_ASSIGNABLE_ROLES },
+      [Op.or]: [{ role: { [Op.ne]: "agent" } }, { isOutside: { [Op.ne]: true } }],
+    },
+    attributes: ["id", "username", "role", "supervisorId", "shiftKey", "isOutside"],
+    order: [
+      ["role", "ASC"],
+      ["username", "ASC"],
+    ],
+  });
+  return users.filter((u) => userMatchesShift(u, ownShift));
 }
 
 /** Supervisors available in leads list filters (admin/manager). */
@@ -134,8 +186,12 @@ export async function getFilterSupervisors(authedUser) {
 
   if (authedUser.role === "manager") {
     const supervisors = await db.User.findAll({
-      where: { role: "supervisor", isActive: true, managerId: Number(authedUser.id) },
-      attributes: ["id", "username", "shiftKey"],
+      where: {
+        role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS },
+        isActive: true,
+        managerId: Number(authedUser.id),
+      },
+      attributes: ["id", "username", "role", "shiftKey"],
       order: [["username", "ASC"]],
     });
     if (!ownShift) return supervisors;
@@ -144,8 +200,8 @@ export async function getFilterSupervisors(authedUser) {
 
   if (hasFullLeadAccess(authedUser.role)) {
     const supervisors = await db.User.findAll({
-      where: { role: "supervisor", isActive: true },
-      attributes: ["id", "username", "shiftKey"],
+      where: { role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true },
+      attributes: ["id", "username", "role", "shiftKey"],
       order: [["username", "ASC"]],
     });
     if (!ownShift) return supervisors;
@@ -154,7 +210,7 @@ export async function getFilterSupervisors(authedUser) {
   return [];
 }
 
-const LEAD_FILTER_CREATOR_ROLE_ORDER = { supervisor: 0, agent: 1, processor: 2 };
+const LEAD_FILTER_CREATOR_ROLE_ORDER = { supervisor: 0, lead_supervisor: 0, agent: 1, processor: 2 };
 
 function sortLeadFilterCreators(rows) {
   return rows.sort((a, b) => {
@@ -194,7 +250,7 @@ export async function getLeadFilterCreators(authedUser) {
     const rows = supervisors.map((s) => ({
       id: s.id,
       username: s.username,
-      role: "supervisor",
+      role: s.role,
       supervisorId: null,
       supervisorName: null,
       shiftKey: normalizeUserShiftKey(s.shiftKey),
@@ -222,9 +278,9 @@ export async function getLeadFilterCreators(authedUser) {
     return sortLeadFilterCreators(rows);
   }
 
-  if (authedUser.role === "supervisor") {
+  if (canHaveAssignedAgents(authedUser.role)) {
     const [self, agents] = await Promise.all([
-      db.User.findByPk(authedUser.id, { attributes: ["id", "username", "shiftKey"] }),
+      db.User.findByPk(authedUser.id, { attributes: ["id", "username", "role", "shiftKey"] }),
       getAssignableAgents(authedUser),
     ]);
     const rows = [];
@@ -232,7 +288,7 @@ export async function getLeadFilterCreators(authedUser) {
       rows.push({
         id: self.id,
         username: self.username,
-        role: "supervisor",
+        role: self.role,
         supervisorId: null,
         supervisorName: null,
         isSelf: true,
@@ -271,6 +327,15 @@ export async function getAdminAssignableUsers() {
 /** Serialized assignable users for admin assignment UI. */
 export async function getAdminAssignableUsersForAssignment() {
   const users = await getAdminAssignableUsers();
+  return serializeAssignableUsers(users);
+}
+
+export async function getLeadSupervisorAssignableUsersForAssignment(authedUser) {
+  const users = await getLeadSupervisorAssignableUsers(authedUser);
+  return serializeAssignableUsers(users);
+}
+
+async function serializeAssignableUsers(users) {
   const supervisorIds = [
     ...new Set(
       users
@@ -307,7 +372,7 @@ export async function getLeadStatsCreators(authedUser) {
     const users = await db.User.findAll({
       where: {
         managerId: Number(authedUser.id),
-        role: { [Op.in]: ["agent", "supervisor", "processor"] },
+        role: { [Op.in]: ["agent", "supervisor", "lead_supervisor", "processor"] },
         isActive: true,
       },
       attributes: ["id", "username", "role", "shiftKey"],
@@ -323,7 +388,7 @@ export async function getLeadStatsCreators(authedUser) {
   if (hasFullLeadAccess(authedUser.role)) {
     const ownShift = resolveOwnLeadShiftKey(authedUser);
     const users = await db.User.findAll({
-      where: { role: { [Op.in]: ["agent", "supervisor", "processor"] }, isActive: true },
+      where: { role: { [Op.in]: ["agent", "supervisor", "lead_supervisor", "processor"] }, isActive: true },
       attributes: ["id", "username", "role", "shiftKey"],
       order: [
         ["role", "ASC"],
@@ -334,7 +399,7 @@ export async function getLeadStatsCreators(authedUser) {
     return users.filter((u) => userMatchesShift(u, ownShift));
   }
 
-  if (authedUser.role === "supervisor") {
+  if (canHaveAssignedAgents(authedUser.role)) {
     const [self, agents] = await Promise.all([
       db.User.findByPk(authedUser.id, { attributes: ["id", "username", "role"] }),
       getAssignableAgents(authedUser),
@@ -359,7 +424,7 @@ export async function canFilterLeadsBySupervisor(authedUser, supervisorId) {
   if (!Number.isInteger(supervisorId) || supervisorId <= 0) return false;
   if (!hasFullLeadAccess(authedUser.role)) return false;
   const ownShift = resolveOwnLeadShiftKey(authedUser);
-  const where = { id: supervisorId, role: "supervisor", isActive: true };
+  const where = { id: supervisorId, role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true };
   if (authedUser.role === "manager") {
     where.managerId = Number(authedUser.id);
   }
@@ -379,6 +444,10 @@ export async function canAssignLeadToAgent(authedUser, agentUserId) {
       attributes: ["id"],
     });
     return Boolean(user);
+  }
+  if (isLeadSupervisor(authedUser.role)) {
+    const users = await getLeadSupervisorAssignableUsers(authedUser);
+    return users.some((u) => u.id === agentUserId);
   }
   const agents = await getAssignableAgents(authedUser);
   return agents.some((a) => a.id === agentUserId);
@@ -536,6 +605,25 @@ export async function resolveLeadsListWhere(
     return andWhereClause(andWhereClause(visible, hidePendingImport), hideOutsideSales);
   }
 
+  if (isLeadSupervisor(role)) {
+    const agentIds = await getLeadSupervisorTeamAgentIds(authedUser);
+    const teamIds = teamCreatorIds(authedUser.id, agentIds);
+    const visible = {
+      [Op.or]: [
+        { createdByUserId: { [Op.in]: teamIds } },
+        { assignedUserId: { [Op.in]: teamIds } },
+      ],
+    };
+    if (creatorId) {
+      if (!teamIds.includes(creatorId)) return null;
+      return andWhereClause(
+        andWhereClause(andWhereClause({ createdByUserId: creatorId }, visible), hidePendingImport),
+        hideOutsideSales,
+      );
+    }
+    return andWhereClause(andWhereClause(visible, hidePendingImport), hideOutsideSales);
+  }
+
   if (hasFullLeadAccess(role)) {
     const ownShift = resolveOwnLeadShiftKey(authedUser);
     const applyOwnShift = async (clause) => {
@@ -616,6 +704,12 @@ export async function canAccessLead(lead, authedUser) {
 
     const ownShift = resolveOwnLeadShiftKey(authedUser);
     return userMatchesShift(creator, ownShift);
+  }
+
+  if (isLeadSupervisor(authedUser.role)) {
+    const agentIds = await getLeadSupervisorTeamAgentIds(authedUser);
+    const team = new Set(teamCreatorIds(authedUser.id, agentIds).map(Number));
+    return team.has(Number(lead.createdByUserId)) || team.has(Number(lead.assignedUserId));
   }
 
   if (authedUser.role === "supervisor") {

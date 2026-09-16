@@ -4,6 +4,7 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canViewTargetCalls } from "@/server/auth/userAccess";
 import { applyDialerIndexToWhere, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
+import { conferenceCallIds, invitedConferenceCallIds } from "@/server/calls/aggregateMetrics";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -62,28 +63,14 @@ export async function GET(req, { params }) {
     );
   }
 
+  const dateOpts = fromDate && toDate ? { fromDate, toDate } : {};
+
   let where;
   if (conferenceOnly) {
-    const ownedConfRows = await db.InviteDialLeg.findAll({
-      attributes: ["callLogId"],
-      group: ["callLogId"],
-      raw: true,
-    });
-    const conferenceCallIds = ownedConfRows
-      .map((r) => r.callLogId)
-      .filter((cid) => Number.isInteger(cid));
+    const conferenceIdList = await conferenceCallIds(dateOpts);
+    const invitedCallIds = await invitedConferenceCallIds(target.id, dateOpts);
 
-    const invitedRows = await db.InviteDialLeg.findAll({
-      where: { invitedUserId: target.id },
-      attributes: ["callLogId"],
-      group: ["callLogId"],
-      raw: true,
-    });
-    const invitedCallIds = invitedRows
-      .map((r) => r.callLogId)
-      .filter((cid) => Number.isInteger(cid));
-
-    if (conferenceCallIds.length === 0 && invitedCallIds.length === 0) {
+    if (conferenceIdList.length === 0 && invitedCallIds.length === 0) {
       return NextResponse.json({
         calls: [],
         pagination: {
@@ -99,8 +86,8 @@ export async function GET(req, { params }) {
 
     where = {
       [Op.or]: [
-        ...(conferenceCallIds.length > 0
-          ? [{ [Op.and]: [{ userId: target.id }, { id: { [Op.in]: conferenceCallIds } }] }]
+        ...(conferenceIdList.length > 0
+          ? [{ [Op.and]: [{ userId: target.id }, { id: { [Op.in]: conferenceIdList } }] }]
           : []),
         ...(invitedCallIds.length > 0 ? [{ id: { [Op.in]: invitedCallIds } }] : []),
       ],

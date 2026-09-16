@@ -45,6 +45,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "pending",
       },
+      receiverDownloadedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "MessageAttachments",
@@ -54,6 +58,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["messageId"] },
         { fields: ["userId", "status"] },
         { fields: ["status", "createdAt"] },
+        { fields: ["receiverDownloadedAt"] },
       ],
     },
   );

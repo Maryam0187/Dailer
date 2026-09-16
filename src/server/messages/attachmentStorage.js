@@ -3,12 +3,14 @@ import {
   PRESIGN_UPLOAD_EXPIRY_SEC,
 } from "@/server/messages/attachmentConfig";
 import {
+  deleteLocalAttachment,
   headLocalAttachment,
   isLocalAttachmentStorageEnabled,
   writeLocalAttachment,
 } from "@/server/messages/localAttachmentStorage";
 import {
   createPresignedDownloadUrl,
+  deleteObjectAttachment,
   headObjectMetadata,
   isObjectStorageConfigured,
   writeObjectAttachment,
@@ -82,4 +84,39 @@ export async function createDownloadTarget(attachment) {
     };
   }
   throw new Error("Attachment storage is not configured");
+}
+
+/** Best-effort remove from disk/S3. Missing objects are treated as already gone. */
+export async function deleteStoredAttachment(storageKey) {
+  const mode = getAttachmentStorageMode();
+  if (!mode || !storageKey) return { deleted: false, mode: null };
+
+  try {
+    if (mode === "local") {
+      await deleteLocalAttachment(storageKey);
+      return { deleted: true, mode };
+    }
+    if (mode === "s3") {
+      await deleteObjectAttachment(storageKey);
+      return { deleted: true, mode };
+    }
+  } catch (err) {
+    const code = String(err?.name || err?.code || err?.Code || "").toLowerCase();
+    const status = Number(err?.$metadata?.httpStatusCode || err?.statusCode || 0);
+    const message = String(err?.message || "").toLowerCase();
+    if (
+      status === 404 ||
+      code === "enoent" ||
+      code.includes("notfound") ||
+      code === "nosuchkey" ||
+      message.includes("no such file") ||
+      message.includes("not found") ||
+      message.includes("nosuchkey")
+    ) {
+      return { deleted: false, mode, missing: true };
+    }
+    throw err;
+  }
+
+  return { deleted: false, mode };
 }

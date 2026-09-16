@@ -90,10 +90,10 @@ function leadDateColumn(dateField) {
 
 function leadDateBetweenSql(dateField, fromDate, toDate) {
   const field = leadDateColumn(dateField);
-  // Filter on the lead column (e.g. l.updatedAt), not Customer.updatedAt.
+  // Half-open range matches DATE(col) BETWEEN from AND to, and can use indexes.
   return (
-    `DATE(\`l\`.\`${field}\`) BETWEEN ` +
-    `${db.sequelize.escape(fromDate)} AND ${db.sequelize.escape(toDate)}`
+    `\`l\`.\`${field}\` >= ${db.sequelize.escape(fromDate)} AND ` +
+    `\`l\`.\`${field}\` < DATE_ADD(${db.sequelize.escape(toDate)}, INTERVAL 1 DAY)`
   );
 }
 
@@ -390,8 +390,8 @@ export async function GET(req) {
       pushAnd(
         where,
         db.sequelize.literal(
-          `DATE(\`Customer\`.\`${outsideDateCol}\`) BETWEEN ` +
-            `${db.sequelize.escape(fromDate)} AND ${db.sequelize.escape(toDate)}`,
+          `\`Customer\`.\`${outsideDateCol}\` >= ${db.sequelize.escape(fromDate)} AND ` +
+            `\`Customer\`.\`${outsideDateCol}\` < DATE_ADD(${db.sequelize.escape(toDate)}, INTERVAL 1 DAY)`,
         ),
       );
     }

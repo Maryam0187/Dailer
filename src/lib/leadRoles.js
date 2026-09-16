@@ -4,14 +4,20 @@ const PAYMENT_LEAD_UPDATE_TYPES = new Set([
   "payment_chargeback",
 ]);
 
-/** Roles that can list, filter, and open any lead. */
-export function hasFullLeadAccess(role) {
-  return role === "admin" || role === "manager" || role === "lead_monitor";
+export const ROLES_WITH_ASSIGNED_AGENTS = ["supervisor", "lead_supervisor"];
+
+export function isLeadSupervisor(role) {
+  return role === "lead_supervisor";
 }
 
-/** Lead-monitor tooling (recordings on any lead, reassignment). */
-export function hasLeadMonitorAccess(role) {
-  return role === "admin" || role === "lead_monitor";
+/** Supervisors and lead supervisors may have agents via `supervisorId`. */
+export function canHaveAssignedAgents(role) {
+  return role === "supervisor" || role === "lead_supervisor";
+}
+
+/** Roles that can list, filter, and open any lead. */
+export function hasFullLeadAccess(role) {
+  return role === "admin" || role === "manager";
 }
 
 /** Lead stats tab and metrics API — admin only. */
@@ -21,6 +27,11 @@ export function canViewLeadStats(role) {
 
 /** Charged / declined / chargeback / processor — admin only. */
 export function canViewLeadPaymentChargeInfo(role) {
+  return role === "admin";
+}
+
+/** Payment method admin notes — admin only. */
+export function canViewPaymentAdminNotes(role) {
   return role === "admin";
 }
 
@@ -70,7 +81,7 @@ export function isAdminOnlyPaymentChargeActivity(update) {
 
 /** Roles that see agent/supervisor filters on the leads page. */
 export function canUseLeadFilters(role) {
-  return hasFullLeadAccess(role) || role === "supervisor";
+  return hasFullLeadAccess(role) || canHaveAssignedAgents(role);
 }
 
 /** Processor created or is agent-assigned this sale — full visibility kept. */

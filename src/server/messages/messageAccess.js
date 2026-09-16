@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
 import { derivePresence } from "@/server/auth/presence";
 import {
@@ -276,11 +276,24 @@ async function loadPeerUsers(peerIds) {
 async function loadLastMessages(conversationIds) {
   if (!conversationIds.length) return new Map();
 
-  const messages = await db.Message.findAll({
-    where: {
-      conversationId: { [Op.in]: conversationIds },
-      deletedAt: null,
+  const latestRows = await db.sequelize.query(
+    `SELECT conversationId, MAX(id) AS maxId
+     FROM Messages
+     WHERE conversationId IN (:conversationIds)
+       AND deletedAt IS NULL
+     GROUP BY conversationId`,
+    {
+      replacements: { conversationIds },
+      type: QueryTypes.SELECT,
     },
+  );
+  const ids = latestRows
+    .map((row) => Number(row.maxId))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return new Map();
+
+  const messages = await db.Message.findAll({
+    where: { id: { [Op.in]: ids } },
     include: [
       {
         model: db.User,
@@ -294,17 +307,11 @@ async function loadLastMessages(conversationIds) {
         required: false,
       },
     ],
-    order: [
-      ["conversationId", "ASC"],
-      ["id", "DESC"],
-    ],
   });
 
   const byConv = new Map();
   for (const msg of messages) {
-    if (!byConv.has(msg.conversationId)) {
-      byConv.set(msg.conversationId, msg);
-    }
+    byConv.set(msg.conversationId, msg);
   }
   return byConv;
 }
@@ -508,9 +515,9 @@ export async function markConversationRead(conversationId, userId) {
 
 export async function listMessages(
   conversationId,
-  { beforeId = null, limit = 50, viewer = null } = {},
+  { beforeId = null, limit = 10, viewer = null } = {},
 ) {
-  const capped = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const capped = Math.min(Math.max(Number(limit) || 10, 1), 100);
   const where = {
     conversationId: Number(conversationId),
     deletedAt: null,
@@ -522,8 +529,26 @@ export async function listMessages(
     }
   }
 
-  const rows = await db.Message.findAll({
+  // IDs first (no hasMany join) so LIMIT applies to messages, not attachment rows.
+  const idRows = await db.Message.findAll({
     where,
+    attributes: ["id"],
+    order: [["id", "DESC"]],
+    limit: capped + 1,
+    raw: true,
+  });
+
+  const hasMore = idRows.length > capped;
+  const pageIds = (hasMore ? idRows.slice(0, capped) : idRows)
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (pageIds.length === 0) {
+    return { messages: [], hasMore: false };
+  }
+
+  const rows = await db.Message.findAll({
+    where: { id: { [Op.in]: pageIds } },
     include: [
       {
         model: db.User,
@@ -537,12 +562,20 @@ export async function listMessages(
         required: false,
       },
     ],
-    order: [["id", "DESC"]],
-    limit: capped,
   });
 
-  // Return chronological (oldest → newest) for the UI
-  return rows.reverse().map((row) => serializeMessage(row, viewer));
+  const byId = new Map(rows.map((row) => [Number(row.id), row]));
+  // Chronological (oldest → newest) for the UI
+  const ordered = pageIds
+    .slice()
+    .reverse()
+    .map((id) => byId.get(id))
+    .filter(Boolean);
+
+  return {
+    messages: ordered.map((row) => serializeMessage(row, viewer)),
+    hasMore,
+  };
 }
 
 export async function createMessage(conversation, authorUser, body, { attachmentIds = [] } = {}) {

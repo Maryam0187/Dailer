@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 function formatRole(role) {
   if (role === "supervisor") return "Supervisor";
+  if (role === "lead_supervisor") return "Lead supervisor";
   if (role === "agent") return "Agent";
   if (role === "admin") return "Admin";
   if (role === "manager") return "Manager";

@@ -56,6 +56,7 @@ function getPresetRange(preset) {
 
 function formatRole(role) {
   if (role === "supervisor") return "Supervisor";
+  if (role === "lead_supervisor") return "Lead supervisor";
   if (role === "agent") return "Agent";
   if (role === "processor") return "Processor";
   return role || "—";

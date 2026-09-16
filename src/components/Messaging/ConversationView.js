@@ -12,6 +12,7 @@ import {
   roleLabel,
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
+import { formatAllowedAttachmentTypesLabel } from "@/lib/messageAttachments";
 import {
   AttachFileIcon,
   MessageAttachmentList,
@@ -21,6 +22,9 @@ import {
 const COMPOSER_MIN_HEIGHT = 80;
 const COMPOSER_MAX_HEIGHT = 224;
 const COMPOSER_DEFAULT_HEIGHT = 80;
+/** Latest messages per open / older batch on scroll-up. */
+const MESSAGE_PAGE_SIZE = 10;
+const LOAD_OLDER_SCROLL_TOP_PX = 80;
 
 function DateSeparator({ label }) {
   if (!label) return null;
@@ -232,6 +236,8 @@ export default function ConversationView({
 }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState("");
@@ -251,6 +257,11 @@ export default function ConversationView({
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const nearBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const messagesRef = useRef([]);
+  const loadOlderMessagesRef = useRef(async () => {});
+  const topSentinelRef = useRef(null);
   const unreadOnOpenRef = useRef(0);
   const conversationId = conversation?.id;
   const skipDraftPersistRef = useRef(false);
@@ -306,8 +317,165 @@ export default function ConversationView({
   function onListScroll() {
     const el = listRef.current;
     setNearBottomState(isNearBottom(el));
-    // Keep the new-messages line until hover, send, or jump-to-new click
+    if (
+      el &&
+      el.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
+      hasMoreRef.current &&
+      !loadingOlderRef.current
+    ) {
+      void loadOlderMessagesRef.current();
+    }
   }
+
+  function normalizeRows(rows) {
+    return isAdmin
+      ? rows
+      : rows.map((m) => ({ ...m, canEdit: false, canDelete: false }));
+  }
+
+  function maybeFillOlderIfShort() {
+    const el = listRef.current;
+    if (!el || !hasMoreRef.current || loadingOlderRef.current) return;
+    if (el.scrollHeight <= el.clientHeight + 4) {
+      void loadOlderMessagesRef.current();
+    }
+  }
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId) return;
+    setLoading(true);
+    setError(null);
+    setHasMore(false);
+    hasMoreRef.current = false;
+    try {
+      const qs = new URLSearchParams({ limit: String(MESSAGE_PAGE_SIZE) });
+      const res = await fetch(
+        `/api/messages/conversations/${conversationId}/messages?${qs}`,
+        { credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to load messages");
+        return;
+      }
+      const rows = Array.isArray(data.messages) ? data.messages : [];
+      const more = data.hasMore === true;
+      setHasMore(more);
+      hasMoreRef.current = more;
+      setMessages(normalizeRows(rows));
+
+      const unread = unreadOnOpenRef.current;
+      if (unread > 0 && rows.length > 0) {
+        const startIdx = Math.max(0, rows.length - unread);
+        const firstNewId = rows[startIdx]?.id ?? null;
+        setDividerBeforeId(firstNewId);
+        // Scroll to the new-messages line (WhatsApp-style)
+        requestAnimationFrame(() => {
+          dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
+          setNearBottomState(isNearBottom(listRef.current));
+          maybeFillOlderIfShort();
+        });
+      } else {
+        setDividerBeforeId(null);
+        requestAnimationFrame(() => {
+          scrollToBottom(false);
+          maybeFillOlderIfShort();
+        });
+      }
+    } catch {
+      setError("Failed to load messages");
+    } finally {
+      setLoading(false);
+    }
+  }, [conversationId, isAdmin]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || loadingOlderRef.current || !hasMoreRef.current) return;
+
+    const oldestId = messagesRef.current[0]?.id;
+    if (!oldestId) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = listRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+    const shortViewport = el != null && el.scrollHeight <= el.clientHeight + 4;
+
+    try {
+      const qs = new URLSearchParams({
+        limit: String(MESSAGE_PAGE_SIZE),
+        beforeId: String(oldestId),
+      });
+      const res = await fetch(
+        `/api/messages/conversations/${conversationId}/messages?${qs}`,
+        { credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("[messages] load older failed", data?.error || res.status);
+        return;
+      }
+
+      const rows = normalizeRows(Array.isArray(data.messages) ? data.messages : []);
+      const more = data.hasMore === true;
+      setHasMore(more);
+      hasMoreRef.current = more;
+
+      if (rows.length === 0) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+        return;
+      }
+
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => Number(m.id)));
+        const fresh = rows.filter((m) => !seen.has(Number(m.id)));
+        return fresh.length ? [...fresh, ...prev] : prev;
+      });
+
+      requestAnimationFrame(() => {
+        const list = listRef.current;
+        if (!list) return;
+        if (shortViewport) {
+          scrollToBottom(false);
+        } else {
+          list.scrollTop = prevTop + (list.scrollHeight - prevHeight);
+        }
+        maybeFillOlderIfShort();
+      });
+    } catch (err) {
+      console.error("[messages] load older error", err);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [conversationId, isAdmin]);
+
+  loadOlderMessagesRef.current = loadOlderMessages;
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Top sentinel: load older when user scrolls up (or list is short and sentinel is visible).
+  useEffect(() => {
+    const root = listRef.current;
+    const target = topSentinelRef.current;
+    if (!root || !target || loading) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (!hasMoreRef.current || loadingOlderRef.current) return;
+        void loadOlderMessagesRef.current();
+      },
+      { root, rootMargin: "120px 0px 0px 0px", threshold: 0 },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, conversationId, hasMore, messages.length]);
 
   // Capture unread seed for this open + restore draft
   useEffect(() => {
@@ -321,6 +489,10 @@ export default function ConversationView({
     setEditingMessageId(null);
     setEditDraft("");
     setPendingDeleteMessageId(null);
+    setHasMore(false);
+    hasMoreRef.current = false;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
   }, [conversationId, initialUnreadCount]);
 
   useEffect(() => {
@@ -355,47 +527,6 @@ export default function ConversationView({
     }
     writeMessageDraft(conversationId, draft);
   }, [conversationId, draft]);
-
-  const loadMessages = useCallback(async () => {
-    if (!conversationId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/messages/conversations/${conversationId}/messages`, {
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Failed to load messages");
-        return;
-      }
-      const rows = Array.isArray(data.messages) ? data.messages : [];
-      setMessages(
-        isAdmin
-          ? rows
-          : rows.map((m) => ({ ...m, canEdit: false, canDelete: false })),
-      );
-
-      const unread = unreadOnOpenRef.current;
-      if (unread > 0 && rows.length > 0) {
-        const startIdx = Math.max(0, rows.length - unread);
-        const firstNewId = rows[startIdx]?.id ?? null;
-        setDividerBeforeId(firstNewId);
-        // Scroll to the new-messages line (WhatsApp-style)
-        requestAnimationFrame(() => {
-          dividerRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
-          setNearBottomState(isNearBottom(listRef.current));
-        });
-      } else {
-        setDividerBeforeId(null);
-        requestAnimationFrame(() => scrollToBottom(false));
-      }
-    } catch {
-      setError("Failed to load messages");
-    } finally {
-      setLoading(false);
-    }
-  }, [conversationId, isAdmin]);
 
   useEffect(() => {
     loadMessages();
@@ -505,6 +636,11 @@ export default function ConversationView({
   const maxAttachmentsPerMessage = attachmentUploadConfig?.maxAttachmentsPerMessage ?? 5;
   const maxAttachmentSizeBytes = attachmentUploadConfig?.maxSizeBytes ?? 10 * 1024 * 1024;
   const allowedMimeTypeSet = attachmentUploadConfig?.mimeTypeSet ?? new Set();
+  const allowedTypesLabel = formatAllowedAttachmentTypesLabel(
+    attachmentUploadConfig?.accept,
+    ".doc, .docx",
+  );
+  const maxSizeMbLabel = Math.round(maxAttachmentSizeBytes / (1024 * 1024));
 
   async function uploadSelectedFile(file) {
     if (!conversationId || !file) return;
@@ -847,7 +983,26 @@ export default function ConversationView({
               </p>
             </div>
           ) : (
-            messages.map((message, index) => {
+            <>
+              <div ref={topSentinelRef} className="h-px w-full shrink-0" aria-hidden />
+              {loadingOlder ? (
+                <div className="py-2 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Loading older messages…
+                </div>
+              ) : hasMore ? (
+                <button
+                  type="button"
+                  onClick={() => void loadOlderMessagesRef.current()}
+                  className="mx-auto block py-1 text-center text-[11px] font-medium text-sky-600 hover:underline dark:text-sky-400"
+                >
+                  Load older messages
+                </button>
+              ) : messages.length > 0 ? (
+                <div className="py-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                  Beginning of conversation
+                </div>
+              ) : null}
+              {messages.map((message, index) => {
               const mine =
                 !conversation.isOversight &&
                 Number(message.userId) === Number(currentUserId);
@@ -965,7 +1120,8 @@ export default function ConversationView({
                   </div>
                 </Fragment>
               );
-            })
+            })}
+            </>
           )}
           <div ref={bottomRef} />
         </div>
@@ -1061,8 +1217,8 @@ export default function ConversationView({
             </button>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Enter to send · Shift+Enter for new line · Drag top edge to resize · Word files only (.doc, .docx), up to{" "}
-            {Math.round(maxAttachmentSizeBytes / (1024 * 1024))} MB each
+            Enter to send · Shift+Enter for new line · Drag top edge to resize · Allowed:{" "}
+            {allowedTypesLabel} · up to {maxSizeMbLabel} MB each
           </p>
         </form>
       ) : (

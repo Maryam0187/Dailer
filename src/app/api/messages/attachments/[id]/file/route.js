@@ -5,8 +5,16 @@ import { getConversationForUser } from "@/server/messages/messageAccess";
 import { getAttachmentStorageMode } from "@/server/messages/attachmentStorage";
 import { readLocalAttachment } from "@/server/messages/localAttachmentStorage";
 import { sanitizeAttachmentFilename } from "@/server/messages/objectStorage";
+import { markAttachmentDownloadedByReceiver } from "@/server/messages/messageAttachments";
 
 export const runtime = "nodejs";
+
+function isMissingFileError(err) {
+  if (!err) return false;
+  const code = String(err.code || err.name || "").toLowerCase();
+  const message = String(err.message || "").toLowerCase();
+  return code === "enoent" || message.includes("no such file") || message.includes("not found");
+}
 
 export async function GET(_req, { params }) {
   if (getAttachmentStorageMode() !== "local") {
@@ -36,6 +44,7 @@ export async function GET(_req, { params }) {
 
   try {
     const fileBuffer = await readLocalAttachment(attachment.storageKey);
+    await markAttachmentDownloadedByReceiver(attachment, authedUser);
     const filename = sanitizeAttachmentFilename(attachment.originalName, "download");
     return new NextResponse(fileBuffer, {
       status: 200,
@@ -45,7 +54,13 @@ export async function GET(_req, { params }) {
         "Cache-Control": "private, no-store",
       },
     });
-  } catch {
+  } catch (err) {
+    if (isMissingFileError(err)) {
+      return NextResponse.json(
+        { error: "This file is no longer available. It may have been removed from storage." },
+        { status: 404 },
+      );
+    }
     return NextResponse.json({ error: "Failed to read attachment file" }, { status: 404 });
   }
 }

@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import db from "@/server/db";
 import {
   getAllowedAttachmentMimeTypes,
@@ -7,6 +8,7 @@ import {
 import {
   createDownloadTarget,
   createUploadTarget,
+  deleteStoredAttachment,
   headStoredAttachment,
   isAttachmentStorageAvailable,
 } from "@/server/messages/attachmentStorage";
@@ -26,6 +28,117 @@ export function serializeAttachment(attachment) {
     sizeBytes: plain.sizeBytes,
     status: plain.status,
     createdAt: plain.createdAt,
+    receiverDownloadedAt: plain.receiverDownloadedAt || null,
+  };
+}
+
+function serializeUserBrief(user) {
+  if (!user) return null;
+  const plain = typeof user.toJSON === "function" ? user.toJSON() : user;
+  return {
+    id: plain.id,
+    username: plain.username || "Unknown",
+  };
+}
+
+function receiverFromConversation(conversation, uploaderId) {
+  if (!conversation) return null;
+  const uid = Number(uploaderId);
+  if (Number(conversation.dmUserLowId) === uid) {
+    return serializeUserBrief(conversation.dmUserHigh);
+  }
+  if (Number(conversation.dmUserHighId) === uid) {
+    return serializeUserBrief(conversation.dmUserLow);
+  }
+  return null;
+}
+
+/**
+ * Admin-only inventory of chat attachment files with uploader + DM receiver.
+ * Kept here (not messageAccess) to avoid a circular import with that module.
+ */
+export async function listAttachmentsForAdmin(adminUser, { page = 1, pageSize = 25 } = {}) {
+  if (adminUser?.role !== "admin") {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const limit = Math.min(Math.max(Number(pageSize) || 25, 1), 100);
+  const requestedPage = Number.isInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+
+  const where = {
+    status: { [Op.in]: ["attached", "deleted"] },
+  };
+
+  const total = await db.MessageAttachment.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(requestedPage, totalPages);
+  const offset = (safePage - 1) * limit;
+
+  const rows = await db.MessageAttachment.findAll({
+    where,
+    include: [
+      {
+        model: db.User,
+        as: "uploader",
+        attributes: ["id", "username"],
+        required: false,
+      },
+      {
+        model: db.Conversation,
+        as: "conversation",
+        attributes: ["id", "dmUserLowId", "dmUserHighId"],
+        required: false,
+        include: [
+          {
+            model: db.User,
+            as: "dmUserLow",
+            attributes: ["id", "username"],
+            required: false,
+          },
+          {
+            model: db.User,
+            as: "dmUserHigh",
+            attributes: ["id", "username"],
+            required: false,
+          },
+        ],
+      },
+    ],
+    order: [
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+    limit,
+    offset,
+  });
+
+  const attachments = rows.map((row) => {
+    const plain = typeof row.toJSON === "function" ? row.toJSON() : row;
+    return {
+      id: plain.id,
+      messageId: plain.messageId,
+      conversationId: plain.conversationId,
+      originalName: plain.originalName,
+      mimeType: plain.mimeType,
+      sizeBytes: plain.sizeBytes,
+      status: plain.status,
+      createdAt: plain.createdAt,
+      receiverDownloadedAt: plain.receiverDownloadedAt || null,
+      uploader: serializeUserBrief(plain.uploader),
+      receiver: receiverFromConversation(plain.conversation, plain.userId),
+    };
+  });
+
+  return {
+    attachments,
+    pagination: {
+      page: safePage,
+      pageSize: limit,
+      total,
+      totalPages,
+      hasNext: safePage < totalPages,
+      hasPrev: safePage > 1,
+    },
   };
 }
 
@@ -193,6 +306,30 @@ export async function linkAttachmentsToMessage({
   return { attachments: attached.map(serializeAttachment) };
 }
 
+/**
+ * Record first download/view by the DM receiver (not uploader, not admin oversight).
+ */
+export async function markAttachmentDownloadedByReceiver(attachment, viewer) {
+  if (!attachment || !viewer?.id) return attachment;
+  if (attachment.receiverDownloadedAt) return attachment;
+  if (attachment.status !== "attached") return attachment;
+  if (Number(attachment.userId) === Number(viewer.id)) return attachment;
+
+  const conversation = await db.Conversation.findByPk(attachment.conversationId, {
+    attributes: ["id", "dmUserLowId", "dmUserHighId"],
+  });
+  if (!conversation) return attachment;
+
+  const viewerId = Number(viewer.id);
+  const isParticipant =
+    Number(conversation.dmUserLowId) === viewerId ||
+    Number(conversation.dmUserHighId) === viewerId;
+  if (!isParticipant) return attachment;
+
+  await attachment.update({ receiverDownloadedAt: new Date() });
+  return attachment;
+}
+
 export async function getAttachmentDownloadUrl(attachment) {
   if (!attachment || attachment.status !== "attached") {
     return { error: "Attachment not found", status: 404 };
@@ -202,11 +339,91 @@ export async function getAttachmentDownloadUrl(attachment) {
     return { error: "File attachments are not configured on this server", status: 503 };
   }
 
-  const downloadTarget = await createDownloadTarget(attachment);
+  try {
+    await headStoredAttachment(attachment.storageKey);
+  } catch (err) {
+    if (isMissingStoredAttachmentError(err)) {
+      return {
+        error: "This file is no longer available. It may have been removed from storage.",
+        status: 404,
+      };
+    }
+    return {
+      error: "Could not access the file. Please try again.",
+      status: 503,
+    };
+  }
+
+  try {
+    const downloadTarget = await createDownloadTarget(attachment);
+    return {
+      downloadUrl: downloadTarget.downloadUrl,
+      expiresIn: downloadTarget.expiresIn,
+      attachment: serializeAttachment(attachment),
+    };
+  } catch {
+    return {
+      error: "Could not prepare the download. Please try again.",
+      status: 503,
+    };
+  }
+}
+
+function isMissingStoredAttachmentError(err) {
+  if (!err) return false;
+  const code = String(err.name || err.code || err.Code || "").toLowerCase();
+  const status = Number(err.$metadata?.httpStatusCode || err.statusCode || err.status || 0);
+  const message = String(err.message || "").toLowerCase();
+  if (status === 404) return true;
+  if (code.includes("notfound") || code === "nosuchkey" || code === "enoent") return true;
+  if (message.includes("no such file") || message.includes("not found") || message.includes("nosuchkey")) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Admin-only: remove file from storage and mark the DB row as deleted.
+ */
+export async function deleteAttachmentForAdmin(adminUser, attachmentId) {
+  if (adminUser?.role !== "admin") {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const id = Number(attachmentId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { error: "Invalid attachment", status: 400 };
+  }
+
+  const attachment = await db.MessageAttachment.findByPk(id);
+  if (!attachment) {
+    return { error: "Attachment not found", status: 404 };
+  }
+
+  if (attachment.status === "deleted") {
+    return {
+      attachment: serializeAttachment(attachment),
+      alreadyDeleted: true,
+      conversationId: attachment.conversationId,
+      messageId: attachment.messageId,
+    };
+  }
+
+  try {
+    await deleteStoredAttachment(attachment.storageKey);
+  } catch {
+    return {
+      error: "Failed to delete file from storage. Please try again.",
+      status: 503,
+    };
+  }
+
+  await attachment.update({ status: "deleted" });
 
   return {
-    downloadUrl: downloadTarget.downloadUrl,
-    expiresIn: downloadTarget.expiresIn,
     attachment: serializeAttachment(attachment),
+    alreadyDeleted: false,
+    conversationId: attachment.conversationId,
+    messageId: attachment.messageId,
   };
 }

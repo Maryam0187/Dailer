@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { assertCanManageTarget } from "@/server/auth/userAccess";
+import { ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import { isWithinLoginWindow } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 import { getDefaultGrantDurationMinutes } from "@/server/auth/shiftSettings";
@@ -155,12 +157,12 @@ export async function PATCH(req, { params }) {
   }
 
   if (isAdmin && body.role !== undefined) {
-    const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_monitor", "processor"];
+    const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_supervisor", "processor"];
     if (!allowedRoles.includes(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     updates.role = body.role;
-    const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+    const rolesWithManager = ["agent", "supervisor", "processor", "lead_supervisor"];
     if (!rolesWithManager.includes(body.role)) {
       updates.managerId = null;
       updates.supervisorId = null;
@@ -187,7 +189,7 @@ export async function PATCH(req, { params }) {
   }
 
   const effectiveRole = updates.role ?? target.role;
-  const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+  const rolesWithManager = ["agent", "supervisor", "processor", "lead_supervisor"];
 
   if (isAdmin && rolesWithManager.includes(effectiveRole)) {
     if (body.managerId !== undefined) {
@@ -215,12 +217,16 @@ export async function PATCH(req, { params }) {
     const parsedSupervisor = body.supervisorId != null ? Number(body.supervisorId) : null;
     if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
       const supervisorUser = await db.User.findOne({
-        where: { id: parsedSupervisor, role: "supervisor", isActive: true },
+        where: {
+          id: parsedSupervisor,
+          role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS },
+          isActive: true,
+        },
         attributes: ["id", "managerId"],
       });
       if (!supervisorUser) {
         return NextResponse.json(
-          { error: "supervisorId must be an active supervisor" },
+          { error: "supervisorId must be an active supervisor or lead supervisor" },
           { status: 400 },
         );
       }

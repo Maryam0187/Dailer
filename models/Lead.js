@@ -222,6 +222,8 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["verifiedAt"] },
         { fields: ["processedAt"] },
         { fields: ["saleDoneAt"] },
+        { fields: ["createdAt"] },
+        { fields: ["updatedAt"] },
       ],
     },
   );

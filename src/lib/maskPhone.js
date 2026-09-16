@@ -1,6 +1,6 @@
 import { formatLandline } from "@/lib/phoneFormat";
 
-/** Lead monitors see only the last seven digits of phone and cell numbers. */
+/** Legacy lead-monitor redaction; lead supervisors see full numbers. */
 export function shouldRedactLeadPhones(role) {
   return role === "lead_monitor";
 }

@@ -7,6 +7,7 @@ import {
   parsePaymentBody,
   clearUnusedPaymentFields,
 } from "@/server/customers/parsePaymentBody";
+import { canViewPaymentAdminNotes } from "@/lib/leadRoles";
 
 async function clearOtherDefaults(customerId, exceptId, transaction) {
   const where = { customerId, isDefault: true };
@@ -46,7 +47,11 @@ export async function GET(_req, { params }) {
     ],
   });
 
-  return NextResponse.json({ paymentMethods: rows.map(serializePaymentMethod) });
+  return NextResponse.json({
+    paymentMethods: rows.map((row) =>
+      serializePaymentMethod(row, { viewerRole: authedUser.role }),
+    ),
+  });
 }
 
 export async function POST(req, { params }) {
@@ -69,6 +74,9 @@ export async function POST(req, { params }) {
   }
 
   const cleaned = clearUnusedPaymentFields(data.type, data);
+  if (!canViewPaymentAdminNotes(authedUser.role)) {
+    cleaned.notes = null;
+  }
 
   const row = await db.sequelize.transaction(async (transaction) => {
     if (cleaned.isDefault) {
@@ -97,7 +105,9 @@ export async function POST(req, { params }) {
   });
 
   return NextResponse.json(
-    { paymentMethod: serializePaymentMethod(withUser) },
+    {
+      paymentMethod: serializePaymentMethod(withUser, { viewerRole: authedUser.role }),
+    },
     { status: 201 },
   );
 }

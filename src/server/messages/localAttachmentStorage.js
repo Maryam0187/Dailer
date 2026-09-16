@@ -58,3 +58,13 @@ export async function readLocalAttachment(storageKey) {
   const filePath = resolveLocalAttachmentPath(storageKey);
   return fs.readFile(filePath);
 }
+
+export async function deleteLocalAttachment(storageKey) {
+  const filePath = resolveLocalAttachmentPath(storageKey);
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if (err?.code === "ENOENT") return;
+    throw err;
+  }
+}

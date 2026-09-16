@@ -157,7 +157,7 @@ export async function resolveAssigneeForAgent(agentUserId) {
   const supervisorId = agent.supervisorId;
   if (Number.isInteger(supervisorId) && supervisorId > 0) {
     const supervisor = await db.User.findOne({
-      where: { id: supervisorId, role: "supervisor", isActive: true },
+      where: { id: supervisorId, role: { [Op.in]: ["supervisor", "lead_supervisor"] }, isActive: true },
       attributes: ["id"],
     });
     if (supervisor) assignedUserId = supervisor.id;
@@ -170,7 +170,7 @@ export async function listNightShiftAgents() {
     where: {
       isActive: true,
       shiftKey: "night",
-      role: { [Op.in]: ["agent", "supervisor", "processor"] },
+      role: { [Op.in]: ["agent", "supervisor", "lead_supervisor", "processor"] },
     },
     attributes: ["id", "username", "role", "shiftKey", "supervisorId"],
     order: [["username", "ASC"]],
@@ -186,7 +186,7 @@ export async function listNightShiftAgents() {
   const supervisors =
     supervisorIds.length > 0
       ? await db.User.findAll({
-          where: { id: { [Op.in]: supervisorIds }, role: "supervisor", isActive: true },
+          where: { id: { [Op.in]: supervisorIds }, role: { [Op.in]: ["supervisor", "lead_supervisor"] }, isActive: true },
           attributes: ["id", "username"],
         })
       : [];

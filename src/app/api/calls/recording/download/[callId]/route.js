@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { isLeadSupervisor } from "@/lib/leadRoles";
+import { canAccessLead } from "@/server/leads/leadAccess";
 
 export const runtime = "nodejs";
 
@@ -41,14 +43,20 @@ export async function GET(_req, { params }) {
       authedUser.role === "admin" ||
       authedUser.role === "manager" ||
       authedUser.role === "supervisor";
-    const where = canSeeAllCalls ? { id: callId } : { id: callId, userId: authedUser.id };
 
     const callLog = await db.CallLog.findOne({
-      where,
-      attributes: ["id", "recordingSid", "toNumber"],
+      where: { id: callId },
+      attributes: ["id", "recordingSid", "toNumber", "userId", "leadId"],
       include: [{ model: db.User, as: "user", attributes: ["username"] }],
     });
     if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
+
+    let allowed = canSeeAllCalls || callLog.userId === authedUser.id;
+    if (!allowed && isLeadSupervisor(authedUser.role) && callLog.leadId) {
+      const lead = await db.Lead.findByPk(callLog.leadId);
+      allowed = Boolean(lead) && (await canAccessLead(lead, authedUser));
+    }
+    if (!allowed) return NextResponse.json({ error: "Call not found" }, { status: 404 });
     if (!callLog.recordingSid) {
       return NextResponse.json({ error: "Recording not available" }, { status: 404 });
     }

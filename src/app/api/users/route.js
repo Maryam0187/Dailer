@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { canHaveAssignedAgents, isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { leadSupervisorVisibleAgentWhere } from "@/server/leads/leadAccess";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
@@ -137,7 +140,27 @@ export async function GET(req) {
     });
   }
 
-  if (authedUser.role === "supervisor") {
+  if (isLeadSupervisor(authedUser.role)) {
+    const rows = await db.User.findAll({
+      attributes: LIST_ATTRIBUTES,
+      include: LIST_INCLUDE,
+      where: leadSupervisorVisibleAgentWhere(authedUser),
+      order: [["createdAt", "DESC"]],
+    });
+    const now = Date.now();
+    const currentLeaveByUserId = await getCurrentApprovedLeaveByUserIds(rows.map((r) => r.id));
+    return NextResponse.json({
+      users: sortUsersForDisplay(
+        rows.map((r) =>
+          serializeUserRow(r, now, {
+            currentLeave: currentLeaveByUserId.get(r.id) ?? null,
+          }),
+        ),
+      ),
+    });
+  }
+
+  if (canHaveAssignedAgents(authedUser.role)) {
     const rows = await db.User.findAll({
       attributes: LIST_ATTRIBUTES,
       include: LIST_INCLUDE,
@@ -194,9 +217,9 @@ export async function POST(req) {
   const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
   if (authedUser.role === "manager") {
-    if (role !== "agent" && role !== "supervisor" && role !== "processor" && role !== "lead_monitor") {
+    if (role !== "agent" && role !== "supervisor" && role !== "processor" && role !== "lead_supervisor") {
       return NextResponse.json(
-        { error: "Managers can only create agents, supervisors, processors, or lead monitors" },
+        { error: "Managers can only create agents, supervisors, processors, or lead supervisors" },
         { status: 403 },
       );
     }
@@ -210,7 +233,7 @@ export async function POST(req) {
         const supervisorUser = await db.User.findOne({
           where: {
             id: parsedSupervisor,
-            role: "supervisor",
+            role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS },
             managerId: authedUser.id,
             isActive: true,
           },
@@ -218,7 +241,7 @@ export async function POST(req) {
         });
         if (!supervisorUser) {
           return NextResponse.json(
-            { error: "supervisorId must be an active supervisor under you" },
+            { error: "supervisorId must be an active supervisor or lead supervisor under you" },
             { status: 400 },
           );
         }
@@ -260,7 +283,7 @@ export async function POST(req) {
     }
   }
 
-  if (authedUser.role === "supervisor") {
+  if (canHaveAssignedAgents(authedUser.role)) {
     if (role && role !== "agent") {
       return NextResponse.json({ error: "Supervisors can only create agents" }, { status: 403 });
     }
@@ -268,7 +291,7 @@ export async function POST(req) {
     const supervisorRow = await db.User.findByPk(authedUser.id, {
       attributes: ["id", "role", "managerId", "isActive", "shiftKey"],
     });
-    if (!supervisorRow || supervisorRow.role !== "supervisor" || !supervisorRow.isActive) {
+    if (!supervisorRow || !canHaveAssignedAgents(supervisorRow.role) || !supervisorRow.isActive) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -283,6 +306,7 @@ export async function POST(req) {
         managerId: supervisorRow.managerId ?? null,
         supervisorId: authedUser.id,
         shiftKey: supervisorShiftKey,
+        isOutside: false,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -312,14 +336,14 @@ export async function POST(req) {
   }
 
   // Admin can create any role.
-  const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_monitor", "processor"];
+  const allowedRoles = ["agent", "manager", "supervisor", "admin", "lead_supervisor", "processor"];
   if (!allowedRoles.includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
   let managerIdToSet = null;
   let supervisorIdToSet = null;
-  const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+  const rolesWithManager = ["agent", "supervisor", "processor", "lead_supervisor"];
   if (rolesWithManager.includes(role)) {
     const parsed = managerId ? Number(managerId) : null;
     if (parsed && !Number.isNaN(parsed)) {
@@ -339,11 +363,14 @@ export async function POST(req) {
     const parsedSupervisor = supervisorId ? Number(supervisorId) : null;
     if (parsedSupervisor && !Number.isNaN(parsedSupervisor)) {
       const supervisorUser = await db.User.findOne({
-        where: { id: parsedSupervisor, role: "supervisor", isActive: true },
+        where: { id: parsedSupervisor, role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true },
         attributes: ["id", "managerId"],
       });
       if (!supervisorUser) {
-        return NextResponse.json({ error: "supervisorId must point to an active supervisor" }, { status: 400 });
+        return NextResponse.json(
+          { error: "supervisorId must point to an active supervisor or lead supervisor" },
+          { status: 400 },
+        );
       }
       supervisorIdToSet = parsedSupervisor;
       if (!managerIdToSet && supervisorUser.managerId) {

@@ -21,7 +21,12 @@ export function serializeChargeablePaymentMethod(row) {
     const acct = maskTail(row.accountNumber);
     summary = `${bank}${acct ? ` ${acct}` : ""}`.trim();
   } else if (type === "check_mail") {
-    const parts = [row.bankName, row.checkNumber ? `#${row.checkNumber}` : null].filter(Boolean);
+    const acct = maskTail(row.accountNumber);
+    const parts = [
+      row.bankName,
+      acct || null,
+      row.checkNumber ? `#${row.checkNumber}` : null,
+    ].filter(Boolean);
     summary = parts.join(" · ") || "Check mail";
   } else {
     summary = row.email || row.notes?.slice(0, 60) || "POS";

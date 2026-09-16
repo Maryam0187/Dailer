@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
 import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 
 function roleLabel(role) {
@@ -13,9 +14,18 @@ function roleLabel(role) {
   if (role === "manager") return "Manager";
   if (role === "supervisor") return "Supervisor";
   if (role === "admin") return "Admin";
-  if (role === "lead_monitor") return "Lead Monitor";
+  if (role === "lead_supervisor") return "Lead Supervisor";
   if (role === "processor") return "Processor";
   return role;
+}
+
+function isAgentSupervisorRole(role) {
+  return role === "supervisor" || role === "lead_supervisor";
+}
+
+function supervisorSelectLabel(s) {
+  if (s.role === "lead_supervisor") return `${s.username} (Lead supervisor)`;
+  return s.username;
 }
 
 function normalizePresence(value) {
@@ -23,7 +33,7 @@ function normalizePresence(value) {
   return "offline";
 }
 
-function activityActionLabel(action) {
+function activityActionLabel(action, metadata) {
   if (action === "login_success") return "Login";
   if (action === "login_failed") return "Login failed";
   if (action === "logout") return "Logout";
@@ -34,6 +44,13 @@ function activityActionLabel(action) {
   if (action === "lead_status_change") return "Lead status changed";
   if (action === "lead_note_edit") return "Lead notes edited";
   if (action === "lead_breakdown_edit") return "Lead breakdown edited";
+  if (action === "lead_workflow_change") {
+    // Progress tags keep LeadUpdate type lead_phase_change / action lead_workflow_change.
+    if (String(metadata?.summary || "").startsWith("Progress:")) {
+      return "Lead progress tags updated";
+    }
+    return "Lead workflow updated";
+  }
   if (action === "lead_comment") return "Lead comment";
   if (action === "lead_assigned") return "Lead assigned";
   if (action === "lead_processor_assigned") return "Processor assigned";
@@ -162,7 +179,7 @@ const compactFilterSelectClass =
 function RoleBadge({ value }) {
   const styles = {
     admin: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
-    lead_monitor: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
+    lead_supervisor: "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
     processor: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
     manager: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
     supervisor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
@@ -170,7 +187,7 @@ function RoleBadge({ value }) {
   };
   const palette =
     value === "admin" ||
-    value === "lead_monitor" ||
+    value === "lead_supervisor" ||
     value === "processor" ||
     value === "manager" ||
     value === "supervisor" ||
@@ -1249,7 +1266,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                               {new Date(row.createdAt).toLocaleString()}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
-                              {activityActionLabel(row.action)}
+                              {activityActionLabel(row.action, row.metadata)}
                             </td>
                             <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
                               <p
@@ -1703,7 +1720,7 @@ function EditUserModal({
       if (password.trim()) payload.password = password.trim();
 
       if (isAdmin) {
-        const rolesWithManager = ["agent", "supervisor", "processor", "lead_monitor"];
+        const rolesWithManager = ["agent", "supervisor", "processor", "lead_supervisor"];
         if (editRole !== user.role) {
           payload.role = editRole;
           if (rolesWithManager.includes(editRole)) {
@@ -1826,7 +1843,7 @@ function EditUserModal({
     (editRole === "agent" ||
       editRole === "supervisor" ||
       editRole === "processor" ||
-      editRole === "lead_monitor");
+      editRole === "lead_supervisor");
   const showSupervisor = isAdmin && editRole === "agent";
   const filteredSupervisors =
     managerId == null || managerId === ""
@@ -2005,7 +2022,7 @@ function EditUserModal({
                   <option value="manager">Manager</option>
                   <option value="supervisor">Supervisor</option>
                   <option value="processor">Processor</option>
-                  <option value="lead_monitor">Lead Monitor</option>
+                  <option value="lead_supervisor">Lead Supervisor</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
@@ -2049,7 +2066,7 @@ function EditUserModal({
                     ) : null}
                     {filteredSupervisors.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.username}
+                        {s.role === "lead_supervisor" ? `${s.username} (Lead supervisor)` : s.username}
                       </option>
                     ))}
                   </select>
@@ -2344,10 +2361,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           .sort((a, b) => a.username.localeCompare(b.username));
         setManagerOptions(nextManagers);
         const nextSupervisors = normalizedUsers
-          .filter((u) => u.role === "supervisor" && u.isActive)
+          .filter((u) => isAgentSupervisorRole(u.role) && u.isActive)
           .map((u) => ({
             id: u.id,
             username: u.username,
+            role: u.role,
             managerId: u.managerId,
             shiftKey: u.shiftKey === "night" ? "night" : "day",
           }))
@@ -2355,10 +2373,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         setSupervisorOptions(nextSupervisors);
       } else if (role === "manager") {
         const nextSupervisors = normalizedUsers
-          .filter((u) => u.role === "supervisor" && u.isActive)
+          .filter((u) => isAgentSupervisorRole(u.role) && u.isActive)
           .map((u) => ({
             id: u.id,
             username: u.username,
+            role: u.role,
             managerId: u.managerId,
             shiftKey: u.shiftKey === "night" ? "night" : "day",
           }))
@@ -2460,7 +2479,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       createRole !== "agent" &&
       createRole !== "supervisor" &&
       createRole !== "processor" &&
-      createRole !== "lead_monitor"
+      createRole !== "lead_supervisor"
     ) {
       return;
     }
@@ -2497,7 +2516,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           createRole === "agent" ||
           createRole === "supervisor" ||
           createRole === "processor" ||
-          createRole === "lead_monitor"
+          createRole === "lead_supervisor"
         ) {
           payload.managerId = managerId ?? null;
         }
@@ -2586,14 +2605,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   }
 
   const isManager = role === "manager";
-  const isSupervisor = role === "supervisor";
+  const isSupervisor = isAgentSupervisorRole(role);
   const showRoleSelector = role === "admin" || isManager;
   const showManagerSelector =
     role === "admin" &&
     (createRole === "agent" ||
       createRole === "supervisor" ||
       createRole === "processor" ||
-      createRole === "lead_monitor");
+      createRole === "lead_supervisor");
   const showSupervisorSelector = (role === "admin" || isManager) && createRole === "agent";
   const listHeading =
     role === "admin" ? "All users" : isManager ? "Your team" : "Your agents";
@@ -2601,8 +2620,10 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     role === "admin"
       ? "Everyone in the system."
       : isManager
-        ? "Day and night agents, supervisors, processors, and lead monitors assigned to you."
-        : "Agents assigned to you as their supervisor.";
+        ? "Day and night agents, supervisors, processors, and lead supervisors assigned to you."
+        : isLeadSupervisor(role)
+          ? "In-house agents on your shift."
+          : "Agents assigned to you as their supervisor.";
   const showHierarchyColumns = !isSupervisor;
   const showLeaveColumn = true;
   const showShiftColumn = role === "admin" || isManager;
@@ -2663,9 +2684,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                   Create an account with a username and password.
                   {role === "admin"
-                    ? " Choose a role and, for agents, supervisors, processors, or lead monitors, optionally assign a manager. Password is optional for outside agents."
+                    ? " Choose a role and, for agents, supervisors, processors, or lead supervisors, optionally assign a manager. Password is optional for outside agents."
                     : isManager
-                      ? " Create an agent, supervisor, processor, or lead monitor under your team."
+                      ? " Create an agent, supervisor, processor, or lead supervisor under your team."
                       : " New accounts are created as your agents."}
                 </p>
               </div>
@@ -2739,14 +2760,14 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           <option value="manager">Manager</option>
                           <option value="supervisor">Supervisor</option>
                           <option value="processor">Processor</option>
-                          <option value="lead_monitor">Lead Monitor</option>
+                          <option value="lead_supervisor">Lead Supervisor</option>
                           <option value="admin">Admin</option>
                         </>
                       ) : (
                         <>
                           <option value="supervisor">Supervisor</option>
                           <option value="processor">Processor</option>
-                          <option value="lead_monitor">Lead Monitor</option>
+                          <option value="lead_supervisor">Lead Supervisor</option>
                         </>
                       )}
                     </select>
@@ -2793,7 +2814,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       ) : null}
                       {filteredSupervisorOptions.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.username}
+                          {supervisorSelectLabel(s)}
                         </option>
                       ))}
                     </select>
@@ -2952,7 +2973,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <option value="">All supervisors</option>
                     {listSupervisorOptions.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.username}
+                        {supervisorSelectLabel(s)}
                       </option>
                     ))}
                   </select>

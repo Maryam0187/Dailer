@@ -138,6 +138,8 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["recordingSid"] },
         { fields: ["callKind"] },
         { fields: ["leadId"] },
+        { fields: ["createdAt"] },
+        { fields: ["userId", "createdAt"] },
       ],
     },
   );

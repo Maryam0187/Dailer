@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { hasLeadMonitorAccess } from "@/lib/leadRoles";
+import { isLeadSupervisor } from "@/lib/leadRoles";
 import { canAccessLead } from "@/server/leads/leadAccess";
 
 function parsePositiveInt(value, fallback) {
@@ -31,7 +31,7 @@ export async function GET(req, { params }) {
   const page = parsePositiveInt(searchParams.get("page"), 1);
   const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 20), 50);
   const offset = (page - 1) * pageSize;
-  const canSeeAllRecordings = hasLeadMonitorAccess(authedUser.role);
+  const canSeeAllRecordings = authedUser.role === "admin" || isLeadSupervisor(authedUser.role);
   const phonesRedacted = shouldRedactLeadPhones(authedUser.role);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
