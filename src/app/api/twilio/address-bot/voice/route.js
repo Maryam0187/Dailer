@@ -22,10 +22,27 @@ function hangupXml(message) {
 </Response>`;
 }
 
-export async function POST(req) {
+async function readBotParams(req) {
   const url = new URL(req.url);
-  const addressId = Number(url.searchParams.get("addressId"));
-  const callId = Number(url.searchParams.get("callId"));
+  let addressId = Number(url.searchParams.get("addressId"));
+  let callId = Number(url.searchParams.get("callId"));
+  if (
+    Number.isInteger(addressId) &&
+    addressId > 0 &&
+    Number.isInteger(callId) &&
+    callId > 0
+  ) {
+    return { addressId, callId };
+  }
+
+  const form = await req.formData().catch(() => null);
+  addressId = Number(form?.get("addressId") || url.searchParams.get("addressId"));
+  callId = Number(form?.get("callId") || url.searchParams.get("callId"));
+  return { addressId, callId };
+}
+
+export async function POST(req) {
+  const { addressId, callId } = await readBotParams(req);
   const origin = getRequestBaseUrlFromRequest(req);
 
   if (!Number.isInteger(addressId) || addressId <= 0 || !Number.isInteger(callId) || callId <= 0) {

@@ -3,7 +3,6 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
   ADDRESS_BOT_LABEL,
-  buildAddressBotConnectTwiml,
   getOpenAiApiKey,
   loadCompanyAddressById,
 } from "@/server/calls/addressBot";
@@ -12,6 +11,8 @@ import { upgradeCallToConference, waitForInProgressConference } from "@/server/c
 import { getTwilioClient, getTwilioFromNumber } from "@/server/twilio";
 
 export const runtime = "nodejs";
+
+const ADDRESS_BOT_APP_NAME = "dialer-address-bot";
 
 async function removeLabeledParticipant(client, conferenceSid, label) {
   const wanted = String(label || "").trim().toLowerCase();
@@ -22,37 +23,39 @@ async function removeLabeledParticipant(client, conferenceSid, label) {
   await client.conferences(conferenceSid).participants(match.callSid).remove().catch(() => {});
 }
 
-/** SDK participant.create() requires `to` and ignores `twiml`. REST allows From + Twiml with no To. */
-async function createTwimlConferenceParticipant({ client, conferenceSid, from, twiml, label }) {
-  const accountSid = String(client.accountSid || "").trim();
-  const authToken = String(client.password || "").trim();
-  if (!accountSid || !authToken) {
-    throw new Error("Twilio credentials not configured.");
+/**
+ * Participants.json requires `To`. `Twiml` is not accepted. `app:<APP_SID>` runs TwiML
+ * without dialing a phone or a registered Client identity (which can steal the agent leg).
+ */
+async function ensureAddressBotTwimlApp(client, origin) {
+  const voiceUrl = `${String(origin || "").replace(/\/$/, "")}/api/twilio/address-bot/voice`;
+  const envSid = String(process.env.TWILIO_ADDRESS_BOT_APP_SID || "").trim();
+  const mainAppSid = String(process.env.TWILIO_APP_SID || "").trim();
+
+  let sid = envSid;
+  if (!sid) {
+    const existing = await client.applications.list({
+      friendlyName: ADDRESS_BOT_APP_NAME,
+      limit: 20,
+    });
+    const match = existing.find((app) => app?.sid && app.sid !== mainAppSid);
+    sid = match?.sid || "";
+  }
+  if (sid && sid === mainAppSid) {
+    throw new Error("Address bot cannot use TWILIO_APP_SID. Set TWILIO_ADDRESS_BOT_APP_SID.");
   }
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`;
-  const body = new URLSearchParams({
-    From: String(from || "").trim(),
-    Twiml: String(twiml || ""),
-    Label: String(label || "").trim(),
-    EarlyMedia: "true",
-    EndConferenceOnExit: "false",
-    Beep: "false",
-  });
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(json?.message || json?.error_message || `Twilio participant create failed (${res.status})`);
+  if (sid) {
+    await client.applications(sid).update({ voiceUrl, voiceMethod: "POST" });
+    return sid;
   }
-  return json;
+
+  const created = await client.applications.create({
+    friendlyName: ADDRESS_BOT_APP_NAME,
+    voiceUrl,
+    voiceMethod: "POST",
+  });
+  return created.sid;
 }
 
 export async function POST(req) {
@@ -121,19 +124,19 @@ export async function POST(req) {
 
     await removeLabeledParticipant(client, conference.sid, ADDRESS_BOT_LABEL);
 
-    const twiml = buildAddressBotConnectTwiml({
-      origin,
-      addressId: address.id,
-      callId,
-      addressText: address.address,
-    });
+    const appSid = await ensureAddressBotTwimlApp(client, origin);
+    const to = `app:${appSid}?${new URLSearchParams({
+      addressId: String(address.id),
+      callId: String(callId),
+    }).toString()}`;
 
-    const participant = await createTwimlConferenceParticipant({
-      client,
-      conferenceSid: conference.sid,
+    const participant = await client.conferences(conference.sid).participants.create({
       from: getTwilioFromNumber(),
-      twiml,
+      to,
       label: ADDRESS_BOT_LABEL,
+      earlyMedia: true,
+      endConferenceOnExit: false,
+      beep: false,
     });
 
     return NextResponse.json({
@@ -142,7 +145,7 @@ export async function POST(req) {
       callMode: "conference",
       addressId: address.id,
       addressLabel: address.label,
-      botCallSid: participant?.call_sid || participant?.callSid || null,
+      botCallSid: participant?.callSid || null,
     });
   } catch (err) {
     return NextResponse.json(
