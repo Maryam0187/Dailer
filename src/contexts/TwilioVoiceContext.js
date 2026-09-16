@@ -921,6 +921,15 @@ export function TwilioVoiceProvider({ children }) {
     setMuted(next);
   }, []);
 
+  const setCallMuted = useCallback((nextMuted) => {
+    const call = callRef.current;
+    if (!call) return false;
+    const want = Boolean(nextMuted);
+    call.mute(want);
+    setMuted(want);
+    return true;
+  }, []);
+
   const sendDtmf = useCallback((digits) => {
     const call = callRef.current;
     if (!call) return false;
@@ -1116,6 +1125,7 @@ export function TwilioVoiceProvider({ children }) {
         isPrimaryTab,
         takeOverDialer,
         toggleMute,
+        setCallMuted,
         sendDtmf,
         ensureRegistered,
         leaveConference,

@@ -28,6 +28,13 @@ app.prepare().then(async () => {
     handle(req, res, parsedUrl);
   });
 
+  try {
+    const { attachAddressBotRelay } = require("./src/server/calls/addressBotRelay.cjs");
+    attachAddressBotRelay(server);
+  } catch (err) {
+    console.error("[address-bot] failed to attach relay:", err?.message || err);
+  }
+
   const io = new Server(server, {
     path: "/socket.io",
     transports: ["websocket", "polling"],

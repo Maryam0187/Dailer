@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import AddressBotCallControls from "@/components/Dialer/AddressBotCallControls";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -507,6 +508,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
               ) : null}
 
               <div className="flex flex-col gap-2">
+              <AddressBotCallControls session={session} patchSession={patchSession} />
               <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
