@@ -77,6 +77,7 @@ export async function POST(req) {
     }
 
     await setAddressBotSpeaking(client, conference.sid, { speaking: true, origin });
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     const begun = await beginAddressBotSpeech({ callId, addressId: address.id });
     if (!begun?.ok) {

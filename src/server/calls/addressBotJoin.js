@@ -3,10 +3,6 @@ import { getTwilioFromNumber } from "@/server/twilio";
 
 const ADDRESS_BOT_APP_NAME = "dialer-address-bot";
 
-function silenceUrl(origin) {
-  return `${String(origin || "").replace(/\/$/, "")}/api/twilio/silence`;
-}
-
 async function twilioFormPost(client, path, fields) {
   const accountSid = String(client.accountSid || "").trim();
   const authToken = String(client.password || "").trim();
@@ -97,9 +93,6 @@ export async function addMutedAddressBot({ client, conferenceSid, origin, callId
       EarlyMedia: "false",
       EndConferenceOnExit: "false",
       Beep: "false",
-      Hold: "true",
-      HoldUrl: silenceUrl(origin),
-      HoldMethod: "GET",
     },
   );
 
@@ -113,14 +106,7 @@ export async function setAddressBotSpeaking(client, conferenceSid, { speaking, o
   const bot = await findLabeledParticipant(client, conferenceSid, ADDRESS_BOT_LABEL);
   if (!bot?.callSid) return null;
 
-  const fields = speaking
-    ? { Muted: "false", Hold: "false" }
-    : {
-        Muted: "true",
-        Hold: "true",
-        HoldUrl: silenceUrl(origin),
-        HoldMethod: "GET",
-      };
+  const fields = { Muted: speaking ? "false" : "true" };
 
   await twilioFormPost(
     client,

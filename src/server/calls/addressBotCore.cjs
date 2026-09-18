@@ -74,13 +74,14 @@ function getAddressBotVoice() {
   const env = String(process.env.ADDRESS_BOT_VOICE || "").trim();
   const provider = getTtsProvider();
   if (provider === "Google") {
-    return env || "en-US-Journey-O";
+    return env && /en-/i.test(env) ? env : "en-US-Journey-O";
   }
   if (provider === "ElevenLabs") {
     if (env && !/neural|joanna|polly|amazon/i.test(env)) return env;
     return "21m00Tcm4TlvDq8ikWAM";
   }
-  return env || "Joanna-Neural";
+  if (env && /neural|joanna|matthew|amy|salli|ivy|kendra|kimberly/i.test(env)) return env;
+  return "Joanna-Neural";
 }
 
 function getTtsRate() {
@@ -233,22 +234,11 @@ function addressToSsml(address) {
   return `${spoken}<break time="700ms"/>`;
 }
 
-function wrapSlowSsml(innerSsml) {
-  const rate = escapeXmlAttr(getTtsRate());
-  return `<speak><prosody rate="${rate}" pitch="-8%">${innerSsml}</prosody></speak>`;
-}
-
 function formatForTts(text) {
-  const spoken = String(text || "")
+  return String(text || "")
     .replace(/\.\.\./g, ".")
     .replace(/\s+/g, " ")
     .trim();
-  if (!spoken) return "";
-  if (getTtsProvider() === "Amazon") {
-    const withPauses = escapeXmlText(spoken).replace(/\. /g, '.<break time="350ms"/> ');
-    return wrapSlowSsml(withPauses);
-  }
-  return spoken;
 }
 
 function wrapPlainTextForTts(text) {
