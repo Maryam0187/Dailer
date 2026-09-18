@@ -9,6 +9,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
   const [loadError, setLoadError] = useState(null);
   const [activeAddressId, setActiveAddressId] = useState(null);
   const [activeLabel, setActiveLabel] = useState("");
+  const [activeAddress, setActiveAddress] = useState("");
   const [startingId, setStartingId] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [botReady, setBotReady] = useState(false);
@@ -47,6 +48,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
   useEffect(() => {
     setActiveAddressId(null);
     setActiveLabel("");
+    setActiveAddress("");
     setActionError(null);
     setMutedForBot(false);
     setBotReady(false);
@@ -116,7 +118,8 @@ export default function AddressBotCallControls({ session, patchSession }) {
       }
 
       setActiveAddressId(row.id);
-      setActiveLabel(row.label || "Address");
+      setActiveLabel(json.addressLabel || row.label || "Address");
+      setActiveAddress(String(json.address || row.address || "").trim());
     } catch (e) {
       setActionError(e.message || "Failed to start address bot");
     } finally {
@@ -147,6 +150,7 @@ export default function AddressBotCallControls({ session, patchSession }) {
       setMutedForBot(false);
       setActiveAddressId(null);
       setActiveLabel("");
+      setActiveAddress("");
       setBotReady(false);
     } catch (e) {
       setActionError(e.message || "Failed to stop address bot");
@@ -177,9 +181,14 @@ export default function AddressBotCallControls({ session, patchSession }) {
         </svg>
       </button>
       {!open && botRunning ? (
-        <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
-          Speaking: {activeLabel}…
-        </p>
+        <div className="mt-2 space-y-1">
+          <p className="text-xs font-medium text-indigo-800 dark:text-indigo-200">
+            Speaking: {activeLabel}
+          </p>
+          {activeAddress ? (
+            <p className="text-xs leading-relaxed text-indigo-900 dark:text-indigo-100">{activeAddress}</p>
+          ) : null}
+        </div>
       ) : null}
       {!open && !botRunning && botReady ? (
         <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
@@ -240,9 +249,18 @@ export default function AddressBotCallControls({ session, patchSession }) {
           ) : null}
 
           {botRunning ? (
-            <p className="mt-2 text-xs font-medium text-indigo-800 dark:text-indigo-200">
-              Address bot speaking: {activeLabel}…
-            </p>
+            <div className="mt-2 rounded-lg border border-indigo-200 bg-white/80 p-2.5 dark:border-indigo-800 dark:bg-zinc-950/50">
+              <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-200">
+                Bot is speaking: {activeLabel}
+              </p>
+              {activeAddress ? (
+                <p className="mt-1 text-sm leading-relaxed text-zinc-900 dark:text-zinc-100">{activeAddress}</p>
+              ) : (
+                <p className="mt-1 text-xs text-indigo-800/80 dark:text-indigo-200/80">
+                  Address bot speaking…
+                </p>
+              )}
+            </div>
           ) : null}
 
           <button

@@ -18,9 +18,8 @@ export async function GET() {
       ],
     });
 
-    const includeAddress = authedUser.role === "admin";
     return NextResponse.json({
-      addresses: rows.map((row) => serializeCompanyAddress(row, { includeAddress })),
+      addresses: rows.map((row) => serializeCompanyAddress(row, { includeAddress: true })),
     });
   } catch (err) {
     console.error("[company-addresses] list failed:", err?.message || err);

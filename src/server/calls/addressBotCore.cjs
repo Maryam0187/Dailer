@@ -63,8 +63,24 @@ function serializeCompanyAddress(row, { includeAddress = false } = {}) {
   return out;
 }
 
+function getTtsProvider() {
+  const raw = String(process.env.ADDRESS_BOT_TTS_PROVIDER || "ElevenLabs").trim().toLowerCase();
+  if (raw === "amazon") return "Amazon";
+  if (raw === "google") return "Google";
+  return "ElevenLabs";
+}
+
 function getAddressBotVoice() {
-  return String(process.env.ADDRESS_BOT_VOICE || "Joanna-Neural").trim() || "Joanna-Neural";
+  const env = String(process.env.ADDRESS_BOT_VOICE || "").trim();
+  const provider = getTtsProvider();
+  if (provider === "Amazon") {
+    return env || "Joanna-Neural";
+  }
+  if (provider === "Google") {
+    return env || "en-US-Journey-O";
+  }
+  if (env && !/neural|joanna|polly|amazon/i.test(env)) return env;
+  return "UgBBYS2sOqTuMpoF3BR0";
 }
 
 function getTtsRate() {
@@ -150,39 +166,71 @@ function shouldSpellWord(word) {
   return !ADDRESS_WORDS_NOT_SPELLED.has(letters.toLowerCase());
 }
 
-function spellWordSsml(word) {
-  const letters = String(word || "").replace(/[^A-Za-z]/g, "");
-  if (!letters) return escapeXmlText(word);
-  return `${escapeXmlText(word)}<break time="350ms"/> that's <say-as interpret-as="characters">${escapeXmlText(letters.toUpperCase())}</say-as>`;
+function spellLetters(word) {
+  return String(word || "")
+    .replace(/[^A-Za-z]/g, "")
+    .toUpperCase()
+    .split("")
+    .join(", ");
 }
 
-function tokenToSsml(token) {
+function digitsSpoken(value) {
+  const names = {
+    0: "zero",
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+  };
+  return String(value || "")
+    .replace(/\D/g, "")
+    .split("")
+    .map((d) => names[d] || d)
+    .join(" ... ");
+}
+
+function tokenToSpoken(token) {
   const raw = String(token || "").trim();
   if (!raw) return "";
-  if (/^\d+$/.test(raw)) {
-    return `<say-as interpret-as="digits">${escapeXmlText(raw)}</say-as>`;
-  }
-  const mixed = raw.match(/^(\d+)([A-Za-z].*)$/);
-  if (mixed) {
-    return `${tokenToSsml(mixed[1])} ${tokenToSsml(mixed[2])}`;
-  }
-  if (shouldSpellWord(raw)) return spellWordSsml(raw);
-  return escapeXmlText(raw);
+  const pieces = raw.split(/(\d+)/).filter(Boolean);
+  return pieces
+    .map((piece) => {
+      if (/^\d+$/.test(piece)) return digitsSpoken(piece);
+      const cleaned = piece.replace(/^[\s.,#\-_/]+|[\s.,#\-_/]+$/g, "");
+      if (!cleaned) return "";
+      if (shouldSpellWord(cleaned)) {
+        return `${cleaned}... I'll spell that: ${spellLetters(cleaned)}.`;
+      }
+      return cleaned;
+    })
+    .filter(Boolean)
+    .join(" ");
 }
 
-function addressToSsml(address) {
+function addressToSpokenText(address) {
   const parts = String(address || "")
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
   const chunks = parts.length ? parts : [String(address || "").trim()];
   return chunks
-    .map((part) => {
+    .map((part, index) => {
       const tokens = part.split(/[\s/]+/).filter(Boolean);
-      const spoken = tokens.map(tokenToSsml).join('<break time="280ms"/> ');
-      return `${spoken}<break time="800ms"/>`;
+      const spoken = tokens.map(tokenToSpoken).join(" ");
+      if (index === 0) return spoken;
+      return `Next... ${spoken}`;
     })
     .join(" ");
+}
+
+function addressToSsml(address) {
+  const spoken = escapeXmlText(addressToSpokenText(address)).replace(/\.\.\./g, '.<break time="450ms"/>');
+  return `${spoken}<break time="700ms"/>`;
 }
 
 function wrapSlowSsml(innerSsml) {
@@ -190,47 +238,43 @@ function wrapSlowSsml(innerSsml) {
   return `<speak><prosody rate="${rate}">${innerSsml}</prosody></speak>`;
 }
 
-function wrapPlainTextForTts(text) {
+function formatForTts(text) {
   const spoken = String(text || "").trim();
   if (!spoken) return "";
-  return wrapSlowSsml(escapeXmlText(spoken));
+  if (getTtsProvider() === "Amazon") {
+    const withPauses = escapeXmlText(spoken).replace(/\.\.\./g, '.<break time="450ms"/>');
+    return wrapSlowSsml(withPauses);
+  }
+  return spoken;
+}
+
+function wrapPlainTextForTts(text) {
+  return formatForTts(text);
 }
 
 const READY_CHECK =
-  "Do you have a pen and paper ready? Please say yes when you are ready for me to say the address.";
-const READY_WAIT =
-  "No problem. Take your time. Say yes when you are ready to write down the address.";
-const READY_RETRY =
-  "Just say yes when you have a pen and paper, and I will say the address slowly.";
+  "Hi... do you have a pen and paper handy? Just say yes when you're ready, and I'll give you the address.";
+const READY_WAIT = "No rush at all. Take your time, and just say yes when you're ready.";
+const READY_RETRY = "Whenever you've got a pen, just say yes and I'll start.";
 
 function buildWelcomeGreeting() {
   return READY_CHECK;
 }
 
 function buildWelcomeGreetingSsml() {
-  return wrapSlowSsml(
-    [
-      "Do you have a pen and paper ready?",
-      '<break time="700ms"/>',
-      "Please say yes when you are ready for me to say the address.",
-    ].join(" "),
-  );
+  return formatForTts(READY_CHECK);
 }
 
 function buildAddressReadSsml(address) {
-  const spoken = addressToSsml(address);
-  return wrapSlowSsml(
+  const spoken = addressToSpokenText(address);
+  return formatForTts(
     [
-      "Okay. I will say the address slowly, and I will spell the names.",
-      '<break time="700ms"/>',
+      "Okay, great. I'll go slowly. I'll say numbers digit by digit, and I'll spell the names so it's easy to write down.",
       spoken,
-      '<break time="1s"/>',
-      "I will repeat that.",
-      '<break time="700ms"/>',
+      "Let me say that one more time.",
       spoken,
-      '<break time="800ms"/>',
-      "If you need that repeated or spelled again, just ask. Your representative is still on the line.",
-    ].join(" "),
+      "If you need me to repeat anything, just say so. Your representative is still right here with you.",
+    ].join(" ... "),
   );
 }
 
@@ -253,16 +297,18 @@ function classifyReadyReply(text) {
 function buildSystemPrompt(address) {
   const spoken = String(address || "").trim();
   return [
-    "You are a voice assistant on a live phone call. A human agent is also on the line and can take over at any time.",
-    "Your only job is to help the customer write down this company address:",
+    "You are a warm, natural person on a live phone call helping a customer write down an address. A human agent is also on the line.",
+    "Sound like a real colleague, not a robot. Use contractions. Keep a friendly, calm pace. No stiff or formal wording.",
+    "This is the only address you may give:",
     spoken,
     "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
-    "If they are not ready, wait. Once they are ready, say the address slowly, pause between street, city, state, and ZIP, and say numbers digit by digit. Then repeat it once.",
-    "When you say a name or street name, first say the word, then spell it letter by letter. Example: Main, that's M A I N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
-    "After that, you may repeat it, say it slower, spell words, or break it into parts if they ask.",
-    "Answer only questions about this address. If they ask about anything else, including a different location, say their representative is on the line and can help.",
+    "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
+    "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
+    "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
+    "After that, you may repeat it, go slower, or spell again if they ask.",
+    "Answer only questions about this address. If they ask about anything else, say their representative is right there and can help.",
     "Do not invent other company facts or other addresses.",
-    "Keep replies short spoken sentences. No markdown, lists, SSML, or special characters.",
+    "Keep replies to a few spoken sentences. No markdown, lists, SSML, or special characters.",
   ].join(" ");
 }
 
@@ -314,9 +360,12 @@ function buildRelayUrl(origin, { addressId, callId, token }) {
 }
 
 function buildConversationRelayTwiml({ relayUrl, welcomeGreeting, voice }) {
+  const provider = getTtsProvider();
   const ttsVoice = escapeXmlAttr(voice || getAddressBotVoice());
   const greeting = String(welcomeGreeting || "").trim();
   const greetingAttr = greeting ? `\n      welcomeGreeting="${escapeXmlAttr(greeting)}"` : "";
+  const elevenLabsAttr =
+    provider === "ElevenLabs" ? `\n      elevenlabsTextNormalization="off"` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -324,8 +373,8 @@ function buildConversationRelayTwiml({ relayUrl, welcomeGreeting, voice }) {
       url="${escapeXmlAttr(relayUrl)}"${greetingAttr}
       welcomeGreetingInterruptible="speech"
       interruptible="true"
-      ignoreBackchannel="true"
-      ttsProvider="Amazon"
+      ignoreBackchannel="true"${elevenLabsAttr}
+      ttsProvider="${escapeXmlAttr(provider)}"
       voice="${ttsVoice}"
       language="en-US"
     />
@@ -346,7 +395,7 @@ async function streamOpenAiReply({ messages, onToken, signal }) {
     body: JSON.stringify({
       model: getOpenAiModel(),
       stream: true,
-      temperature: 0.3,
+      temperature: 0.5,
       max_tokens: 250,
       messages,
     }),
@@ -400,6 +449,7 @@ module.exports = {
   parseCompanyAddressBody,
   serializeCompanyAddress,
   getAddressBotVoice,
+  getTtsProvider,
   getTtsRate,
   getOpenAiModel,
   getOpenAiApiKey,

@@ -93,6 +93,7 @@ export async function POST(req) {
       callMode: "conference",
       addressId: address.id,
       addressLabel: address.label,
+      address: address.address,
       botCallSid: bot.callSid,
     });
   } catch (err) {
