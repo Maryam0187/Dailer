@@ -268,7 +268,12 @@ function alertMatchQuery(alert) {
 }
 
 function canMatchAlert(query) {
-  return query.has("cardLast4") && query.has("amount") && query.has("transactionDate");
+  // Primary: last4 + amount. Fallback can use date / auth / arn / txn.
+  if (query.has("cardLast4") && query.has("amount")) return true;
+  if (query.has("amount") && query.has("transactionDate")) return true;
+  return (
+    query.has("authCode") || query.has("arn") || query.has("processorTransactionId")
+  );
 }
 
 function FindCustomerButton({ alert }) {
@@ -311,8 +316,8 @@ function FindCustomerButton({ alert }) {
             Match dialer customer
           </p>
           <p className="mt-0.5 text-xs text-sky-800/80 dark:text-sky-200/80">
-            Matches amount + date (±1 day), prefers last4. If charge last4 was never saved, shows
-            amount/date candidates (common for older outside charges).
+            First: last4 + amount. If none, same as before — amount + date (±1 day), then auth /
+            ARN / txn id.
           </p>
         </div>
         <button
@@ -327,7 +332,7 @@ function FindCustomerButton({ alert }) {
 
       {!canSearch ? (
         <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-          Need last4, amount, and network transaction date on this alert.
+          Need last4 + amount, or amount + date / auth / ARN / txn id.
         </p>
       ) : null}
 
@@ -351,13 +356,17 @@ function FindCustomerButton({ alert }) {
             const matched = m.matched || {};
             const meta = [
               m.leadId ? `Lead #${m.leadId}` : m.customer?.isOutside ? "Outside" : null,
-              m.matchMode === "partial" || matched.last4Unknown
-                ? "Last4 not on charge (amount + date)"
-                : matched.last4
-                  ? "Last4 matched"
-                  : null,
+              m.matchMode === "primary"
+                ? "Last4 + amount"
+                : m.matchMode === "partial" || matched.last4Unknown
+                  ? "Last4 not on charge (amount + date)"
+                  : matched.last4
+                    ? "Last4 matched"
+                    : null,
               matched.amount ? "Amount matched" : null,
               matched.date ? "Date matched (±1d)" : null,
+              matched.authCode ? "Auth matched" : null,
+              matched.arn ? "ARN matched" : null,
               m.cardLast4 ? `···· ${m.cardLast4}` : null,
               m.status || null,
             ]
