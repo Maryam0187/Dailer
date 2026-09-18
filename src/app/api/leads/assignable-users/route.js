@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { isLeadSupervisor } from "@/lib/leadRoles";
+import { canAssignLeadsLikeLeadSupervisor } from "@/lib/leadRoles";
 import {
   getAdminAssignableUsersForAssignment,
   getLeadSupervisorAssignableUsersForAssignment,
@@ -15,7 +15,7 @@ export async function GET() {
     return NextResponse.json({ users });
   }
 
-  if (isLeadSupervisor(authedUser.role)) {
+  if (canAssignLeadsLikeLeadSupervisor(authedUser.role)) {
     const users = await getLeadSupervisorAssignableUsersForAssignment(authedUser);
     return NextResponse.json({ users });
   }

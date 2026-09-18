@@ -5,7 +5,7 @@ import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
-import { canHaveAssignedAgents, hasFullLeadAccess, isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
+import { canAssignLeadsLikeLeadSupervisor, canHaveAssignedAgents, hasFullLeadAccess, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import {
   andWhereClause,
   canAssignLeadToAgent,
@@ -423,7 +423,10 @@ export async function POST(req) {
       });
       if (supervisor) assignedUserId = supervisor.id;
     }
-  } else if (isLeadSupervisor(authedUser.role) || authedUser.role === "supervisor") {
+  } else if (
+    canAssignLeadsLikeLeadSupervisor(authedUser.role) ||
+    authedUser.role === "supervisor"
+  ) {
     const requested = Number(body?.assignedUserId);
     if (Number.isInteger(requested) && requested > 0) {
       if (!(await canAssignLeadToAgent(authedUser, requested))) {

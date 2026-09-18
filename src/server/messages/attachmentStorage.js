@@ -6,6 +6,7 @@ import {
   deleteLocalAttachment,
   headLocalAttachment,
   isLocalAttachmentStorageEnabled,
+  readLocalAttachment,
   writeLocalAttachment,
 } from "@/server/messages/localAttachmentStorage";
 import {
@@ -13,6 +14,7 @@ import {
   deleteObjectAttachment,
   headObjectMetadata,
   isObjectStorageConfigured,
+  readObjectAttachment,
   writeObjectAttachment,
 } from "@/server/messages/objectStorage";
 
@@ -26,12 +28,12 @@ export function isAttachmentStorageAvailable() {
   return getAttachmentStorageMode() !== null;
 }
 
-export async function createUploadTarget({ attachmentId, storageKey, mimeType, sizeBytes }) {
+export async function createUploadTarget({ attachmentId, storageKey, mimeType, sizeBytes, uploadUrl }) {
   const mode = getAttachmentStorageMode();
   if (mode === "s3" || mode === "local") {
     return {
       mode,
-      uploadUrl: `/api/messages/attachments/${attachmentId}/upload`,
+      uploadUrl: uploadUrl || `/api/messages/attachments/${attachmentId}/upload`,
       expiresIn: PRESIGN_UPLOAD_EXPIRY_SEC,
     };
   }
@@ -51,6 +53,17 @@ export async function writeStoredAttachment(storageKey, data, mimeType) {
   throw new Error("Attachment storage is not configured");
 }
 
+export async function readStoredAttachment(storageKey) {
+  const mode = getAttachmentStorageMode();
+  if (mode === "local") {
+    return readLocalAttachment(storageKey);
+  }
+  if (mode === "s3") {
+    return readObjectAttachment(storageKey);
+  }
+  throw new Error("Attachment storage is not configured");
+}
+
 export async function headStoredAttachment(storageKey) {
   const mode = getAttachmentStorageMode();
   if (mode === "s3") {
@@ -62,13 +75,14 @@ export async function headStoredAttachment(storageKey) {
   throw new Error("Attachment storage is not configured");
 }
 
-export async function createDownloadTarget(attachment) {
+export async function createDownloadTarget(attachment, { downloadUrl, disposition = "attachment" } = {}) {
   const mode = getAttachmentStorageMode();
   if (mode === "s3") {
     const presign = await createPresignedDownloadUrl({
       storageKey: attachment.storageKey,
       originalName: attachment.originalName,
       mimeType: attachment.mimeType,
+      disposition,
     });
     return {
       mode,
@@ -79,7 +93,7 @@ export async function createDownloadTarget(attachment) {
   if (mode === "local") {
     return {
       mode,
-      downloadUrl: `/api/messages/attachments/${attachment.id}/file`,
+      downloadUrl: downloadUrl || `/api/messages/attachments/${attachment.id}/file`,
       expiresIn: PRESIGN_DOWNLOAD_EXPIRY_SEC,
     };
   }

@@ -19,6 +19,15 @@ export const fileEditAccessInclude = {
   ],
 };
 
+export const fileAttachmentInclude = {
+  model: db.UserFileAttachment,
+  as: "attachments",
+  attributes: ["id", "fileId", "originalName", "mimeType", "sizeBytes", "status", "createdAt"],
+  required: false,
+  separate: true,
+  where: { status: "attached" },
+};
+
 export const fileListIncludes = [
   {
     model: db.User,
@@ -26,6 +35,7 @@ export const fileListIncludes = [
     attributes: ["id", "username"],
   },
   fileEditAccessInclude,
+  fileAttachmentInclude,
 ];
 
 const fileAttributes = ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"];
@@ -151,4 +161,12 @@ export function canManageFileSharing(authedUser) {
 
 export function canToggleSharedWithAll(authedUser) {
   return canManageFileSharing(authedUser);
+}
+
+/** Admin, or a user the admin granted access to. File ownership is not enough. */
+export function canManageFileImages(authedUser, file) {
+  if (!file || file.deleted) return false;
+  if (authedUser?.accessMode === "limited") return false;
+  if (canViewAllFiles(authedUser?.role)) return true;
+  return hasEditGrant(file, authedUser?.id);
 }

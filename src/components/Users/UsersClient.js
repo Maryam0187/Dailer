@@ -1004,7 +1004,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         aria-labelledby="user-detail-title"
         className="relative z-10 flex max-h-[100dvh] w-full max-w-6xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
-        <div className="border-b border-zinc-200 px-4 py-4 sm:px-6 dark:border-zinc-700">
+        <div className="shrink-0 border-b border-zinc-200 px-4 py-4 sm:px-6 dark:border-zinc-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2
@@ -1072,8 +1072,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-          <div className="mb-4 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="shrink-0 border-b border-zinc-200 bg-white px-4 pt-3 dark:border-zinc-700 dark:bg-zinc-900 sm:px-6">
+          <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
               onClick={() => setActiveTab("calls")}
@@ -1112,7 +1112,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               </button>
             ) : null}
           </div>
+        </div>
 
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
           <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
             <div className="mb-3">
               <label className={labelClass}>Range presets</label>

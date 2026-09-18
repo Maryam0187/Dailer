@@ -96,6 +96,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/ivr-notifications",
     },
     {
+      href: "/address-bot",
+      label: "Address bot",
+      active: pathname === "/address-bot",
+    },
+    {
       href: "/security",
       label: "Security",
       active: pathname === "/security",

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
-import { isLeadSupervisor } from "@/lib/leadRoles";
+import { canAssignLeadsLikeLeadSupervisor } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import {
@@ -193,7 +193,7 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
         hasActiveLine2Call={Boolean(line2Session)}
         workflowTagLookup={workflowTagLookup}
         preferShortLabels={preferShortLabels}
-        canAssignLead={isAdmin || isLeadSupervisor(userRole)}
+        canAssignLead={isAdmin || canAssignLeadsLikeLeadSupervisor(userRole)}
         canEditChargeAmount={isAdmin}
         canLegacyImportAssign={isAdmin}
         userRole={userRole}

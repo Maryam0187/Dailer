@@ -33,6 +33,13 @@ app.prepare().then(async () => {
     transports: ["websocket", "polling"],
   });
 
+  try {
+    const { attachAddressBotRelay } = require("./src/server/calls/addressBotRelay.cjs");
+    attachAddressBotRelay(server);
+  } catch (err) {
+    console.error("[address-bot] failed to attach relay:", err?.message || err);
+  }
+
   function parseCookies(rawCookie) {
     const out = {};
     if (!rawCookie) return out;

@@ -61,7 +61,6 @@ function effectiveCardLast4(row) {
   const raw = pm.cardNumber;
   if (raw == null || raw === "") return { last4: null, source: null };
   if (String(raw).startsWith(ENC_PREFIX)) {
-    // Decrypt failed in afterFind (wrong PAYMENT_DATA_ENCRYPTION_KEY) — cannot match last4.
     return { last4: null, source: "encrypted" };
   }
 
@@ -110,7 +109,7 @@ function fieldMatches(row, fields) {
       last4Matched = rowLast4 === fields.cardLast4;
       last4Conflict = !last4Matched;
     } else {
-      last4Unknown = true; // null on charge / cannot decrypt card
+      last4Unknown = true;
     }
   }
 
@@ -159,30 +158,43 @@ function fieldMatches(row, fields) {
   };
 }
 
-function scoreCharge(row, fields) {
+function scoreCharge(row, fields, { mode } = {}) {
   const flags = fieldMatches(row, fields);
   let score = 0;
 
-  if (flags.arnMatched) score += 100;
-  if (flags.txnMatched) score += 80;
-  if (flags.authMatched) score += 60;
-
-  if (flags.last4Matched) score += 50;
-  else if (flags.last4Unknown) score += 5; // possible only
-  if (flags.amountMatched) score += 35;
-  if (flags.dateMatched) {
-    const closeness =
-      flags.dateDiffDays == null ? 0 : Math.max(0, SOFT_DATE_DAYS - flags.dateDiffDays);
-    score += 25 + Math.round(closeness * 5);
+  if (mode === "primary") {
+    if (flags.last4Matched) score += 100;
+    if (flags.amountMatched) score += 80;
+    if (flags.dateMatched) score += 10;
+  } else {
+    // Previous soft/fallback scoring.
+    if (flags.arnMatched) score += 100;
+    if (flags.txnMatched) score += 80;
+    if (flags.authMatched) score += 60;
+    if (flags.last4Matched) score += 50;
+    else if (flags.last4Unknown) score += 5;
+    if (flags.amountMatched) score += 35;
+    if (flags.dateMatched) {
+      const closeness =
+        flags.dateDiffDays == null ? 0 : Math.max(0, SOFT_DATE_DAYS - flags.dateDiffDays);
+      score += 25 + Math.round(closeness * 5);
+    }
   }
+
   if (row.status === "chargeback") score += 5;
 
   return { score, flags };
 }
 
-function serializeMatch(row, flags = {}) {
+function serializeMatch(row, flags = {}, matchMode = "soft") {
   const customer = row.customer || null;
   const last4 = flags.effectiveLast4 || effectiveCardLast4(row).last4;
+  const confidence =
+    matchMode === "primary" || flags.last4Matched
+      ? "high"
+      : flags.last4Unknown
+        ? "partial"
+        : "high";
   return {
     chargeId: row.id,
     customerId: row.customerId,
@@ -195,7 +207,7 @@ function serializeMatch(row, flags = {}) {
     cardLast4: last4,
     cardBrand: effectiveCardBrand(row),
     chargedAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-    confidence: flags.last4Matched ? "high" : flags.last4Unknown ? "partial" : "high",
+    confidence,
     matched: {
       last4: Boolean(flags.last4Matched),
       last4Unknown: Boolean(flags.last4Unknown),
@@ -236,50 +248,52 @@ const paymentMethodInclude = {
   required: false,
 };
 
-function rankRows(rows, fields) {
+function rankAndSerialize(rows, fields, { mode, filterFn }) {
   return rows
     .map((row) => {
-      const { score, flags } = scoreCharge(row, fields);
+      const { score, flags } = scoreCharge(row, fields, { mode });
       return { row, score, flags };
     })
-    .filter((entry) => {
-      if (entry.flags.arnMatched || entry.flags.txnMatched || entry.flags.authMatched) {
-        return true;
-      }
-      // Always need amount + date (±1).
-      if (!entry.flags.amountMatched || !entry.flags.dateMatched) return false;
-      // Exclude known last4 mismatches.
-      if (entry.flags.last4Conflict) return false;
-      // Keep exact last4 hits, and amount+date hits when charge last4 is missing/unverifiable
-      // (common for older outside charges when PAYMENT_DATA_ENCRYPTION_KEY cannot decrypt).
-      return entry.flags.last4Matched || entry.flags.last4Unknown;
-    })
+    .filter(filterFn)
     .sort((a, b) => {
-      // Exact last4 before partial.
-      const aExact = a.flags.last4Matched ? 1 : 0;
-      const bExact = b.flags.last4Matched ? 1 : 0;
-      if (bExact !== aExact) return bExact - aExact;
+      if (mode !== "primary") {
+        const aExact = a.flags.last4Matched ? 1 : 0;
+        const bExact = b.flags.last4Matched ? 1 : 0;
+        if (bExact !== aExact) return bExact - aExact;
+      }
       if (b.score !== a.score) return b.score - a.score;
       const at = a.row.createdAt ? new Date(a.row.createdAt).getTime() : 0;
       const bt = b.row.createdAt ? new Date(b.row.createdAt).getTime() : 0;
       return bt - at;
     })
-    .map(({ row, score, flags }) => ({
-      ...serializeMatch(row, flags),
-      matchScore: score,
-      matchMode:
-        flags.arnMatched || flags.txnMatched || flags.authMatched
-          ? "strong"
-          : flags.last4Matched
-            ? "soft"
-            : "partial",
-    }));
+    .map(({ row, score, flags }) => {
+      let matchMode = mode;
+      if (mode !== "primary") {
+        if (flags.arnMatched || flags.txnMatched || flags.authMatched) matchMode = "strong";
+        else if (flags.last4Matched) matchMode = "soft";
+        else matchMode = "partial";
+      }
+      return {
+        ...serializeMatch(row, flags, matchMode),
+        matchScore: score,
+        matchMode,
+      };
+    });
+}
+
+async function findCharges(where) {
+  return db.CustomerCharge.findAll({
+    where,
+    include: [customerInclude, paymentMethodInclude],
+    order: [["createdAt", "DESC"]],
+    limit: 80,
+  });
 }
 
 /**
- * Primary: last4 + amount + txn date (±1 day).
- * If charge last4 is missing and card cannot be decrypted, still return amount+date
- * candidates as partial matches (older outside charges).
+ * 1) Primary: last4 + amount only
+ * 2) Fallback (same as before): amount + date (±1 day), last4 matched or unknown;
+ *    plus auth / ARN / processor txn id when present
  */
 export async function matchChargesFromAlertFields(rawFields = {}) {
   const transactionDateMs = parseDateMs(rawFields.transactionDate);
@@ -295,13 +309,13 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     transactionDateMs,
   };
 
-  const hasSoft =
-    Boolean(fields.cardLast4) && fields.amount != null && transactionDateMs != null;
+  const hasPrimary = Boolean(fields.cardLast4) && fields.amount != null;
+  const hasSoftFallback = fields.amount != null && transactionDateMs != null;
   const hasStrong = Boolean(
     fields.arn || fields.processorTransactionId || fields.authCode,
   );
 
-  if (!hasSoft && !hasStrong) {
+  if (!hasPrimary && !hasSoftFallback && !hasStrong) {
     return {
       fields: publicFields(fields),
       matches: [],
@@ -309,10 +323,36 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     };
   }
 
+  // ---- 1) Primary: last4 + amount only ----
+  if (hasPrimary) {
+    const primaryRows = await findCharges({
+      amount: fields.amount,
+      status: { [Op.in]: ["charged", "chargeback"] },
+      [Op.or]: [
+        { cardLast4: fields.cardLast4 },
+        { cardLast4: null },
+        { cardLast4: "" },
+      ],
+    });
+
+    const primaryMatches = rankAndSerialize(primaryRows, fields, {
+      mode: "primary",
+      filterFn: (entry) => entry.flags.last4Matched && entry.flags.amountMatched,
+    }).slice(0, 25);
+
+    if (primaryMatches.length > 0) {
+      return {
+        fields: publicFields(fields),
+        matchMode: "primary",
+        matches: primaryMatches,
+      };
+    }
+  }
+
+  // ---- 2) Fallback: previous soft logic (amount + date ±1, last4 optional) + strong ids ----
   const or = [];
 
-  // Primary soft query: amount + date. last4 applied in JS (snapshot often null).
-  if (hasSoft) {
+  if (hasSoftFallback) {
     const window = dateWindowAround(transactionDateMs, { days: SOFT_DATE_DAYS });
     or.push({
       amount: fields.amount,
@@ -321,7 +361,6 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     });
   }
 
-  // Optional strong ids when saved on dialer charges (rare).
   if (fields.arn) or.push({ arn: fields.arn });
   if (fields.processorTransactionId) {
     or.push({ processorTransactionId: fields.processorTransactionId });
@@ -334,23 +373,32 @@ export async function matchChargesFromAlertFields(rawFields = {}) {
     if (lower !== fields.authCode) or.push({ authCode: lower });
   }
 
-  const rows = await db.CustomerCharge.findAll({
-    where: { [Op.or]: or },
-    include: [customerInclude, paymentMethodInclude],
-    order: [["createdAt", "DESC"]],
-    limit: 80,
-  });
-
-  const byId = new Map();
-  for (const row of rows) {
-    if (!byId.has(row.id)) byId.set(row.id, row);
+  if (or.length === 0) {
+    return {
+      fields: publicFields(fields),
+      matchMode: null,
+      matches: [],
+    };
   }
 
-  const matches = rankRows([...byId.values()], fields).slice(0, 25);
+  const fallbackRows = await findCharges({ [Op.or]: or });
+  const fallbackMatches = rankAndSerialize(fallbackRows, fields, {
+    mode: "soft",
+    filterFn: (entry) => {
+      if (entry.flags.arnMatched || entry.flags.txnMatched || entry.flags.authMatched) {
+        return true;
+      }
+      // Previous soft rule: amount + date (±1).
+      if (!entry.flags.amountMatched || !entry.flags.dateMatched) return false;
+      if (entry.flags.last4Conflict) return false;
+      // Exact last4, or unknown last4 on older charges.
+      return entry.flags.last4Matched || entry.flags.last4Unknown;
+    },
+  }).slice(0, 25);
 
   return {
     fields: publicFields(fields),
-    matchMode: matches[0]?.matchMode || (hasSoft ? "soft" : "strong"),
-    matches,
+    matchMode: fallbackMatches[0]?.matchMode || "soft",
+    matches: fallbackMatches,
   };
 }

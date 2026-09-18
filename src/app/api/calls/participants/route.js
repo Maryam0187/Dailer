@@ -50,6 +50,8 @@ async function addUserToNameMap(agentNameMap, userId) {
 }
 
 function inferParticipantLabel(participant, agentNameMap, customerNumber) {
+  const conferenceLabel = String(participant?.label || "").trim().toLowerCase();
+  if (conferenceLabel === "address-bot") return "Address bot";
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
   const identity = extractIdentity(participant);
@@ -62,6 +64,8 @@ function inferParticipantLabel(participant, agentNameMap, customerNumber) {
 }
 
 function inferParticipantType(participant) {
+  const label = String(participant?.label || "").trim().toLowerCase();
+  if (label === "address-bot") return "bot";
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
   if (to.startsWith("client:") || from.startsWith("client:")) return "agent";

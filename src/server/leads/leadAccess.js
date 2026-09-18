@@ -1,5 +1,6 @@
 import { Op, Sequelize } from "sequelize";
 import {
+  canAssignLeadsLikeLeadSupervisor,
   canHaveAssignedAgents,
   hasFullLeadAccess,
   isLeadSupervisor,
@@ -159,17 +160,21 @@ export async function getLeadSupervisorTeamAgentIds(authedUser) {
   return rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
 }
 
-const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor"];
+const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor", "processor"];
 
-/** Same-shift agents, supervisors, and lead supervisors a lead supervisor may assign to. */
+/** Same-shift agents, supervisors, lead supervisors, and processors (in-house for agents/processors). */
 export async function getLeadSupervisorAssignableUsers(authedUser) {
-  if (!isLeadSupervisor(authedUser.role)) return [];
+  if (!canAssignLeadsLikeLeadSupervisor(authedUser.role)) return [];
   const ownShift = normalizeUserShiftKey(authedUser.shiftKey);
   const users = await db.User.findAll({
     where: {
       isActive: true,
       role: { [Op.in]: LEAD_SUPERVISOR_ASSIGNABLE_ROLES },
-      [Op.or]: [{ role: { [Op.ne]: "agent" } }, { isOutside: { [Op.ne]: true } }],
+      // Agents/processors must be in-house; supervisors/lead supervisors are included as-is.
+      [Op.or]: [
+        { role: { [Op.in]: ["supervisor", "lead_supervisor"] } },
+        { isOutside: { [Op.ne]: true } },
+      ],
     },
     attributes: ["id", "username", "role", "supervisorId", "shiftKey", "isOutside"],
     order: [
@@ -445,7 +450,7 @@ export async function canAssignLeadToAgent(authedUser, agentUserId) {
     });
     return Boolean(user);
   }
-  if (isLeadSupervisor(authedUser.role)) {
+  if (canAssignLeadsLikeLeadSupervisor(authedUser.role)) {
     const users = await getLeadSupervisorAssignableUsers(authedUser);
     return users.some((u) => u.id === agentUserId);
   }

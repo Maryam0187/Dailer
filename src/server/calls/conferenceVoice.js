@@ -77,7 +77,8 @@ export function buildConferenceTwiMl(opts) {
       startConferenceOnEnter="${startConferenceOnEnter}"
       endConferenceOnExit="${endConferenceOnExit}"
       muted="${muted}"
-      beep="false"${statusAttrs}
+      beep="false"
+      waitUrl=""${statusAttrs}
     >${escapeXmlText(conferenceName)}</Conference>
   </Dial>
 </Response>`;

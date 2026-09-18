@@ -3,7 +3,7 @@ import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { isLeadSupervisor, shouldHideLeadNotes } from "@/lib/leadRoles";
+import { canAssignLeadsLikeLeadSupervisor, shouldHideLeadNotes } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
@@ -194,7 +194,7 @@ export async function PATCH(req, { params }) {
 
     const canReassign =
       authedUser.role === "admin" ||
-      isLeadSupervisor(authedUser.role) ||
+      canAssignLeadsLikeLeadSupervisor(authedUser.role) ||
       authedUser.role === "supervisor";
 
     if (!canReassign) {
