@@ -70,6 +70,9 @@ function getTtsProvider() {
   return "ElevenLabs";
 }
 
+/** ElevenLabs Rachel — natural female voice. */
+const ELEVENLABS_FEMALE_VOICE = "21m00Tcm4TlvDq8ikWAM";
+
 function getAddressBotVoice() {
   const env = String(process.env.ADDRESS_BOT_VOICE || "").trim();
   const provider = getTtsProvider();
@@ -80,11 +83,11 @@ function getAddressBotVoice() {
     return env || "en-US-Journey-O";
   }
   if (env && !/neural|joanna|polly|amazon/i.test(env)) return env;
-  return "UgBBYS2sOqTuMpoF3BR0";
+  return ELEVENLABS_FEMALE_VOICE;
 }
 
 function getTtsRate() {
-  return String(process.env.ADDRESS_BOT_TTS_RATE || "70%").trim() || "70%";
+  return String(process.env.ADDRESS_BOT_TTS_RATE || "60%").trim() || "60%";
 }
 
 function getOpenAiModel() {
@@ -238,14 +241,21 @@ function wrapSlowSsml(innerSsml) {
   return `<speak><prosody rate="${rate}">${innerSsml}</prosody></speak>`;
 }
 
+function slowDownSpokenText(text) {
+  return String(text || "")
+    .replace(/\.\.\./g, "... ...")
+    .replace(/\. /g, ". ... ")
+    .replace(/\? /g, "? ... ");
+}
+
 function formatForTts(text) {
   const spoken = String(text || "").trim();
   if (!spoken) return "";
   if (getTtsProvider() === "Amazon") {
-    const withPauses = escapeXmlText(spoken).replace(/\.\.\./g, '.<break time="450ms"/>');
+    const withPauses = escapeXmlText(slowDownSpokenText(spoken)).replace(/\.\.\./g, '.<break time="700ms"/>');
     return wrapSlowSsml(withPauses);
   }
-  return spoken;
+  return slowDownSpokenText(spoken);
 }
 
 function wrapPlainTextForTts(text) {
@@ -253,9 +263,10 @@ function wrapPlainTextForTts(text) {
 }
 
 const READY_CHECK =
-  "Hi... do you have a pen and paper handy? Just say yes when you're ready, and I'll give you the address.";
-const READY_WAIT = "No rush at all. Take your time, and just say yes when you're ready.";
-const READY_RETRY = "Whenever you've got a pen, just say yes and I'll start.";
+  "Hi, I'm the address assistant. I'll give you an address to write down. Please grab a pen and paper, and say yes when you're ready.";
+const READY_WAIT =
+  "No rush at all. I'll wait. When you're back, just say yes and I'll start.";
+const READY_RETRY = "Whenever you've got a pen and paper, just say yes and I'll start.";
 
 function buildWelcomeGreeting() {
   return READY_CHECK;
@@ -274,7 +285,7 @@ function buildAddressReadSsml(address) {
       "Let me say that one more time.",
       spoken,
       "If you need me to repeat anything, just say so. Your representative is still right here with you.",
-    ].join(" ... "),
+    ].join(" ... ... "),
   );
 }
 
@@ -285,10 +296,10 @@ function classifyReadyReply(text) {
     .replace(/\s+/g, " ")
     .trim();
   if (!t) return "unknown";
-  const saysWait = /\b(not yet|not ready|hold on|hold up|wait|one second|one sec|hang on|give me a (minute|second)|no)\b/.test(
+  const saysWait = /\b(not yet|not ready|hold on|hold up|on hold|hold please|hold|wait|one second|one sec|one minute|hang on|give me a (minute|second)|let me get|grab a pen|get a pen|pen and paper|pencil|no)\b/.test(
     t,
   );
-  const saysReady = /\b(yes|yeah|yep|yup|ready|go ahead|okay|ok|sure|i am ready|i'm ready|go)\b/.test(t);
+  const saysReady = /\b(yes|yeah|yep|yup|ready|go ahead|okay|ok|sure|i am ready|i'm ready|go|back)\b/.test(t);
   if (saysWait && !saysReady) return "wait";
   if (saysReady) return "ready";
   return "unknown";
@@ -298,7 +309,7 @@ function buildSystemPrompt(address) {
   const spoken = String(address || "").trim();
   return [
     "You are a warm, natural person on a live phone call helping a customer write down an address. A human agent is also on the line.",
-    "Sound like a real colleague, not a robot. Use contractions. Keep a friendly, calm pace. No stiff or formal wording.",
+    "Sound like a real colleague, not a robot. Use contractions. Speak slowly and clearly. No stiff or formal wording.",
     "This is the only address you may give:",
     spoken,
     "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
@@ -371,9 +382,10 @@ function buildConversationRelayTwiml({ relayUrl, welcomeGreeting, voice }) {
   <Connect>
     <ConversationRelay
       url="${escapeXmlAttr(relayUrl)}"${greetingAttr}
-      welcomeGreetingInterruptible="speech"
-      interruptible="true"
-      ignoreBackchannel="true"${elevenLabsAttr}
+      welcomeGreetingInterruptible="any"
+      interruptible="any"
+      interruptSensitivity="high"
+      ignoreBackchannel="false"${elevenLabsAttr}
       ttsProvider="${escapeXmlAttr(provider)}"
       voice="${ttsVoice}"
       language="en-US"

@@ -88,6 +88,7 @@ function attachAddressBotRelay(server) {
       closed: false,
       ready: false,
       speaking: false,
+      saidWait: false,
       row: null,
     };
 
@@ -139,6 +140,7 @@ function attachAddressBotRelay(server) {
       session.addressId = id;
       session.ready = false;
       session.speaking = true;
+      session.saidWait = false;
       session.messages = [];
       session.row = null;
       const row = await ensurePrompt();
@@ -174,12 +176,13 @@ function attachAddressBotRelay(server) {
           return;
         }
         if (verdict === "wait") {
-          sendTextTokens(ws, wrapPlainTextForTts(READY_WAIT));
-          session.messages.push({ role: "assistant", content: READY_WAIT });
+          if (!session.saidWait) {
+            session.saidWait = true;
+            sendTextTokens(ws, wrapPlainTextForTts(READY_WAIT));
+            session.messages.push({ role: "assistant", content: READY_WAIT });
+          }
           return;
         }
-        sendTextTokens(ws, wrapPlainTextForTts(READY_RETRY));
-        session.messages.push({ role: "assistant", content: READY_RETRY });
         return;
       }
 
