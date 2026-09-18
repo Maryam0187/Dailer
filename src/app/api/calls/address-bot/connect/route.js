@@ -6,6 +6,7 @@ import {
   addMutedAddressBot,
   findLabeledParticipant,
   removeLabeledParticipant,
+  setAddressBotSpeaking,
 } from "@/server/calls/addressBotJoin";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -73,7 +74,7 @@ export async function POST(req) {
     const existing = await findLabeledParticipant(client, conference.sid, ADDRESS_BOT_LABEL);
     const live = await waitForAddressBotSession(callId, 400);
     if (existing?.callSid && live) {
-      await client.conferences(conference.sid).participants(existing.callSid).update({ muted: true }).catch(() => {});
+      await setAddressBotSpeaking(client, conference.sid, { speaking: false, origin }).catch(() => {});
       return NextResponse.json({
         ok: true,
         connected: true,

@@ -86,6 +86,90 @@ function escapeXmlText(value) {
     .replace(/>/g, "&gt;");
 }
 
+const ADDRESS_WORDS_NOT_SPELLED = new Set([
+  "street",
+  "st",
+  "avenue",
+  "ave",
+  "road",
+  "rd",
+  "boulevard",
+  "blvd",
+  "drive",
+  "dr",
+  "lane",
+  "ln",
+  "way",
+  "court",
+  "ct",
+  "circle",
+  "cir",
+  "place",
+  "pl",
+  "terrace",
+  "ter",
+  "highway",
+  "hwy",
+  "parkway",
+  "pkwy",
+  "suite",
+  "ste",
+  "apartment",
+  "apt",
+  "unit",
+  "floor",
+  "fl",
+  "building",
+  "bldg",
+  "north",
+  "south",
+  "east",
+  "west",
+  "northeast",
+  "northwest",
+  "southeast",
+  "southwest",
+  "ne",
+  "nw",
+  "se",
+  "sw",
+  "po",
+  "box",
+  "and",
+  "the",
+  "of",
+  "in",
+  "at",
+  "usa",
+  "us",
+]);
+
+function shouldSpellWord(word) {
+  const letters = String(word || "").replace(/[^A-Za-z]/g, "");
+  if (letters.length < 2) return false;
+  return !ADDRESS_WORDS_NOT_SPELLED.has(letters.toLowerCase());
+}
+
+function spellWordSsml(word) {
+  const letters = String(word || "").replace(/[^A-Za-z]/g, "");
+  if (!letters) return escapeXmlText(word);
+  return `${escapeXmlText(word)}<break time="350ms"/> that's <say-as interpret-as="characters">${escapeXmlText(letters.toUpperCase())}</say-as>`;
+}
+
+function tokenToSsml(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  if (/^\d+$/.test(raw)) {
+    return `<say-as interpret-as="digits">${escapeXmlText(raw)}</say-as>`;
+  }
+  const mixed = raw.match(/^(\d+)([A-Za-z].*)$/);
+  if (mixed) {
+    return `${tokenToSsml(mixed[1])} ${tokenToSsml(mixed[2])}`;
+  }
+  if (shouldSpellWord(raw)) return spellWordSsml(raw);
+  return escapeXmlText(raw);
+}
+
 function addressToSsml(address) {
   const parts = String(address || "")
     .split(",")
@@ -94,8 +178,9 @@ function addressToSsml(address) {
   const chunks = parts.length ? parts : [String(address || "").trim()];
   return chunks
     .map((part) => {
-      const withDigits = escapeXmlText(part).replace(/\d+/g, (n) => `<say-as interpret-as="digits">${n}</say-as>`);
-      return `${withDigits}<break time="700ms"/>`;
+      const tokens = part.split(/[\s/]+/).filter(Boolean);
+      const spoken = tokens.map(tokenToSsml).join('<break time="280ms"/> ');
+      return `${spoken}<break time="800ms"/>`;
     })
     .join(" ");
 }
@@ -136,7 +221,7 @@ function buildAddressReadSsml(address) {
   const spoken = addressToSsml(address);
   return wrapSlowSsml(
     [
-      "Okay. I will say the address slowly.",
+      "Okay. I will say the address slowly, and I will spell the names.",
       '<break time="700ms"/>',
       spoken,
       '<break time="1s"/>',
@@ -144,7 +229,7 @@ function buildAddressReadSsml(address) {
       '<break time="700ms"/>',
       spoken,
       '<break time="800ms"/>',
-      "If you need that repeated or spelled, just ask. Your representative is still on the line.",
+      "If you need that repeated or spelled again, just ask. Your representative is still on the line.",
     ].join(" "),
   );
 }
@@ -173,6 +258,7 @@ function buildSystemPrompt(address) {
     spoken,
     "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
     "If they are not ready, wait. Once they are ready, say the address slowly, pause between street, city, state, and ZIP, and say numbers digit by digit. Then repeat it once.",
+    "When you say a name or street name, first say the word, then spell it letter by letter. Example: Main, that's M A I N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
     "After that, you may repeat it, say it slower, spell words, or break it into parts if they ask.",
     "Answer only questions about this address. If they ask about anything else, including a different location, say their representative is on the line and can help.",
     "Do not invent other company facts or other addresses.",

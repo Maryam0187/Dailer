@@ -7,7 +7,8 @@ import {
   getOpenAiApiKey,
   loadCompanyAddressById,
 } from "@/server/calls/addressBot";
-import { findLabeledParticipant, setAddressBotMuted } from "@/server/calls/addressBotJoin";
+import { findLabeledParticipant, setAddressBotSpeaking } from "@/server/calls/addressBotJoin";
+import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { waitForInProgressConference } from "@/server/calls/upgradeToConference";
 import { getTwilioClient } from "@/server/twilio";
 
@@ -55,6 +56,8 @@ export async function POST(req) {
     );
   }
 
+  const origin = getRequestBaseUrlFromRequest(req);
+
   try {
     const client = getTwilioClient();
     const conference = await waitForInProgressConference(client, conferenceName);
@@ -73,11 +76,11 @@ export async function POST(req) {
       );
     }
 
-    await setAddressBotMuted(client, conference.sid, false);
+    await setAddressBotSpeaking(client, conference.sid, { speaking: true, origin });
 
     const begun = await beginAddressBotSpeech({ callId, addressId: address.id });
     if (!begun?.ok) {
-      await setAddressBotMuted(client, conference.sid, true).catch(() => {});
+      await setAddressBotSpeaking(client, conference.sid, { speaking: false, origin }).catch(() => {});
       return NextResponse.json(
         { error: begun?.error || "Address bot is not connected yet. Click Ready bot first." },
         { status: 409 },
