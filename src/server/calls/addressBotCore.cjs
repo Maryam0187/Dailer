@@ -64,30 +64,27 @@ function serializeCompanyAddress(row, { includeAddress = false } = {}) {
 }
 
 function getTtsProvider() {
-  const raw = String(process.env.ADDRESS_BOT_TTS_PROVIDER || "ElevenLabs").trim().toLowerCase();
-  if (raw === "amazon") return "Amazon";
+  const raw = String(process.env.ADDRESS_BOT_TTS_PROVIDER || "Amazon").trim().toLowerCase();
+  if (raw === "elevenlabs") return "ElevenLabs";
   if (raw === "google") return "Google";
-  return "ElevenLabs";
+  return "Amazon";
 }
-
-/** ElevenLabs Rachel — natural female voice. */
-const ELEVENLABS_FEMALE_VOICE = "21m00Tcm4TlvDq8ikWAM";
 
 function getAddressBotVoice() {
   const env = String(process.env.ADDRESS_BOT_VOICE || "").trim();
   const provider = getTtsProvider();
-  if (provider === "Amazon") {
-    return env || "Joanna-Neural";
-  }
   if (provider === "Google") {
     return env || "en-US-Journey-O";
   }
-  if (env && !/neural|joanna|polly|amazon/i.test(env)) return env;
-  return ELEVENLABS_FEMALE_VOICE;
+  if (provider === "ElevenLabs") {
+    if (env && !/neural|joanna|polly|amazon/i.test(env)) return env;
+    return "21m00Tcm4TlvDq8ikWAM";
+  }
+  return env || "Joanna-Neural";
 }
 
 function getTtsRate() {
-  return String(process.env.ADDRESS_BOT_TTS_RATE || "60%").trim() || "60%";
+  return String(process.env.ADDRESS_BOT_TTS_RATE || "80%").trim() || "80%";
 }
 
 function getOpenAiModel() {
@@ -194,7 +191,7 @@ function digitsSpoken(value) {
     .replace(/\D/g, "")
     .split("")
     .map((d) => names[d] || d)
-    .join(" ... ");
+    .join(", ");
 }
 
 function tokenToSpoken(token) {
@@ -207,7 +204,7 @@ function tokenToSpoken(token) {
       const cleaned = piece.replace(/^[\s.,#\-_/]+|[\s.,#\-_/]+$/g, "");
       if (!cleaned) return "";
       if (shouldSpellWord(cleaned)) {
-        return `${cleaned}... I'll spell that: ${spellLetters(cleaned)}.`;
+        return `${cleaned}. I will spell that: ${spellLetters(cleaned)}.`;
       }
       return cleaned;
     })
@@ -226,7 +223,7 @@ function addressToSpokenText(address) {
       const tokens = part.split(/[\s/]+/).filter(Boolean);
       const spoken = tokens.map(tokenToSpoken).join(" ");
       if (index === 0) return spoken;
-      return `Next... ${spoken}`;
+      return `Next. ${spoken}`;
     })
     .join(" ");
 }
@@ -238,24 +235,20 @@ function addressToSsml(address) {
 
 function wrapSlowSsml(innerSsml) {
   const rate = escapeXmlAttr(getTtsRate());
-  return `<speak><prosody rate="${rate}">${innerSsml}</prosody></speak>`;
-}
-
-function slowDownSpokenText(text) {
-  return String(text || "")
-    .replace(/\.\.\./g, "... ...")
-    .replace(/\. /g, ". ... ")
-    .replace(/\? /g, "? ... ");
+  return `<speak><prosody rate="${rate}" pitch="-8%">${innerSsml}</prosody></speak>`;
 }
 
 function formatForTts(text) {
-  const spoken = String(text || "").trim();
+  const spoken = String(text || "")
+    .replace(/\.\.\./g, ".")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!spoken) return "";
   if (getTtsProvider() === "Amazon") {
-    const withPauses = escapeXmlText(slowDownSpokenText(spoken)).replace(/\.\.\./g, '.<break time="700ms"/>');
+    const withPauses = escapeXmlText(spoken).replace(/\. /g, '.<break time="350ms"/> ');
     return wrapSlowSsml(withPauses);
   }
-  return slowDownSpokenText(spoken);
+  return spoken;
 }
 
 function wrapPlainTextForTts(text) {
@@ -285,7 +278,7 @@ function buildAddressReadSsml(address) {
       "Let me say that one more time.",
       spoken,
       "If you need me to repeat anything, just say so. Your representative is still right here with you.",
-    ].join(" ... ... "),
+    ].join(" "),
   );
 }
 
@@ -309,7 +302,7 @@ function buildSystemPrompt(address) {
   const spoken = String(address || "").trim();
   return [
     "You are a warm, natural person on a live phone call helping a customer write down an address. A human agent is also on the line.",
-    "Sound like a real colleague, not a robot. Use contractions. Speak slowly and clearly. No stiff or formal wording.",
+    "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
     "This is the only address you may give:",
     spoken,
     "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
