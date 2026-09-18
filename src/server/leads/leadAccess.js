@@ -159,9 +159,9 @@ export async function getLeadSupervisorTeamAgentIds(authedUser) {
   return rows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
 }
 
-const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor"];
+const LEAD_SUPERVISOR_ASSIGNABLE_ROLES = ["agent", "supervisor", "lead_supervisor", "processor"];
 
-/** Same-shift agents, supervisors, and lead supervisors a lead supervisor may assign to. */
+/** Same-shift agents, supervisors, lead supervisors, and processors a lead supervisor may assign to. */
 export async function getLeadSupervisorAssignableUsers(authedUser) {
   if (!isLeadSupervisor(authedUser.role)) return [];
   const ownShift = normalizeUserShiftKey(authedUser.shiftKey);
@@ -169,7 +169,11 @@ export async function getLeadSupervisorAssignableUsers(authedUser) {
     where: {
       isActive: true,
       role: { [Op.in]: LEAD_SUPERVISOR_ASSIGNABLE_ROLES },
-      [Op.or]: [{ role: { [Op.ne]: "agent" } }, { isOutside: { [Op.ne]: true } }],
+      // Agents/processors must be in-house; supervisors/lead supervisors are included as-is.
+      [Op.or]: [
+        { role: { [Op.in]: ["supervisor", "lead_supervisor"] } },
+        { isOutside: { [Op.ne]: true } },
+      ],
     },
     attributes: ["id", "username", "role", "supervisorId", "shiftKey", "isOutside"],
     order: [

@@ -55,6 +55,11 @@ export default function AssigneePicker({
   const menuRef = useRef(null);
   const searchRef = useRef(null);
 
+  const availableRoleFilters = useMemo(() => {
+    const rolesInList = new Set(users.map((user) => user.role).filter(Boolean));
+    return ROLE_FILTERS.filter((option) => option.id === "all" || rolesInList.has(option.id));
+  }, [users]);
+
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((user) => {
@@ -63,6 +68,12 @@ export default function AssigneePicker({
       return user.username.toLowerCase().includes(q);
     });
   }, [users, search, roleFilter]);
+
+  useEffect(() => {
+    if (roleFilter === "all") return;
+    if (availableRoleFilters.some((option) => option.id === roleFilter)) return;
+    setRoleFilter("all");
+  }, [availableRoleFilters, roleFilter]);
 
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -166,19 +177,21 @@ export default function AssigneePicker({
                 placeholder="Search users…"
                 className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
               />
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {ROLE_FILTERS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={roleFilter === option.id}
-                    className={filterChipClass(roleFilter === option.id)}
-                    onClick={() => setRoleFilter(option.id)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+              {availableRoleFilters.length > 1 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {availableRoleFilters.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      aria-pressed={roleFilter === option.id}
+                      className={filterChipClass(roleFilter === option.id)}
+                      onClick={() => setRoleFilter(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-1">
               {loading ? (
