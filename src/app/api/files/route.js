@@ -13,6 +13,7 @@ import {
 } from "@/server/files/fileAccess";
 import { resolveCopyFileName } from "@/server/files/resolveCopyFileName";
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
+import { copyFileAttachments } from "@/server/files/fileAttachments";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
 
 function parsePositiveInt(value, fallback) {
@@ -180,6 +181,13 @@ export async function POST(req) {
       userId: authedUser.id,
     });
 
+    await copyFileAttachments({
+      sourceFileId: source.id,
+      targetFileId: file.id,
+      userId: authedUser.id,
+    });
+
+    await file.reload({ include: fileListIncludes });
     return NextResponse.json({ ok: true, file: serializeUserFile(file, { viewer: authedUser }) }, { status: 201 });
   }
 

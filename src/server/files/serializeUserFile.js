@@ -1,4 +1,5 @@
-import { canCopyFile, canEditFile, hasEditGrant } from "@/server/files/fileAccess";
+import { canCopyFile, canEditFile, canManageFileImages, hasEditGrant } from "@/server/files/fileAccess";
+import { serializeFileAttachments } from "@/server/files/fileAttachments";
 
 function serializeEditAccessUsers(file) {
   if (!file?.editAccessGrants?.length) return [];
@@ -18,6 +19,7 @@ export function serializeUserFile(file, { includeDeleted = false, viewer = null 
     content: file.content || "",
     sharedWithAll: Boolean(file.sharedWithAll),
     editAccessUsers,
+    attachments: serializeFileAttachments(file.attachments),
     createdAt: file.createdAt?.toISOString?.() ?? file.createdAt,
     updatedAt: file.updatedAt?.toISOString?.() ?? file.updatedAt,
   };
@@ -38,6 +40,7 @@ export function serializeUserFile(file, { includeDeleted = false, viewer = null 
   if (viewer) {
     data.isOwner = file.userId === viewer.id;
     data.hasEditAccess = hasEditGrant(file, viewer.id);
+    data.canManageImages = canManageFileImages(viewer, file);
     data.readOnly = !canEditFile(viewer, file);
     data.canCopy = canCopyFile(viewer, file);
     data.isSharedWithViewer =

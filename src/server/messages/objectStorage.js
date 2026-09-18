@@ -66,6 +66,11 @@ export function buildMessageAttachmentStorageKey(conversationId, originalName) {
   return `messages/${Number(conversationId)}/${randomUUID()}-${safeName}`;
 }
 
+export function buildFileAttachmentStorageKey(fileId, originalName) {
+  const safeName = sanitizeAttachmentFilename(originalName);
+  return `files/${Number(fileId)}/${randomUUID()}-${safeName}`;
+}
+
 export async function createPresignedUploadUrl({ storageKey, mimeType, sizeBytes }) {
   const client = getS3Client();
   const command = new PutObjectCommand({
@@ -80,14 +85,23 @@ export async function createPresignedUploadUrl({ storageKey, mimeType, sizeBytes
   return { uploadUrl, expiresIn: PRESIGN_UPLOAD_EXPIRY_SEC };
 }
 
-export async function createPresignedDownloadUrl({ storageKey, originalName, mimeType }) {
+export async function createPresignedDownloadUrl({
+  storageKey,
+  originalName,
+  mimeType,
+  disposition = "attachment",
+}) {
   const client = getS3Client();
   const safeName = sanitizeAttachmentFilename(originalName, "download");
+  const contentDisposition =
+    disposition === "inline"
+      ? `inline; filename="${safeName}"`
+      : `attachment; filename="${safeName}"`;
   const command = new GetObjectCommand({
     Bucket: getBucketName(),
     Key: storageKey,
     ResponseContentType: mimeType,
-    ResponseContentDisposition: `attachment; filename="${safeName}"`,
+    ResponseContentDisposition: contentDisposition,
   });
   const downloadUrl = await getSignedUrl(client, command, {
     expiresIn: PRESIGN_DOWNLOAD_EXPIRY_SEC,
@@ -107,6 +121,18 @@ export async function writeObjectAttachment(storageKey, data, mimeType) {
       ContentLength: body.length,
     }),
   );
+}
+
+export async function readObjectAttachment(storageKey) {
+  const client = getS3Client();
+  const result = await client.send(
+    new GetObjectCommand({
+      Bucket: getBucketName(),
+      Key: storageKey,
+    }),
+  );
+  const bytes = await result.Body.transformToByteArray();
+  return Buffer.from(bytes);
 }
 
 export async function headObjectMetadata(storageKey) {

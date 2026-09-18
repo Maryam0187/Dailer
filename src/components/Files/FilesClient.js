@@ -5,6 +5,7 @@ import RichTextEditor from "@/components/Leads/RichTextEditor";
 import IconTooltipButton, { CloseIcon, DeleteIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
 import { isEmptyRichText, normalizeRichHtml, richTextPreview } from "@/lib/richText";
 import FilesStatsPanel from "@/components/Files/FilesStatsPanel";
+import FileAttachmentPanel from "@/components/Files/FileAttachmentPanel";
 
 const MAX_OPEN_TABS = 5;
 const FILES_PAGE_SIZE = 24;
@@ -71,6 +72,8 @@ function createNewTab() {
     hasEditAccess: false,
     readOnly: false,
     canCopy: false,
+    canManageImages: false,
+    attachments: [],
     isOwner: true,
     saveError: null,
     savedSnapshot: snapshot,
@@ -110,6 +113,7 @@ function sharingFieldsFromFile(file) {
     hasEditAccess: Boolean(file.hasEditAccess),
     readOnly: Boolean(file.readOnly),
     canCopy: Boolean(file.canCopy),
+    canManageImages: Boolean(file.canManageImages),
   };
 }
 
@@ -314,6 +318,7 @@ export default function FilesClient({
       owner: file.owner || null,
       deleted: Boolean(file.deleted),
       ...sharingFieldsFromFile(file),
+      attachments: Array.isArray(file.attachments) ? file.attachments : [],
       isOwner: file.isOwner ?? (file.owner?.id == null || file.owner?.id === currentUserId),
       saveError: null,
       savedSnapshot: snapshot,
@@ -441,6 +446,7 @@ export default function FilesClient({
                 fileName: saved.name,
                 content: saved.content || "",
                 owner: saved.owner || t.owner,
+                attachments: Array.isArray(saved.attachments) ? saved.attachments : t.attachments || [],
                 ...sharingFieldsFromFile(saved),
                 saveError: null,
                 savedSnapshot,
@@ -620,6 +626,9 @@ export default function FilesClient({
                   content: restored.content || "",
                   owner: restored.owner || tab.owner,
                   deleted: false,
+                  attachments: Array.isArray(restored.attachments)
+                    ? restored.attachments
+                    : tab.attachments || [],
                   ...sharingFieldsFromFile(restored),
                   saveError: null,
                   savedSnapshot: snapshot,
@@ -863,6 +872,16 @@ export default function FilesClient({
             onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onRestore={() => restoreFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onClose={() => requestCloseTab(activeEditorTab.tabId)}
+            onAttachmentsChange={(updater) => {
+              setOpenTabs((tabs) =>
+                tabs.map((tab) => {
+                  if (tab.tabId !== activeEditorTab.tabId) return tab;
+                  const current = Array.isArray(tab.attachments) ? tab.attachments : [];
+                  const next = typeof updater === "function" ? updater(current) : updater;
+                  return { ...tab, attachments: next };
+                }),
+              );
+            }}
           />
         </div>
       ) : null}
@@ -1411,6 +1430,7 @@ function WriteTab({
   onDelete,
   onRestore,
   onClose,
+  onAttachmentsChange,
 }) {
   const [grantAccessOpen, setGrantAccessOpen] = useState(false);
   const isNewFile = tab.fileId == null;
@@ -1567,6 +1587,14 @@ function WriteTab({
           wordLayout
           stickyToolbar
           embedded
+        />
+        <FileAttachmentPanel
+          fileId={tab.fileId}
+          attachments={tab.attachments || []}
+          canManageImages={!isDeleted && Boolean(tab.canManageImages)}
+          isAdmin={isAdmin}
+          isNewFile={isNewFile}
+          onAttachmentsChange={onAttachmentsChange}
         />
       </div>
     </div>
