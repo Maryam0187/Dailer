@@ -23,7 +23,7 @@ import {
   resolvePreferShortLabels,
   workflowTagDisplayLabel,
 } from "@/lib/workflowTagLabels";
-import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess, isLeadSupervisor } from "@/lib/leadRoles";
+import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess, canAssignLeadsLikeLeadSupervisor } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
@@ -1752,7 +1752,7 @@ export default function LeadsClient({
           hasActiveLine2Call={Boolean(line2Session)}
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
-          canAssignLead={isAdmin || isLeadSupervisor(userRole)}
+          canAssignLead={isAdmin || canAssignLeadsLikeLeadSupervisor(userRole)}
           canEditChargeAmount={isAdmin}
           userRole={userRole}
           currentUserId={currentUserId}

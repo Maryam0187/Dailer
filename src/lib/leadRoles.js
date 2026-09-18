@@ -10,6 +10,11 @@ export function isLeadSupervisor(role) {
   return role === "lead_supervisor";
 }
 
+/** Lead supervisors and managers share the same lead-reassignment assignee pool. */
+export function canAssignLeadsLikeLeadSupervisor(role) {
+  return role === "lead_supervisor" || role === "manager";
+}
+
 /** Supervisors and lead supervisors may have agents via `supervisorId`. */
 export function canHaveAssignedAgents(role) {
   return role === "supervisor" || role === "lead_supervisor";
