@@ -288,22 +288,77 @@ function classifyReadyReply(text) {
   return "unknown";
 }
 
-function buildSystemPrompt(address) {
+function buildSystemPrompt(address, training = {}) {
   const spoken = String(address || "").trim();
-  return [
-    "You are a warm, natural person on a live phone call helping a customer write down an address. A human agent is also on the line.",
-    "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
+  const name = String(training?.name || "").trim() || "Address Assistant";
+  const instructions = String(training?.instructions || "").trim();
+  const examples = Array.isArray(training?.examples) ? training.examples : [];
+
+  const parts = [
+    `You are ${name} on a live phone call helping a customer write down an address. A human agent is also on the line.`,
+  ];
+
+  if (instructions) {
+    parts.push(instructions);
+  } else {
+    parts.push(
+      "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
+      "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
+      "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
+      "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
+      "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
+      "After that, you may repeat it, go slower, or spell again if they ask.",
+    );
+  }
+
+  parts.push(
     "This is the only address you may give:",
     spoken,
-    "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
-    "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
-    "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
-    "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
-    "After that, you may repeat it, go slower, or spell again if they ask.",
     "Answer only questions about this address. If they ask about anything else, say their representative is right there and can help.",
     "Do not invent other company facts or other addresses.",
     "Keep replies to a few spoken sentences. No markdown, lists, SSML, or special characters.",
-  ].join(" ");
+  );
+
+  const usableExamples = examples.filter((ex) => {
+    const question = String(ex?.question || "").trim();
+    const answer = String(ex?.answer || "").trim();
+    return question && answer;
+  });
+  if (usableExamples.length) {
+    parts.push("Follow these examples when the customer says something similar:");
+    for (const ex of usableExamples) {
+      parts.push(
+        `If the customer says: ${String(ex.question).trim()} You should say: ${String(ex.answer).trim()}`,
+      );
+    }
+  }
+
+  return parts.join(" ");
+}
+
+async function loadAddressBotTrainingForPrompt() {
+  try {
+    const db = require("../../../models");
+    const profile = await db.AddressBotProfile.findOne({
+      order: [["id", "ASC"]],
+      attributes: ["name", "instructions"],
+    });
+    const examples = await db.AddressBotTrainingExample.findAll({
+      order: [["id", "ASC"]],
+      attributes: ["question", "answer"],
+    });
+    return {
+      name: profile?.name || "Address Assistant",
+      instructions: profile?.instructions || "",
+      examples: (examples || []).map((row) => ({
+        question: row.question,
+        answer: row.answer,
+      })),
+    };
+  } catch (err) {
+    console.error("[address-bot] failed to load training profile:", err?.message || err);
+    return { name: "Address Assistant", instructions: "", examples: [] };
+  }
 }
 
 function signRelayToken({ addressId, callId }) {
@@ -456,6 +511,7 @@ module.exports = {
   READY_RETRY,
   wrapPlainTextForTts,
   buildSystemPrompt,
+  loadAddressBotTrainingForPrompt,
   signRelayToken,
   verifyRelayToken,
   httpsToWss,

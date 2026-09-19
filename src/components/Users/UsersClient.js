@@ -1820,6 +1820,7 @@ function EditUserModal({
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [isOutside, setIsOutside] = useState(Boolean(user.isOutside));
   const [canUseDialer2, setCanUseDialer2] = useState(Boolean(user.canUseDialer2));
+  const [canTrainAddressBot, setCanTrainAddressBot] = useState(Boolean(user.canTrainAddressBot));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
     user.afterShiftGrantDurationMinutes ?? 120,
@@ -1847,6 +1848,7 @@ function EditUserModal({
     setIsActive(user.isActive !== false);
     setIsOutside(Boolean(user.isOutside));
     setCanUseDialer2(Boolean(user.canUseDialer2));
+    setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
@@ -1954,6 +1956,9 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canUseDialer2) !== Boolean(user.canUseDialer2)) {
         payload.canUseDialer2 = canUseDialer2;
+      }
+      if (isAdmin && Boolean(canTrainAddressBot) !== Boolean(user.canTrainAddressBot)) {
+        payload.canTrainAddressBot = canTrainAddressBot;
       }
       if (isAdmin && editRole === "admin" && user.isOutside) {
         payload.isOutside = false;
@@ -2351,6 +2356,24 @@ function EditUserModal({
             </div>
           ) : null}
 
+          {isAdmin ? (
+            <div className="flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
+              <input
+                id="edit-address-bot-train"
+                type="checkbox"
+                checked={canTrainAddressBot}
+                onChange={(e) => setCanTrainAddressBot(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+              />
+              <label htmlFor="edit-address-bot-train" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Allow Address bot training
+                <span className="ml-1 font-normal text-zinc-500">
+                  (edit the shared prompt and Q&amp;A)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           {isAdmin && user.role !== "admin" ? (
             <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
@@ -2468,6 +2491,7 @@ function normalizeUsersList(list) {
     isActive: u.isActive !== false && u.isActive !== 0,
     isOutside: Boolean(u.isOutside),
     canUseDialer2: Boolean(u.canUseDialer2),
+    canTrainAddressBot: Boolean(u.canTrainAddressBot),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,

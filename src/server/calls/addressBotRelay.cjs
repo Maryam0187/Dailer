@@ -5,6 +5,7 @@ const { WebSocketServer } = require("ws");
 const db = require("../../../models");
 const {
   buildSystemPrompt,
+  loadAddressBotTrainingForPrompt,
   buildWelcomeGreeting,
   buildWelcomeGreetingSsml,
   buildAddressReadSsml,
@@ -108,8 +109,9 @@ function attachAddressBotRelay(server) {
       session.row = row;
       if (!row) return null;
       const welcome = buildWelcomeGreeting();
+      const training = await loadAddressBotTrainingForPrompt();
       session.messages = [
-        { role: "system", content: buildSystemPrompt(row.address) },
+        { role: "system", content: buildSystemPrompt(row.address, training) },
         { role: "assistant", content: welcome },
       ];
       return row;

@@ -113,7 +113,7 @@ function buildAdminDropdownItems(pathname) {
   ];
 }
 
-function buildNavItems(role, pathname, accessMode = "full", isOutside = false) {
+function buildNavItems(role, pathname, accessMode = "full", isOutside = false, canTrainAddressBot = false) {
   if (accessMode !== "limited" && role === "manager" && isOutside) {
     return [
       {
@@ -150,6 +150,15 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false) {
     active: pathname === "/files",
     palette: "indigo",
   });
+
+  if (accessMode !== "limited" && role !== "admin" && canTrainAddressBot) {
+    items.push({
+      href: "/address-bot",
+      label: "Address bot",
+      active: pathname === "/address-bot",
+      palette: "indigo",
+    });
+  }
 
   if (accessMode !== "limited" && role === "admin") {
     items.push({
@@ -383,11 +392,12 @@ export default function Navbar({
   shiftStatus = null,
   accessMode = "full",
   isOutside = false,
+  canTrainAddressBot = false,
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
-  const navItems = buildNavItems(role, pathname, accessMode, isOutside);
+  const navItems = buildNavItems(role, pathname, accessMode, isOutside, canTrainAddressBot);
   const mobileItems = navItems.filter((item) => !item.brand);
   const outsideManager = role === "manager" && isOutside;
 

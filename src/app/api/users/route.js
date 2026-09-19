@@ -29,6 +29,7 @@ const LIST_ATTRIBUTES = [
   "totpEnabled",
   "totpEnabledAt",
   "canUseDialer2",
+  "canTrainAddressBot",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -83,6 +84,7 @@ function serializeUserRow(
           totpEnabled: row.totpEnabled === true,
           totpEnabledAt: row.totpEnabledAt ?? null,
           canUseDialer2: Boolean(row.canUseDialer2),
+          canTrainAddressBot: Boolean(row.canTrainAddressBot),
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),

@@ -185,6 +185,7 @@ async function resolveAuthedUser() {
       shiftKey: user.shiftKey === "night" ? "night" : "day",
       sessionPurpose: "full",
       canUseDialer2: Boolean(user.canUseDialer2),
+      canTrainAddressBot: Boolean(user.canTrainAddressBot),
     },
     logoutReason: null,
   };
