@@ -13,8 +13,10 @@ import {
   buildFileAttachmentStorageKey,
   sanitizeAttachmentFilename,
 } from "@/server/messages/objectStorage";
+import { FILE_IMAGE_MIME_TYPES, resolveFileImageMimeType } from "@/lib/fileImageMime";
 
-export const FILE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+export { FILE_IMAGE_MIME_TYPES };
+
 export const MAX_IMAGES_PER_FILE = 5;
 
 const MIME_TO_ACCEPT = {
@@ -60,20 +62,20 @@ export function serializeFileAttachments(attachments) {
 }
 
 function normalizeMimeType(value) {
-  return String(value || "")
+  return resolveFileImageMimeType({ mimeType: value }) || String(value || "")
     .trim()
     .toLowerCase()
     .split(";")[0];
 }
 
 function validateUploadInput({ filename, mimeType, sizeBytes }) {
-  const normalizedMime = normalizeMimeType(mimeType);
+  const normalizedMime = resolveFileImageMimeType({ mimeType, filename });
   if (!allowedMimeTypes.has(normalizedMime)) {
     return { error: "Only JPEG, PNG, GIF, and WebP images are allowed", status: 400 };
   }
 
-  const size = Number(sizeBytes);
-  if (!Number.isInteger(size) || size <= 0) {
+  const size = Math.round(Number(sizeBytes));
+  if (!Number.isFinite(size) || size <= 0) {
     return { error: "Invalid file size", status: 400 };
   }
   if (size > MAX_ATTACHMENT_SIZE_BYTES) {

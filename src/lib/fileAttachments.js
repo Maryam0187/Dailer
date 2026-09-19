@@ -1,3 +1,5 @@
+import { resolveFileImageMimeType } from "@/lib/fileImageMime";
+
 export async function fetchFileAttachmentPreviewUrl(attachmentId) {
   const res = await fetch(`/api/files/attachments/${attachmentId}/preview-url`, {
     credentials: "include",
@@ -27,14 +29,12 @@ export async function fetchFileAttachmentDownloadUrl(attachmentId) {
 }
 
 export async function uploadFileImage({ file, fileId, config, currentCount }) {
-  const mimeType = String(file.type || "")
-    .toLowerCase()
-    .split(";")[0];
+  const mimeType = resolveFileImageMimeType({ mimeType: file.type, filename: file.name });
   const mimeTypeSet = config?.mimeTypeSet ?? new Set();
   const maxSizeBytes = Number(config?.maxSizeBytes) || 10 * 1024 * 1024;
   const maxCount = Number(config?.maxAttachmentsPerFile) || 5;
 
-  if (mimeTypeSet.size && !mimeTypeSet.has(mimeType)) {
+  if (!mimeType || (mimeTypeSet.size && !mimeTypeSet.has(mimeType))) {
     throw new Error("Only JPEG, PNG, GIF, and WebP images are allowed");
   }
   if (file.size > maxSizeBytes) {

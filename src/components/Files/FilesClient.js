@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import RichTextEditor from "@/components/Leads/RichTextEditor";
 import IconTooltipButton, { CloseIcon, DeleteIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
 import { isEmptyRichText, normalizeRichHtml, richTextPreview } from "@/lib/richText";
+import { uploadFileImage } from "@/lib/fileAttachments";
 import FilesStatsPanel from "@/components/Files/FilesStatsPanel";
 import FileAttachmentPanel from "@/components/Files/FileAttachmentPanel";
 
@@ -29,6 +30,15 @@ const fileTabClass = (active) =>
       ? "border-indigo-600 bg-indigo-100 text-indigo-950 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-100"
       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
   }`;
+
+function attachmentsNotInContent(content, attachments) {
+  const html = String(content || "");
+  return (Array.isArray(attachments) ? attachments : []).filter((item) => {
+    const id = Number(item?.id);
+    if (!Number.isInteger(id) || id <= 0) return false;
+    return !html.includes(`data-attachment-id="${id}"`) && !html.includes(`data-attachment-id='${id}'`);
+  });
+}
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -1349,9 +1359,19 @@ function WriteTabActions({
   allowDelete = true,
   allowClose = true,
   allowSave = true,
+  canAttachImages = false,
 }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {canAttachImages ? (
+        <label
+          htmlFor="file-doc-image-picker"
+          title={isNewFile ? "Save the file first, then attach an image" : "Attach image"}
+          className="cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+        >
+          Image
+        </label>
+      ) : null}
       {isDeleted ? (
         <button
           type="button"
@@ -1433,10 +1453,13 @@ function WriteTab({
   onAttachmentsChange,
 }) {
   const [grantAccessOpen, setGrantAccessOpen] = useState(false);
+  const [attachHint, setAttachHint] = useState(null);
+  const [incomingImageFiles, setIncomingImageFiles] = useState(null);
   const isNewFile = tab.fileId == null;
   const isDirty = isTabDirty(tab);
   const isRestoring = tab.fileId != null && restoring;
   const isReadOnlyView = isDeleted || readOnly;
+  const canAttachImages = !isDeleted && !isReadOnlyView && (isAdmin || Boolean(tab.canManageImages));
   const ownerId = tab.owner?.id ?? null;
   const editAccessIds = new Set((tab.editAccessUsers || []).map((user) => user.id));
   const selectableUsers = shareUsers.filter((user) => user.id !== ownerId);
@@ -1453,6 +1476,43 @@ function WriteTab({
 
   function removeEditAccessUser(userId) {
     toggleEditAccessUser(userId, false);
+  }
+
+  async function handleAttachImage(file) {
+    if (!tab.fileId || !file) {
+      throw new Error("Save the file to attach images.");
+    }
+    const res = await fetch("/api/files/attachments/config", { credentials: "include" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to load attachment settings");
+    }
+    if (!data.storageMode) {
+      throw new Error("Image storage is not configured on this server");
+    }
+    const attachment = await uploadFileImage({
+      file,
+      fileId: tab.fileId,
+      config: {
+        mimeTypeSet: new Set(Array.isArray(data.mimeTypes) ? data.mimeTypes : []),
+        maxSizeBytes: Number(data.maxSizeBytes) || 10 * 1024 * 1024,
+        maxAttachmentsPerFile: Number(data.maxAttachmentsPerFile) || 5,
+      },
+      currentCount: (tab.attachments || []).length,
+    });
+    if (!attachment?.id) {
+      throw new Error("Upload failed");
+    }
+    onAttachmentsChange?.((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      if (list.some((item) => item.id === attachment.id)) return list;
+      return [...list, attachment];
+    });
+    return {
+      src: `/api/files/attachments/${attachment.id}/file?disposition=inline`,
+      attachmentId: attachment.id,
+      alt: attachment.originalName,
+    };
   }
 
   useEffect(() => {
@@ -1493,6 +1553,7 @@ function WriteTab({
             deleting={deleting}
             restoring={isRestoring}
             isDirty={isDirty}
+            canAttachImages={canAttachImages}
             onSave={onSave}
             onCopy={onCopy}
             onDelete={onDelete}
@@ -1568,6 +1629,12 @@ function WriteTab({
           </p>
         ) : null}
 
+        {attachHint ? (
+          <p className="border-t border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 sm:px-5">
+            {attachHint}
+          </p>
+        ) : null}
+
         {tab.saveError ? (
           <p className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 sm:px-5">
             {tab.saveError}
@@ -1576,6 +1643,24 @@ function WriteTab({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        {canAttachImages ? (
+          <input
+            id="file-doc-image-picker"
+            type="file"
+            accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp"
+            className="sr-only"
+            onChange={(event) => {
+              const files = Array.from(event.target.files || []);
+              event.target.value = "";
+              if (isNewFile) {
+                setAttachHint("Save the file first, then attach an image.");
+                return;
+              }
+              setAttachHint(null);
+              if (files.length) setIncomingImageFiles(files);
+            }}
+          />
+        ) : null}
         <RichTextEditor
           key={tab.tabId}
           value={tab.content}
@@ -1587,14 +1672,22 @@ function WriteTab({
           wordLayout
           stickyToolbar
           embedded
-        />
-        <FileAttachmentPanel
-          fileId={tab.fileId}
-          attachments={tab.attachments || []}
-          canManageImages={!isDeleted && Boolean(tab.canManageImages)}
-          isAdmin={isAdmin}
-          isNewFile={isNewFile}
-          onAttachmentsChange={onAttachmentsChange}
+          showAttachImage={canAttachImages}
+          attachImageDisabled={isNewFile}
+          attachImageTitle={
+            isNewFile ? "Save the file to attach images" : "Attach image"
+          }
+          incomingImageFiles={incomingImageFiles}
+          onIncomingImageFilesConsumed={() => setIncomingImageFiles(null)}
+          onAttachImage={canAttachImages ? handleAttachImage : null}
+          afterContent={
+            <FileAttachmentPanel
+              attachments={attachmentsNotInContent(tab.content, tab.attachments)}
+              canManageImages={!isDeleted && Boolean(tab.canManageImages)}
+              isAdmin={isAdmin}
+              onAttachmentsChange={onAttachmentsChange}
+            />
+          }
         />
       </div>
     </div>

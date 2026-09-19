@@ -108,6 +108,53 @@ body {
   margin: 0.25rem 0;
 }
 
+.tiptap-editor img.file-doc-image,
+.tiptap-editor img[data-attachment-id],
+.tiptap-readonly img.file-doc-image,
+.tiptap-readonly img[data-attachment-id] {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75rem 0;
+}
+
+.file-doc-image-wrap {
+  margin: 0.75rem 0;
+}
+
+.file-doc-image-wrap .file-doc-image {
+  margin: 0;
+}
+
+.file-doc-image-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12rem;
+  height: 12rem;
+  border-radius: 0.5rem;
+  background: #e4e4e7;
+  color: #52525b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  animation: file-image-skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+.dark .file-doc-image-skeleton {
+  background: #27272a;
+  color: #a1a1aa;
+}
+
+@keyframes file-image-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .tiptap-editor [style*="text-align: center"],
 .tiptap-readonly [style*="text-align: center"] {
   text-align: center;

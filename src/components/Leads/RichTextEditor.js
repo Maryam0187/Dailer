@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Node, mergeAttributes } from "@tiptap/core";
+import { Fragment } from "@tiptap/pm/model";
 import { EditorContent, useEditor } from "@tiptap/react";
 import Highlight from "@tiptap/extension-highlight";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -20,6 +22,10 @@ import {
   sanitizeRichHtml,
   toRichEditorHtml,
 } from "@/lib/richText";
+
+function stripUploadingPlaceholders(html) {
+  return String(html || "").replace(/<div\b[^>]*data-uploading\b[^>]*>[\s\S]*?<\/div>/gi, "");
+}
 
 /** Don't persist light/dark theme default colors into HTML (they become invisible on the other theme). */
 const ThemeAwareColor = Color.extend({
@@ -88,6 +94,124 @@ const FONT_FAMILIES = [
 ];
 
 const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px", "28px"];
+
+const FileImage = Node.create({
+  name: "fileImage",
+  group: "block",
+  atom: true,
+  draggable: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      src: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("src"),
+        renderHTML: (attributes) => (attributes.src ? { src: attributes.src } : {}),
+      },
+      alt: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("alt"),
+        renderHTML: (attributes) => (attributes.alt ? { alt: attributes.alt } : {}),
+      },
+      uploading: {
+        default: false,
+        parseHTML: (element) => element.getAttribute("data-uploading") === "true",
+        renderHTML: (attributes) => (attributes.uploading ? { "data-uploading": "true" } : {}),
+      },
+      attachmentId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-attachment-id"),
+        renderHTML: (attributes) =>
+          attributes.attachmentId ? { "data-attachment-id": String(attributes.attachmentId) } : {},
+      },
+    };
+  },
+  parseHTML() {
+    return [
+      { tag: "div[data-uploading='true']" },
+      { tag: "img[data-attachment-id]" },
+      { tag: "img.file-doc-image" },
+    ];
+  },
+  renderHTML({ node }) {
+    const { src, alt, uploading, attachmentId } = node.attrs;
+    const idAttrs = attachmentId ? { "data-attachment-id": String(attachmentId) } : {};
+    if (uploading || !src) {
+      return [
+        "div",
+        { class: "file-doc-image-skeleton", "data-uploading": "true", ...idAttrs },
+        ["span", {}, "Uploading…"],
+      ];
+    }
+    return ["img", mergeAttributes({ class: "file-doc-image", src, alt: alt || "" }, idAttrs)];
+  },
+  addCommands() {
+    return {
+      setFileImage:
+        (attrs) =>
+        ({ commands }) =>
+          commands.insertContent({ type: this.name, attrs }),
+    };
+  },
+});
+
+function findFileImagePos(editor, tempId) {
+  let found = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "fileImage" && String(node.attrs.attachmentId) === String(tempId)) {
+      found = { pos, node };
+      return false;
+    }
+    return undefined;
+  });
+  return found;
+}
+
+function insertFileImageNode(editor, attrs) {
+  const imageType = editor.schema.nodes.fileImage;
+  if (!imageType) return false;
+  const imageNode = imageType.create(attrs);
+  const paragraphType = editor.schema.nodes.paragraph;
+  const nodes = paragraphType ? [imageNode, paragraphType.create()] : [imageNode];
+
+  const inserted = editor
+    .chain()
+    .focus()
+    .command(({ tr, dispatch }) => {
+      if (!dispatch) return true;
+      tr.insert(tr.selection.to, Fragment.fromArray(nodes));
+      return true;
+    })
+    .run();
+  if (inserted) return true;
+
+  if (typeof editor.commands.setFileImage === "function") {
+    return editor.chain().focus().setFileImage(attrs).run();
+  }
+  return false;
+}
+
+function updateFileImageByTempId(editor, tempId, attrs) {
+  const found = findFileImagePos(editor, tempId);
+  if (!found) return false;
+  editor
+    .chain()
+    .command(({ tr, dispatch }) => {
+      if (dispatch) {
+        tr.setNodeMarkup(found.pos, undefined, { ...found.node.attrs, ...attrs });
+      }
+      return true;
+    })
+    .run();
+  return true;
+}
+
+function deleteFileImageByTempId(editor, tempId) {
+  const found = findFileImagePos(editor, tempId);
+  if (!found) return false;
+  editor.view.dispatch(editor.state.tr.delete(found.pos, found.pos + found.node.nodeSize));
+  return true;
+}
 
 function applyTableStripedAttr(tableElement, node) {
   if (!tableElement || !node) return;
@@ -231,7 +355,7 @@ function TableToolbarButtons({ editor, compact = false }) {
   );
 }
 
-function EditorToolbar({ editor, compact = false }) {
+function EditorToolbar({ editor, compact = false, attachImage = null }) {
   const [, setToolbarTick] = useState(0);
 
   useEffect(() => {
@@ -346,6 +470,18 @@ function EditorToolbar({ editor, compact = false }) {
             onClick={() => editor.chain().focus().redo().run()}
             disabled={!editor.can().chain().focus().redo().run()}
           />
+          {attachImage ? (
+            <>
+              <ToolbarDivider />
+              <label
+                htmlFor="file-doc-image-picker"
+                title={attachImage.title || "Attach image"}
+                className={`${toolbarBtnClass} ${attachImage.busy ? "pointer-events-none opacity-50" : "cursor-pointer"}`}
+              >
+                {attachImage.busy ? "Uploading…" : "Image"}
+              </label>
+            </>
+          ) : null}
           <ToolbarDivider />
           {formatButtons}
           <ToolbarDivider />
@@ -382,6 +518,18 @@ function EditorToolbar({ editor, compact = false }) {
           onClick={() => editor.chain().focus().redo().run()}
           disabled={!editor.can().chain().focus().redo().run()}
         />
+        {attachImage ? (
+          <>
+            <ToolbarDivider />
+            <label
+              htmlFor="file-doc-image-picker"
+              title={attachImage.title || "Attach image"}
+              className={`${toolbarBtnClass} ${attachImage.busy ? "pointer-events-none opacity-50" : "cursor-pointer"}`}
+            >
+              {attachImage.busy ? "Uploading…" : "Image"}
+            </label>
+          </>
+        ) : null}
 
         <ToolbarDivider />
 
@@ -521,8 +669,17 @@ export default function RichTextEditor({
   editable = true,
   stickyToolbar = false,
   embedded = false,
+  afterContent = null,
+  showAttachImage = false,
+  attachImageDisabled = false,
+  attachImageTitle = "Attach image",
+  onAttachImage = null,
+  incomingImageFiles = null,
+  onIncomingImageFilesConsumed = null,
 }) {
   const { theme } = useTheme();
+  const [attachingImage, setAttachingImage] = useState(false);
+  const [attachError, setAttachError] = useState(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -530,7 +687,9 @@ export default function RichTextEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
+        underline: false,
       }),
+      FileImage,
       RichTextTable.configure({
         resizable: true,
         View: StripedTableView,
@@ -554,23 +713,24 @@ export default function RichTextEditor({
     autofocus: autoFocus ? "end" : false,
     editorProps: {
       attributes: {
-        class: `tiptap-editor ${minHeightClass} text-sm leading-relaxed outline-none`,
+        class: `tiptap-editor ${afterContent ? "min-h-0" : minHeightClass} text-sm leading-relaxed outline-none`,
       },
     },
     onUpdate: ({ editor: currentEditor }) => {
-      onChange(normalizeRichHtml(currentEditor.getHTML()));
+      onChange(normalizeRichHtml(stripUploadingPlaceholders(currentEditor.getHTML())));
     },
   });
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || attachingImage) return;
+    if (String(editor.getHTML() || "").includes("data-uploading")) return;
     const next = toRichEditorHtml(value);
-    const current = normalizeRichHtml(editor.getHTML());
+    const current = normalizeRichHtml(stripUploadingPlaceholders(editor.getHTML()));
     if (next !== current) {
       editor.commands.setContent(next || "", { emitUpdate: false });
     }
     clearThemeDefaultColorMarks(editor);
-  }, [editor, value]);
+  }, [editor, value, attachingImage]);
 
   useEffect(() => {
     if (!editor) return;
@@ -581,6 +741,63 @@ export default function RichTextEditor({
     if (!editor) return;
     editor.setEditable(editable);
   }, [editor, editable]);
+
+  async function handleImageFiles(fileList) {
+    if (!editor || !onAttachImage || attachingImage) return;
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    setAttachingImage(true);
+    setAttachError(null);
+    try {
+      for (const file of files) {
+        const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        insertFileImageNode(editor, {
+          src: null,
+          alt: file.name,
+          attachmentId: tempId,
+          uploading: true,
+        });
+
+        try {
+          const inserted = await onAttachImage(file);
+          if (!inserted?.src) {
+            deleteFileImageByTempId(editor, tempId);
+            continue;
+          }
+          const nextAttrs = {
+            src: inserted.src,
+            alt: inserted.alt || file.name,
+            attachmentId: inserted.attachmentId != null ? String(inserted.attachmentId) : null,
+            uploading: false,
+          };
+          const updated = updateFileImageByTempId(editor, tempId, nextAttrs);
+          if (!updated) insertFileImageNode(editor, nextAttrs);
+        } catch (err) {
+          deleteFileImageByTempId(editor, tempId);
+          throw err;
+        }
+      }
+    } catch (err) {
+      setAttachError(err?.message || "Failed to attach image");
+    } finally {
+      setAttachingImage(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!editor || !incomingImageFiles?.length) return;
+    const files = incomingImageFiles;
+    onIncomingImageFilesConsumed?.();
+    void handleImageFiles(files);
+  }, [editor, incomingImageFiles]);
+
+  const attachImage =
+    showAttachImage && onAttachImage
+      ? {
+          busy: attachingImage,
+          title: attachImageTitle,
+        }
+      : null;
 
   if (!editor) {
     return (
@@ -601,18 +818,27 @@ export default function RichTextEditor({
               : undefined
           }
         >
-          <EditorToolbar editor={editor} compact={compactToolbar} />
+          <EditorToolbar editor={editor} compact={compactToolbar} attachImage={attachImage} />
+          {attachError ? (
+            <p className="border-t border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+              {attachError}
+            </p>
+          ) : null}
         </div>
       ) : null}
       {wordLayout ? (
         <div className="bg-zinc-100 px-3 py-4 dark:bg-zinc-900">
           <div className="word-page mx-auto max-w-[816px] rounded-sm bg-white px-10 py-8 shadow-md dark:bg-zinc-950 dark:shadow-black/40 sm:px-14 sm:py-10">
-            <EditorContent editor={editor} />
+            <div className={afterContent ? minHeightClass : undefined}>
+              <EditorContent editor={editor} />
+              {afterContent}
+            </div>
           </div>
         </div>
       ) : (
         <div className="max-h-[160px] overflow-y-auto px-3 py-2 sm:max-h-[60vh] sm:px-4 sm:py-3">
           <EditorContent editor={editor} />
+          {afterContent}
         </div>
       )}
     </>

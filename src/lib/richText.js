@@ -1,4 +1,4 @@
-const BLOCK_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "LI", "UL", "OL", "TABLE"]);
+const BLOCK_TAGS = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "LI", "UL", "OL", "TABLE", "IMG", "FIGURE"]);
 
 export function stripHtml(html) {
   if (!html) return "";
@@ -59,6 +59,7 @@ export function toRichEditorHtml(value) {
 }
 
 export function isEmptyRichText(html) {
+  if (/<img\b/i.test(String(html || ""))) return false;
   return stripHtml(html).length === 0;
 }
 
