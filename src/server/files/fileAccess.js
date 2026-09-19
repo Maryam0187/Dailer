@@ -46,7 +46,17 @@ export const fileListIncludes = [
   fileAttachmentInclude,
 ];
 
-const fileAttributes = ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"];
+const fileAttributes = [
+  "id",
+  "name",
+  "content",
+  "userId",
+  "deleted",
+  "sharedWithAll",
+  "preventCopy",
+  "createdAt",
+  "updatedAt",
+];
 
 async function getFileIdsForUser(model, userId) {
   const rows = await model.findAll({
@@ -210,6 +220,7 @@ export function canDeleteFile(authedUser, file) {
 
 export function canCopyFile(authedUser, file) {
   if (!file || file.deleted) return false;
+  if (file.preventCopy) return false;
   if (!canCreateFiles(authedUser)) return false;
   if (file.userId === authedUser.id) return false;
   if (hasEditGrant(file, authedUser.id)) return false;

@@ -80,7 +80,9 @@ export async function PATCH(req, { params }) {
     ["hiddenFromUserIds", "hidden users"],
   ];
   const sharingSettingsOnly =
-    (body?.sharedWithAll !== undefined || shareListFields.some(([field]) => body?.[field] !== undefined)) &&
+    (body?.sharedWithAll !== undefined ||
+      body?.preventCopy !== undefined ||
+      shareListFields.some(([field]) => body?.[field] !== undefined)) &&
     body?.name == null &&
     body?.content === undefined;
 
@@ -89,6 +91,13 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Only admins can change file visibility" }, { status: 403 });
     }
     update.sharedWithAll = Boolean(body.sharedWithAll);
+  }
+
+  if (body?.preventCopy !== undefined) {
+    if (!canManageFileSharing(authedUser)) {
+      return NextResponse.json({ error: "Only admins can change copy protection" }, { status: 403 });
+    }
+    update.preventCopy = Boolean(body.preventCopy);
   }
 
   const shareLists = {};

@@ -45,7 +45,7 @@ export async function GET(req) {
     }
 
     const file = await db.UserFile.findByPk(limitedId, {
-      attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"],
+      attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "preventCopy", "createdAt", "updatedAt"],
       include: fileListIncludes,
     });
 
@@ -109,7 +109,7 @@ export async function GET(req) {
     order: [["updatedAt", "DESC"]],
     offset,
     limit: pageSize,
-    attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"],
+    attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "preventCopy", "createdAt", "updatedAt"],
     include: includeOwner ? fileListIncludes : [],
     distinct: includeOwner,
   };
@@ -161,7 +161,7 @@ export async function POST(req) {
           ? {}
           : nonAdminFileAccessWhere(authedUser.id, shareIds)),
       },
-      attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"],
+      attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "preventCopy", "createdAt", "updatedAt"],
       include: fileListIncludes,
     });
 

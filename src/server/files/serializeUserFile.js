@@ -27,6 +27,7 @@ export function serializeUserFile(file, { includeDeleted = false, viewer = null 
     name: file.name,
     content: file.content || "",
     sharedWithAll: Boolean(file.sharedWithAll),
+    preventCopy: Boolean(file.preventCopy),
     editAccessUsers,
     viewAccessUsers,
     hiddenFromUsers,

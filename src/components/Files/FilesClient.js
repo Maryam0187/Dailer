@@ -68,6 +68,16 @@ function formatShortDate(iso) {
   }
 }
 
+function isCopyShortcut(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  return key === "c" || key === "x" || key === "a";
+}
+
+function blockCopyEvent(event) {
+  event.preventDefault();
+}
+
 function createNewTab() {
   const snapshot = { fileName: "", content: "" };
   return {
@@ -83,6 +93,7 @@ function createNewTab() {
     hiddenFromUsers: [],
     hasEditAccess: false,
     hasViewAccess: false,
+    preventCopy: false,
     readOnly: false,
     canCopy: false,
     canManageImages: false,
@@ -127,6 +138,7 @@ function sharingFieldsFromFile(file) {
     hiddenFromUsers: file.hiddenFromUsers || [],
     hasEditAccess: Boolean(file.hasEditAccess),
     hasViewAccess: Boolean(file.hasViewAccess),
+    preventCopy: Boolean(file.preventCopy),
     readOnly: Boolean(file.readOnly),
     canCopy: Boolean(file.canCopy),
     canManageImages: Boolean(file.canManageImages),
@@ -607,6 +619,10 @@ export default function FilesClient({
     await updateShareList(fileId, { sharedWithAll: nextShared }, "Failed to update visibility");
   }
 
+  async function togglePreventCopy(fileId, nextPreventCopy) {
+    await updateShareList(fileId, { preventCopy: nextPreventCopy }, "Failed to update copy protection");
+  }
+
   async function updateEditAccess(fileId, userIds) {
     await updateShareList(fileId, { editAccessUserIds: userIds }, "Failed to update edit access");
   }
@@ -886,6 +902,7 @@ export default function FilesClient({
             onSave={() => saveTab(activeEditorTab.tabId, { closeAfterSave: false })}
             onCopy={() => copyFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onToggleShared={(nextShared) => toggleSharedWithAll(activeEditorTab.fileId, nextShared)}
+            onTogglePreventCopy={(nextPreventCopy) => togglePreventCopy(activeEditorTab.fileId, nextPreventCopy)}
             onEditAccessChange={(userIds) => updateEditAccess(activeEditorTab.fileId, userIds)}
             onViewAccessChange={(userIds) => updateViewAccess(activeEditorTab.fileId, userIds)}
             onHiddenFromChange={(userIds) => updateHiddenFrom(activeEditorTab.fileId, userIds)}
@@ -1072,7 +1089,9 @@ function BrowseTab({
                   : isOpen
                     ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
                     : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
-              }`}
+              }${file.preventCopy && file.readOnly ? " select-none" : ""}`}
+              onCopy={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
+              onCut={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
             >
               <button
                 type="button"
@@ -1083,34 +1102,47 @@ function BrowseTab({
                   <h3 className="truncate text-sm font-semibold text-zinc-900 group-hover:text-indigo-700 dark:text-zinc-100 dark:group-hover:text-indigo-300">
                     {file.name}
                   </h3>
-                  {showDeleted ? (
-                    <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200">
-                      Deleted
-                    </span>
-                  ) : file.hasEditAccess ? (
-                    <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
-                      Can edit
-                    </span>
-                  ) : file.hasViewAccess ? (
-                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
-                      Read-only
-                    </span>
-                  ) : file.sharedWithAll ? (
-                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
-                      {file.isOwner ? "Shared" : "Read-only"}
-                    </span>
-                  ) : isOpen ? (
-                    <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
-                      Open
-                    </span>
-                  ) : null}
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                    {showDeleted ? (
+                      <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200">
+                        Deleted
+                      </span>
+                    ) : file.hasEditAccess ? (
+                      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
+                        Can edit
+                      </span>
+                    ) : file.hasViewAccess ? (
+                      <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
+                        Read-only
+                      </span>
+                    ) : file.sharedWithAll ? (
+                      <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
+                        {file.isOwner ? "Shared" : "Read-only"}
+                      </span>
+                    ) : isOpen ? (
+                      <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
+                        Open
+                      </span>
+                    ) : null}
+                    {file.preventCopy ? (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+                        No copy
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 {showOwner ? (
                   <p className="mt-0.5 truncate text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
                     {file.owner.username}
                   </p>
                 ) : null}
-                <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+                <p
+                  className={`mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400 ${
+                    file.preventCopy && file.readOnly ? "cursor-default select-none" : ""
+                  }`}
+                  onCopy={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
+                  onCut={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
+                >
                   {isEmptyRichText(file.content) ? (
                     <span className="italic text-zinc-400 dark:text-zinc-500">Empty document</span>
                   ) : (
@@ -1512,6 +1544,7 @@ function WriteTab({
   onSave,
   onCopy,
   onToggleShared,
+  onTogglePreventCopy = () => {},
   onEditAccessChange,
   onViewAccessChange = () => {},
   onHiddenFromChange = () => {},
@@ -1528,6 +1561,7 @@ function WriteTab({
   const isDirty = isTabDirty(tab);
   const isRestoring = tab.fileId != null && restoring;
   const isReadOnlyView = isDeleted || readOnly;
+  const blockTextCopy = Boolean(tab.preventCopy) && isReadOnlyView && !isAdmin;
   const canAttachImages = !isDeleted && !isReadOnlyView && (isAdmin || Boolean(tab.canManageImages));
   const ownerId = tab.owner?.id ?? null;
   const editAccessIds = new Set((tab.editAccessUsers || []).map((user) => user.id));
@@ -1629,8 +1663,28 @@ function WriteTab({
             value={tab.fileName}
             onChange={(e) => onFileNameChange(e.target.value)}
             readOnly={isReadOnlyView}
+            onCopy={blockTextCopy ? blockCopyEvent : undefined}
+            onCut={blockTextCopy ? blockCopyEvent : undefined}
+            onMouseDown={blockTextCopy ? (event) => event.preventDefault() : undefined}
+            onSelect={
+              blockTextCopy
+                ? (event) => {
+                    const el = event.target;
+                    if (typeof el.selectionStart === "number") {
+                      el.selectionStart = el.selectionEnd;
+                    }
+                  }
+                : undefined
+            }
+            onKeyDown={
+              blockTextCopy
+                ? (event) => {
+                    if (isCopyShortcut(event)) blockCopyEvent(event);
+                  }
+                : undefined
+            }
             placeholder="Untitled document"
-            className={editorTitleClass}
+            className={`${editorTitleClass}${blockTextCopy ? " cursor-default caret-transparent select-none" : ""}`}
           />
           <WriteTabActions
             isNewFile={isNewFile}
@@ -1690,6 +1744,15 @@ function WriteTab({
             <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
               <input
                 type="checkbox"
+                checked={Boolean(tab.preventCopy)}
+                onChange={(e) => onTogglePreventCopy(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
+              />
+              Prevent copying
+            </label>
+            <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
                 checked={Boolean(tab.sharedWithAll)}
                 onChange={(e) => onToggleShared(e.target.checked)}
                 className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
@@ -1719,7 +1782,15 @@ function WriteTab({
           <p className="border-t border-sky-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-200 sm:px-5">
             This file is shared read-only.
             {tab.owner?.username ? ` Owned by ${tab.owner.username}.` : ""}
-            {canCopy ? " Make a copy to edit your own version." : ""}
+            {blockTextCopy
+              ? " Copying text is disabled for this file."
+              : canCopy
+                ? " Make a copy to edit your own version."
+                : ""}
+          </p>
+        ) : tab.preventCopy && isAdmin ? (
+          <p className="border-t border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 sm:px-5">
+            Copying is disabled for read-only viewers of this file.
           </p>
         ) : tab.hasEditAccess && !tab.isOwner ? (
           <p className="border-t border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200 sm:px-5">
@@ -1741,7 +1812,18 @@ function WriteTab({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-y-contain${blockTextCopy ? " cursor-default" : ""}`}
+        onCopy={blockTextCopy ? blockCopyEvent : undefined}
+        onCut={blockTextCopy ? blockCopyEvent : undefined}
+        onKeyDown={
+          blockTextCopy
+            ? (event) => {
+                if (isCopyShortcut(event)) blockCopyEvent(event);
+              }
+            : undefined
+        }
+      >
         {canAttachImages ? (
           <input
             id="file-doc-image-picker"
@@ -1765,6 +1847,7 @@ function WriteTab({
           value={tab.content}
           onChange={onContentChange}
           editable={!isReadOnlyView}
+          preventCopy={blockTextCopy}
           showToolbar={!isReadOnlyView}
           placeholder="Start writing…"
           minHeightClass="min-h-[16rem]"

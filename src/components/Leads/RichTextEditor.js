@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { Fragment } from "@tiptap/pm/model";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -657,6 +657,12 @@ function EditorToolbar({ editor, compact = false, attachImage = null }) {
   );
 }
 
+function isCopyShortcut(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  return key === "c" || key === "x" || key === "a";
+}
+
 export default function RichTextEditor({
   value,
   onChange,
@@ -667,6 +673,7 @@ export default function RichTextEditor({
   compactToolbar = false,
   showToolbar = true,
   editable = true,
+  preventCopy = false,
   stickyToolbar = false,
   embedded = false,
   afterContent = null,
@@ -680,6 +687,14 @@ export default function RichTextEditor({
   const { theme } = useTheme();
   const [attachingImage, setAttachingImage] = useState(false);
   const [attachError, setAttachError] = useState(null);
+  const preventCopyRef = useRef(preventCopy);
+  preventCopyRef.current = preventCopy;
+
+  function blockIfPreventCopy(_view, event) {
+    if (!preventCopyRef.current) return false;
+    event.preventDefault();
+    return true;
+  }
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -715,6 +730,24 @@ export default function RichTextEditor({
       attributes: {
         class: `tiptap-editor ${afterContent ? "min-h-0" : minHeightClass} text-sm leading-relaxed outline-none`,
       },
+      handleDOMEvents: {
+        copy: blockIfPreventCopy,
+        cut: blockIfPreventCopy,
+        dragstart: blockIfPreventCopy,
+        contextmenu: blockIfPreventCopy,
+        selectstart: blockIfPreventCopy,
+        mousedown: (_view, event) => {
+          if (!preventCopyRef.current) return false;
+          if (event.target?.closest?.("a, button")) return false;
+          event.preventDefault();
+          return true;
+        },
+      },
+      handleKeyDown: (_view, event) => {
+        if (!preventCopyRef.current || !isCopyShortcut(event)) return false;
+        event.preventDefault();
+        return true;
+      },
     },
     onUpdate: ({ editor: currentEditor }) => {
       onChange(normalizeRichHtml(stripUploadingPlaceholders(currentEditor.getHTML())));
@@ -741,6 +774,37 @@ export default function RichTextEditor({
     if (!editor) return;
     editor.setEditable(editable);
   }, [editor, editable]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    if (preventCopy) {
+      dom.style.cursor = "default";
+      dom.style.caretColor = "transparent";
+      dom.style.userSelect = "none";
+      dom.style.webkitUserSelect = "none";
+    } else {
+      dom.style.cursor = "";
+      dom.style.caretColor = "";
+      dom.style.userSelect = "";
+      dom.style.webkitUserSelect = "";
+    }
+  }, [editor, preventCopy]);
+
+  useEffect(() => {
+    if (!editor) return undefined;
+
+    function collapseSelection({ editor: current }) {
+      if (!preventCopyRef.current) return;
+      const { selection } = current.state;
+      if (!selection.empty) {
+        current.commands.setTextSelection(selection.from);
+      }
+    }
+
+    editor.on("selectionUpdate", collapseSelection);
+    return () => editor.off("selectionUpdate", collapseSelection);
+  }, [editor]);
 
   async function handleImageFiles(fileList) {
     if (!editor || !onAttachImage || attachingImage) return;
@@ -846,13 +910,16 @@ export default function RichTextEditor({
 
   return (
     <div
-      className={
+      className={`${
         embedded
           ? "bg-transparent"
           : `rounded-xl border border-zinc-200 bg-white dark:border-zinc-600 dark:bg-zinc-950 ${
               stickyToolbar ? "" : "overflow-hidden"
             }`
-      }
+      }${preventCopy ? " tiptap-no-copy" : ""}`}
+      onCopy={preventCopy ? (event) => event.preventDefault() : undefined}
+      onCut={preventCopy ? (event) => event.preventDefault() : undefined}
+      onDragStart={preventCopy ? (event) => event.preventDefault() : undefined}
     >
       {editorSurface}
     </div>

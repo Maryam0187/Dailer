@@ -44,6 +44,32 @@ body {
   outline: none;
 }
 
+.tiptap-no-copy .word-page,
+.tiptap-no-copy .tiptap-editor,
+.tiptap-no-copy .tiptap-editor * {
+  caret-color: transparent;
+  cursor: default !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+}
+
+.tiptap-no-copy .tiptap-editor ::selection,
+.tiptap-no-copy .tiptap-editor *::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.tiptap-no-copy .tiptap-editor ::-moz-selection,
+.tiptap-no-copy .tiptap-editor *::-moz-selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.tiptap-no-copy .tiptap-editor .selectedCell::after {
+  display: none;
+}
+
 .tiptap-editor .is-editor-empty::before {
   color: rgb(161 161 170);
   content: attr(data-placeholder);
