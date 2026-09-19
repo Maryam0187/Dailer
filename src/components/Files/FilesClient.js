@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RichTextEditor from "@/components/Leads/RichTextEditor";
 import IconTooltipButton, { CloseIcon, DeleteIcon, EditIcon } from "@/components/Leads/IconTooltipButton";
 import { isEmptyRichText, normalizeRichHtml, richTextPreview } from "@/lib/richText";
@@ -79,7 +79,10 @@ function createNewTab() {
     deleted: false,
     sharedWithAll: false,
     editAccessUsers: [],
+    viewAccessUsers: [],
+    hiddenFromUsers: [],
     hasEditAccess: false,
+    hasViewAccess: false,
     readOnly: false,
     canCopy: false,
     canManageImages: false,
@@ -120,7 +123,10 @@ function sharingFieldsFromFile(file) {
   return {
     sharedWithAll: Boolean(file.sharedWithAll),
     editAccessUsers: file.editAccessUsers || [],
+    viewAccessUsers: file.viewAccessUsers || [],
+    hiddenFromUsers: file.hiddenFromUsers || [],
     hasEditAccess: Boolean(file.hasEditAccess),
+    hasViewAccess: Boolean(file.hasViewAccess),
     readOnly: Boolean(file.readOnly),
     canCopy: Boolean(file.canCopy),
     canManageImages: Boolean(file.canManageImages),
@@ -584,30 +590,33 @@ export default function FilesClient({
     );
   }
 
-  async function toggleSharedWithAll(fileId, nextShared) {
+  async function updateShareList(fileId, payload, errorMessage) {
     if (!fileId) return;
     setError(null);
     try {
-      const updated = await applySharingUpdate(fileId, { sharedWithAll: nextShared });
+      const updated = await applySharingUpdate(fileId, payload);
       syncTabSharingFields(fileId, updated);
       await loadFiles(pageRef.current);
       void refreshSharedFileTotal();
     } catch (err) {
-      setError(err.message || "Failed to update visibility");
+      setError(err.message || errorMessage);
     }
   }
 
+  async function toggleSharedWithAll(fileId, nextShared) {
+    await updateShareList(fileId, { sharedWithAll: nextShared }, "Failed to update visibility");
+  }
+
   async function updateEditAccess(fileId, userIds) {
-    if (!fileId) return;
-    setError(null);
-    try {
-      const updated = await applySharingUpdate(fileId, { editAccessUserIds: userIds });
-      syncTabSharingFields(fileId, updated);
-      await loadFiles(pageRef.current);
-      void refreshSharedFileTotal();
-    } catch (err) {
-      setError(err.message || "Failed to update edit access");
-    }
+    await updateShareList(fileId, { editAccessUserIds: userIds }, "Failed to update edit access");
+  }
+
+  async function updateViewAccess(fileId, userIds) {
+    await updateShareList(fileId, { viewAccessUserIds: userIds }, "Failed to update read-only access");
+  }
+
+  async function updateHiddenFrom(fileId, userIds) {
+    await updateShareList(fileId, { hiddenFromUserIds: userIds }, "Failed to update hidden users");
   }
 
   async function restoreFile(file) {
@@ -878,6 +887,8 @@ export default function FilesClient({
             onCopy={() => copyFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onToggleShared={(nextShared) => toggleSharedWithAll(activeEditorTab.fileId, nextShared)}
             onEditAccessChange={(userIds) => updateEditAccess(activeEditorTab.fileId, userIds)}
+            onViewAccessChange={(userIds) => updateViewAccess(activeEditorTab.fileId, userIds)}
+            onHiddenFromChange={(userIds) => updateHiddenFrom(activeEditorTab.fileId, userIds)}
             shareUsers={filterUsers}
             onDelete={() => requestDeleteFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
             onRestore={() => restoreFile({ id: activeEditorTab.fileId, name: activeEditorTab.fileName })}
@@ -970,8 +981,8 @@ function BrowseTab({
           <p className="text-lg font-medium text-zinc-800 dark:text-zinc-200">No shared files</p>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
             {isAdmin
-              ? "No files have been marked visible to all users yet."
-              : "When an admin shares a file with everyone or grants you edit access, it will appear here."}
+              ? "No files have been marked visible to all users or shared with selected people yet."
+              : "When an admin shares a file with everyone, shares it with you read-only, or grants you edit access, it will appear here."}
           </p>
         </div>
       );
@@ -1080,6 +1091,10 @@ function BrowseTab({
                     <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
                       Can edit
                     </span>
+                  ) : file.hasViewAccess ? (
+                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
+                      Read-only
+                    </span>
                   ) : file.sharedWithAll ? (
                     <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
                       {file.isOwner ? "Shared" : "Read-only"}
@@ -1171,7 +1186,20 @@ function BrowseTab({
   );
 }
 
-function GrantEditAccessDialog({ users, selectedIds, onToggleUser, onClose }) {
+function ShareUserPickerDialog({ title, description, titleId, users, selectedIds, onToggleUser, onClose }) {
+  const [search, setSearch] = useState("");
+  const searchRef = useRef(null);
+  const searchId = `${titleId}-search`;
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((user) => String(user.username || "").toLowerCase().includes(q));
+  }, [users, search]);
+
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
+
   return (
     <>
       <button
@@ -1184,23 +1212,36 @@ function GrantEditAccessDialog({ users, selectedIds, onToggleUser, onClose }) {
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="grant-edit-access-title"
+          aria-labelledby={titleId}
           className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
         >
           <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-700">
-            <h3 id="grant-edit-access-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Grant edit access
+            <h3 id={titleId} className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              {title}
             </h3>
-            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Selected users can edit this file even if it is not visible to everyone.
-            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
+            <label htmlFor={searchId} className="sr-only">
+              Search agents
+            </label>
+            <input
+              id={searchId}
+              ref={searchRef}
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search agents…"
+              autoComplete="off"
+              className="mt-3 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+            />
           </div>
           <div className="max-h-64 overflow-y-auto px-5 py-3">
             {users.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">No other users available.</p>
+            ) : filteredUsers.length === 0 ? (
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">No agents match “{search.trim()}”.</p>
             ) : (
               <ul className="space-y-1">
-                {users.map((user) => {
+                {filteredUsers.map((user) => {
                   const checked = selectedIds.has(user.id);
                   return (
                     <li key={user.id}>
@@ -1230,6 +1271,32 @@ function GrantEditAccessDialog({ users, selectedIds, onToggleUser, onClose }) {
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+function ShareUserChips({ users, onRemove, removeLabel, chipClass, buttonClass, buttonLabel, onOpen, showOpen }) {
+  return (
+    <>
+      {users.map((user) => (
+        <span key={user.id} className={chipClass}>
+          {user.username}
+          <button
+            type="button"
+            onClick={() => onRemove(user.id)}
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+            aria-label={`${removeLabel} ${user.username}`}
+            title="Remove"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {showOpen ? (
+        <button type="button" onClick={onOpen} className={buttonClass}>
+          {buttonLabel}
+        </button>
+      ) : null}
     </>
   );
 }
@@ -1446,13 +1513,15 @@ function WriteTab({
   onCopy,
   onToggleShared,
   onEditAccessChange,
+  onViewAccessChange = () => {},
+  onHiddenFromChange = () => {},
   shareUsers = [],
   onDelete,
   onRestore,
   onClose,
   onAttachmentsChange,
 }) {
-  const [grantAccessOpen, setGrantAccessOpen] = useState(false);
+  const [picker, setPicker] = useState(null);
   const [attachHint, setAttachHint] = useState(null);
   const [incomingImageFiles, setIncomingImageFiles] = useState(null);
   const isNewFile = tab.fileId == null;
@@ -1462,20 +1531,43 @@ function WriteTab({
   const canAttachImages = !isDeleted && !isReadOnlyView && (isAdmin || Boolean(tab.canManageImages));
   const ownerId = tab.owner?.id ?? null;
   const editAccessIds = new Set((tab.editAccessUsers || []).map((user) => user.id));
+  const viewAccessIds = new Set((tab.viewAccessUsers || []).map((user) => user.id));
+  const hiddenFromIds = new Set((tab.hiddenFromUsers || []).map((user) => user.id));
   const selectableUsers = shareUsers.filter((user) => user.id !== ownerId);
-  const selectedUsers = tab.editAccessUsers || [];
+  const showSharePickers = selectableUsers.length > 0;
+  const sharePickers = {
+    edit: {
+      title: "Grant edit access",
+      description: "Selected users can edit this file even if it is not visible to everyone.",
+      titleId: "grant-edit-access-title",
+      selectedIds: editAccessIds,
+      onChange: onEditAccessChange,
+    },
+    view: {
+      title: "Share read-only",
+      description: "Selected users can view this file without making it visible to everyone.",
+      titleId: "share-view-access-title",
+      selectedIds: viewAccessIds,
+      onChange: onViewAccessChange,
+    },
+    hide: {
+      title: "Hide from users",
+      description: "Selected users will not see this file even if it is visible to everyone.",
+      titleId: "hide-file-from-title",
+      selectedIds: hiddenFromIds,
+      onChange: onHiddenFromChange,
+    },
+  };
+  const activePicker = picker ? sharePickers[picker] : null;
 
-  function toggleEditAccessUser(userId, checked) {
+  function toggleShareUser(list, userId, checked) {
+    const selectedIds = sharePickers[list].selectedIds;
     if (checked) {
-      if (!userId || editAccessIds.has(userId)) return;
-      onEditAccessChange([...editAccessIds, userId]);
+      if (!userId || selectedIds.has(userId)) return;
+      sharePickers[list].onChange([...selectedIds, userId]);
       return;
     }
-    onEditAccessChange([...editAccessIds].filter((id) => id !== userId));
-  }
-
-  function removeEditAccessUser(userId) {
-    toggleEditAccessUser(userId, false);
+    sharePickers[list].onChange([...selectedIds].filter((id) => id !== userId));
   }
 
   async function handleAttachImage(file) {
@@ -1564,32 +1656,36 @@ function WriteTab({
 
         {isAdmin && tab.fileId != null && !isDeleted ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-200 px-4 py-2.5 dark:border-zinc-700 sm:px-5">
-            {selectedUsers.map((user) => (
-              <span
-                key={user.id}
-                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100"
-              >
-                {user.username}
-                <button
-                  type="button"
-                  onClick={() => removeEditAccessUser(user.id)}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
-                  aria-label={`Remove edit access for ${user.username}`}
-                  title="Remove"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {selectableUsers.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => setGrantAccessOpen(true)}
-                className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
-              >
-                Grant access
-              </button>
-            ) : null}
+            <ShareUserChips
+              users={tab.editAccessUsers || []}
+              onRemove={(userId) => toggleShareUser("edit", userId, false)}
+              removeLabel="Remove edit access for"
+              chipClass="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100"
+              buttonClass="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+              buttonLabel="Grant access"
+              onOpen={() => setPicker("edit")}
+              showOpen={showSharePickers}
+            />
+            <ShareUserChips
+              users={tab.viewAccessUsers || []}
+              onRemove={(userId) => toggleShareUser("view", userId, false)}
+              removeLabel="Remove read-only access for"
+              chipClass="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+              buttonClass="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60"
+              buttonLabel="Share read-only"
+              onOpen={() => setPicker("view")}
+              showOpen={showSharePickers}
+            />
+            <ShareUserChips
+              users={tab.hiddenFromUsers || []}
+              onRemove={(userId) => toggleShareUser("hide", userId, false)}
+              removeLabel="Stop hiding from"
+              chipClass="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              buttonClass="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/60"
+              buttonLabel="Hide from"
+              onOpen={() => setPicker("hide")}
+              showOpen={showSharePickers}
+            />
             <div className="min-w-0 flex-1" />
             <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
               <input
@@ -1603,12 +1699,15 @@ function WriteTab({
           </div>
         ) : null}
 
-        {grantAccessOpen ? (
-          <GrantEditAccessDialog
+        {activePicker ? (
+          <ShareUserPickerDialog
+            title={activePicker.title}
+            description={activePicker.description}
+            titleId={activePicker.titleId}
             users={selectableUsers}
-            selectedIds={editAccessIds}
-            onToggleUser={toggleEditAccessUser}
-            onClose={() => setGrantAccessOpen(false)}
+            selectedIds={activePicker.selectedIds}
+            onToggleUser={(userId, checked) => toggleShareUser(picker, userId, checked)}
+            onClose={() => setPicker(null)}
           />
         ) : null}
 

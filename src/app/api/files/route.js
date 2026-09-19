@@ -6,7 +6,7 @@ import {
   canCreateFiles,
   canViewAllFiles,
   fileListIncludes,
-  getEditAccessFileIdsForUser,
+  getFileShareIdsForUser,
   nonAdminFileAccessWhere,
   ownFilesWhere,
   sharedFilesWhere,
@@ -74,7 +74,7 @@ export async function GET(req) {
     where.deleted = true;
   }
 
-  const editAccessFileIds = isAdmin ? [] : await getEditAccessFileIdsForUser(authedUser.id);
+  const shareIds = isAdmin ? {} : await getFileShareIdsForUser(authedUser.id);
 
   if (isAdmin) {
     if (scope === "shared") {
@@ -94,7 +94,7 @@ export async function GET(req) {
       }
     }
   } else if (scope === "shared") {
-    Object.assign(where, sharedFilesWhere(authedUser.id, { editAccessFileIds }));
+    Object.assign(where, sharedFilesWhere(authedUser.id, shareIds));
   } else {
     Object.assign(where, ownFilesWhere(authedUser.id));
   }
@@ -149,9 +149,9 @@ export async function POST(req) {
       return NextResponse.json({ error: "Invalid copyFrom file id" }, { status: 400 });
     }
 
-    const editAccessFileIds = canViewAllFiles(authedUser.role)
-      ? []
-      : await getEditAccessFileIdsForUser(authedUser.id);
+    const shareIds = canViewAllFiles(authedUser.role)
+      ? {}
+      : await getFileShareIdsForUser(authedUser.id);
 
     const source = await db.UserFile.findOne({
       where: {
@@ -159,7 +159,7 @@ export async function POST(req) {
         deleted: false,
         ...(canViewAllFiles(authedUser.role)
           ? {}
-          : nonAdminFileAccessWhere(authedUser.id, editAccessFileIds)),
+          : nonAdminFileAccessWhere(authedUser.id, shareIds)),
       },
       attributes: ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"],
       include: fileListIncludes,

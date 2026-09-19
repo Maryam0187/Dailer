@@ -1,9 +1,16 @@
-import { canCopyFile, canEditFile, canManageFileImages, hasEditGrant } from "@/server/files/fileAccess";
+import {
+  canCopyFile,
+  canEditFile,
+  canManageFileImages,
+  hasEditGrant,
+  hasViewGrant,
+  isHiddenFromUser,
+} from "@/server/files/fileAccess";
 import { serializeFileAttachments } from "@/server/files/fileAttachments";
 
-function serializeEditAccessUsers(file) {
-  if (!file?.editAccessGrants?.length) return [];
-  return file.editAccessGrants
+function serializeGrantUsers(grants) {
+  if (!grants?.length) return [];
+  return grants
     .filter((grant) => grant.user)
     .map((grant) => ({
       id: grant.user.id,
@@ -12,13 +19,17 @@ function serializeEditAccessUsers(file) {
 }
 
 export function serializeUserFile(file, { includeDeleted = false, viewer = null } = {}) {
-  const editAccessUsers = serializeEditAccessUsers(file);
+  const editAccessUsers = serializeGrantUsers(file.editAccessGrants);
+  const viewAccessUsers = serializeGrantUsers(file.viewAccessGrants);
+  const hiddenFromUsers = serializeGrantUsers(file.hiddenFrom);
   const data = {
     id: file.id,
     name: file.name,
     content: file.content || "",
     sharedWithAll: Boolean(file.sharedWithAll),
     editAccessUsers,
+    viewAccessUsers,
+    hiddenFromUsers,
     attachments: serializeFileAttachments(file.attachments),
     createdAt: file.createdAt?.toISOString?.() ?? file.createdAt,
     updatedAt: file.updatedAt?.toISOString?.() ?? file.updatedAt,
@@ -40,11 +51,15 @@ export function serializeUserFile(file, { includeDeleted = false, viewer = null 
   if (viewer) {
     data.isOwner = file.userId === viewer.id;
     data.hasEditAccess = hasEditGrant(file, viewer.id);
+    data.hasViewAccess = hasViewGrant(file, viewer.id);
     data.canManageImages = canManageFileImages(viewer, file);
     data.readOnly = !canEditFile(viewer, file);
     data.canCopy = canCopyFile(viewer, file);
     data.isSharedWithViewer =
-      !data.isOwner && (Boolean(file.sharedWithAll) || data.hasEditAccess);
+      !data.isOwner &&
+      (data.hasEditAccess ||
+        data.hasViewAccess ||
+        (Boolean(file.sharedWithAll) && !isHiddenFromUser(file, viewer.id)));
   }
 
   return data;

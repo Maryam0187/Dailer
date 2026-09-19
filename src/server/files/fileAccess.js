@@ -5,19 +5,25 @@ export function canViewAllFiles(role) {
   return role === "admin";
 }
 
-export const fileEditAccessInclude = {
-  model: db.UserFileEditAccess,
-  as: "editAccessGrants",
-  attributes: ["id", "userId"],
-  separate: true,
-  include: [
-    {
-      model: db.User,
-      as: "user",
-      attributes: ["id", "username"],
-    },
-  ],
-};
+function fileUserListInclude(model, as) {
+  return {
+    model,
+    as,
+    attributes: ["id", "userId"],
+    separate: true,
+    include: [
+      {
+        model: db.User,
+        as: "user",
+        attributes: ["id", "username"],
+      },
+    ],
+  };
+}
+
+export const fileEditAccessInclude = fileUserListInclude(db.UserFileEditAccess, "editAccessGrants");
+export const fileViewAccessInclude = fileUserListInclude(db.UserFileViewAccess, "viewAccessGrants");
+export const fileHiddenFromInclude = fileUserListInclude(db.UserFileHiddenFrom, "hiddenFrom");
 
 export const fileAttachmentInclude = {
   model: db.UserFileAttachment,
@@ -35,24 +41,57 @@ export const fileListIncludes = [
     attributes: ["id", "username"],
   },
   fileEditAccessInclude,
+  fileViewAccessInclude,
+  fileHiddenFromInclude,
   fileAttachmentInclude,
 ];
 
 const fileAttributes = ["id", "name", "content", "userId", "deleted", "sharedWithAll", "createdAt", "updatedAt"];
 
-export async function getEditAccessFileIdsForUser(userId) {
-  const grants = await db.UserFileEditAccess.findAll({
+async function getFileIdsForUser(model, userId) {
+  const rows = await model.findAll({
     where: { userId },
     attributes: ["fileId"],
     raw: true,
   });
-  return grants.map((grant) => grant.fileId);
+  return rows.map((row) => row.fileId);
 }
 
-export function nonAdminFileAccessWhere(userId, editAccessFileIds = []) {
-  const orConditions = [{ userId }, { sharedWithAll: true }];
+export async function getEditAccessFileIdsForUser(userId) {
+  return getFileIdsForUser(db.UserFileEditAccess, userId);
+}
+
+export async function getFileShareIdsForUser(userId) {
+  const [editAccessFileIds, viewAccessFileIds, hiddenFileIds] = await Promise.all([
+    getFileIdsForUser(db.UserFileEditAccess, userId),
+    getFileIdsForUser(db.UserFileViewAccess, userId),
+    getFileIdsForUser(db.UserFileHiddenFrom, userId),
+  ]);
+  return { editAccessFileIds, viewAccessFileIds, hiddenFileIds };
+}
+
+function sharedWithAllCondition({ userId = null, hiddenFileIds = [] } = {}) {
+  const condition = { sharedWithAll: true };
+  if (userId != null) {
+    condition.userId = { [Op.ne]: userId };
+  }
+  if (hiddenFileIds.length > 0) {
+    condition.id = { [Op.notIn]: hiddenFileIds };
+  }
+  return condition;
+}
+
+export function nonAdminFileAccessWhere(userId, {
+  editAccessFileIds = [],
+  viewAccessFileIds = [],
+  hiddenFileIds = [],
+} = {}) {
+  const orConditions = [{ userId }, sharedWithAllCondition({ hiddenFileIds })];
   if (editAccessFileIds.length > 0) {
     orConditions.push({ id: { [Op.in]: editAccessFileIds } });
+  }
+  if (viewAccessFileIds.length > 0) {
+    orConditions.push({ id: { [Op.in]: viewAccessFileIds } });
   }
   return { [Op.or]: orConditions };
 }
@@ -61,7 +100,12 @@ export function ownFilesWhere(userId) {
   return { userId };
 }
 
-export function sharedFilesWhere(userId, { isAdmin = false, editAccessFileIds = [] } = {}) {
+export function sharedFilesWhere(userId, {
+  isAdmin = false,
+  editAccessFileIds = [],
+  viewAccessFileIds = [],
+  hiddenFileIds = [],
+} = {}) {
   if (isAdmin) {
     return {
       [Op.or]: [
@@ -69,20 +113,38 @@ export function sharedFilesWhere(userId, { isAdmin = false, editAccessFileIds = 
         db.sequelize.literal(
           "EXISTS (SELECT 1 FROM UserFileEditAccess AS ea WHERE ea.fileId = UserFile.id)",
         ),
+        db.sequelize.literal(
+          "EXISTS (SELECT 1 FROM UserFileViewAccess AS va WHERE va.fileId = UserFile.id)",
+        ),
       ],
     };
   }
 
-  const orConditions = [{ sharedWithAll: true, userId: { [Op.ne]: userId } }];
+  const orConditions = [sharedWithAllCondition({ userId, hiddenFileIds })];
   if (editAccessFileIds.length > 0) {
     orConditions.push({ id: { [Op.in]: editAccessFileIds }, userId: { [Op.ne]: userId } });
+  }
+  if (viewAccessFileIds.length > 0) {
+    orConditions.push({ id: { [Op.in]: viewAccessFileIds }, userId: { [Op.ne]: userId } });
   }
   return { [Op.or]: orConditions };
 }
 
+function hasGrant(grants, userId) {
+  if (!grants?.length || userId == null) return false;
+  return grants.some((grant) => grant.userId === userId);
+}
+
 export function hasEditGrant(file, userId) {
-  if (!file?.editAccessGrants?.length || userId == null) return false;
-  return file.editAccessGrants.some((grant) => grant.userId === userId);
+  return hasGrant(file?.editAccessGrants, userId);
+}
+
+export function hasViewGrant(file, userId) {
+  return hasGrant(file?.viewAccessGrants, userId);
+}
+
+export function isHiddenFromUser(file, userId) {
+  return hasGrant(file?.hiddenFrom, userId);
 }
 
 export async function getAccessibleFile(id, authedUser, { includeDeleted = false } = {}) {
@@ -100,8 +162,8 @@ export async function getAccessibleFile(id, authedUser, { includeDeleted = false
 
   const where = { id };
   if (!canViewAllFiles(authedUser.role)) {
-    const editAccessFileIds = await getEditAccessFileIdsForUser(authedUser.id);
-    Object.assign(where, nonAdminFileAccessWhere(authedUser.id, editAccessFileIds));
+    const shareIds = await getFileShareIdsForUser(authedUser.id);
+    Object.assign(where, nonAdminFileAccessWhere(authedUser.id, shareIds));
   }
 
   const query = {
@@ -152,7 +214,7 @@ export function canCopyFile(authedUser, file) {
   if (file.userId === authedUser.id) return false;
   if (hasEditGrant(file, authedUser.id)) return false;
   if (canViewAllFiles(authedUser.role)) return false;
-  return Boolean(file.sharedWithAll);
+  return Boolean(file.sharedWithAll) || hasViewGrant(file, authedUser.id);
 }
 
 export function canManageFileSharing(authedUser) {
