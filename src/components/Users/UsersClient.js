@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io as ioClient } from "socket.io-client";
 import { formatDuration } from "@/lib/formatDuration";
@@ -137,6 +137,109 @@ function formatActivityLocationTitle(row) {
   if (place) return place;
   if (coords) return coords;
   return undefined;
+}
+
+const ACTIVITY_DB_FIELDS = [
+  { key: "id", label: "ID" },
+  { key: "userId", label: "User ID" },
+  { key: "action", label: "Action" },
+  { key: "entityType", label: "Entity type" },
+  { key: "entityId", label: "Entity ID" },
+  { key: "ipAddress", label: "IP address" },
+  { key: "country", label: "Country" },
+  { key: "region", label: "Region" },
+  { key: "city", label: "City" },
+  { key: "latitude", label: "Latitude" },
+  { key: "longitude", label: "Longitude" },
+  { key: "userAgent", label: "User agent" },
+  { key: "deviceType", label: "Device type" },
+  { key: "sessionId", label: "Session ID" },
+  { key: "createdAt", label: "Created at" },
+  { key: "updatedAt", label: "Updated at" },
+];
+
+function formatActivityDbValue(key, value) {
+  if (value == null || value === "") return "—";
+  if (key === "latitude" || key === "longitude") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(7) : "—";
+  }
+  if (key === "createdAt" || key === "updatedAt") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function ActivityChevron({ open }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 dark:text-zinc-500 ${open ? "rotate-90" : ""}`}
+      aria-hidden
+    >
+      <path
+        fillRule="evenodd"
+        d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function activityDetailFields(row) {
+  const extra = Object.keys(row || {})
+    .filter(
+      (key) =>
+        key !== "metadata" &&
+        key !== "location" &&
+        !ACTIVITY_DB_FIELDS.some((field) => field.key === key),
+    )
+    .map((key) => ({ key, label: key }));
+  return [...ACTIVITY_DB_FIELDS, ...extra];
+}
+
+function ActivityDetailRow({ label, value, wide = false, mono = false }) {
+  return (
+    <div className={`grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-2 ${wide ? "sm:col-span-2" : ""}`}>
+      <dt className="truncate pt-px text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</dt>
+      <dd
+        className={`min-w-0 break-all text-[11px] leading-snug text-zinc-800 dark:text-zinc-200 ${
+          mono ? "whitespace-pre-wrap font-mono" : ""
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function ActivityRowDetail({ row }) {
+  const fields = activityDetailFields(row);
+  const metadataDisplay = formatActivityDbValue("metadata", row?.metadata);
+
+  return (
+    <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+      {fields.map(({ key, label }) => (
+        <ActivityDetailRow
+          key={key}
+          label={label}
+          value={formatActivityDbValue(key, row?.[key])}
+          wide={key === "userAgent"}
+          mono={key === "userAgent" || key === "sessionId" || key === "ipAddress" || key === "action"}
+        />
+      ))}
+      <ActivityDetailRow label="Metadata" value={metadataDisplay} wide mono />
+    </dl>
+  );
 }
 
 function formatLastActive(value) {
@@ -689,6 +792,10 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   const [activities, setActivities] = useState([]);
   const [activitiesError, setActivitiesError] = useState(null);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [expandedActivityId, setExpandedActivityId] = useState(null);
+  const [activityDetailCache, setActivityDetailCache] = useState({});
+  const [activityDetailLoadingId, setActivityDetailLoadingId] = useState(null);
+  const [activityDetailError, setActivityDetailError] = useState(null);
   const [activityPage, setActivityPage] = useState(1);
   const [activityPagination, setActivityPagination] = useState({
     page: 1,
@@ -839,6 +946,10 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Failed to load activity");
+        setExpandedActivityId(null);
+        setActivityDetailCache({});
+        setActivityDetailLoadingId(null);
+        setActivityDetailError(null);
         setActivities(json.activities || []);
         if (json.pagination) {
           setActivityPagination(json.pagination);
@@ -877,6 +988,10 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
     setActivityPage(1);
     setMetrics(null);
     setActivities([]);
+    setExpandedActivityId(null);
+    setActivityDetailCache({});
+    setActivityDetailLoadingId(null);
+    setActivityDetailError(null);
     const controller = new AbortController();
     loadDetail(controller.signal);
     return () => controller.abort();
@@ -950,6 +1065,34 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   function onActivityNext() {
     if (!activityPagination.hasNext || activitiesLoading) return;
     setActivityPage(activityPage + 1);
+  }
+
+  async function toggleActivityRow(activityId) {
+    if (!isAdmin) return;
+    if (expandedActivityId === activityId) {
+      setExpandedActivityId(null);
+      setActivityDetailError(null);
+      setActivityDetailLoadingId(null);
+      return;
+    }
+    setExpandedActivityId(activityId);
+    setActivityDetailError(null);
+    if (activityDetailCache[activityId]) return;
+
+    setActivityDetailLoadingId(activityId);
+    try {
+      const res = await fetch(`/api/users/${user.id}/activities/${activityId}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load activity detail");
+      setActivityDetailCache((prev) => ({ ...prev, [activityId]: json.activity || null }));
+    } catch (err) {
+      setActivityDetailError(err.message || "Failed to load activity detail");
+    } finally {
+      setActivityDetailLoadingId((current) => (current === activityId ? null : current));
+    }
   }
 
   async function downloadRecording(callId, url) {
@@ -1199,6 +1342,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   Login, logout, and other tracked actions for this user in the selected date range.
+                  Click a row to view the full database record.
                 </p>
               </div>
 
@@ -1240,6 +1384,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
                   <table className="w-full min-w-[32rem] table-fixed text-left text-sm">
                     <colgroup>
+                      <col className="w-10" />
                       <col className="w-[10.5rem]" />
                       <col className="w-[8.5rem]" />
                       <col className="w-[13rem]" />
@@ -1247,6 +1392,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     </colgroup>
                     <thead>
                       <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                        <th className="w-10 px-2 py-2.5" aria-label="Expand" />
                         <th className="whitespace-nowrap px-3 py-2.5">When</th>
                         <th className="whitespace-nowrap px-3 py-2.5">Action</th>
                         <th className="w-[13rem] max-w-[13rem] px-3 py-2.5">Details</th>
@@ -1262,31 +1408,75 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                         );
                         const details = truncateActivityText(detailsFull);
                         const location = formatActivityLocation(row);
+                        const open = expandedActivityId === row.id;
                         return (
-                          <tr key={row.id}>
-                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
-                              {new Date(row.createdAt).toLocaleString()}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
-                              {activityActionLabel(row.action, row.metadata)}
-                            </td>
-                            <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
-                              <p
-                                className="truncate text-zinc-700 dark:text-zinc-200"
-                                title={detailsFull !== "—" ? detailsFull : undefined}
-                              >
-                                {details}
-                              </p>
-                            </td>
-                            <td className="w-[11rem] max-w-[11rem] overflow-hidden px-3 py-2.5">
-                              <p
-                                className="truncate text-zinc-700 dark:text-zinc-200"
-                                title={formatActivityLocationTitle(row)}
-                              >
-                                {location}
-                              </p>
-                            </td>
-                          </tr>
+                          <Fragment key={row.id}>
+                            <tr
+                              className={`cursor-pointer transition-colors ${
+                                open
+                                  ? "bg-sky-50/70 dark:bg-sky-950/25"
+                                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                              }`}
+                              onClick={() => void toggleActivityRow(row.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  void toggleActivityRow(row.id);
+                                }
+                              }}
+                              tabIndex={0}
+                              aria-expanded={open}
+                            >
+                              <td className="px-2 py-2.5">
+                                <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                                  <ActivityChevron open={open} />
+                                </span>
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                                {new Date(row.createdAt).toLocaleString()}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                                {activityActionLabel(row.action, row.metadata)}
+                              </td>
+                              <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
+                                <p
+                                  className="truncate text-zinc-700 dark:text-zinc-200"
+                                  title={detailsFull !== "—" ? detailsFull : undefined}
+                                >
+                                  {details}
+                                </p>
+                              </td>
+                              <td className="w-[11rem] max-w-[11rem] overflow-hidden px-3 py-2.5">
+                                <p
+                                  className="truncate text-zinc-700 dark:text-zinc-200"
+                                  title={formatActivityLocationTitle(row)}
+                                >
+                                  {location}
+                                </p>
+                              </td>
+                            </tr>
+                            {open ? (
+                              <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
+                                <td colSpan={5} className="px-3 py-2 sm:px-4">
+                                  {activityDetailLoadingId === row.id ? (
+                                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                      Loading record…
+                                    </p>
+                                  ) : activityDetailError && !activityDetailCache[row.id] ? (
+                                    <p className="text-xs text-red-700 dark:text-red-300">
+                                      {activityDetailError}
+                                    </p>
+                                  ) : activityDetailCache[row.id] ? (
+                                    <ActivityRowDetail row={activityDetailCache[row.id]} />
+                                  ) : (
+                                    <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                      No record found.
+                                    </p>
+                                  )}
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
                         );
                       })}
                     </tbody>

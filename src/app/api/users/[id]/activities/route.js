@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
-import { formatLocationLabel } from "@/server/activity/resolveRequestLocation";
+import { serializeUserActivityListItem } from "@/server/activity/serializeUserActivity";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -15,26 +15,6 @@ function parseDateOnly(value) {
   const v = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   return v;
-}
-
-function serializeActivity(row) {
-  return {
-    id: row.id,
-    action: row.action,
-    entityType: row.entityType,
-    entityId: row.entityId,
-    ipAddress: row.ipAddress,
-    latitude: row.latitude != null ? Number(row.latitude) : null,
-    longitude: row.longitude != null ? Number(row.longitude) : null,
-    country: row.country,
-    region: row.region,
-    city: row.city,
-    location: formatLocationLabel(row),
-    userAgent: row.userAgent,
-    sessionId: row.sessionId,
-    metadata: row.metadata,
-    createdAt: row.createdAt,
-  };
 }
 
 export async function GET(req, { params }) {
@@ -84,7 +64,7 @@ export async function GET(req, { params }) {
   const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
   return NextResponse.json({
-    activities: rows.map(serializeActivity),
+    activities: rows.map(serializeUserActivityListItem),
     pagination: {
       page,
       pageSize,
