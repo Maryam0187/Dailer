@@ -491,6 +491,93 @@ async function streamOpenAiReply({ messages, onToken, signal }) {
   return full.trim();
 }
 
+const MAX_TRAIN_AUDIO_BYTES = 4 * 1024 * 1024;
+const TRAIN_AUDIO_TYPES = new Set([
+  "audio/webm",
+  "audio/webm;codecs=opus",
+  "audio/ogg",
+  "audio/ogg;codecs=opus",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/m4a",
+  "audio/x-m4a",
+]);
+
+function trainAudioFilename(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("wav")) return "customer.wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "customer.mp3";
+  if (mime.includes("mp4") || mime.includes("m4a")) return "customer.m4a";
+  if (mime.includes("ogg")) return "customer.ogg";
+  return "customer.webm";
+}
+
+function isAllowedTrainAudioType(mimeType) {
+  const mime = String(mimeType || "").trim().toLowerCase();
+  if (!mime) return true;
+  if (TRAIN_AUDIO_TYPES.has(mime)) return true;
+  return mime.startsWith("audio/");
+}
+
+async function transcribeCustomerAudio({ buffer, filename, mimeType, signal }) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (!bytes.length) throw new Error("Audio is empty");
+  if (bytes.length > MAX_TRAIN_AUDIO_BYTES) throw new Error("Audio is too long. Try a shorter clip.");
+
+  const type = String(mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+  const name = String(filename || "").trim() || trainAudioFilename(type);
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type }), name);
+  form.append("model", "whisper-1");
+  form.append("language", "en");
+
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `OpenAI transcription failed (${res.status})`);
+  }
+  const json = await res.json().catch(() => ({}));
+  return String(json?.text || "").trim();
+}
+
+async function synthesizeSpeech({ text, signal }) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+  const input = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4096);
+  if (!input) throw new Error("Nothing to speak");
+
+  const voice = String(process.env.OPENAI_ADDRESS_BOT_TTS_VOICE || "nova").trim() || "nova";
+  const res = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "tts-1",
+      voice,
+      input,
+      response_format: "mp3",
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(errText || `OpenAI speech failed (${res.status})`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 module.exports = {
   ADDRESS_BOT_LABEL,
   LABEL_MAX,
@@ -518,4 +605,8 @@ module.exports = {
   buildRelayUrl,
   buildConversationRelayTwiml,
   streamOpenAiReply,
+  MAX_TRAIN_AUDIO_BYTES,
+  isAllowedTrainAudioType,
+  transcribeCustomerAudio,
+  synthesizeSpeech,
 };

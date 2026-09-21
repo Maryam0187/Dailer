@@ -17,8 +17,8 @@ export default async function AddressBotSettingsPage() {
           Address Assistant
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Train the shared address bot: name it, tell it how to speak, and add question-and-answer
-          examples. On a live call, Start uses this with the selected company address.
+          Train without a live call: save the prompt and Q&amp;A, then talk as the customer and hear
+          the bot reply. Live Start is only for later voice calls with a real customer.
         </p>
       </div>
       <AddressBotSettingsClient isAdmin={isAdmin} />
