@@ -1,6 +1,9 @@
 import db from "@/server/db";
 
+const { DEFAULT_ADDRESS_BOT_INSTRUCTIONS } = require("./addressBotCore.cjs");
+
 export const ADDRESS_BOT_NAME_DEFAULT = "Address Assistant";
+export { DEFAULT_ADDRESS_BOT_INSTRUCTIONS };
 export const ADDRESS_BOT_NAME_MAX = 64;
 export const ADDRESS_BOT_INSTRUCTIONS_MAX = 8000;
 export const ADDRESS_BOT_QUESTION_MAX = 500;
@@ -37,7 +40,7 @@ export function serializeAddressBotProfile(row) {
   return {
     id: row.id,
     name: row.name || ADDRESS_BOT_NAME_DEFAULT,
-    instructions: row.instructions || "",
+    instructions: String(row.instructions || "").trim() || DEFAULT_ADDRESS_BOT_INSTRUCTIONS,
     updatedBy: row.updatedBy ?? null,
     updatedByUsername: row.updatedByUser?.username ?? null,
     updatedAt: row.updatedAt || null,

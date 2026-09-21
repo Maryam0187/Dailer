@@ -107,7 +107,7 @@ export async function POST(req) {
           { status: 400 },
         );
       }
-      const mimeType = String(parsed.audio.type || "audio/webm");
+      const mimeType = String(parsed.audio.type || "audio/webm").split(";")[0].trim() || "audio/webm";
       if (!isAllowedTrainAudioType(mimeType)) {
         return NextResponse.json({ error: "Unsupported audio type" }, { status: 400 });
       }
