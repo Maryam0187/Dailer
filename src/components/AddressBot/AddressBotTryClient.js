@@ -7,6 +7,7 @@ const inputClass =
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 const MAX_RECORD_MS = 30000;
+const MIN_RECORD_MS = 500;
 
 function pickRecorderMime() {
   if (typeof MediaRecorder === "undefined") return "";
@@ -14,8 +15,47 @@ function pickRecorderMime() {
   return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
+function audioUploadName(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("mp4") || mime.includes("m4a")) return "customer.m4a";
+  if (mime.includes("ogg")) return "customer.ogg";
+  if (mime.includes("wav")) return "customer.wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "customer.mp3";
+  return "customer.webm";
+}
+
+function audioUploadType(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("mp4") || mime.includes("m4a")) return "audio/mp4";
+  if (mime.includes("ogg")) return "audio/ogg";
+  if (mime.includes("wav")) return "audio/wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "audio/mpeg";
+  return "audio/webm";
+}
+
+function getSpeechRecognitionCtor() {
+  if (typeof window === "undefined") return null;
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
 function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function friendlyError(err, fallback) {
+  const raw = String(err?.message || err || "").trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    const fromApi = parsed?.error?.message || parsed?.error || parsed?.message;
+    if (fromApi) return String(fromApi);
+  } catch {
+    /* not JSON */
+  }
+  if (/notallowed|permission|denied/i.test(raw)) {
+    return "Allow the microphone in the browser, then click Talk.";
+  }
+  return raw;
 }
 
 export default function AddressBotTryClient({ botName = "Address Assistant" }) {
@@ -33,14 +73,17 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   const [lines, setLines] = useState([]);
   const [sessionBotName, setSessionBotName] = useState(botName || "Address Assistant");
   const [micBlocked, setMicBlocked] = useState(false);
+  const [heardPreview, setHeardPreview] = useState("");
 
   const stateRef = useRef(null);
   const audioRef = useRef(null);
   const streamRef = useRef(null);
   const recorderRef = useRef(null);
+  const recognitionRef = useRef(null);
   const chunksRef = useRef([]);
+  const transcriptRef = useRef("");
   const talkingRef = useRef(false);
-  const wantTalkRef = useRef(false);
+  const recordStartedAtRef = useRef(0);
   const recordTimerRef = useRef(null);
   const blobUrlRef = useRef("");
   const logRef = useRef(null);
@@ -80,7 +123,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   useEffect(() => {
     if (!logRef.current) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [lines]);
+  }, [lines, heardPreview]);
 
   const stopAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -96,12 +139,23 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     setBotSpeaking(false);
   }, []);
 
-  const stopMic = useCallback(() => {
-    if (recordTimerRef.current) {
-      clearTimeout(recordTimerRef.current);
-      recordTimerRef.current = null;
+  const stopRecognition = useCallback(() => {
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (!recognition) return;
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    } catch {
+      /* ignore */
     }
+  }, []);
+
+  const stopRecorder = useCallback(() => {
     const recorder = recorderRef.current;
+    recorderRef.current = null;
     if (recorder && recorder.state !== "inactive") {
       try {
         recorder.stop();
@@ -109,23 +163,58 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
         /* ignore */
       }
     }
-    recorderRef.current = null;
-    const stream = streamRef.current;
-    if (stream) {
-      for (const track of stream.getTracks()) track.stop();
-      streamRef.current = null;
-    }
-    talkingRef.current = false;
-    wantTalkRef.current = false;
-    setTalking(false);
   }, []);
+
+  const releaseMic = useCallback(() => {
+    const stream = streamRef.current;
+    streamRef.current = null;
+    if (!stream) return;
+    for (const track of stream.getTracks()) track.stop();
+  }, []);
+
+  const stopListening = useCallback(() => {
+    if (recordTimerRef.current) {
+      clearTimeout(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    stopRecognition();
+    stopRecorder();
+    talkingRef.current = false;
+    setTalking(false);
+    setHeardPreview("");
+  }, [stopRecognition, stopRecorder]);
 
   useEffect(() => {
     return () => {
       stopAudio();
-      stopMic();
+      stopListening();
+      releaseMic();
     };
-  }, [stopAudio, stopMic]);
+  }, [releaseMic, stopAudio, stopListening]);
+
+  async function ensureMic() {
+    const existing = streamRef.current;
+    if (existing?.getAudioTracks().some((track) => track.readyState === "live")) {
+      return existing;
+    }
+    if (existing) {
+      for (const track of existing.getTracks()) track.stop();
+      streamRef.current = null;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This browser cannot use the microphone. Type as the customer instead.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    streamRef.current = stream;
+    setMicBlocked(false);
+    return stream;
+  }
 
   async function playBotReply(text) {
     const spoken = String(text || "").trim();
@@ -171,7 +260,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       form.append("action", "message");
       form.append("addressId", String(selectedId));
       form.append("state", JSON.stringify(stateRef.current || {}));
-      form.append("audio", payload.audio, payload.audio.name || "customer.webm");
+      form.append("audio", payload.audio, payload.filename || "customer.webm");
       return fetch("/api/address-bot/try", {
         method: "POST",
         credentials: "include",
@@ -213,15 +302,24 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     setPending(true);
     setError(null);
     stopAudio();
+    stopListening();
     stateRef.current = null;
     setLines([]);
+    setHeardPreview("");
     try {
+      try {
+        await ensureMic();
+      } catch (micErr) {
+        setMicBlocked(true);
+        setShowType(true);
+        setError(friendlyError(micErr, "Allow the microphone, or type as the customer."));
+      }
       const res = await postTry({ action: "start", addressId });
       await handleResult(res);
       setStarted(true);
     } catch (e) {
       setStarted(false);
-      setError(e.message || "Failed to start");
+      setError(friendlyError(e, "Failed to start"));
     } finally {
       setPending(false);
     }
@@ -229,18 +327,20 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
 
   function onReset() {
     stopAudio();
-    stopMic();
+    stopListening();
+    releaseMic();
     stateRef.current = null;
     setStarted(false);
     setLines([]);
     setTyped("");
+    setHeardPreview("");
     setError(null);
   }
 
   async function sendTyped(e) {
     e?.preventDefault?.();
     const text = typed.trim();
-    if (!text || pending || botSpeaking || !started) return;
+    if (!text || pending || botSpeaking || talking || !started) return;
     setPending(true);
     setError(null);
     setTyped("");
@@ -248,130 +348,184 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       const res = await postTry({ action: "message", userText: text, addressId });
       await handleResult(res, { includeCustomer: true });
     } catch (err) {
-      setError(err.message || "Failed to send");
+      setError(friendlyError(err, "Failed to send"));
     } finally {
       setPending(false);
     }
   }
 
+  function startBrowserListening() {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return;
+    stopRecognition();
+    transcriptRef.current = "";
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      let finalText = "";
+      let interim = "";
+      for (let i = 0; i < event.results.length; i += 1) {
+        const piece = event.results[i]?.[0]?.transcript || "";
+        if (event.results[i].isFinal) finalText += `${piece} `;
+        else interim += piece;
+      }
+      const heard = `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
+      if (finalText.trim()) transcriptRef.current = finalText.trim();
+      else if (heard) transcriptRef.current = heard;
+      setHeardPreview(heard);
+    };
+    recognition.onerror = () => {
+      /* keep MediaRecorder fallback */
+    };
+    recognition.onend = () => {
+      if (talkingRef.current && recognitionRef.current === recognition) {
+        try {
+          recognition.start();
+        } catch {
+          /* ignore restart failures */
+        }
+      }
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+    }
+  }
+
+  async function startRecording() {
+    if (!started || pending || botSpeaking || talkingRef.current) return;
+    setError(null);
+    setHeardPreview("");
+    transcriptRef.current = "";
+    chunksRef.current = [];
+    try {
+      const stream = await ensureMic();
+      talkingRef.current = true;
+      setTalking(true);
+      recordStartedAtRef.current = Date.now();
+
+      if (typeof MediaRecorder !== "undefined") {
+        const mime = pickRecorderMime();
+        const recorder = mime
+          ? new MediaRecorder(stream, { mimeType: mime })
+          : new MediaRecorder(stream);
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+        };
+        recorderRef.current = recorder;
+        recorder.start(200);
+      }
+
+      startBrowserListening();
+      recordTimerRef.current = setTimeout(() => {
+        void finishRecording();
+      }, MAX_RECORD_MS);
+    } catch (err) {
+      talkingRef.current = false;
+      setTalking(false);
+      setMicBlocked(true);
+      setShowType(true);
+      setError(friendlyError(err, "Microphone permission is needed to talk as the customer."));
+    }
+  }
+
   async function finishRecording() {
     if (finishingRef.current) return;
-    const recorder = recorderRef.current;
-    if (!recorder) return;
+    if (!talkingRef.current && !recorderRef.current) return;
     finishingRef.current = true;
+    talkingRef.current = false;
+    setTalking(false);
+    if (recordTimerRef.current) {
+      clearTimeout(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+
+    const elapsed = Date.now() - recordStartedAtRef.current;
+    const heard = String(transcriptRef.current || heardPreview || "").trim();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    stopRecognition();
+
     try {
-      await new Promise((resolve) => {
-        recorder.addEventListener("stop", resolve, { once: true });
+      if (elapsed < MIN_RECORD_MS && !heard) {
+        setError("Click Talk, speak as the customer, then click Stop talking.");
+        chunksRef.current = [];
+        return;
+      }
+
+      if (recorder && recorder.state !== "inactive") {
+        await new Promise((resolve) => {
+          const done = () => resolve();
+          recorder.addEventListener("stop", done, { once: true });
+          try {
+            if (typeof recorder.requestData === "function") recorder.requestData();
+            recorder.stop();
+          } catch {
+            done();
+          }
+        });
+      }
+
+      const spoken = String(transcriptRef.current || heard || "").trim();
+      if (spoken) {
+        setHeardPreview("");
+        setPending(true);
+        setError(null);
         try {
-          if (recorder.state !== "inactive") recorder.stop();
-          else resolve();
-        } catch {
-          resolve();
+          const res = await postTry({ action: "message", userText: spoken, addressId });
+          await handleResult(res, { includeCustomer: true });
+        } catch (err) {
+          setError(friendlyError(err, "Failed to hear that"));
+        } finally {
+          setPending(false);
         }
-      });
+        return;
+      }
+
       const chunks = chunksRef.current;
       chunksRef.current = [];
-      recorderRef.current = null;
-      const stream = streamRef.current;
-      if (stream) {
-        for (const track of stream.getTracks()) track.stop();
-        streamRef.current = null;
-      }
-      if (recordTimerRef.current) {
-        clearTimeout(recordTimerRef.current);
-        recordTimerRef.current = null;
-      }
-      talkingRef.current = false;
-      wantTalkRef.current = false;
-      setTalking(false);
-
       if (!chunks.length) {
-        setError("No audio captured. Hold Talk and speak.");
+        setError("No speech captured. Click Talk, speak, then click Stop talking.");
+        setShowType(true);
         return;
       }
-      const mime = recorder.mimeType || pickRecorderMime() || "audio/webm";
-      const blob = new Blob(chunks, { type: mime });
-      if (blob.size < 400) {
-        setError("That was too short. Hold Talk and speak as the customer.");
+
+      const rawType = recorder?.mimeType || pickRecorderMime() || "audio/webm";
+      const type = audioUploadType(rawType);
+      const filename = audioUploadName(type);
+      const blob = new Blob(chunks, { type });
+      if (blob.size < 800) {
+        setError("That was too short. Click Talk, speak as the customer, then Stop talking.");
         return;
       }
-      const file = new File([blob], mime.includes("mp4") ? "customer.m4a" : "customer.webm", {
-        type: mime,
-      });
+
       setPending(true);
       setError(null);
       try {
-        const res = await postTry({ audio: file, addressId });
+        const res = await postTry({ audio: blob, filename, addressId });
         await handleResult(res, { includeCustomer: true });
       } catch (err) {
-        setError(err.message || "Failed to hear that");
+        setError(friendlyError(err, "Failed to hear that"));
+        setShowType(true);
       } finally {
         setPending(false);
       }
     } finally {
       finishingRef.current = false;
+      setHeardPreview("");
     }
   }
 
-  async function startTalk(event) {
-    if (event?.pointerType === "mouse" && event.button !== 0) return;
-    event?.preventDefault?.();
-    if (!started || pending || botSpeaking || talkingRef.current) return;
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setMicBlocked(true);
-      setShowType(true);
-      setError("This browser cannot use the microphone. Type as the customer instead.");
+  async function toggleTalk() {
+    if (talkingRef.current) {
+      await finishRecording();
       return;
     }
-    wantTalkRef.current = true;
-    talkingRef.current = true;
-    setTalking(true);
-    setError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!wantTalkRef.current) {
-        for (const track of stream.getTracks()) track.stop();
-        talkingRef.current = false;
-        setTalking(false);
-        return;
-      }
-      streamRef.current = stream;
-      setMicBlocked(false);
-      const mime = pickRecorderMime();
-      const recorder = mime
-        ? new MediaRecorder(stream, { mimeType: mime })
-        : new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorderRef.current = recorder;
-      recorder.start(250);
-      recordTimerRef.current = setTimeout(() => {
-        void finishRecording();
-      }, MAX_RECORD_MS);
-      event?.currentTarget?.setPointerCapture?.(event.pointerId);
-    } catch (err) {
-      wantTalkRef.current = false;
-      talkingRef.current = false;
-      setTalking(false);
-      setMicBlocked(true);
-      setShowType(true);
-      setError(err?.message || "Microphone permission is needed to talk as the customer.");
-    }
-  }
-
-  function endTalk(event) {
-    event?.preventDefault?.();
-    wantTalkRef.current = false;
-    if (recorderRef.current) {
-      void finishRecording();
-      return;
-    }
-    if (talkingRef.current && !streamRef.current) {
-      talkingRef.current = false;
-      setTalking(false);
-    }
+    await startRecording();
   }
 
   const busy = pending || botSpeaking;
@@ -382,8 +536,8 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       <audio ref={audioRef} className="hidden" />
       <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Train by talking</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        You are the customer. Speak into the mic. {sessionBotName} talks back. Save the prompt and
-        Q&amp;A above first — Start reloads the latest saved training. No live call.
+        You are the customer. Click Talk, speak, then click Stop talking. {sessionBotName} talks
+        back. Save the prompt and Q&amp;A above first — Start reloads the latest saved training.
       </p>
 
       {loadError ? (
@@ -433,15 +587,12 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
             <button
               type="button"
               disabled={!canTalk && !talking}
-              onPointerDown={startTalk}
-              onPointerUp={endTalk}
-              onPointerCancel={endTalk}
-              onContextMenu={(e) => e.preventDefault()}
-              className={`h-11 min-w-[9rem] select-none rounded-lg px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70 ${
-                talking ? "bg-rose-600 hover:bg-rose-600" : "bg-sky-600 hover:bg-sky-700"
+              onClick={toggleTalk}
+              className={`h-11 min-w-[10.5rem] rounded-lg px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70 ${
+                talking ? "bg-rose-600 hover:bg-rose-700" : "bg-sky-600 hover:bg-sky-700"
               }`}
             >
-              {talking ? "Listening…" : "Hold to talk"}
+              {talking ? "Stop talking" : "Talk as customer"}
             </button>
             <button
               type="button"
@@ -462,8 +613,10 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
             : pending
               ? "Working…"
               : talking
-                ? "Release when you finish."
-                : "Hold Talk and speak as the customer."}
+                ? heardPreview
+                  ? `Hearing: ${heardPreview}`
+                  : "Listening… click Stop talking when you finish."
+                : "Click Talk as customer, speak, then Stop talking."}
         </p>
       ) : null}
 
@@ -512,11 +665,11 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   placeholder="yes"
-                  disabled={busy}
+                  disabled={busy || talking}
                 />
                 <button
                   type="submit"
-                  disabled={busy || !typed.trim()}
+                  disabled={busy || talking || !typed.trim()}
                   className="h-11 rounded-lg bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   Send

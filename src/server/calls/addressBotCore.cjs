@@ -530,7 +530,7 @@ async function transcribeCustomerAudio({ buffer, filename, mimeType, signal }) {
   if (bytes.length > MAX_TRAIN_AUDIO_BYTES) throw new Error("Audio is too long. Try a shorter clip.");
 
   const type = String(mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
-  const name = String(filename || "").trim() || trainAudioFilename(type);
+  const name = trainAudioFilename(type);
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(bytes)], { type }), name);
   form.append("model", "whisper-1");
@@ -544,7 +544,14 @@ async function transcribeCustomerAudio({ buffer, filename, mimeType, signal }) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `OpenAI transcription failed (${res.status})`);
+    let message = `OpenAI transcription failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.error?.message) message = parsed.error.message;
+    } catch {
+      if (text) message = text.slice(0, 300);
+    }
+    throw new Error(message);
   }
   const json = await res.json().catch(() => ({}));
   return String(json?.text || "").trim();
