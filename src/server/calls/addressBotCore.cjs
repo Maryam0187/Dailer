@@ -288,22 +288,77 @@ function classifyReadyReply(text) {
   return "unknown";
 }
 
-function buildSystemPrompt(address) {
+function buildSystemPrompt(address, training = {}) {
   const spoken = String(address || "").trim();
-  return [
-    "You are a warm, natural person on a live phone call helping a customer write down an address. A human agent is also on the line.",
-    "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
+  const name = String(training?.name || "").trim() || "Address Assistant";
+  const instructions = String(training?.instructions || "").trim();
+  const examples = Array.isArray(training?.examples) ? training.examples : [];
+
+  const parts = [
+    `You are ${name} on a live phone call helping a customer write down an address. A human agent is also on the line.`,
+  ];
+
+  if (instructions) {
+    parts.push(instructions);
+  } else {
+    parts.push(
+      "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
+      "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
+      "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
+      "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
+      "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
+      "After that, you may repeat it, go slower, or spell again if they ask.",
+    );
+  }
+
+  parts.push(
     "This is the only address you may give:",
     spoken,
-    "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
-    "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
-    "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
-    "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
-    "After that, you may repeat it, go slower, or spell again if they ask.",
     "Answer only questions about this address. If they ask about anything else, say their representative is right there and can help.",
     "Do not invent other company facts or other addresses.",
     "Keep replies to a few spoken sentences. No markdown, lists, SSML, or special characters.",
-  ].join(" ");
+  );
+
+  const usableExamples = examples.filter((ex) => {
+    const question = String(ex?.question || "").trim();
+    const answer = String(ex?.answer || "").trim();
+    return question && answer;
+  });
+  if (usableExamples.length) {
+    parts.push("Follow these examples when the customer says something similar:");
+    for (const ex of usableExamples) {
+      parts.push(
+        `If the customer says: ${String(ex.question).trim()} You should say: ${String(ex.answer).trim()}`,
+      );
+    }
+  }
+
+  return parts.join(" ");
+}
+
+async function loadAddressBotTrainingForPrompt() {
+  try {
+    const db = require("../../../models");
+    const profile = await db.AddressBotProfile.findOne({
+      order: [["id", "ASC"]],
+      attributes: ["name", "instructions"],
+    });
+    const examples = await db.AddressBotTrainingExample.findAll({
+      order: [["id", "ASC"]],
+      attributes: ["question", "answer"],
+    });
+    return {
+      name: profile?.name || "Address Assistant",
+      instructions: profile?.instructions || "",
+      examples: (examples || []).map((row) => ({
+        question: row.question,
+        answer: row.answer,
+      })),
+    };
+  } catch (err) {
+    console.error("[address-bot] failed to load training profile:", err?.message || err);
+    return { name: "Address Assistant", instructions: "", examples: [] };
+  }
 }
 
 function signRelayToken({ addressId, callId }) {
@@ -436,6 +491,93 @@ async function streamOpenAiReply({ messages, onToken, signal }) {
   return full.trim();
 }
 
+const MAX_TRAIN_AUDIO_BYTES = 4 * 1024 * 1024;
+const TRAIN_AUDIO_TYPES = new Set([
+  "audio/webm",
+  "audio/webm;codecs=opus",
+  "audio/ogg",
+  "audio/ogg;codecs=opus",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/m4a",
+  "audio/x-m4a",
+]);
+
+function trainAudioFilename(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.includes("wav")) return "customer.wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "customer.mp3";
+  if (mime.includes("mp4") || mime.includes("m4a")) return "customer.m4a";
+  if (mime.includes("ogg")) return "customer.ogg";
+  return "customer.webm";
+}
+
+function isAllowedTrainAudioType(mimeType) {
+  const mime = String(mimeType || "").trim().toLowerCase();
+  if (!mime) return true;
+  if (TRAIN_AUDIO_TYPES.has(mime)) return true;
+  return mime.startsWith("audio/");
+}
+
+async function transcribeCustomerAudio({ buffer, filename, mimeType, signal }) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (!bytes.length) throw new Error("Audio is empty");
+  if (bytes.length > MAX_TRAIN_AUDIO_BYTES) throw new Error("Audio is too long. Try a shorter clip.");
+
+  const type = String(mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+  const name = String(filename || "").trim() || trainAudioFilename(type);
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type }), name);
+  form.append("model", "whisper-1");
+  form.append("language", "en");
+
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `OpenAI transcription failed (${res.status})`);
+  }
+  const json = await res.json().catch(() => ({}));
+  return String(json?.text || "").trim();
+}
+
+async function synthesizeSpeech({ text, signal }) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+  const input = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4096);
+  if (!input) throw new Error("Nothing to speak");
+
+  const voice = String(process.env.OPENAI_ADDRESS_BOT_TTS_VOICE || "nova").trim() || "nova";
+  const res = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "tts-1",
+      voice,
+      input,
+      response_format: "mp3",
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(errText || `OpenAI speech failed (${res.status})`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 module.exports = {
   ADDRESS_BOT_LABEL,
   LABEL_MAX,
@@ -456,10 +598,15 @@ module.exports = {
   READY_RETRY,
   wrapPlainTextForTts,
   buildSystemPrompt,
+  loadAddressBotTrainingForPrompt,
   signRelayToken,
   verifyRelayToken,
   httpsToWss,
   buildRelayUrl,
   buildConversationRelayTwiml,
   streamOpenAiReply,
+  MAX_TRAIN_AUDIO_BYTES,
+  isAllowedTrainAudioType,
+  transcribeCustomerAudio,
+  synthesizeSpeech,
 };

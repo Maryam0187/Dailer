@@ -14,7 +14,7 @@ import {
 import { sanitizeFileContent, trimFileName } from "@/server/files/sanitizeFileContent";
 import { resolveRestoreFileName } from "@/server/files/resolveRestoreFileName";
 import { serializeUserFile } from "@/server/files/serializeUserFile";
-import { syncFileEditAccess } from "@/server/files/syncFileEditAccess";
+import { syncFileShareLists } from "@/server/files/syncFileEditAccess";
 
 export async function GET(_req, { params }) {
   const authedUser = await getAuthedUser();
@@ -74,8 +74,15 @@ export async function PATCH(req, { params }) {
 
   const update = {};
   const ownerUserId = file.userId;
+  const shareListFields = [
+    ["editAccessUserIds", "edit access"],
+    ["viewAccessUserIds", "view access"],
+    ["hiddenFromUserIds", "hidden users"],
+  ];
   const sharingSettingsOnly =
-    (body?.sharedWithAll !== undefined || body?.editAccessUserIds !== undefined) &&
+    (body?.sharedWithAll !== undefined ||
+      body?.preventCopy !== undefined ||
+      shareListFields.some(([field]) => body?.[field] !== undefined)) &&
     body?.name == null &&
     body?.content === undefined;
 
@@ -86,14 +93,27 @@ export async function PATCH(req, { params }) {
     update.sharedWithAll = Boolean(body.sharedWithAll);
   }
 
-  if (body?.editAccessUserIds !== undefined) {
+  if (body?.preventCopy !== undefined) {
     if (!canManageFileSharing(authedUser)) {
-      return NextResponse.json({ error: "Only admins can change edit access" }, { status: 403 });
+      return NextResponse.json({ error: "Only admins can change copy protection" }, { status: 403 });
     }
-    if (!Array.isArray(body.editAccessUserIds)) {
-      return NextResponse.json({ error: "editAccessUserIds must be an array" }, { status: 400 });
+    update.preventCopy = Boolean(body.preventCopy);
+  }
+
+  const shareLists = {};
+  for (const [field, label] of shareListFields) {
+    if (body?.[field] === undefined) continue;
+    if (!canManageFileSharing(authedUser)) {
+      return NextResponse.json({ error: `Only admins can change ${label}` }, { status: 403 });
     }
-    await syncFileEditAccess(id, body.editAccessUserIds, authedUser.id, ownerUserId);
+    if (!Array.isArray(body[field])) {
+      return NextResponse.json({ error: `${field} must be an array` }, { status: 400 });
+    }
+    shareLists[field] = body[field];
+  }
+
+  if (Object.keys(shareLists).length > 0) {
+    await syncFileShareLists(id, shareLists, authedUser.id, ownerUserId);
   }
 
   if (!sharingSettingsOnly && !canEditFile(authedUser, file)) {
@@ -123,7 +143,7 @@ export async function PATCH(req, { params }) {
     update.content = sanitizeFileContent(body.content);
   }
 
-  if (Object.keys(update).length === 0 && body?.editAccessUserIds === undefined) {
+  if (Object.keys(update).length === 0 && Object.keys(shareLists).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 

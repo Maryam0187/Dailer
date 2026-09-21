@@ -2,6 +2,7 @@ import db from "@/server/db";
 
 const core = require("./addressBotCore.cjs");
 const sessions = require("./addressBotSessions.cjs");
+const turn = require("./addressBotTurn.cjs");
 
 export const ADDRESS_BOT_LABEL = core.ADDRESS_BOT_LABEL;
 
@@ -40,3 +41,10 @@ export function waitForAddressBotSession(callId, timeoutMs) {
 
 export const parseCompanyAddressBody = core.parseCompanyAddressBody;
 export const serializeCompanyAddress = core.serializeCompanyAddress;
+
+export const MAX_TRAIN_AUDIO_BYTES = core.MAX_TRAIN_AUDIO_BYTES;
+export const isAllowedTrainAudioType = core.isAllowedTrainAudioType;
+export const transcribeCustomerAudio = core.transcribeCustomerAudio;
+export const synthesizeSpeech = core.synthesizeSpeech;
+export const startAddressBotTurn = turn.startAddressBotTurn;
+export const continueAddressBotTurn = turn.continueAddressBotTurn;

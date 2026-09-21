@@ -2,27 +2,17 @@
 
 const { parse } = require("url");
 const { WebSocketServer } = require("ws");
-const db = require("../../../models");
 const {
-  buildSystemPrompt,
-  buildWelcomeGreeting,
-  buildWelcomeGreetingSsml,
-  buildAddressReadSsml,
-  classifyReadyReply,
-  READY_WAIT,
-  READY_RETRY,
-  streamOpenAiReply,
   verifyRelayToken,
   wrapPlainTextForTts,
 } = require("./addressBotCore.cjs");
+const { startAddressBotTurn, continueAddressBotTurn } = require("./addressBotTurn.cjs");
 const {
   registerAddressBotSession,
   unregisterAddressBotSession,
 } = require("./addressBotSessions.cjs");
 
 const PATH = "/address-bot/relay";
-const FALLBACK_SAY =
-  "I'll say the address one more time, then leave you with your representative.";
 
 function sendJson(ws, payload) {
   if (ws.readyState !== 1) return;
@@ -48,11 +38,13 @@ function readQuery(req) {
   };
 }
 
-async function loadAddress(addressId) {
-  if (!Number.isInteger(addressId) || addressId <= 0) return null;
-  return db.CompanyAddress.findByPk(addressId, {
-    attributes: ["id", "label", "address"],
-  });
+function applyTurnState(session, result) {
+  if (!result?.state) return;
+  session.addressId = result.state.addressId;
+  session.ready = result.state.ready;
+  session.saidWait = result.state.saidWait;
+  session.messages = result.state.messages;
+  if (result.address) session.row = { address: result.address };
 }
 
 function attachAddressBotRelay(server) {
@@ -102,32 +94,6 @@ function attachAddressBotRelay(server) {
       session.abort = null;
     }
 
-    async function ensurePrompt() {
-      if (session.messages.length) return session.row;
-      const row = await loadAddress(session.addressId);
-      session.row = row;
-      if (!row) return null;
-      const welcome = buildWelcomeGreeting();
-      session.messages = [
-        { role: "system", content: buildSystemPrompt(row.address) },
-        { role: "assistant", content: welcome },
-      ];
-      return row;
-    }
-
-    function speakReadyCheck() {
-      sendTextTokens(ws, buildWelcomeGreetingSsml());
-    }
-
-    function speakAddress(address) {
-      const spoken = String(address || "").trim();
-      sendTextTokens(ws, buildAddressReadSsml(spoken));
-      session.messages.push({
-        role: "assistant",
-        content: `Okay. I will say the address slowly. ${spoken} I will repeat that. ${spoken} If you need that repeated or spelled, just ask.`,
-      });
-    }
-
     session.beginSpeaking = async (addressId) => {
       if (session.closed) {
         return { ok: false, error: "Address bot disconnected. Click Ready bot again." };
@@ -143,70 +109,42 @@ function attachAddressBotRelay(server) {
       session.saidWait = false;
       session.messages = [];
       session.row = null;
-      const row = await ensurePrompt();
-      if (!row) {
+      const started = await startAddressBotTurn({ addressId: id });
+      if (!started.ok) {
         session.speaking = false;
-        return { ok: false, error: "Address not found" };
+        return { ok: false, error: started.error || "Address not found" };
       }
-      if (!session.closed) speakReadyCheck();
+      applyTurnState(session, started);
+      if (!session.closed && started.reply) {
+        sendTextTokens(ws, wrapPlainTextForTts(started.reply));
+      }
       return { ok: true };
     };
 
     async function replyToPrompt(voicePrompt) {
       if (!session.speaking) return;
-      const row = await ensurePrompt();
-      const spokenAddress = String(row?.address || "").trim();
       const userText = String(voicePrompt || "").trim();
       if (!userText) return;
 
       abortInflight();
       session.abort = new AbortController();
 
-      if (!row || !spokenAddress) {
-        sendTextTokens(ws, wrapPlainTextForTts("Your representative is on the line and can help with that."));
-        return;
-      }
-
-      if (!session.ready) {
-        const verdict = classifyReadyReply(userText);
-        session.messages.push({ role: "user", content: userText });
-        if (verdict === "ready") {
-          session.ready = true;
-          speakAddress(spokenAddress);
-          return;
-        }
-        if (verdict === "wait") {
-          if (!session.saidWait) {
-            session.saidWait = true;
-            sendTextTokens(ws, wrapPlainTextForTts(READY_WAIT));
-            session.messages.push({ role: "assistant", content: READY_WAIT });
-          }
-          return;
-        }
-        return;
-      }
-
-      session.messages.push({ role: "user", content: userText });
-      if (session.messages.length > 24) {
-        session.messages = [session.messages[0], ...session.messages.slice(-23)];
-      }
-
-      let full = "";
-      try {
-        full = await streamOpenAiReply({
+      const result = await continueAddressBotTurn({
+        userText,
+        state: {
+          addressId: session.addressId,
+          ready: session.ready,
+          saidWait: session.saidWait,
           messages: session.messages,
-          signal: session.abort.signal,
-        });
-        if (!session.closed) sendTextTokens(ws, wrapPlainTextForTts(full) || wrapPlainTextForTts(FALLBACK_SAY));
-      } catch (err) {
-        if (err?.name === "AbortError") return;
-        console.error("[address-bot] openai failed:", err?.message || err);
-        const fallback = `${FALLBACK_SAY} ${spokenAddress}`;
-        sendTextTokens(ws, wrapPlainTextForTts(fallback));
-        full = fallback;
-      }
+        },
+        addressId: session.addressId,
+        signal: session.abort.signal,
+      });
 
-      if (full) session.messages.push({ role: "assistant", content: full });
+      if (result?.aborted || session.closed) return;
+      if (!result?.ok) return;
+      applyTurnState(session, result);
+      if (result.reply) sendTextTokens(ws, wrapPlainTextForTts(result.reply));
     }
 
     registerAddressBotSession(session.callId, session);

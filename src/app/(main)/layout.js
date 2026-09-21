@@ -36,6 +36,7 @@ export default async function MainLayout({ children }) {
           shiftStatus={shiftStatus}
           accessMode={authedUser.accessMode}
           isOutside={Boolean(authedUser.isOutside)}
+          canTrainAddressBot={Boolean(authedUser.canTrainAddressBot)}
         />
         {authedUser.role !== "admin" && !(authedUser.role === "manager" && authedUser.isOutside) ? (
           <ShiftEndingSoonBanner />

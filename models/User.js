@@ -117,6 +117,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /** Admin-gated: may edit the shared Address Assistant prompt and Q&A. */
+      canTrainAddressBot: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "Users",
@@ -141,6 +147,12 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });
     User.hasMany(models.CompanyAddress, { as: "updatedCompanyAddresses", foreignKey: "updatedBy" });
+    User.hasMany(models.AddressBotProfile, { as: "updatedAddressBotProfiles", foreignKey: "updatedBy" });
+    User.hasMany(models.AddressBotTrainingExample, {
+      as: "updatedAddressBotTrainingExamples",
+      foreignKey: "updatedBy",
+    });
+    User.hasMany(models.AddressBotTrainingChange, { as: "addressBotTrainingChanges", foreignKey: "userId" });
     User.hasMany(models.ShiftSetting, { as: "updatedShiftSettings", foreignKey: "updatedBy" });
     User.hasMany(models.UserActivity, { as: "activities", foreignKey: "userId" });
     User.hasMany(models.LeaveApplication, { as: "leaveApplications", foreignKey: "userId" });

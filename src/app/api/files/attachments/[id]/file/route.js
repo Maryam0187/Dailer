@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canViewAllFiles, getAccessibleFile } from "@/server/files/fileAccess";
-import { getAttachmentStorageMode } from "@/server/messages/attachmentStorage";
-import { readLocalAttachment } from "@/server/messages/localAttachmentStorage";
+import { getAttachmentStorageMode, readStoredAttachment } from "@/server/messages/attachmentStorage";
 import { sanitizeAttachmentFilename } from "@/server/messages/objectStorage";
+import { resolveFileImageMimeType } from "@/lib/fileImageMime";
 
 export const runtime = "nodejs";
 
@@ -16,8 +16,8 @@ function isMissingFileError(err) {
 }
 
 export async function GET(req, { params }) {
-  if (getAttachmentStorageMode() !== "local") {
-    return NextResponse.json({ error: "Local file download is not enabled" }, { status: 404 });
+  if (!getAttachmentStorageMode()) {
+    return NextResponse.json({ error: "Attachment storage is not configured" }, { status: 503 });
   }
 
   const authedUser = await getAuthedUser();
@@ -48,14 +48,23 @@ export async function GET(req, { params }) {
   }
 
   try {
-    const fileBuffer = await readLocalAttachment(attachment.storageKey);
+    const fileBuffer = await readStoredAttachment(attachment.storageKey);
+    const bytes = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer);
+    const body = Uint8Array.from(bytes);
     const filename = sanitizeAttachmentFilename(attachment.originalName, "image");
-    return new NextResponse(fileBuffer, {
+    const contentType =
+      resolveFileImageMimeType({
+        mimeType: attachment.mimeType,
+        filename: attachment.originalName,
+      }) || "application/octet-stream";
+    return new Response(body, {
       status: 200,
       headers: {
-        "Content-Type": attachment.mimeType || "application/octet-stream",
+        "Content-Type": contentType,
+        "Content-Length": String(body.byteLength),
         "Content-Disposition": `${disposition}; filename="${filename}"`,
-        "Cache-Control": "private, no-store",
+        "Cache-Control": "private, max-age=60",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (err) {

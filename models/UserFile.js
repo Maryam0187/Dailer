@@ -32,6 +32,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      preventCopy: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "UserFiles",
@@ -50,6 +55,8 @@ module.exports = (sequelize, DataTypes) => {
   UserFile.associate = (models) => {
     UserFile.belongsTo(models.User, { as: "owner", foreignKey: "userId" });
     UserFile.hasMany(models.UserFileEditAccess, { as: "editAccessGrants", foreignKey: "fileId" });
+    UserFile.hasMany(models.UserFileViewAccess, { as: "viewAccessGrants", foreignKey: "fileId" });
+    UserFile.hasMany(models.UserFileHiddenFrom, { as: "hiddenFrom", foreignKey: "fileId" });
     UserFile.hasMany(models.UserFileAttachment, { as: "attachments", foreignKey: "fileId" });
   };
 
