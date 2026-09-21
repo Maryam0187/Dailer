@@ -6,8 +6,8 @@ const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
-const MAX_RECORD_MS = 30000;
-const MIN_RECORD_MS = 500;
+const UTTERANCE_PAUSE_MS = 700;
+const MIN_UTTERANCE_CHARS = 2;
 
 function pickRecorderMime() {
   if (typeof MediaRecorder === "undefined") return "";
@@ -42,6 +42,28 @@ function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeSpeech(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeEcho(heard, lastBot) {
+  const a = normalizeSpeech(heard);
+  const b = normalizeSpeech(lastBot);
+  if (!a || !b) return false;
+  if (a.length >= 6 && b.includes(a)) return true;
+  if (b.length >= 12 && a.includes(b)) return true;
+  const aWords = a.split(" ").filter((w) => w.length > 2);
+  const bWords = b.split(" ").filter((w) => w.length > 2);
+  if (!aWords.length || !bWords.length) return false;
+  const bSet = new Set(bWords);
+  const overlap = aWords.filter((w) => bSet.has(w)).length;
+  return overlap / aWords.length >= 0.75 && aWords.length >= 3;
+}
+
 function friendlyError(err, fallback) {
   const raw = String(err?.message || err || "").trim();
   if (!raw) return fallback;
@@ -53,7 +75,7 @@ function friendlyError(err, fallback) {
     /* not JSON */
   }
   if (/notallowed|permission|denied/i.test(raw)) {
-    return "Allow the microphone in the browser, then click Talk.";
+    return "Allow the microphone in the browser, then click Start.";
   }
   return raw;
 }
@@ -66,8 +88,8 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [started, setStarted] = useState(false);
   const [pending, setPending] = useState(false);
-  const [talking, setTalking] = useState(false);
   const [botSpeaking, setBotSpeaking] = useState(false);
+  const [listening, setListening] = useState(false);
   const [typed, setTyped] = useState("");
   const [showType, setShowType] = useState(false);
   const [lines, setLines] = useState([]);
@@ -78,20 +100,31 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   const stateRef = useRef(null);
   const audioRef = useRef(null);
   const streamRef = useRef(null);
-  const recorderRef = useRef(null);
   const recognitionRef = useRef(null);
+  const recorderRef = useRef(null);
   const chunksRef = useRef([]);
-  const transcriptRef = useRef("");
-  const talkingRef = useRef(false);
-  const recordStartedAtRef = useRef(0);
-  const recordTimerRef = useRef(null);
   const blobUrlRef = useRef("");
   const logRef = useRef(null);
-  const finishingRef = useRef(false);
+  const listeningRef = useRef(false);
+  const botSpeakingRef = useRef(false);
+  const lastBotTextRef = useRef("");
+  const turnGenRef = useRef(0);
+  const debounceRef = useRef(null);
+  const pendingUtteranceRef = useRef("");
+  const addressIdRef = useRef("");
+  const audioCtxRef = useRef(null);
+  const vadRafRef = useRef(0);
+  const vadSpeechRef = useRef(false);
+  const vadSilenceAtRef = useRef(0);
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     setSessionBotName(botName || "Address Assistant");
   }, [botName]);
+
+  useEffect(() => {
+    addressIdRef.current = addressId;
+  }, [addressId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +158,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [lines, heardPreview]);
 
-  const stopAudio = useCallback(() => {
+  const interruptBot = useCallback(() => {
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -136,6 +169,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = "";
     }
+    botSpeakingRef.current = false;
     setBotSpeaking(false);
   }, []);
 
@@ -153,7 +187,12 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     }
   }, []);
 
-  const stopRecorder = useCallback(() => {
+  const stopVad = useCallback(() => {
+    if (vadRafRef.current) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = 0;
+    }
+    vadSpeechRef.current = false;
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder && recorder.state !== "inactive") {
@@ -163,6 +202,9 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
         /* ignore */
       }
     }
+    const ctx = audioCtxRef.current;
+    audioCtxRef.current = null;
+    if (ctx) ctx.close().catch(() => {});
   }, []);
 
   const releaseMic = useCallback(() => {
@@ -173,24 +215,25 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   }, []);
 
   const stopListening = useCallback(() => {
-    if (recordTimerRef.current) {
-      clearTimeout(recordTimerRef.current);
-      recordTimerRef.current = null;
+    listeningRef.current = false;
+    setListening(false);
+    setHeardPreview("");
+    pendingUtteranceRef.current = "";
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
     stopRecognition();
-    stopRecorder();
-    talkingRef.current = false;
-    setTalking(false);
-    setHeardPreview("");
-  }, [stopRecognition, stopRecorder]);
+    stopVad();
+  }, [stopRecognition, stopVad]);
 
   useEffect(() => {
     return () => {
-      stopAudio();
+      interruptBot();
       stopListening();
       releaseMic();
     };
-  }, [releaseMic, stopAudio, stopListening]);
+  }, [interruptBot, releaseMic, stopListening]);
 
   async function ensureMic() {
     const existing = streamRef.current;
@@ -202,7 +245,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       streamRef.current = null;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("This browser cannot use the microphone. Type as the customer instead.");
+      throw new Error("This browser cannot use the microphone.");
     }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -216,45 +259,66 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     return stream;
   }
 
-  async function playBotReply(text) {
+  async function playBotReply(text, gen) {
     const spoken = String(text || "").trim();
     if (!spoken) return;
-    stopAudio();
+    if (turnGenRef.current !== gen) return;
+    lastBotTextRef.current = spoken;
     const res = await fetch("/api/address-bot/speak", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: spoken }),
     });
+    if (turnGenRef.current !== gen) return;
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
       throw new Error(json?.error || "Failed to play the bot voice");
     }
     const blob = await res.blob();
+    if (turnGenRef.current !== gen) return;
     const url = URL.createObjectURL(blob);
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
     blobUrlRef.current = url;
     const audio = audioRef.current || new Audio();
     audioRef.current = audio;
     audio.src = url;
+    botSpeakingRef.current = true;
     setBotSpeaking(true);
     try {
-      await audio.play();
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         const done = () => {
           audio.removeEventListener("ended", done);
-          audio.removeEventListener("error", done);
+          audio.removeEventListener("error", onError);
+          audio.removeEventListener("pause", done);
           resolve();
         };
+        const onError = () => {
+          audio.removeEventListener("ended", done);
+          audio.removeEventListener("error", onError);
+          audio.removeEventListener("pause", done);
+          reject(new Error("Bot audio failed"));
+        };
         audio.addEventListener("ended", done);
-        audio.addEventListener("error", done);
+        audio.addEventListener("error", onError);
+        audio.addEventListener("pause", done);
+        const playResult = audio.play();
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch(onError);
+        }
       });
+    } catch {
+      /* autoplay / interrupt */
     } finally {
-      setBotSpeaking(false);
+      if (turnGenRef.current === gen) {
+        botSpeakingRef.current = false;
+        setBotSpeaking(false);
+      }
     }
   }
 
   async function postTry(payload) {
-    const selectedId = Number(payload.addressId || addressId);
+    const selectedId = Number(payload.addressId || addressIdRef.current);
     if (payload.audio) {
       const form = new FormData();
       form.append("action", "message");
@@ -280,45 +344,281 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
     });
   }
 
-  async function handleResult(res, { includeCustomer } = {}) {
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.error || "Failed to talk to the bot");
-    stateRef.current = json.state || null;
-    if (json.botName) setSessionBotName(json.botName);
-    setLines((prev) => {
-      const next = [...prev];
-      if (includeCustomer && json.customerText) {
-        next.push({ id: nextId(), role: "customer", text: json.customerText });
+  async function submitCustomerText(userText) {
+    const spoken = String(userText || "").replace(/\s+/g, " ").trim();
+    if (!spoken || spoken.length < MIN_UTTERANCE_CHARS) return;
+    if (looksLikeEcho(spoken, lastBotTextRef.current)) return;
+    if (!listeningRef.current) return;
+    if (submitInFlightRef.current) interruptBot();
+
+    interruptBot();
+    const gen = ++turnGenRef.current;
+    submitInFlightRef.current = true;
+    setPending(true);
+    setError(null);
+    setHeardPreview("");
+    pendingUtteranceRef.current = "";
+    setLines((prev) => [...prev, { id: nextId(), role: "customer", text: spoken }]);
+
+    try {
+      const res = await postTry({ action: "message", userText: spoken });
+      if (turnGenRef.current !== gen) return;
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to talk to the bot");
+      stateRef.current = json.state || null;
+      if (json.botName) setSessionBotName(json.botName);
+      if (json.reply) {
+        setLines((prev) => [...prev, { id: nextId(), role: "bot", text: json.reply }]);
+        await playBotReply(json.reply, gen);
       }
-      if (json.reply) next.push({ id: nextId(), role: "bot", text: json.reply });
-      return next;
-    });
-    if (json.reply) await playBotReply(json.reply);
-    return json;
+    } catch (err) {
+      if (turnGenRef.current === gen) {
+        setError(friendlyError(err, "Failed to hear that"));
+      }
+    } finally {
+      if (turnGenRef.current === gen) {
+        submitInFlightRef.current = false;
+        setPending(false);
+      }
+    }
+  }
+
+  function queueUtterance(text, { bargeIn = false } = {}) {
+    const spoken = String(text || "").replace(/\s+/g, " ").trim();
+    if (!spoken) return;
+    if (looksLikeEcho(spoken, lastBotTextRef.current)) {
+      setHeardPreview("");
+      return;
+    }
+    if (bargeIn && botSpeakingRef.current) interruptBot();
+    pendingUtteranceRef.current = spoken;
+    setHeardPreview(spoken);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const ready = pendingUtteranceRef.current;
+      pendingUtteranceRef.current = "";
+      debounceRef.current = null;
+      void submitCustomerText(ready);
+    }, UTTERANCE_PAUSE_MS);
+  }
+
+  function startBrowserListening() {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return false;
+    stopRecognition();
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      if (!listeningRef.current) return;
+      let finals = "";
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const piece = String(event.results[i]?.[0]?.transcript || "").trim();
+        if (!piece) continue;
+        if (event.results[i].isFinal) finals += `${piece} `;
+        else interim += `${piece} `;
+      }
+      const live = `${pendingUtteranceRef.current} ${finals} ${interim}`.replace(/\s+/g, " ").trim();
+      if (live) setHeardPreview(live);
+      if (interim && !looksLikeEcho(interim, lastBotTextRef.current) && botSpeakingRef.current) {
+        interruptBot();
+      }
+      if (finals.trim()) {
+        const next = `${pendingUtteranceRef.current} ${finals}`.replace(/\s+/g, " ").trim();
+        queueUtterance(next, { bargeIn: true });
+      }
+    };
+    recognition.onerror = (event) => {
+      if (event?.error === "not-allowed") {
+        setMicBlocked(true);
+        setShowType(true);
+        setError("Allow the microphone in the browser, then click Start.");
+      }
+    };
+    recognition.onend = () => {
+      if (!listeningRef.current || recognitionRef.current !== recognition) return;
+      try {
+        recognition.start();
+      } catch {
+        setTimeout(() => {
+          if (!listeningRef.current || recognitionRef.current !== recognition) return;
+          try {
+            recognition.start();
+          } catch {
+            /* ignore */
+          }
+        }, 250);
+      }
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+      return true;
+    } catch {
+      recognitionRef.current = null;
+      return false;
+    }
+  }
+
+  async function submitRecordedBlob(recorder) {
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
+    if (!chunks.length) return;
+    const rawType = recorder?.mimeType || pickRecorderMime() || "audio/webm";
+    const type = audioUploadType(rawType);
+    const filename = audioUploadName(type);
+    const blob = new Blob(chunks, { type });
+    if (blob.size < 800) return;
+
+    const gen = ++turnGenRef.current;
+    interruptBot();
+    submitInFlightRef.current = true;
+    setPending(true);
+    setError(null);
+    try {
+      const res = await postTry({ audio: blob, filename });
+      if (turnGenRef.current !== gen) return;
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to talk to the bot");
+      stateRef.current = json.state || null;
+      if (json.botName) setSessionBotName(json.botName);
+      if (json.customerText) {
+        setLines((prev) => [...prev, { id: nextId(), role: "customer", text: json.customerText }]);
+      }
+      if (json.reply) {
+        setLines((prev) => [...prev, { id: nextId(), role: "bot", text: json.reply }]);
+        await playBotReply(json.reply, gen);
+      }
+    } catch (err) {
+      if (turnGenRef.current === gen) setError(friendlyError(err, "Failed to hear that"));
+    } finally {
+      if (turnGenRef.current === gen) {
+        submitInFlightRef.current = false;
+        setPending(false);
+      }
+    }
+  }
+
+  function startVadListening(stream) {
+    if (typeof MediaRecorder === "undefined" || typeof AudioContext === "undefined") return false;
+    stopVad();
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    chunksRef.current = [];
+
+    const mime = pickRecorderMime();
+    const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorderRef.current = recorder;
+
+    const rms = () => {
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i += 1) {
+        const n = (samples[i] - 128) / 128;
+        sum += n * n;
+      }
+      return Math.sqrt(sum / samples.length);
+    };
+
+    const tick = () => {
+      if (!listeningRef.current) return;
+      const level = rms();
+      const threshold = botSpeakingRef.current ? 0.09 : 0.045;
+      const now = Date.now();
+      if (level >= threshold) {
+        if (!vadSpeechRef.current) {
+          vadSpeechRef.current = true;
+          interruptBot();
+          chunksRef.current = [];
+          if (recorder.state === "inactive") {
+            try {
+              recorder.start(200);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        vadSilenceAtRef.current = now;
+      } else if (vadSpeechRef.current && now - vadSilenceAtRef.current > 800) {
+        vadSpeechRef.current = false;
+        if (recorder.state !== "inactive") {
+          const current = recorder;
+          current.addEventListener(
+            "stop",
+            () => {
+              void submitRecordedBlob(current);
+              if (listeningRef.current && recorderRef.current === current) {
+                chunksRef.current = [];
+              }
+            },
+            { once: true },
+          );
+          try {
+            if (typeof current.requestData === "function") current.requestData();
+            current.stop();
+          } catch {
+            vadSpeechRef.current = false;
+          }
+        }
+      }
+      vadRafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    vadRafRef.current = requestAnimationFrame(tick);
+    return true;
+  }
+
+  async function beginHandsFreeListen() {
+    const stream = await ensureMic();
+    listeningRef.current = true;
+    setListening(true);
+    const speechOk = startBrowserListening();
+    if (!speechOk) startVadListening(stream);
   }
 
   async function onStart() {
     if (pending || !addressId) return;
     setPending(true);
     setError(null);
-    stopAudio();
+    interruptBot();
     stopListening();
     stateRef.current = null;
+    lastBotTextRef.current = "";
+    turnGenRef.current = 0;
     setLines([]);
     setHeardPreview("");
     try {
-      try {
-        await ensureMic();
-      } catch (micErr) {
+      await beginHandsFreeListen();
+      const res = await postTry({ action: "start", addressId });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to start");
+      stateRef.current = json.state || null;
+      if (json.botName) setSessionBotName(json.botName);
+      setStarted(true);
+      if (json.reply) {
+        setLines([{ id: nextId(), role: "bot", text: json.reply }]);
+        const gen = turnGenRef.current;
+        await playBotReply(json.reply, gen);
+      }
+    } catch (e) {
+      stopListening();
+      releaseMic();
+      setStarted(false);
+      if (/notallowed|permission|denied|microphone/i.test(String(e?.message || e))) {
         setMicBlocked(true);
         setShowType(true);
-        setError(friendlyError(micErr, "Allow the microphone, or type as the customer."));
       }
-      const res = await postTry({ action: "start", addressId });
-      await handleResult(res);
-      setStarted(true);
-    } catch (e) {
-      setStarted(false);
       setError(friendlyError(e, "Failed to start"));
     } finally {
       setPending(false);
@@ -326,11 +626,14 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   }
 
   function onReset() {
-    stopAudio();
+    interruptBot();
     stopListening();
     releaseMic();
     stateRef.current = null;
+    lastBotTextRef.current = "";
+    submitInFlightRef.current = false;
     setStarted(false);
+    setPending(false);
     setLines([]);
     setTyped("");
     setHeardPreview("");
@@ -340,204 +643,18 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
   async function sendTyped(e) {
     e?.preventDefault?.();
     const text = typed.trim();
-    if (!text || pending || botSpeaking || talking || !started) return;
-    setPending(true);
-    setError(null);
+    if (!text || !started) return;
     setTyped("");
-    try {
-      const res = await postTry({ action: "message", userText: text, addressId });
-      await handleResult(res, { includeCustomer: true });
-    } catch (err) {
-      setError(friendlyError(err, "Failed to send"));
-    } finally {
-      setPending(false);
-    }
+    await submitCustomerText(text);
   }
-
-  function startBrowserListening() {
-    const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) return;
-    stopRecognition();
-    transcriptRef.current = "";
-    const recognition = new Ctor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.onresult = (event) => {
-      let finalText = "";
-      let interim = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        const piece = event.results[i]?.[0]?.transcript || "";
-        if (event.results[i].isFinal) finalText += `${piece} `;
-        else interim += piece;
-      }
-      const heard = `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
-      if (finalText.trim()) transcriptRef.current = finalText.trim();
-      else if (heard) transcriptRef.current = heard;
-      setHeardPreview(heard);
-    };
-    recognition.onerror = () => {
-      /* keep MediaRecorder fallback */
-    };
-    recognition.onend = () => {
-      if (talkingRef.current && recognitionRef.current === recognition) {
-        try {
-          recognition.start();
-        } catch {
-          /* ignore restart failures */
-        }
-      }
-    };
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
-    }
-  }
-
-  async function startRecording() {
-    if (!started || pending || botSpeaking || talkingRef.current) return;
-    setError(null);
-    setHeardPreview("");
-    transcriptRef.current = "";
-    chunksRef.current = [];
-    try {
-      const stream = await ensureMic();
-      talkingRef.current = true;
-      setTalking(true);
-      recordStartedAtRef.current = Date.now();
-
-      if (typeof MediaRecorder !== "undefined") {
-        const mime = pickRecorderMime();
-        const recorder = mime
-          ? new MediaRecorder(stream, { mimeType: mime })
-          : new MediaRecorder(stream);
-        recorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-        };
-        recorderRef.current = recorder;
-        recorder.start(200);
-      }
-
-      startBrowserListening();
-      recordTimerRef.current = setTimeout(() => {
-        void finishRecording();
-      }, MAX_RECORD_MS);
-    } catch (err) {
-      talkingRef.current = false;
-      setTalking(false);
-      setMicBlocked(true);
-      setShowType(true);
-      setError(friendlyError(err, "Microphone permission is needed to talk as the customer."));
-    }
-  }
-
-  async function finishRecording() {
-    if (finishingRef.current) return;
-    if (!talkingRef.current && !recorderRef.current) return;
-    finishingRef.current = true;
-    talkingRef.current = false;
-    setTalking(false);
-    if (recordTimerRef.current) {
-      clearTimeout(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-
-    const elapsed = Date.now() - recordStartedAtRef.current;
-    const heard = String(transcriptRef.current || heardPreview || "").trim();
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    stopRecognition();
-
-    try {
-      if (elapsed < MIN_RECORD_MS && !heard) {
-        setError("Click Talk, speak as the customer, then click Stop talking.");
-        chunksRef.current = [];
-        return;
-      }
-
-      if (recorder && recorder.state !== "inactive") {
-        await new Promise((resolve) => {
-          const done = () => resolve();
-          recorder.addEventListener("stop", done, { once: true });
-          try {
-            if (typeof recorder.requestData === "function") recorder.requestData();
-            recorder.stop();
-          } catch {
-            done();
-          }
-        });
-      }
-
-      const spoken = String(transcriptRef.current || heard || "").trim();
-      if (spoken) {
-        setHeardPreview("");
-        setPending(true);
-        setError(null);
-        try {
-          const res = await postTry({ action: "message", userText: spoken, addressId });
-          await handleResult(res, { includeCustomer: true });
-        } catch (err) {
-          setError(friendlyError(err, "Failed to hear that"));
-        } finally {
-          setPending(false);
-        }
-        return;
-      }
-
-      const chunks = chunksRef.current;
-      chunksRef.current = [];
-      if (!chunks.length) {
-        setError("No speech captured. Click Talk, speak, then click Stop talking.");
-        setShowType(true);
-        return;
-      }
-
-      const rawType = recorder?.mimeType || pickRecorderMime() || "audio/webm";
-      const type = audioUploadType(rawType);
-      const filename = audioUploadName(type);
-      const blob = new Blob(chunks, { type });
-      if (blob.size < 800) {
-        setError("That was too short. Click Talk, speak as the customer, then Stop talking.");
-        return;
-      }
-
-      setPending(true);
-      setError(null);
-      try {
-        const res = await postTry({ audio: blob, filename, addressId });
-        await handleResult(res, { includeCustomer: true });
-      } catch (err) {
-        setError(friendlyError(err, "Failed to hear that"));
-        setShowType(true);
-      } finally {
-        setPending(false);
-      }
-    } finally {
-      finishingRef.current = false;
-      setHeardPreview("");
-    }
-  }
-
-  async function toggleTalk() {
-    if (talkingRef.current) {
-      await finishRecording();
-      return;
-    }
-    await startRecording();
-  }
-
-  const busy = pending || botSpeaking;
-  const canTalk = started && !busy && !talking;
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <audio ref={audioRef} className="hidden" />
       <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Train by talking</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        You are the customer. Click Talk, speak, then click Stop talking. {sessionBotName} talks
-        back. Save the prompt and Q&amp;A above first — Start reloads the latest saved training.
+        Click Start once. You are the customer — just speak. {sessionBotName} talks back, and you
+        can interrupt it. No extra buttons.
       </p>
 
       {loadError ? (
@@ -583,40 +700,27 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
             {pending ? "Starting…" : "Start"}
           </button>
         ) : (
-          <>
-            <button
-              type="button"
-              disabled={!canTalk && !talking}
-              onClick={toggleTalk}
-              className={`h-11 min-w-[10.5rem] rounded-lg px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70 ${
-                talking ? "bg-rose-600 hover:bg-rose-700" : "bg-sky-600 hover:bg-sky-700"
-              }`}
-            >
-              {talking ? "Stop talking" : "Talk as customer"}
-            </button>
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={talking}
-              className="h-11 rounded-lg border border-zinc-300 px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Reset
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onReset}
+            className="h-11 rounded-lg border border-zinc-300 px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Reset
+          </button>
         )}
       </div>
 
       {started ? (
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          {botSpeaking
-            ? `${sessionBotName} is speaking…`
-            : pending
-              ? "Working…"
-              : talking
-                ? heardPreview
-                  ? `Hearing: ${heardPreview}`
-                  : "Listening… click Stop talking when you finish."
-                : "Click Talk as customer, speak, then Stop talking."}
+          {heardPreview
+            ? `Hearing: ${heardPreview}`
+            : botSpeaking
+              ? `${sessionBotName} is speaking — you can talk over it.`
+              : pending
+                ? "Working…"
+                : listening
+                  ? "Listening. Speak as the customer anytime."
+                  : "Starting microphone…"}
         </p>
       ) : null}
 
@@ -630,7 +734,7 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
       >
         {lines.length === 0 ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Start a conversation to hear the bot greet you.
+            Click Start, then talk as the customer. The bot answers out loud.
           </p>
         ) : (
           lines.map((line) => (
@@ -651,41 +755,28 @@ export default function AddressBotTryClient({ botName = "Address Assistant" }) {
         )}
       </div>
 
-      {started ? (
-        <div className="mt-4">
-          {showType ? (
-            <form onSubmit={sendTyped} className="space-y-2">
-              <label className={labelClass} htmlFor="address-bot-try-type">
-                Type what the customer would say
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  id="address-bot-try-type"
-                  className={`${inputClass} min-w-[12rem] flex-1`}
-                  value={typed}
-                  onChange={(e) => setTyped(e.target.value)}
-                  placeholder="yes"
-                  disabled={busy || talking}
-                />
-                <button
-                  type="submit"
-                  disabled={busy || talking || !typed.trim()}
-                  className="h-11 rounded-lg bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  Send
-                </button>
-              </div>
-            </form>
-          ) : (
+      {started && (micBlocked || showType) ? (
+        <form onSubmit={sendTyped} className="mt-4 space-y-2">
+          <label className={labelClass} htmlFor="address-bot-try-type">
+            Type what the customer would say
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="address-bot-try-type"
+              className={`${inputClass} min-w-[12rem] flex-1`}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="yes"
+            />
             <button
-              type="button"
-              onClick={() => setShowType(true)}
-              className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+              type="submit"
+              disabled={!typed.trim()}
+              className="h-11 rounded-lg bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {micBlocked ? "Type as the customer instead" : "Can't use a mic? Type instead"}
+              Send
             </button>
-          )}
-        </div>
+          </div>
+        </form>
       ) : null}
     </div>
   );
