@@ -288,28 +288,25 @@ function classifyReadyReply(text) {
   return "unknown";
 }
 
+const DEFAULT_ADDRESS_BOT_INSTRUCTIONS = [
+  "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
+  "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
+  "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
+  "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
+  "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
+  "After that, you may repeat it, go slower, or spell again if they ask.",
+].join(" ");
+
 function buildSystemPrompt(address, training = {}) {
   const spoken = String(address || "").trim();
   const name = String(training?.name || "").trim() || "Address Assistant";
-  const instructions = String(training?.instructions || "").trim();
+  const instructions = String(training?.instructions || "").trim() || DEFAULT_ADDRESS_BOT_INSTRUCTIONS;
   const examples = Array.isArray(training?.examples) ? training.examples : [];
 
   const parts = [
     `You are ${name} on a live phone call helping a customer write down an address. A human agent is also on the line.`,
+    instructions,
   ];
-
-  if (instructions) {
-    parts.push(instructions);
-  } else {
-    parts.push(
-      "Sound like a real colleague, not a robot. Use contractions. Speak slowly, clearly, and in an even speaking voice. Do not sing or use a singsong tone.",
-      "Do not say the address until the customer has confirmed they are ready (yes, ready, okay, go ahead).",
-      "If they are not ready, wait kindly. Once they are ready, say the address slowly. Pause between street, city, state, and ZIP. Then repeat it once.",
-      "Say every number digit by digit as words, never as a whole number. Example: 123 is one ... two ... three. 75201 is seven ... five ... two ... zero ... one. Never say one hundred twenty-three or seventy-five thousand.",
-      "When you say a name or street name, first say the word, then spell it. Example: Main... I'll spell that: M, A, I, N. Do not spell common words like Street, Avenue, Road, Drive, Suite, or North.",
-      "After that, you may repeat it, go slower, or spell again if they ask.",
-    );
-  }
 
   parts.push(
     "This is the only address you may give:",
@@ -604,6 +601,7 @@ module.exports = {
   READY_WAIT,
   READY_RETRY,
   wrapPlainTextForTts,
+  DEFAULT_ADDRESS_BOT_INSTRUCTIONS,
   buildSystemPrompt,
   loadAddressBotTrainingForPrompt,
   signRelayToken,

@@ -293,8 +293,8 @@ export default function AddressBotSettingsClient({ isAdmin = false }) {
       >
         <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Tell the agent</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          This is the shared Address Assistant. What you save here is used on every live call when an
-          agent clicks Start. Leave instructions empty to keep the built-in speaking style.
+          This is the shared Address Assistant. The box already has the default prompt. Edit it and
+          Save to override. Used on live calls and when you train by talking.
         </p>
 
         <div className="mt-4 space-y-4">
@@ -318,10 +318,10 @@ export default function AddressBotSettingsClient({ isAdmin = false }) {
             </label>
             <textarea
               id="address-bot-instructions"
-              className={`${textareaClass} min-h-[10rem]`}
+              className={`${textareaClass} min-h-[16rem]`}
               value={profile.instructions}
               onChange={(e) => setProfile((prev) => ({ ...prev, instructions: e.target.value }))}
-              placeholder="You are the address assistant. Ask them to grab a pen and paper. Wait if they are on hold. Spell street names. Read numbers digit by digit."
+              placeholder=""
               maxLength={8000}
             />
           </div>
