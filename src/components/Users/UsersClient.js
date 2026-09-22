@@ -278,6 +278,8 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 const compactFilterLabelClass = "mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const compactFilterSelectClass =
   "h-9 min-w-[14rem] rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
+const compactFilterInputClass =
+  "h-9 w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20 sm:min-w-[12rem]";
 
 function RoleBadge({ value }) {
   const styles = {
@@ -2529,12 +2531,29 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [listError, setListError] = useState(null);
   const [listRefreshing, setListRefreshing] = useState(false);
   const [listSupervisorFilter, setListSupervisorFilter] = useState("");
-  const [listShiftFilter, setListShiftFilter] = useState("all");
-  const [listOutsideFilter, setListOutsideFilter] = useState("all");
+  const [listShiftFilter, setListShiftFilter] = useState("day");
+  const [listOutsideFilter, setListOutsideFilter] = useState("inhouse");
+  const [listActiveFilter, setListActiveFilter] = useState("active");
+  const [listNameSearch, setListNameSearch] = useState("");
   const createPasswordOptional = role === "admin" && createRole === "agent" && createIsOutside;
 
   const displayUsers = useMemo(() => {
     let sortedUsers = sortUsersForDisplay(users);
+    const nameQuery = listNameSearch.trim().toLowerCase();
+    if (nameQuery) {
+      sortedUsers = sortedUsers.filter((u) =>
+        String(u.username || "")
+          .toLowerCase()
+          .includes(nameQuery),
+      );
+    }
+
+    if (listActiveFilter === "active") {
+      sortedUsers = sortedUsers.filter((u) => u.isActive !== false);
+    } else if (listActiveFilter === "inactive") {
+      sortedUsers = sortedUsers.filter((u) => u.isActive === false);
+    }
+
     if (role !== "admin" && role !== "manager") return sortedUsers;
 
     if (listShiftFilter === "day" || listShiftFilter === "night") {
@@ -2555,7 +2574,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     return sortedUsers.filter(
       (u) => u.role === "agent" && Number(u.supervisorId) === supervisorId,
     );
-  }, [users, role, listSupervisorFilter, listShiftFilter, listOutsideFilter]);
+  }, [
+    users,
+    role,
+    listSupervisorFilter,
+    listShiftFilter,
+    listOutsideFilter,
+    listActiveFilter,
+    listNameSearch,
+  ]);
 
   const listSupervisorOptions = useMemo(() => {
     if (role !== "admin" || (listShiftFilter !== "day" && listShiftFilter !== "night")) {
@@ -3138,6 +3165,21 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
             </p>
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
+            <div className="w-full min-w-0 sm:min-w-[12rem] sm:w-auto sm:max-w-[16rem]">
+              <label htmlFor="users-name-search" className={compactFilterLabelClass}>
+                Search name
+              </label>
+              <input
+                id="users-name-search"
+                type="search"
+                className={compactFilterInputClass}
+                value={listNameSearch}
+                onChange={(e) => setListNameSearch(e.target.value)}
+                placeholder="Username…"
+                aria-label="Search by username"
+                autoComplete="off"
+              />
+            </div>
             {role === "admin" || role === "manager" ? (
               <>
                 <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
@@ -3175,6 +3217,22 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <option value="inhouse">In-house</option>
                   </select>
                 </div>
+                <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                  <label htmlFor="users-active-filter" className={compactFilterLabelClass}>
+                    Status
+                  </label>
+                  <select
+                    id="users-active-filter"
+                    className={compactFilterSelectClass}
+                    value={listActiveFilter}
+                    onChange={(e) => setListActiveFilter(e.target.value)}
+                    aria-label="Filter by active status"
+                  >
+                    <option value="all">Combined (all)</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
                 {role === "admin" ? (
                 <div className="w-full min-w-0 sm:min-w-[14rem] sm:w-auto">
                   <label htmlFor="users-supervisor-filter" className={compactFilterLabelClass}>
@@ -3196,7 +3254,24 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 </div>
                 ) : null}
               </>
-            ) : null}
+            ) : (
+              <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                <label htmlFor="users-active-filter" className={compactFilterLabelClass}>
+                  Status
+                </label>
+                <select
+                  id="users-active-filter"
+                  className={compactFilterSelectClass}
+                  value={listActiveFilter}
+                  onChange={(e) => setListActiveFilter(e.target.value)}
+                  aria-label="Filter by active status"
+                >
+                  <option value="all">Combined (all)</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            )}
             <button
               type="button"
               onClick={onRefreshUsers}
@@ -3240,7 +3315,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               <p className="mt-1 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
                 {users.length === 0
                   ? "Use the form above to create the first account."
-                  : "Try a different shift, outside, or supervisor filter."}
+                  : "Try a different name search, shift, outside, or status filter."}
               </p>
             </div>
           ) : (
