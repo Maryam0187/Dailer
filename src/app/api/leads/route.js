@@ -346,6 +346,20 @@ export async function GET(req) {
     where.state = stateRaw;
   }
 
+  const serviceTypeRaw = searchParams.get("serviceType");
+  if (serviceTypeRaw) {
+    if (authedUser.role !== "admin") {
+      return NextResponse.json({ error: "Invalid serviceType" }, { status: 403 });
+    }
+    const serviceType = parseServiceType(serviceTypeRaw);
+    if (serviceType === undefined) {
+      return NextResponse.json({ error: "Invalid serviceType" }, { status: 400 });
+    }
+    if (serviceType) {
+      where.serviceType = serviceType;
+    }
+  }
+
   const { rows: leads, count } = await db.Lead.findAndCountAll({
     where,
     order: parseLeadsOrder(searchParams),

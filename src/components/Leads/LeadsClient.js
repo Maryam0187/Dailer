@@ -147,6 +147,7 @@ function hasActiveLeadFilters({
   leadProgressTagFilter,
   leadContactTagFilter,
   stateFilter,
+  serviceTypeFilter,
   rangePreset,
   q,
 }) {
@@ -160,6 +161,7 @@ function hasActiveLeadFilters({
     leadProgressTagFilter !== "all" ||
     leadContactTagFilter !== "all" ||
     stateFilter !== "all" ||
+    serviceTypeFilter !== "all" ||
     rangePreset !== "all" ||
     Boolean(q)
   );
@@ -289,6 +291,7 @@ export default function LeadsClient({
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [serviceTypeFilter, setServiceTypeFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState(
     userRole === "manager" && isOutside ? "all" : "day",
   );
@@ -455,6 +458,9 @@ export default function LeadsClient({
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
+      if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all") {
+        params.set("serviceType", serviceTypeFilter);
+      }
       if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
         params.set("shiftKey", shiftFilter);
       }
@@ -506,12 +512,14 @@ export default function LeadsClient({
     assignedScopeFilter,
     processorScopeFilter,
     processorFilter,
+    isAdmin,
     isSupervisor,
     isProcessor,
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
     stateFilter,
+    serviceTypeFilter,
     shiftFilter,
     canFilterByShift,
     q,
@@ -1218,6 +1226,30 @@ export default function LeadsClient({
               ))}
             </select>
           </div>
+          {isAdmin ? (
+            <div className="w-full sm:min-w-[160px] sm:flex-1">
+              <label htmlFor="leads-service-filter" className={labelClass}>
+                Service
+              </label>
+              <select
+                id="leads-service-filter"
+                value={serviceTypeFilter}
+                onChange={(e) => {
+                  setServiceTypeFilter(e.target.value);
+                  setPage(1);
+                }}
+                className={inputClass}
+                aria-label="Filter by service"
+              >
+                <option value="all">All services</option>
+                {SERVICE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <button
             type="submit"
             disabled={loading}
@@ -1624,6 +1656,7 @@ export default function LeadsClient({
                     leadProgressTagFilter,
                     leadContactTagFilter,
                     stateFilter,
+                    serviceTypeFilter,
                     rangePreset,
                     q,
                   })
