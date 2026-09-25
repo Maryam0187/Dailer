@@ -6,7 +6,9 @@ import FilesClient from "@/components/Files/FilesClient";
 export default async function FilesPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  if (isOutsideManager(authedUser)) redirect("/customers");
+  if (Boolean(authedUser.isOutside)) {
+    redirect(isOutsideManager(authedUser) ? "/customers" : "/");
+  }
 
   const pageDescription =
     authedUser.role === "admin"

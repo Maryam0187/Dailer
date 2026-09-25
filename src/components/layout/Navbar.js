@@ -144,12 +144,14 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
     });
   }
 
-  items.push({
-    href: "/files",
-    label: "Files",
-    active: pathname === "/files",
-    palette: "indigo",
-  });
+  if (!isOutside) {
+    items.push({
+      href: "/files",
+      label: "Files",
+      active: pathname === "/files",
+      palette: "indigo",
+    });
+  }
 
   if (accessMode !== "limited" && role !== "admin" && canTrainAddressBot) {
     items.push({

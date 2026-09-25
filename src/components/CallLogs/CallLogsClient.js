@@ -101,6 +101,13 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   /** `all` | `1` | `2` — Line 1 / Line 2 outbound. Default all so current list is unchanged. */
   const [lineFilter, setLineFilter] = useState("all");
 
+  useEffect(() => {
+    if (!canUseDialer2 && lineFilter === "2") {
+      setLineFilter("all");
+      setPage(1);
+    }
+  }, [canUseDialer2, lineFilter]);
+
   const loadCalls = useCallback(
     async ({
       signal,
@@ -524,7 +531,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               {[
                 { id: "all", label: "All lines" },
                 { id: "1", label: "Line 1" },
-                { id: "2", label: "Line 2" },
+                ...(canUseDialer2 ? [{ id: "2", label: "Line 2" }] : []),
               ].map((opt) => (
                 <button
                   key={opt.id}
@@ -548,7 +555,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 ? "Only outbound calls placed on Line 2 (second number)."
                 : lineFilter === "1"
                   ? "Only outbound calls placed on Line 1 (current number)."
-                  : "Shows both Line 1 and Line 2. Choose a line to search that dialer only."}
+                  : canUseDialer2
+                    ? "Shows both Line 1 and Line 2. Choose a line to search that dialer only."
+                    : "Shows Line 1 outbound calls."}
             </p>
           </div>
           <div className="mb-3">
@@ -744,17 +753,16 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         ) : null}
                         {(() => {
                           const isLine2 = Number(c.dialerIndex) === 2;
+                          if (isLine2 && !canUseDialer2) return null;
                           const isCalling = isLine2 ? callingLine2Id === c.id : callingId === c.id;
                           const lineBusy = isLine2 ? Boolean(line2Session) : Boolean(session);
                           const voiceReady = isLine2 ? canStartLine2 : canStartCall;
-                          const blockedNoLine2 = isLine2 && !canUseDialer2;
                           const disabled =
-                            isCalling || lineBusy || isPrimaryTab === false || blockedNoLine2 || !voiceReady;
+                            isCalling || lineBusy || isPrimaryTab === false || !voiceReady;
                           let label = "Call";
                           if (isCalling) label = "Calling...";
                           else if (lineBusy) label = "Call in progress";
                           else if (isPrimaryTab === false) label = "Active in other tab";
-                          else if (blockedNoLine2) label = "Line 2 disabled";
                           else if (!isLine2 && voiceDisplaced) label = "Use this tab";
                           else if (!voiceReady) label = "Voice Not Ready";
                           return (

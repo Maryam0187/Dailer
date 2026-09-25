@@ -1007,6 +1007,13 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   }, [user.id, callsFilter, callsLineFilter, appliedFrom, appliedTo, page, loadCalls, activeTab]);
 
   useEffect(() => {
+    if (!user.canUseDialer2 && callsLineFilter === "2") {
+      setCallsLineFilter("all");
+      setPage(1);
+    }
+  }, [user.canUseDialer2, callsLineFilter]);
+
+  useEffect(() => {
     if (!isAdmin || activeTab !== "metrics") return undefined;
     const controller = new AbortController();
     loadMetrics(controller.signal, appliedFrom, appliedTo, metricsScope);
@@ -1603,7 +1610,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 {[
                   { id: "all", label: "All lines" },
                   { id: "1", label: "Line 1" },
-                  { id: "2", label: "Line 2" },
+                  ...(user.canUseDialer2 ? [{ id: "2", label: "Line 2" }] : []),
                 ].map((opt) => (
                   <button
                     key={opt.id}
