@@ -330,7 +330,7 @@ export async function getLeadFilterCreators(authedUser) {
 export async function getAdminAssignableUsers() {
   return db.User.findAll({
     where: { isActive: true },
-    attributes: ["id", "username", "role", "supervisorId"],
+    attributes: ["id", "username", "role", "supervisorId", "canReceiveSharedLeads"],
     order: [
       ["role", "ASC"],
       ["username", "ASC"],
@@ -370,6 +370,7 @@ async function serializeAssignableUsers(users) {
     username: u.username,
     role: u.role,
     supervisorName: u.supervisorId ? supervisorNameById.get(Number(u.supervisorId)) ?? null : null,
+    canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
   }));
 }
 
@@ -465,6 +466,21 @@ export async function canAssignLeadToAgent(authedUser, agentUserId) {
   }
   const agents = await getAssignableAgents(authedUser);
   return agents.some((a) => a.id === agentUserId);
+}
+
+/** Admin may share view-only access only to active users with canReceiveSharedLeads. */
+export async function canAssignSharedViewer(authedUser, viewerUserId) {
+  if (authedUser.role !== "admin") return false;
+  if (!Number.isInteger(viewerUserId) || viewerUserId <= 0) return false;
+  const user = await db.User.findOne({
+    where: {
+      id: viewerUserId,
+      isActive: true,
+      canReceiveSharedLeads: true,
+    },
+    attributes: ["id"],
+  });
+  return Boolean(user);
 }
 
 /** Active agents reporting to this supervisor. */

@@ -4,7 +4,7 @@ import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { canAssignLeadsLikeLeadSupervisor, shouldHideLeadNotes, isViewOnlySharedViewer } from "@/lib/leadRoles";
-import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
+import { canAccessLead, canAssignLeadToAgent, canAssignSharedViewer } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
 import { buildTextActivityDiff } from "@/server/leads/buildTextActivityDiff";
@@ -260,7 +260,7 @@ export async function PATCH(req, { params }) {
       if (!Number.isInteger(nextViewerId) || nextViewerId <= 0) {
         return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
       }
-      if (!(await canAssignLeadToAgent(authedUser, nextViewerId))) {
+      if (!(await canAssignSharedViewer(authedUser, nextViewerId))) {
         return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
       }
       if (nextViewerId !== lead.sharedViewerUserId) {

@@ -26,6 +26,7 @@ export default async function LeadsPage({ searchParams }) {
         userRole={authedUser.role}
         currentUserId={authedUser.id}
         isOutside={Boolean(authedUser.isOutside)}
+        canReceiveSharedLeads={Boolean(authedUser.canReceiveSharedLeads)}
       />
     </>
   );

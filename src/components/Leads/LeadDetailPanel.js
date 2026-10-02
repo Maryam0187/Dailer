@@ -732,7 +732,7 @@ export default function LeadDetailPanel({
                     <AssigneePicker
                       assignedUserId={lead.sharedViewerUserId}
                       assignedUsername={lead.sharedViewerUsername}
-                      users={assignableUsers}
+                      users={assignableUsers.filter((u) => Boolean(u.canReceiveSharedLeads))}
                       loading={loadingAssignableUsers}
                       saving={savingSharedViewer}
                       onSelect={openShareViewConfirm}

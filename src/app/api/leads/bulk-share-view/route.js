@@ -3,7 +3,7 @@ import { Op } from "sequelize";
 import { randomUUID } from "crypto";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
-import { canAssignLeadToAgent } from "@/server/leads/leadAccess";
+import { canAssignSharedViewer } from "@/server/leads/leadAccess";
 import { applySharedViewerChange } from "@/server/leads/applySharedViewer";
 
 const MAX_BULK = 200;
@@ -42,7 +42,7 @@ export async function POST(req) {
     if (!Number.isInteger(nextViewerId) || nextViewerId <= 0) {
       return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
     }
-    if (!(await canAssignLeadToAgent(authedUser, nextViewerId))) {
+    if (!(await canAssignSharedViewer(authedUser, nextViewerId))) {
       return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
     }
   }

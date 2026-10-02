@@ -123,6 +123,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /** Admin-gated: may receive view-only shared sales and see Shared with me. */
+      canReceiveSharedLeads: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "Users",

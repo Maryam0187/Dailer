@@ -30,6 +30,7 @@ const LIST_ATTRIBUTES = [
   "totpEnabledAt",
   "canUseDialer2",
   "canTrainAddressBot",
+  "canReceiveSharedLeads",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -85,6 +86,7 @@ function serializeUserRow(
           totpEnabledAt: row.totpEnabledAt ?? null,
           canUseDialer2: Boolean(row.canUseDialer2),
           canTrainAddressBot: Boolean(row.canTrainAddressBot),
+          canReceiveSharedLeads: Boolean(row.canReceiveSharedLeads),
         }
       : {}),
     ...(includeIpAddress ? { lastIpAddress } : {}),
@@ -383,6 +385,8 @@ export async function POST(req) {
 
   const shiftKeyToSet = role === "admin" ? "day" : requestedShiftKey;
   const isOutsideToSet = role === "admin" ? false : Boolean(body?.isOutside);
+  const canReceiveSharedLeadsToSet =
+    authedUser.role === "admin" ? Boolean(body?.canReceiveSharedLeads) : false;
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -392,6 +396,7 @@ export async function POST(req) {
       supervisorId: supervisorIdToSet,
       shiftKey: shiftKeyToSet,
       isOutside: isOutsideToSet,
+      canReceiveSharedLeads: canReceiveSharedLeadsToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -405,6 +410,7 @@ export async function POST(req) {
           shiftKey: user.shiftKey,
           isActive: user.isActive,
           isOutside: Boolean(user.isOutside),
+          canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
         },
       },
       { status: 201 },

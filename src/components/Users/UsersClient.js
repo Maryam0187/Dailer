@@ -1182,6 +1182,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     Outside
                   </span>
                 ) : null}
+                {user.canReceiveSharedLeads ? (
+                  <span className="inline-flex rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+                    Shared view
+                  </span>
+                ) : null}
                 <LeaveBadge leave={currentLeave} />
               </div>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -1830,6 +1835,9 @@ function EditUserModal({
   const [isOutside, setIsOutside] = useState(Boolean(user.isOutside));
   const [canUseDialer2, setCanUseDialer2] = useState(Boolean(user.canUseDialer2));
   const [canTrainAddressBot, setCanTrainAddressBot] = useState(Boolean(user.canTrainAddressBot));
+  const [canReceiveSharedLeads, setCanReceiveSharedLeads] = useState(
+    Boolean(user.canReceiveSharedLeads),
+  );
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
     user.afterShiftGrantDurationMinutes ?? 120,
@@ -1858,6 +1866,7 @@ function EditUserModal({
     setIsOutside(Boolean(user.isOutside));
     setCanUseDialer2(Boolean(user.canUseDialer2));
     setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
+    setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
@@ -1968,6 +1977,9 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canTrainAddressBot) !== Boolean(user.canTrainAddressBot)) {
         payload.canTrainAddressBot = canTrainAddressBot;
+      }
+      if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
+        payload.canReceiveSharedLeads = canReceiveSharedLeads;
       }
       if (isAdmin && editRole === "admin" && user.isOutside) {
         payload.isOutside = false;
@@ -2383,6 +2395,24 @@ function EditUserModal({
             </div>
           ) : null}
 
+          {isAdmin ? (
+            <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 dark:border-teal-800 dark:bg-teal-950/30">
+              <input
+                id="edit-shared-view"
+                type="checkbox"
+                checked={canReceiveSharedLeads}
+                onChange={(e) => setCanReceiveSharedLeads(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+              />
+              <label htmlFor="edit-shared-view" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Shared view access
+                <span className="ml-1 font-normal text-zinc-500">
+                  (can receive view-only shared sales and see Shared with me)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           {isAdmin && user.role !== "admin" ? (
             <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
@@ -2501,6 +2531,7 @@ function normalizeUsersList(list) {
     isOutside: Boolean(u.isOutside),
     canUseDialer2: Boolean(u.canUseDialer2),
     canTrainAddressBot: Boolean(u.canTrainAddressBot),
+    canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
@@ -2526,6 +2557,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [createRole, setCreateRole] = useState(role === "admin" ? "agent" : "agent");
   const [createShiftKey, setCreateShiftKey] = useState("day");
   const [createIsOutside, setCreateIsOutside] = useState(false);
+  const [createCanReceiveSharedLeads, setCreateCanReceiveSharedLeads] = useState(false);
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
 
@@ -2775,6 +2807,9 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
           payload.shiftKey = createShiftKey === "night" ? "night" : "day";
           payload.isOutside = createIsOutside;
         }
+        if (role === "admin" && createCanReceiveSharedLeads) {
+          payload.canReceiveSharedLeads = true;
+        }
       } else if (role === "manager") {
         payload.role = createRole;
         if (createRole === "agent" && supervisorId != null) {
@@ -2795,6 +2830,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       setUsername("");
       setPassword("");
       setCreateIsOutside(false);
+      setCreateCanReceiveSharedLeads(false);
       await loadUsers();
     } catch (err) {
       setError(err.message || "Failed to create user");
@@ -3105,6 +3141,23 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       Outside staff
                       <span className="ml-1 font-normal text-zinc-500">
                         (can be assigned to outside customers)
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
+                {role === "admin" ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 dark:border-teal-800 dark:bg-teal-950/30">
+                    <input
+                      id="new-user-shared-view"
+                      type="checkbox"
+                      checked={createCanReceiveSharedLeads}
+                      onChange={(e) => setCreateCanReceiveSharedLeads(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <label htmlFor="new-user-shared-view" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                      Shared view access
+                      <span className="ml-1 font-normal text-zinc-500">
+                        (can receive view-only shared sales and see Shared with me)
                       </span>
                     </label>
                   </div>

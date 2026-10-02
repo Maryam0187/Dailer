@@ -186,6 +186,7 @@ async function resolveAuthedUser() {
       sessionPurpose: "full",
       canUseDialer2: Boolean(user.canUseDialer2),
       canTrainAddressBot: Boolean(user.canTrainAddressBot),
+      canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
     },
     logoutReason: null,
   };

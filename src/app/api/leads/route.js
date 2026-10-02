@@ -194,6 +194,9 @@ export async function GET(req) {
   if (sharedScopeRaw === "all" && authedUser.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (sharedScopeRaw === "mine" && authedUser.role !== "admin" && !authedUser.canReceiveSharedLeads) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const sharedWithMe = sharedScopeRaw === "mine";
   const sharedAll = sharedScopeRaw === "all";
   const onSharedTab = sharedWithMe || sharedAll;

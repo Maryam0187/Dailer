@@ -49,6 +49,7 @@ export async function GET(_req, { params }) {
       "totpEnabledAt",
       "canUseDialer2",
       "canTrainAddressBot",
+      "canReceiveSharedLeads",
     ],
     include: [
       {
@@ -107,6 +108,8 @@ export async function GET(_req, { params }) {
       totpEnabledAt: authedUser.role === "admin" ? target.totpEnabledAt ?? null : undefined,
       canUseDialer2: authedUser.role === "admin" ? Boolean(target.canUseDialer2) : undefined,
       canTrainAddressBot: authedUser.role === "admin" ? Boolean(target.canTrainAddressBot) : undefined,
+      canReceiveSharedLeads:
+        authedUser.role === "admin" ? Boolean(target.canReceiveSharedLeads) : undefined,
     },
   });
 }
@@ -257,6 +260,10 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.canTrainAddressBot !== undefined) {
     updates.canTrainAddressBot = Boolean(body.canTrainAddressBot);
+  }
+
+  if (isAdmin && body.canReceiveSharedLeads !== undefined) {
+    updates.canReceiveSharedLeads = Boolean(body.canReceiveSharedLeads);
   }
 
   const globalGrantDuration = isAdmin ? await getDefaultGrantDurationMinutes() : null;
@@ -443,6 +450,7 @@ export async function PATCH(req, { params }) {
       "totpEnabledAt",
       "canUseDialer2",
       "canTrainAddressBot",
+      "canReceiveSharedLeads",
     ],
     include: [
       {

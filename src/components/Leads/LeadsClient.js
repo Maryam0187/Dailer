@@ -249,6 +249,7 @@ export default function LeadsClient({
   userRole = "agent",
   currentUserId = null,
   isOutside = false,
+  canReceiveSharedLeads = false,
 }) {
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
@@ -356,6 +357,7 @@ export default function LeadsClient({
 
   const showLeadStats = canViewLeadStats(userRole);
   const isAdmin = userRole === "admin";
+  const showSharedWithMeTab = isAdmin || Boolean(canReceiveSharedLeads);
   const isManager = userRole === "manager";
   const canFilterByShift = isAdmin || isManager;
   const preferShortLabels = resolvePreferShortLabels(isAdmin, adminShortLabels);
@@ -661,6 +663,13 @@ export default function LeadsClient({
   }, [leadPhaseFilter, leadProgressTagFilter]);
 
   useEffect(() => {
+    if (!showSharedWithMeTab && leadsListTab === "shared_with_me") {
+      setLeadsListTab("leads");
+      setPage(1);
+    }
+  }, [showSharedWithMeTab, leadsListTab]);
+
+  useEffect(() => {
     if (!showBulkShareView) {
       setBulkShareUsers([]);
       return undefined;
@@ -675,7 +684,11 @@ export default function LeadsClient({
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Failed to load users");
-        if (!cancelled) setBulkShareUsers(json.users || []);
+        if (!cancelled) {
+          setBulkShareUsers(
+            (json.users || []).filter((u) => Boolean(u.canReceiveSharedLeads)),
+          );
+        }
       } catch {
         if (!cancelled) setBulkShareUsers([]);
       } finally {
@@ -1851,39 +1864,41 @@ export default function LeadsClient({
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Lead list tabs">
-        {[
-          { id: "leads", label: "Leads" },
-          { id: "shared_with_me", label: isAdmin ? "Shared leads" : "Shared with me" },
-        ].map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => {
-              setLeadsListTab(option.id);
-              setPage(1);
-            }}
-            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
-              leadsListTab === option.id
-                ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
-                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            }`}
-            aria-pressed={leadsListTab === option.id}
-          >
-            {option.label}
-          </button>
-        ))}
-        {isAdmin && onSharedWithMeTab ? (
-          <button
-            type="button"
-            disabled={exportingSharedExcel || loading}
-            onClick={() => void onExportSharedExcel()}
-            className="ml-auto h-9 rounded-xl border border-emerald-600 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {exportingSharedExcel ? "Exporting…" : "Export Excel"}
-          </button>
-        ) : null}
-      </div>
+      {showSharedWithMeTab ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Lead list tabs">
+          {[
+            { id: "leads", label: "Leads" },
+            { id: "shared_with_me", label: isAdmin ? "Shared leads" : "Shared with me" },
+          ].map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => {
+                setLeadsListTab(option.id);
+                setPage(1);
+              }}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                leadsListTab === option.id
+                  ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                  : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }`}
+              aria-pressed={leadsListTab === option.id}
+            >
+              {option.label}
+            </button>
+          ))}
+          {isAdmin && onSharedWithMeTab ? (
+            <button
+              type="button"
+              disabled={exportingSharedExcel || loading}
+              onClick={() => void onExportSharedExcel()}
+              className="ml-auto h-9 rounded-xl border border-emerald-600 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {exportingSharedExcel ? "Exporting…" : "Export Excel"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <WorkflowStatusLegend workflowTags={workflowTags} preferShortLabels={preferShortLabels} />
 
