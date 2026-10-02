@@ -933,7 +933,7 @@ export function RichHtmlContent({ html, className = "", emptyText = "—" }) {
   return (
     <div
       className={`tiptap-readonly text-sm leading-relaxed ${className}`}
-      dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(html) }}
+      dangerouslySetInnerHTML={{ __html: toRichEditorHtml(html) }}
     />
   );
 }
