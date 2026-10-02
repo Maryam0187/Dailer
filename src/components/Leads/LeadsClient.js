@@ -37,6 +37,7 @@ import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
 import WorkflowStatusLegend from "@/components/Leads/WorkflowStatusLegend";
 import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
+import AssigneePicker from "@/components/Leads/AssigneePicker";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
@@ -304,6 +305,7 @@ export default function LeadsClient({
   const [filterProcessors, setFilterProcessors] = useState([]);
   const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
+  const [leadsListTab, setLeadsListTab] = useState("leads"); // leads | shared_with_me
   const initialRange = getPresetRange("today");
   const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
@@ -330,6 +332,13 @@ export default function LeadsClient({
       return false;
     }
   });
+  const [selectedShareLeadIds, setSelectedShareLeadIds] = useState(() => new Set());
+  const [bulkShareUsers, setBulkShareUsers] = useState([]);
+  const [loadingBulkShareUsers, setLoadingBulkShareUsers] = useState(false);
+  const [bulkShareSaving, setBulkShareSaving] = useState(false);
+  const [bulkShareMessage, setBulkShareMessage] = useState(null);
+  const [bulkShareConfirm, setBulkShareConfirm] = useState(null);
+  const [exportingSharedExcel, setExportingSharedExcel] = useState(false);
   const workflowTagLookup = useMemo(() => buildWorkflowTagLookup(workflowTags), [workflowTags]);
   const phaseFilterOptions = useMemo(() => buildPhaseFilterOptions(workflowTags), [workflowTags]);
   const progressFilterOptions = useMemo(() => buildProgressFilterOptions(workflowTags), [workflowTags]);
@@ -356,7 +365,19 @@ export default function LeadsClient({
   const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const showAgentColumn = showLeadFilters || isProcessor;
-  const colSpan = showAgentColumn ? 7 : 6;
+  const showBulkShareView = isAdmin && leadsListTab === "leads";
+  const colSpan = (showAgentColumn ? 7 : 6) + (showBulkShareView ? 1 : 0);
+  const selectedShareCount = selectedShareLeadIds.size;
+  const pageLeadIds = useMemo(() => leads.map((lead) => lead.id), [leads]);
+  const allPageShareSelected =
+    showBulkShareView &&
+    pageLeadIds.length > 0 &&
+    pageLeadIds.every((id) => selectedShareLeadIds.has(id));
+  const somePageShareSelected =
+    showBulkShareView &&
+    pageLeadIds.some((id) => selectedShareLeadIds.has(id)) &&
+    !allPageShareSelected;
+  const onSharedWithMeTab = leadsListTab === "shared_with_me";
 
   const filteredAgents = useMemo(() => {
     let list = assignableAgents;
@@ -437,16 +458,38 @@ export default function LeadsClient({
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
-      if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
-      if (assignedScopeFilter !== "all" && (isSupervisor || supervisorFilter !== "all")) {
-        params.set("assignedScope", assignedScopeFilter);
-      }
-      if (processorScopeFilter !== "all" && isProcessor) {
-        params.set("processorScope", processorScopeFilter);
-      }
-      if (isAdmin && processorFilter && processorFilter !== "all") {
-        params.set("processorUserId", processorFilter);
+      if (leadsListTab === "shared_with_me") {
+        params.set("sharedScope", isAdmin ? "all" : "mine");
+        if (isAdmin) {
+          if (supervisorFilter && supervisorFilter !== "all") {
+            params.set("supervisorId", supervisorFilter);
+          }
+          if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+          if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
+            params.set("shiftKey", shiftFilter);
+          }
+          if (processorFilter && processorFilter !== "all") {
+            params.set("processorUserId", processorFilter);
+          }
+          if (serviceTypeFilter && serviceTypeFilter !== "all") {
+            params.set("serviceType", serviceTypeFilter);
+          }
+        }
+      } else {
+        if (supervisorFilter && supervisorFilter !== "all") params.set("supervisorId", supervisorFilter);
+        if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+        if (assignedScopeFilter !== "all" && (isSupervisor || supervisorFilter !== "all")) {
+          params.set("assignedScope", assignedScopeFilter);
+        }
+        if (processorScopeFilter !== "all" && isProcessor) {
+          params.set("processorScope", processorScopeFilter);
+        }
+        if (isAdmin && processorFilter && processorFilter !== "all") {
+          params.set("processorUserId", processorFilter);
+        }
+        if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
+          params.set("shiftKey", shiftFilter);
+        }
       }
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
@@ -458,11 +501,8 @@ export default function LeadsClient({
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
-      if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all") {
+      if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all" && leadsListTab !== "shared_with_me") {
         params.set("serviceType", serviceTypeFilter);
-      }
-      if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
-        params.set("shiftKey", shiftFilter);
       }
       if (q.trim()) {
         params.set("q", q.trim());
@@ -529,6 +569,7 @@ export default function LeadsClient({
     sortBy,
     sortDir,
     page,
+    leadsListTab,
   ]);
 
   useEffect(() => {
@@ -618,6 +659,191 @@ export default function LeadsClient({
       setLeadProgressTagFilter("all");
     }
   }, [leadPhaseFilter, leadProgressTagFilter]);
+
+  useEffect(() => {
+    if (!showBulkShareView) {
+      setBulkShareUsers([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setLoadingBulkShareUsers(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/leads/assignable-users", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to load users");
+        if (!cancelled) setBulkShareUsers(json.users || []);
+      } catch {
+        if (!cancelled) setBulkShareUsers([]);
+      } finally {
+        if (!cancelled) setLoadingBulkShareUsers(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showBulkShareView]);
+
+  useEffect(() => {
+    setSelectedShareLeadIds(new Set());
+    setBulkShareMessage(null);
+    setBulkShareConfirm(null);
+  }, [
+    supervisorFilter,
+    agentFilter,
+    assignedScopeFilter,
+    processorScopeFilter,
+    processorFilter,
+    leadPhaseFilter,
+    leadProgressTagFilter,
+    leadContactTagFilter,
+    stateFilter,
+    serviceTypeFilter,
+    shiftFilter,
+    q,
+    searchBy,
+    appliedFrom,
+    appliedTo,
+    sortBy,
+    sortDir,
+    page,
+    leadsListTab,
+  ]);
+
+  function toggleShareLeadSelected(leadId) {
+    setSelectedShareLeadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+    setBulkShareMessage(null);
+  }
+
+  function toggleSelectAllShareOnPage() {
+    setSelectedShareLeadIds((prev) => {
+      if (allPageShareSelected) {
+        const next = new Set(prev);
+        for (const id of pageLeadIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of pageLeadIds) next.add(id);
+      return next;
+    });
+    setBulkShareMessage(null);
+  }
+
+  function clearShareSelection() {
+    setSelectedShareLeadIds(new Set());
+    setBulkShareMessage(null);
+    setBulkShareConfirm(null);
+  }
+
+  function openBulkShareConfirm(userId) {
+    const ids = [...selectedShareLeadIds];
+    if (ids.length === 0) return;
+    const target = bulkShareUsers.find((u) => Number(u.id) === Number(userId));
+    setBulkShareConfirm({
+      userId: Number(userId),
+      username: target?.username || `user #${userId}`,
+      leadIds: ids,
+      count: ids.length,
+    });
+  }
+
+  function closeBulkShareConfirm() {
+    if (bulkShareSaving) return;
+    setBulkShareConfirm(null);
+  }
+
+  async function confirmBulkShareView() {
+    if (!bulkShareConfirm) return;
+    const { userId, username: targetName, leadIds: ids } = bulkShareConfirm;
+    setBulkShareSaving(true);
+    setBulkShareMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/leads/bulk-share-view", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          leadIds: ids,
+          sharedViewerUserId: Number(userId),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Bulk share view failed");
+
+      const parts = [];
+      if (json.updatedCount) parts.push(`${json.updatedCount} shared with ${targetName}`);
+      if (json.skippedCount) parts.push(`${json.skippedCount} already shared`);
+      if (json.missingCount) parts.push(`${json.missingCount} not found`);
+      if (json.failedCount) parts.push(`${json.failedCount} failed`);
+      setBulkShareMessage(parts.join(" · ") || "No changes");
+      setSelectedShareLeadIds(new Set());
+      setBulkShareConfirm(null);
+      await loadLeads(page, { silent: true });
+    } catch (e) {
+      setError(e.message || "Bulk share view failed");
+    } finally {
+      setBulkShareSaving(false);
+    }
+  }
+
+  async function onExportSharedExcel() {
+    if (!isAdmin || exportingSharedExcel) return;
+    setExportingSharedExcel(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (supervisorFilter && supervisorFilter !== "all") {
+        params.set("supervisorId", supervisorFilter);
+      }
+      if (agentFilter && agentFilter !== "all") params.set("agentId", agentFilter);
+      if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
+      if (leadContactTagFilter && leadContactTagFilter !== "all") {
+        params.set("leadContactTag", leadContactTagFilter);
+      }
+      if (stateFilter && stateFilter !== "all") params.set("state", stateFilter);
+      if (q.trim()) {
+        params.set("q", q.trim());
+      } else if (appliedFrom && appliedTo) {
+        params.set("fromDate", appliedFrom);
+        params.set("toDate", appliedTo);
+        params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
+      }
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/leads/export-shared${qs}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || "Export failed");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] || `shared-leads_${appliedFrom || "export"}.xlsx`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      setError(e.message || "Export failed");
+    } finally {
+      setExportingSharedExcel(false);
+    }
+  }
 
   function onSupervisorFilterChange(nextSupervisorId) {
     setSupervisorFilter(nextSupervisorId);
@@ -1393,9 +1619,11 @@ export default function LeadsClient({
             {showLeadFilters ? (
               <div>
                 <label className={labelClass}>
-                  {showSupervisorFilter
-                    ? "Filter by agent / supervisor / processor"
-                    : "Filter by agent"}
+                  {onSharedWithMeTab
+                    ? "Filter by shared viewer"
+                    : showSupervisorFilter
+                      ? "Filter by agent / supervisor / processor"
+                      : "Filter by agent"}
                 </label>
                 <select
                   value={agentFilter}
@@ -1406,9 +1634,11 @@ export default function LeadsClient({
                   className={inputClass}
                 >
                   <option value="all">
-                    {showSupervisorFilter
-                      ? "All agents, supervisors & processors"
-                      : "All agents"}
+                    {onSharedWithMeTab
+                      ? "All shared viewers"
+                      : showSupervisorFilter
+                        ? "All agents, supervisors & processors"
+                        : "All agents"}
                   </option>
                   {filteredAgents.map((a) => (
                     <option key={a.id} value={String(a.id)}>
@@ -1594,7 +1824,7 @@ export default function LeadsClient({
         </div>
       </div>
 
-      {isProcessor ? (
+      {isProcessor && !onSharedWithMeTab ? (
         <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Processor lead views">
           {[
             { id: "own", label: "My leads" },
@@ -1621,12 +1851,92 @@ export default function LeadsClient({
         </div>
       ) : null}
 
+      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Lead list tabs">
+        {[
+          { id: "leads", label: "Leads" },
+          { id: "shared_with_me", label: isAdmin ? "Shared leads" : "Shared with me" },
+        ].map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => {
+              setLeadsListTab(option.id);
+              setPage(1);
+            }}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              leadsListTab === option.id
+                ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            }`}
+            aria-pressed={leadsListTab === option.id}
+          >
+            {option.label}
+          </button>
+        ))}
+        {isAdmin && onSharedWithMeTab ? (
+          <button
+            type="button"
+            disabled={exportingSharedExcel || loading}
+            onClick={() => void onExportSharedExcel()}
+            className="ml-auto h-9 rounded-xl border border-emerald-600 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {exportingSharedExcel ? "Exporting…" : "Export Excel"}
+          </button>
+        ) : null}
+      </div>
+
       <WorkflowStatusLegend workflowTags={workflowTags} preferShortLabels={preferShortLabels} />
+
+      {showBulkShareView && selectedShareCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
+          <p className="text-sm font-semibold text-sky-950 dark:text-sky-100">
+            {selectedShareCount} selected
+          </p>
+          <AssigneePicker
+            variant="button"
+            buttonLabel="Share view…"
+            users={bulkShareUsers}
+            loading={loadingBulkShareUsers}
+            saving={bulkShareSaving}
+            onSelect={openBulkShareConfirm}
+          />
+          <button
+            type="button"
+            disabled={bulkShareSaving}
+            onClick={clearShareSelection}
+            className="h-9 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Clear
+          </button>
+          {bulkShareMessage ? (
+            <p className="text-sm text-sky-900 dark:text-sky-200">{bulkShareMessage}</p>
+          ) : null}
+        </div>
+      ) : showBulkShareView && bulkShareMessage ? (
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          {bulkShareMessage}
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <table className="w-full min-w-[760px] table-fixed text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
             <tr>
+              {showBulkShareView ? (
+                <th className={`${tableHeadClass} w-10 px-3`}>
+                  <input
+                    type="checkbox"
+                    checked={allPageShareSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = somePageShareSelected;
+                    }}
+                    onChange={toggleSelectAllShareOnPage}
+                    disabled={loading || leads.length === 0 || bulkShareSaving}
+                    aria-label="Select all leads on this page for share view"
+                    className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500/40 dark:border-zinc-600 dark:bg-zinc-900"
+                  />
+                </th>
+              ) : null}
               <th className={`${tableHeadClass} min-w-[120px] max-w-[140px] px-3`}>Name</th>
               <th className={tableHeadClass}>Phone</th>
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
@@ -1661,7 +1971,11 @@ export default function LeadsClient({
                     q,
                   })
                     ? "No leads match the selected filters."
-                    : "No leads yet. Add your first lead above."}
+                    : onSharedWithMeTab
+                      ? isAdmin
+                        ? "No leads are shared with anyone yet."
+                        : "No leads have been shared with you yet."
+                      : "No leads yet. Add your first lead above."}
                 </td>
               </tr>
             ) : (
@@ -1672,9 +1986,25 @@ export default function LeadsClient({
                 <tr
                   key={lead.id}
                   className={`text-zinc-800 dark:text-zinc-200 ${
-                    selectedLeadId === lead.id ? "bg-emerald-50/60 dark:bg-emerald-950/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                    selectedLeadId === lead.id
+                      ? "bg-emerald-50/60 dark:bg-emerald-950/20"
+                      : selectedShareLeadIds.has(lead.id)
+                        ? "bg-sky-50/50 dark:bg-sky-950/20"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                   }`}
                 >
+                  {showBulkShareView ? (
+                    <td className={`${tableCellClass} w-10 px-3`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedShareLeadIds.has(lead.id)}
+                        onChange={() => toggleShareLeadSelected(lead.id)}
+                        disabled={bulkShareSaving}
+                        aria-label={`Select ${formatLeadName(lead)} for share view`}
+                        className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500/40 dark:border-zinc-600 dark:bg-zinc-900"
+                      />
+                    </td>
+                  ) : null}
                   <td
                     className={`${tableCellClass} max-w-[140px] truncate font-medium`}
                     title={formatLeadName(lead) !== "—" ? formatLeadName(lead) : undefined}
@@ -1714,9 +2044,11 @@ export default function LeadsClient({
                   ) : null}
                   <td className={`${tableCellClass} whitespace-nowrap text-right`}>
                     <div className="flex justify-end gap-1">
-                      <IconTooltipButton title="Edit" onClick={() => setEditingLeadId(lead.id)}>
-                        <EditIcon />
-                      </IconTooltipButton>
+                      {!lead.viewOnlyShare ? (
+                        <IconTooltipButton title="Edit" onClick={() => setEditingLeadId(lead.id)}>
+                          <EditIcon />
+                        </IconTooltipButton>
+                      ) : null}
                       <IconTooltipButton title="View" onClick={() => setSelectedLeadId(lead.id)}>
                         <ViewIcon />
                       </IconTooltipButton>
@@ -1728,7 +2060,7 @@ export default function LeadsClient({
                       >
                         <ExpandIcon className="h-4 w-4" />
                       </Link>
-                      {!phonesRedacted ? (
+                      {!phonesRedacted && !lead.viewOnlyShare ? (
                         <IconTooltipButton
                           title={callingId === lead.id ? "Calling…" : "Call"}
                           variant="primary"
@@ -1743,7 +2075,7 @@ export default function LeadsClient({
                           <CallIcon />
                         </IconTooltipButton>
                       ) : null}
-                      {!phonesRedacted && canUseDialer2 ? (
+                      {!phonesRedacted && canUseDialer2 && !lead.viewOnlyShare ? (
                         <IconTooltipButton
                           title={callingLine2Id === lead.id ? "Calling Line 2…" : "Call Line 2"}
                           variant="accent"
@@ -1773,9 +2105,15 @@ export default function LeadsClient({
           lead={selectedLead}
           onClose={() => setSelectedLeadId(null)}
           onLeadUpdated={handleLeadUpdated}
-          onEdit={() => setEditingLeadId(selectedLead.id)}
-          onCallLead={phonesRedacted ? undefined : onCallLead}
-          onCallLeadLine2={phonesRedacted || !canUseDialer2 ? undefined : onCallLeadLine2}
+          onEdit={selectedLead.viewOnlyShare ? undefined : () => setEditingLeadId(selectedLead.id)}
+          onCallLead={
+            phonesRedacted || selectedLead.viewOnlyShare ? undefined : onCallLead
+          }
+          onCallLeadLine2={
+            phonesRedacted || !canUseDialer2 || selectedLead.viewOnlyShare
+              ? undefined
+              : onCallLeadLine2
+          }
           phonesRedacted={phonesRedacted || selectedLead.phonesRedacted}
           calling={callingId === selectedLead.id}
           callingLine2={callingLine2Id === selectedLead.id}
@@ -1802,6 +2140,67 @@ export default function LeadsClient({
             setEditingLeadId(null);
           }}
         />
+      ) : null}
+
+      {bulkShareConfirm ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[60] bg-zinc-950/50"
+            aria-label="Close bulk share confirmation"
+            disabled={bulkShareSaving}
+            onClick={closeBulkShareConfirm}
+          />
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-share-confirm-title"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+              <h3
+                id="bulk-share-confirm-title"
+                className="text-base font-semibold text-zinc-950 dark:text-zinc-50"
+              >
+                Confirm bulk share view
+              </h3>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                Share view-only access for{" "}
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {bulkShareConfirm.count} lead
+                  {bulkShareConfirm.count === 1 ? "" : "s"}
+                </span>{" "}
+                with{" "}
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {bulkShareConfirm.username}
+                </span>
+                ?
+              </p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                Agent and Assigned stay the same. Replaces any existing shared viewer on each
+                selected lead.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={bulkShareSaving}
+                  onClick={closeBulkShareConfirm}
+                  className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkShareSaving}
+                  onClick={() => void confirmBulkShareView()}
+                  className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {bulkShareSaving ? "Sharing…" : "Confirm share"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       ) : null}
         </>
       ) : null}

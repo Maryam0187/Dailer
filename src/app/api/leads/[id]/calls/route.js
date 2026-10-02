@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { isLeadSupervisor } from "@/lib/leadRoles";
+import { isLeadSupervisor, isViewOnlySharedViewer } from "@/lib/leadRoles";
 import { canAccessLead } from "@/server/leads/leadAccess";
 
 function parsePositiveInt(value, fallback) {
@@ -25,6 +25,13 @@ export async function GET(req, { params }) {
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (isViewOnlySharedViewer(lead, authedUser.role, authedUser.id)) {
+    return NextResponse.json({
+      calls: [],
+      pagination: { page: 1, pageSize: 20, total: 0, totalPages: 1, hasNext: false, hasPrev: false },
+    });
   }
 
   const { searchParams } = new URL(req.url);

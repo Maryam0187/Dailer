@@ -2,6 +2,7 @@ import db from "@/server/db";
 import {
   canViewLeadPaymentChargeInfo,
   isAdminOnlyPaymentChargeActivity,
+  isAdminOnlySharedViewActivityBody,
   shouldHideLeadNotes,
   shouldRestrictProcessorLeadActivity,
 } from "@/lib/leadRoles";
@@ -49,6 +50,9 @@ export function filterLeadUpdatesForViewer(updates, viewer, lead) {
   let next = canViewLeadPaymentChargeInfo(viewerRole)
     ? updates
     : updates.filter((u) => !isAdminOnlyPaymentChargeActivity(u));
+  if (viewerRole !== "admin") {
+    next = next.filter((u) => !isAdminOnlySharedViewActivityBody(u?.body));
+  }
   if (shouldHideLeadNotes(viewerRole, lead, viewerId)) {
     next = next
       .filter((u) => u.type !== "note_edit")

@@ -85,6 +85,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "Users", key: "id" },
       },
+      /** Admin-only share: one user may view lead info (not activity). Does not change assignedUserId. */
+      sharedViewerUserId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
       processorUserId: {
         type: DataTypes.INTEGER,
         allowNull: true,
@@ -213,6 +219,7 @@ module.exports = (sequelize, DataTypes) => {
       indexes: [
         { fields: ["phone"] },
         { fields: ["assignedUserId"] },
+        { fields: ["sharedViewerUserId"] },
         { fields: ["processorUserId"] },
         { fields: ["status"] },
         { fields: ["createdByUserId"] },
@@ -230,6 +237,7 @@ module.exports = (sequelize, DataTypes) => {
 
   Lead.associate = (models) => {
     Lead.belongsTo(models.User, { as: "assignedUser", foreignKey: "assignedUserId" });
+    Lead.belongsTo(models.User, { as: "sharedViewer", foreignKey: "sharedViewerUserId" });
     Lead.belongsTo(models.User, { as: "processorUser", foreignKey: "processorUserId" });
     Lead.belongsTo(models.User, { as: "createdBy", foreignKey: "createdByUserId" });
     Lead.belongsTo(models.CallLog, { as: "createdFromCall", foreignKey: "createdFromCallLogId" });

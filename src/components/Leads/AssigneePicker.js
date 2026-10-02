@@ -46,6 +46,9 @@ export default function AssigneePicker({
   saving = false,
   disabled = false,
   onSelect,
+  /** "icon" = pencil; "button" = labeled trigger for bulk actions */
+  variant = "icon",
+  buttonLabel = "Share view…",
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -87,7 +90,7 @@ export default function AssigneePicker({
     const openUpward = rect.bottom + gap + menuHeight > window.innerHeight;
     const top = openUpward ? rect.top - gap : rect.bottom + gap;
 
-    let left = rect.right - width;
+    let left = variant === "button" ? rect.left : rect.right - width;
     const maxLeft = window.innerWidth - width - margin;
     if (left > maxLeft) left = maxLeft;
     if (left < margin) left = margin;
@@ -98,7 +101,7 @@ export default function AssigneePicker({
       width,
       transform: openUpward ? "translateY(-100%)" : undefined,
     });
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -225,13 +228,15 @@ export default function AssigneePicker({
         )
       : null;
 
+  const isButton = variant === "button";
+
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
-        title="Change assignee"
-        aria-label="Change assignee"
+        title={isButton ? buttonLabel : "Change assignee"}
+        aria-label={isButton ? buttonLabel : "Change assignee"}
         aria-haspopup="menu"
         disabled={disabled || saving || loading}
         onClick={() => {
@@ -242,17 +247,25 @@ export default function AssigneePicker({
           updateMenuPosition();
           setOpen(true);
         }}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 shadow-sm outline-none transition-colors hover:border-emerald-500/60 hover:text-emerald-600 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-emerald-300"
+        className={
+          isButton
+            ? "inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 px-3 text-sm font-semibold text-white outline-none transition-colors hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+            : "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 shadow-sm outline-none transition-colors hover:border-emerald-500/60 hover:text-emerald-600 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-emerald-300"
+        }
       >
-        <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
-          <path
-            d="M13.5 3.5l3 3L7 16l-3.5.5L4 13l9.5-9.5z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        {isButton ? (
+          saving ? "Saving…" : buttonLabel
+        ) : (
+          <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
+            <path
+              d="M13.5 3.5l3 3L7 16l-3.5.5L4 13l9.5-9.5z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
       </button>
       {menu}
     </>

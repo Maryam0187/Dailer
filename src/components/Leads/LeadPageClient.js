@@ -181,9 +181,11 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
         lead={lead}
         variant="page"
         onLeadUpdated={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
-        onEdit={() => setEditing(true)}
-        onCallLead={phonesRedacted ? undefined : onCallLead}
-        onCallLeadLine2={phonesRedacted || !canUseDialer2 ? undefined : onCallLeadLine2}
+        onEdit={lead.viewOnlyShare ? undefined : () => setEditing(true)}
+        onCallLead={phonesRedacted || lead.viewOnlyShare ? undefined : onCallLead}
+        onCallLeadLine2={
+          phonesRedacted || !canUseDialer2 || lead.viewOnlyShare ? undefined : onCallLeadLine2
+        }
         phonesRedacted={phonesRedacted || lead.phonesRedacted}
         calling={callingId === lead.id}
         callingLine2={callingLine2Id === lead.id}
@@ -199,7 +201,7 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
         userRole={userRole}
         currentUserId={currentUserId}
       />
-      {editing ? (
+      {editing && !lead.viewOnlyShare ? (
         <LeadEditModal
           lead={lead}
           phonesRedacted={phonesRedacted || lead.phonesRedacted}

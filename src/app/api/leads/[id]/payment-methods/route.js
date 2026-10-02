@@ -56,6 +56,7 @@ async function loadLeadForPaymentAccess(id) {
       "assignedUserId",
       "createdByUserId",
       "processorUserId",
+      "sharedViewerUserId",
     ],
   });
 }

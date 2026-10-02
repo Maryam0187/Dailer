@@ -116,3 +116,26 @@ export function shouldRestrictProcessorLeadActivity(viewerRole, lead, viewerId =
 
 /** @deprecated Use shouldRestrictProcessorLeadActivity */
 export const shouldHideAgentLeadActivity = shouldRestrictProcessorLeadActivity;
+
+/**
+ * True when the viewer only has access via sharedViewerUserId (not creator/assignee/processor/admin/manager).
+ * View-only: lead info allowed; no activity, calls, or edits.
+ */
+export function isViewOnlySharedViewer(lead, viewerRole, viewerId = null) {
+  if (hasFullLeadAccess(viewerRole)) return false;
+  if (viewerId == null || lead?.sharedViewerUserId == null) return false;
+  const id = Number(viewerId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  if (Number(lead.sharedViewerUserId) !== id) return false;
+  if (Number(lead.assignedUserId) === id) return false;
+  if (Number(lead.createdByUserId) === id) return false;
+  if (Number(lead.processorUserId) === id) return false;
+  return true;
+}
+
+/** Share-view audit lines on the lead timeline — admin only. */
+export function isAdminOnlySharedViewActivityBody(body) {
+  const text = String(body || "").trim();
+  if (!text) return false;
+  return /^Shared view with\b/i.test(text) || /^Shared view cleared\b/i.test(text);
+}

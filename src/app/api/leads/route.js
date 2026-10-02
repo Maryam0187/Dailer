@@ -12,6 +12,7 @@ import {
   canFilterLeadsByCreator,
   canFilterLeadsBySupervisor,
   leadsCreatedByShiftWhere,
+  leadsSharedViewerShiftWhere,
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
@@ -177,6 +178,7 @@ export async function GET(req) {
   const supervisorId = supervisorIdRaw ? Number(supervisorIdRaw) : null;
   const assignedScopeRaw = searchParams.get("assignedScope");
   const processorScopeRaw = searchParams.get("processorScope");
+  const sharedScopeRaw = searchParams.get("sharedScope");
 
   let where;
 
@@ -186,6 +188,15 @@ export async function GET(req) {
   if (processorScopeRaw && processorScopeRaw !== "assigned" && processorScopeRaw !== "own") {
     return NextResponse.json({ error: "Invalid processorScope" }, { status: 400 });
   }
+  if (sharedScopeRaw && sharedScopeRaw !== "mine" && sharedScopeRaw !== "all") {
+    return NextResponse.json({ error: "Invalid sharedScope" }, { status: 400 });
+  }
+  if (sharedScopeRaw === "all" && authedUser.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  const sharedWithMe = sharedScopeRaw === "mine";
+  const sharedAll = sharedScopeRaw === "all";
+  const onSharedTab = sharedWithMe || sharedAll;
   const isFullAccessRole = hasFullLeadAccess(authedUser.role);
   if (assignedScopeRaw && authedUser.role !== "supervisor" && !isFullAccessRole) {
     return NextResponse.json({ error: "Invalid assignedScope" }, { status: 403 });
@@ -219,8 +230,10 @@ export async function GET(req) {
   where = await resolveLeadsListWhere(authedUser, {
     creatorId,
     supervisorId: canHaveAssignedAgents(authedUser.role) ? null : supervisorId,
-    assignedScope: assignedScopeRaw,
-    processorScope: processorScopeRaw,
+    assignedScope: onSharedTab ? null : assignedScopeRaw,
+    processorScope: onSharedTab ? null : processorScopeRaw,
+    sharedWithMe,
+    sharedAll,
   });
 
   if (!where) {
@@ -235,7 +248,9 @@ export async function GET(req) {
     if (authedUser.role !== "admin" && authedUser.role !== "manager") {
       return NextResponse.json({ error: "Invalid shiftKey" }, { status: 403 });
     }
-    const shiftWhere = await leadsCreatedByShiftWhere(shiftKeyRaw);
+    const shiftWhere = onSharedTab
+      ? await leadsSharedViewerShiftWhere(shiftKeyRaw)
+      : await leadsCreatedByShiftWhere(shiftKeyRaw);
     if (shiftWhere) where = andWhereClause(where, shiftWhere);
   }
 

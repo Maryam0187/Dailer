@@ -8,6 +8,7 @@ import {
   filterLeadUpdatesForViewer,
 } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
+import { isViewOnlySharedViewer } from "@/lib/leadRoles";
 
 export async function GET(req, { params }) {
   const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
@@ -23,6 +24,10 @@ export async function GET(req, { params }) {
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (isViewOnlySharedViewer(lead, authedUser.role, authedUser.id)) {
+    return NextResponse.json({ updates: [] });
   }
 
   const updates = filterLeadUpdatesForViewer(await fetchLeadUpdates(id), authedUser, lead);
@@ -42,6 +47,10 @@ export async function POST(req, { params }) {
   const lead = await db.Lead.findByPk(id);
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (isViewOnlySharedViewer(lead, authedUser.role, authedUser.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

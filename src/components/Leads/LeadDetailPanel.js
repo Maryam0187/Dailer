@@ -21,6 +21,7 @@ import LeadWorkflowSection from "@/components/Leads/LeadWorkflowSection";
 import LeadPaymentSection from "@/components/Leads/LeadPaymentSection";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
 import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
+import SharedLeadDetailPanel from "@/components/Leads/SharedLeadDetailPanel";
 import { shouldHideLeadPaymentSection } from "@/lib/leadRoles";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -165,6 +166,7 @@ function activityTitle(update) {
   if (update.type === "payment_charged") return "Payment charged";
   if (update.type === "payment_declined") return "Payment declined";
   if (update.type === "payment_chargeback") return "Payment chargeback";
+  if (/^Shared view\b/i.test(String(update.body || ""))) return "Shared view";
   if (update.type === "lead_edit") return "Lead updated";
   if (update.type === "created") return "Lead created";
   return "Update";
@@ -304,9 +306,15 @@ export default function LeadDetailPanel({
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [loadingAssignableUsers, setLoadingAssignableUsers] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
+  const [savingSharedViewer, setSavingSharedViewer] = useState(false);
+  const [shareViewConfirm, setShareViewConfirm] = useState(null);
   const [nightUsers, setNightUsers] = useState([]);
   const [legacyAgentId, setLegacyAgentId] = useState("");
   const [legacyAssignBusy, setLegacyAssignBusy] = useState(false);
+
+  const viewOnlyShare = Boolean(lead?.viewOnlyShare);
+  const canManageShareView = userRole === "admin";
+  const canLoadAssignableUsers = canAssignLead || canManageShareView;
 
   const isPendingLegacyImport =
     canLegacyImportAssign &&
@@ -350,24 +358,32 @@ export default function LeadDetailPanel({
     setBreakdownDraft(lead?.breakdown || "");
     setError(null);
     setActiveTab("activity");
+    if (viewOnlyShare) {
+      setUpdates([]);
+      setCalls([]);
+      setLoadingUpdates(false);
+      setLoadingCalls(false);
+      return;
+    }
     void loadUpdates();
     void loadCalls();
-  }, [lead?.id, lead?.notes, lead?.breakdown, lead?.updatedAt, loadUpdates, loadCalls]);
+  }, [lead?.id, lead?.notes, lead?.breakdown, lead?.updatedAt, loadUpdates, loadCalls, viewOnlyShare]);
 
   useEffect(() => {
     setActivityFilter("all");
   }, [lead?.id]);
 
   useEffect(() => {
+    if (viewOnlyShare) return undefined;
     const onCallEnded = () => {
       void loadCalls();
     };
     window.addEventListener("call-ended", onCallEnded);
     return () => window.removeEventListener("call-ended", onCallEnded);
-  }, [loadCalls]);
+  }, [loadCalls, viewOnlyShare]);
 
   useEffect(() => {
-    if (!canAssignLead) {
+    if (!canLoadAssignableUsers) {
       setAssignableUsers([]);
       return undefined;
     }
@@ -391,7 +407,7 @@ export default function LeadDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [canAssignLead]);
+  }, [canLoadAssignableUsers]);
 
   useEffect(() => {
     if (!isPendingLegacyImport) {
@@ -501,6 +517,46 @@ export default function LeadDetailPanel({
     }
   }
 
+  function openShareViewConfirm(userId) {
+    const nextId = Number(userId);
+    if (!Number.isInteger(nextId) || nextId <= 0) return;
+    if (Number(lead.sharedViewerUserId) === nextId) return;
+    const target = assignableUsers.find((u) => Number(u.id) === nextId);
+    const username = target?.username || `user #${nextId}`;
+    setShareViewConfirm({ userId: nextId, username, clear: false });
+  }
+
+  function openClearShareViewConfirm() {
+    if (!lead.sharedViewerUserId) return;
+    setShareViewConfirm({
+      userId: null,
+      username: lead.sharedViewerUsername || "viewer",
+      clear: true,
+    });
+  }
+
+  function closeShareViewConfirm() {
+    if (savingSharedViewer) return;
+    setShareViewConfirm(null);
+  }
+
+  async function confirmShareViewChange() {
+    if (!shareViewConfirm) return;
+    setSavingSharedViewer(true);
+    setError(null);
+    try {
+      await patchLead({
+        sharedViewerUserId: shareViewConfirm.clear ? null : shareViewConfirm.userId,
+      });
+      await loadUpdates();
+      setShareViewConfirm(null);
+    } catch (e) {
+      setError(e.message || "Failed to update shared view");
+    } finally {
+      setSavingSharedViewer(false);
+    }
+  }
+
   async function onLegacyImportAssign() {
     const agentUserId = Number(legacyAgentId);
     if (!Number.isInteger(agentUserId) || agentUserId <= 0) {
@@ -585,6 +641,20 @@ export default function LeadDetailPanel({
 
   if (!lead) return null;
 
+  if (viewOnlyShare) {
+    return (
+      <SharedLeadDetailPanel
+        lead={lead}
+        onClose={onClose}
+        phonesRedacted={phonesRedacted}
+        workflowTagLookup={workflowTagLookup}
+        preferShortLabels={preferShortLabels}
+        variant={variant}
+        showFullPageLink={showFullPageLink}
+      />
+    );
+  }
+
   const notesDirty = (notesDraft || "") !== (lead.notes || "");
   const breakdownDirty = (breakdownDraft || "") !== (lead.breakdown || "");
 
@@ -644,7 +714,7 @@ export default function LeadDetailPanel({
                 <p className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Assigned to:</span>{" "}
                   <span>{savingAssignee ? "Saving…" : lead.assignedUsername || "—"}</span>
-                  {canAssignLead ? (
+                  {canAssignLead && !viewOnlyShare ? (
                     <AssigneePicker
                       assignedUserId={lead.assignedUserId}
                       assignedUsername={lead.assignedUsername}
@@ -655,6 +725,30 @@ export default function LeadDetailPanel({
                     />
                   ) : null}
                 </p>
+                {canManageShareView ? (
+                  <p className="flex flex-wrap items-center gap-1 text-zinc-600 dark:text-zinc-400">
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">Share view:</span>{" "}
+                    <span>{savingSharedViewer ? "Saving…" : lead.sharedViewerUsername || "Not shared"}</span>
+                    <AssigneePicker
+                      assignedUserId={lead.sharedViewerUserId}
+                      assignedUsername={lead.sharedViewerUsername}
+                      users={assignableUsers}
+                      loading={loadingAssignableUsers}
+                      saving={savingSharedViewer}
+                      onSelect={openShareViewConfirm}
+                    />
+                    {lead.sharedViewerUserId ? (
+                      <button
+                        type="button"
+                        disabled={savingSharedViewer}
+                        onClick={openClearShareViewConfirm}
+                        className="ml-1 rounded-md border border-zinc-300 px-2 py-0.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </p>
+                ) : null}
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
                   <time dateTime={lead.createdAt}>{formatDateTime(lead.createdAt)}</time>
@@ -666,7 +760,7 @@ export default function LeadDetailPanel({
               </div>
             </div>
             <div className="flex shrink-0 items-start gap-1.5">
-              {onEdit ? (
+              {onEdit && !viewOnlyShare ? (
                 <IconTooltipButton title="Edit" variant="accent" onClick={onEdit}>
                   <EditIcon />
                 </IconTooltipButton>
@@ -699,7 +793,7 @@ export default function LeadDetailPanel({
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <WorkflowHeaderBadge lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
-            {!phonesRedacted && onCallLead ? (
+            {!viewOnlyShare && !phonesRedacted && onCallLead ? (
               <IconTooltipButton
                 title={calling ? "Calling…" : "Call lead"}
                 variant="primary"
@@ -718,7 +812,7 @@ export default function LeadDetailPanel({
                 <CallIcon />
               </IconTooltipButton>
             ) : null}
-            {!phonesRedacted && onCallLeadLine2 ? (
+            {!viewOnlyShare && !phonesRedacted && onCallLeadLine2 ? (
               <IconTooltipButton
                 title={callingLine2 ? "Calling Line 2…" : "Call Line 2"}
                 variant="accent"
@@ -739,6 +833,15 @@ export default function LeadDetailPanel({
             ) : null}
           </div>
         </div>
+
+        {viewOnlyShare ? (
+          <div className="border-b border-sky-200 bg-sky-50 px-5 py-3 dark:border-sky-900/50 dark:bg-sky-950/30">
+            <p className="text-sm font-semibold text-sky-950 dark:text-sky-100">Shared view</p>
+            <p className="mt-0.5 text-xs text-sky-900/80 dark:text-sky-200/80">
+              You can see customer and lead information only. Activity, calls, and editing are not available.
+            </p>
+          </div>
+        ) : null}
 
         {isPendingLegacyImport ? (
           <div className="border-b border-violet-200 bg-violet-50 px-5 py-4 dark:border-violet-900/50 dark:bg-violet-950/30">
@@ -799,76 +902,103 @@ export default function LeadDetailPanel({
         ) : null}
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
-          <LeadWorkflowSection
-            lead={lead}
-            onPatch={patchLead}
-            onReloadActivity={loadUpdates}
-            setError={setError}
-            workflowTagLookup={workflowTagLookup}
-            preferShortLabels={preferShortLabels}
-          />
+          {!viewOnlyShare ? (
+            <LeadWorkflowSection
+              lead={lead}
+              onPatch={patchLead}
+              onReloadActivity={loadUpdates}
+              setError={setError}
+              workflowTagLookup={workflowTagLookup}
+              preferShortLabels={preferShortLabels}
+            />
+          ) : null}
 
           {!lead.notesHidden ? (
             <section className="mb-6 rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
-              <RichTextField
-                label="Lead notes"
-                labelClass={labelClass}
-                value={notesDraft}
-                onChange={setNotesDraft}
-                disabled={savingNotes}
-                placeholder="Add context about this lead…"
-                onSave={onSaveNotes}
-                saving={savingNotes}
-                saveLabel="Save notes"
-                actions={
-                  notesDirty ? (
-                    <button
-                      type="button"
-                      disabled={savingNotes}
-                      onClick={() => void onSaveNotes()}
-                      className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                    >
-                      {savingNotes ? "Saving…" : "Save notes"}
-                    </button>
-                  ) : null
-                }
-              />
-              {isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
+              {viewOnlyShare ? (
+                <>
+                  <p className={labelClass}>Lead notes</p>
+                  {isEmptyRichText(lead.notes) ? (
+                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
+                  ) : (
+                    <RichHtmlContent html={lead.notes} className="mt-1 text-sm text-zinc-800 dark:text-zinc-200" />
+                  )}
+                </>
+              ) : (
+                <RichTextField
+                  label="Lead notes"
+                  labelClass={labelClass}
+                  value={notesDraft}
+                  onChange={setNotesDraft}
+                  disabled={savingNotes}
+                  placeholder="Add context about this lead…"
+                  onSave={onSaveNotes}
+                  saving={savingNotes}
+                  saveLabel="Save notes"
+                  actions={
+                    notesDirty ? (
+                      <button
+                        type="button"
+                        disabled={savingNotes}
+                        onClick={() => void onSaveNotes()}
+                        className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                      >
+                        {savingNotes ? "Saving…" : "Save notes"}
+                      </button>
+                    ) : null
+                  }
+                />
+              )}
+              {!viewOnlyShare && isEmptyRichText(lead.notes) && isEmptyRichText(notesDraft) ? (
                 <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No notes yet.</p>
               ) : null}
             </section>
           ) : null}
 
           <section className="mb-6 rounded-2xl border border-violet-200/80 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
-            <RichTextField
-              label="Breakdown / Processing Notes"
-              labelClass={labelClass}
-              value={breakdownDraft}
-              onChange={setBreakdownDraft}
-              disabled={savingBreakdown}
-              placeholder="Add breakdown details…"
-              onSave={onSaveBreakdown}
-              saving={savingBreakdown}
-              saveLabel="Save breakdown"
-              actions={
-                breakdownDirty ? (
-                  <button
-                    type="button"
-                    disabled={savingBreakdown}
-                    onClick={() => void onSaveBreakdown()}
-                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                  >
-                    {savingBreakdown ? "Saving…" : "Save breakdown"}
-                  </button>
-                ) : null
-              }
-            />
-            {isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
+            {viewOnlyShare ? (
+              <>
+                <p className={labelClass}>Breakdown / Processing Notes</p>
+                {isEmptyRichText(lead.breakdown) ? (
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
+                ) : (
+                  <RichHtmlContent
+                    html={lead.breakdown}
+                    className="mt-1 text-sm text-zinc-800 dark:text-zinc-200"
+                  />
+                )}
+              </>
+            ) : (
+              <RichTextField
+                label="Breakdown / Processing Notes"
+                labelClass={labelClass}
+                value={breakdownDraft}
+                onChange={setBreakdownDraft}
+                disabled={savingBreakdown}
+                placeholder="Add breakdown details…"
+                onSave={onSaveBreakdown}
+                saving={savingBreakdown}
+                saveLabel="Save breakdown"
+                actions={
+                  breakdownDirty ? (
+                    <button
+                      type="button"
+                      disabled={savingBreakdown}
+                      onClick={() => void onSaveBreakdown()}
+                      className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                    >
+                      {savingBreakdown ? "Saving…" : "Save breakdown"}
+                    </button>
+                  ) : null
+                }
+              />
+            )}
+            {!viewOnlyShare && isEmptyRichText(lead.breakdown) && isEmptyRichText(breakdownDraft) ? (
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No breakdown yet.</p>
             ) : null}
           </section>
 
-          {shouldHideLeadPaymentSection(userRole, lead, currentUserId) ? null : (
+          {!viewOnlyShare && !shouldHideLeadPaymentSection(userRole, lead, currentUserId) ? (
             <LeadPaymentSection
               lead={lead}
               onLeadUpdated={onLeadUpdated}
@@ -878,8 +1008,10 @@ export default function LeadDetailPanel({
               canEditChargeAmount={canEditChargeAmount}
               userRole={userRole}
             />
-          )}
+          ) : null}
 
+          {!viewOnlyShare ? (
+            <>
           <form
             onSubmit={onPostComment}
             className="mb-3 rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-900/40"
@@ -1058,8 +1190,96 @@ export default function LeadDetailPanel({
               )
             )}
           </section>
+            </>
+          ) : error ? (
+            <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              {error}
+            </p>
+          ) : null}
         </div>
       </Shell>
+
+      {shareViewConfirm ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[60] bg-zinc-950/50"
+            aria-label="Close share view confirmation"
+            disabled={savingSharedViewer}
+            onClick={closeShareViewConfirm}
+          />
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-view-confirm-title"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+              <h3
+                id="share-view-confirm-title"
+                className="text-base font-semibold text-zinc-950 dark:text-zinc-50"
+              >
+                {shareViewConfirm.clear ? "Clear shared view" : "Confirm shared view"}
+              </h3>
+              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                {shareViewConfirm.clear ? (
+                  <>
+                    Remove shared view access for{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {shareViewConfirm.username}
+                    </span>
+                    ?
+                  </>
+                ) : (
+                  <>
+                    Share view-only access with{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {shareViewConfirm.username}
+                    </span>
+                    ?
+                    {lead.sharedViewerUsername ? (
+                      <>
+                        {" "}
+                        This replaces{" "}
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                          {lead.sharedViewerUsername}
+                        </span>
+                        .
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                Agent and Assigned stay the same. The shared user sees lead info only — no activity,
+                calls, or edits.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={savingSharedViewer}
+                  onClick={closeShareViewConfirm}
+                  className="h-9 rounded-lg border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={savingSharedViewer}
+                  onClick={() => void confirmShareViewChange()}
+                  className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {savingSharedViewer
+                    ? "Saving…"
+                    : shareViewConfirm.clear
+                      ? "Clear share"
+                      : "Confirm share"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
     </>
   );
 }

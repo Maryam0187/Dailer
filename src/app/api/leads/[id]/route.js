@@ -3,7 +3,7 @@ import db from "@/server/db";
 import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { canAssignLeadsLikeLeadSupervisor, shouldHideLeadNotes } from "@/lib/leadRoles";
+import { canAssignLeadsLikeLeadSupervisor, shouldHideLeadNotes, isViewOnlySharedViewer } from "@/lib/leadRoles";
 import { canAccessLead, canAssignLeadToAgent } from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
@@ -68,6 +68,10 @@ export async function PATCH(req, { params }) {
   const lead = await db.Lead.findByPk(id);
   if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (!(await canAccessLead(lead, authedUser))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (isViewOnlySharedViewer(lead, authedUser.role, authedUser.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -233,6 +237,56 @@ export async function PATCH(req, { params }) {
     }
   }
 
+  if (body?.sharedViewerUserId !== undefined) {
+    if (authedUser.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (body.sharedViewerUserId === null || body.sharedViewerUserId === "") {
+      if (lead.sharedViewerUserId != null) {
+        const previousId = lead.sharedViewerUserId;
+        const previousUser = await db.User.findOne({
+          where: { id: previousId },
+          attributes: ["id", "username"],
+        });
+        const previousName = previousUser?.username ?? `user #${previousId}`;
+        update.sharedViewerUserId = null;
+        activity.push({
+          type: "shared_view",
+          body: `Shared view cleared (was ${previousName})`,
+        });
+      }
+    } else {
+      const nextViewerId = Number(body.sharedViewerUserId);
+      if (!Number.isInteger(nextViewerId) || nextViewerId <= 0) {
+        return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
+      }
+      if (!(await canAssignLeadToAgent(authedUser, nextViewerId))) {
+        return NextResponse.json({ error: "Invalid shared viewer" }, { status: 400 });
+      }
+      if (nextViewerId !== lead.sharedViewerUserId) {
+        const previousId = lead.sharedViewerUserId;
+        const lookupIds = [nextViewerId];
+        if (previousId) lookupIds.push(previousId);
+        const users = await db.User.findAll({
+          where: { id: lookupIds },
+          attributes: ["id", "username"],
+        });
+        const usernameById = new Map(users.map((u) => [u.id, u.username]));
+        const nextName = usernameById.get(nextViewerId) ?? `user #${nextViewerId}`;
+        const previousName = previousId
+          ? usernameById.get(previousId) ?? `user #${previousId}`
+          : null;
+        update.sharedViewerUserId = nextViewerId;
+        activity.push({
+          type: "shared_view",
+          body: previousName
+            ? `Shared view with ${nextName} (from ${previousName})`
+            : `Shared view with ${nextName}`,
+        });
+      }
+    }
+  }
+
   if (body?.processorUserId !== undefined) {
     if (body.processorUserId === null || body.processorUserId === "") {
       if (lead.processorUserId != null) {
@@ -332,7 +386,8 @@ export async function PATCH(req, { params }) {
   const leadName = update.fullName ?? lead.fullName;
 
   for (const entry of activity) {
-    const isAssignment = entry.type === "assigned" || entry.type === "processor_assigned";
+    const isAssignment =
+      entry.type === "assigned" || entry.type === "processor_assigned" || entry.type === "shared_view";
     await createLeadUpdate({
       leadId: lead.id,
       userId: authedUser.id,
@@ -354,6 +409,17 @@ export async function PATCH(req, { params }) {
           assignedUsername: entry.assignedUsername,
           previousAssignedUserId: entry.previousAssignedUserId,
           previousAssignedUsername: entry.previousAssignedUsername,
+        },
+      });
+    } else if (entry.type === "shared_view") {
+      await logLeadUserActivity({
+        req,
+        userId: authedUser.id,
+        action: "lead_shared_view",
+        leadId: lead.id,
+        metadata: {
+          leadName,
+          summary: entry.body,
         },
       });
     } else if (entry.type === "processor_assigned") {

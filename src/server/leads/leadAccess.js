@@ -100,6 +100,15 @@ export async function leadsCreatedByShiftWhere(shiftKey) {
   return { createdByUserId: { [Op.in]: ids } };
 }
 
+/** Sequelize where fragment: leads shared for view with users on this shift. */
+export async function leadsSharedViewerShiftWhere(shiftKey) {
+  const key = normalizeShiftFilter(shiftKey);
+  if (!key) return null;
+  const ids = await resolveUserIdsForShift(key);
+  if (!ids || ids.length === 0) return { sharedViewerUserId: -1 };
+  return { sharedViewerUserId: { [Op.in]: ids } };
+}
+
 /** Active agents a user may assign leads to. */
 export async function getAssignableAgents(authedUser) {
   const ownShift = resolveOwnLeadShiftKey(authedUser);
@@ -527,14 +536,43 @@ export async function excludePendingLegacyImportWhere() {
  * Leads list filter — always by createdByUserId:
  * - no creator filter: whole team (supervisor + their agents) or all (admin)
  * - creator filter: only that person's created leads
+ * - sharedWithMe: only leads shared for view-only access to this user
+ * - sharedAll: admin — every lead that currently has a shared viewer
+ * - On shared tabs, creatorId / supervisorId filter by sharedViewerUserId only
  */
 export async function resolveLeadsListWhere(
   authedUser,
-  { creatorId = null, supervisorId = null, assignedScope = null, processorScope = null } = {},
+  {
+    creatorId = null,
+    supervisorId = null,
+    assignedScope = null,
+    processorScope = null,
+    sharedWithMe = false,
+    sharedAll = false,
+  } = {},
 ) {
   const role = authedUser.role;
   const hidePendingImport = await excludePendingLegacyImportWhere();
   const hideOutsideSales = excludeOutsideSaleWhere();
+
+  if (sharedAll || sharedWithMe) {
+    let clause = sharedAll
+      ? { sharedViewerUserId: { [Op.ne]: null } }
+      : { sharedViewerUserId: authedUser.id };
+
+    if (creatorId) {
+      // Shared tab agent filter = who the lead is shared with
+      clause = andWhereClause(clause, { sharedViewerUserId: creatorId });
+    } else if (supervisorId) {
+      const agentIds = await getSupervisedAgentUserIds(supervisorId);
+      const teamIds = teamCreatorIds(supervisorId, agentIds);
+      clause = andWhereClause(clause, {
+        sharedViewerUserId: { [Op.in]: teamIds },
+      });
+    }
+
+    return andWhereClause(andWhereClause(clause, hidePendingImport), hideOutsideSales);
+  }
 
   if (role === "agent") {
     return andWhereClause(
@@ -689,6 +727,10 @@ export async function resolveLeadsListWhere(
 }
 
 export async function canAccessLead(lead, authedUser) {
+  if (Number(lead.sharedViewerUserId) === Number(authedUser.id)) {
+    return true;
+  }
+
   if (hasFullLeadAccess(authedUser.role)) {
     if (canViewAllLeadShifts(authedUser)) return true;
 

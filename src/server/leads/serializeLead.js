@@ -1,6 +1,10 @@
 import db from "@/server/db";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { canViewLeadPaymentChargeInfo, shouldHideLeadNotes } from "@/lib/leadRoles";
+import {
+  canViewLeadPaymentChargeInfo,
+  isViewOnlySharedViewer,
+  shouldHideLeadNotes,
+} from "@/lib/leadRoles";
 
 export const leadAssignedUserInclude = {
   model: db.User,
@@ -15,6 +19,13 @@ export const leadAssignedUserInclude = {
       required: false,
     },
   ],
+};
+
+export const leadSharedViewerInclude = {
+  model: db.User,
+  as: "sharedViewer",
+  attributes: ["id", "username", "role"],
+  required: false,
 };
 
 export const leadCreatedByInclude = {
@@ -45,12 +56,19 @@ export const leadProcessorUserInclude = {
   required: false,
 };
 
-export const leadListIncludes = [leadAssignedUserInclude, leadCreatedByInclude, leadProcessorUserInclude];
+export const leadListIncludes = [
+  leadAssignedUserInclude,
+  leadCreatedByInclude,
+  leadProcessorUserInclude,
+  leadSharedViewerInclude,
+];
 
 export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewerId = null) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
   const notesHidden = shouldHideLeadNotes(viewerRole, lead, viewerId);
   const paymentChargeVisible = canViewLeadPaymentChargeInfo(viewerRole);
+  const viewOnlyShare = isViewOnlySharedViewer(lead, viewerRole, viewerId);
+  const isAdmin = viewerRole === "admin";
   return {
     id: lead.id,
     phone: phonesRedacted ? maskPhoneLastFour(lead.phone) : lead.phone,
@@ -107,6 +125,14 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewer
     customerId: lead.customerId ?? null,
     customerPaymentMethodId: lead.customerPaymentMethodId ?? null,
     importOwnerUserId: lead.importOwnerUserId ?? null,
+    // Shared viewer identity is admin-only; shared user only gets viewOnlyShare flag.
+    ...(isAdmin
+      ? {
+          sharedViewerUserId: lead.sharedViewerUserId ?? null,
+          sharedViewerUsername: lead.sharedViewer?.username ?? null,
+        }
+      : {}),
+    viewOnlyShare,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,
