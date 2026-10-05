@@ -749,6 +749,12 @@ export default function LeadDetailPanel({
                     ) : null}
                   </p>
                 ) : null}
+                {canManageShareView && lead.sharedViewerAt ? (
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">Shared at:</span>{" "}
+                    <time dateTime={lead.sharedViewerAt}>{formatDateTime(lead.sharedViewerAt)}</time>
+                  </p>
+                ) : null}
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
                   <time dateTime={lead.createdAt}>{formatDateTime(lead.createdAt)}</time>

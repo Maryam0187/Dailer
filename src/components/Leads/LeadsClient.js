@@ -2067,7 +2067,11 @@ export default function LeadsClient({
                       className={`${tableCellClass} max-w-[88px] truncate`}
                       title={
                         lead.sharedViewerUsername
-                          ? `Shared with ${lead.sharedViewerUsername}`
+                          ? `Shared with ${lead.sharedViewerUsername}${
+                              lead.sharedViewerAt
+                                ? ` · ${new Date(lead.sharedViewerAt).toLocaleString()}`
+                                : ""
+                            }`
                           : undefined
                       }
                     >

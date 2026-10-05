@@ -250,6 +250,7 @@ export async function PATCH(req, { params }) {
         });
         const previousName = previousUser?.username ?? `user #${previousId}`;
         update.sharedViewerUserId = null;
+        update.sharedViewerAt = null;
         activity.push({
           type: "shared_view",
           body: `Shared view cleared (was ${previousName})`,
@@ -277,6 +278,7 @@ export async function PATCH(req, { params }) {
           ? usernameById.get(previousId) ?? `user #${previousId}`
           : null;
         update.sharedViewerUserId = nextViewerId;
+        update.sharedViewerAt = new Date();
         activity.push({
           type: "shared_view",
           body: previousName
@@ -374,7 +376,23 @@ export async function PATCH(req, { params }) {
     });
   }
 
-  await lead.update(update);
+  // Sharing must not bump Lead.updatedAt — apply those fields silently.
+  const sharePatch = {};
+  if (Object.prototype.hasOwnProperty.call(update, "sharedViewerUserId")) {
+    sharePatch.sharedViewerUserId = update.sharedViewerUserId;
+    delete update.sharedViewerUserId;
+  }
+  if (Object.prototype.hasOwnProperty.call(update, "sharedViewerAt")) {
+    sharePatch.sharedViewerAt = update.sharedViewerAt;
+    delete update.sharedViewerAt;
+  }
+
+  if (Object.keys(update).length > 0) {
+    await lead.update(update);
+  }
+  if (Object.keys(sharePatch).length > 0) {
+    await lead.update(sharePatch, { silent: true });
+  }
 
   const customerFieldChanges = Object.fromEntries(
     Object.entries(update).filter(([key]) => CUSTOMER_SYNC_FIELDS.has(key)),

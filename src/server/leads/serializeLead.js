@@ -130,6 +130,7 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewer
       ? {
           sharedViewerUserId: lead.sharedViewerUserId ?? null,
           sharedViewerUsername: lead.sharedViewer?.username ?? null,
+          sharedViewerAt: lead.sharedViewerAt ?? null,
         }
       : {}),
     viewOnlyShare,

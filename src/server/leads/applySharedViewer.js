@@ -59,7 +59,13 @@ export async function applySharedViewerChange({
       : `Shared view with ${nextName}`;
   }
 
-  await lead.update({ sharedViewerUserId: normalizedNext });
+  await lead.update(
+    {
+      sharedViewerUserId: normalizedNext,
+      sharedViewerAt: normalizedNext == null ? null : new Date(),
+    },
+    { silent: true },
+  );
 
   await createLeadUpdate({
     leadId: lead.id,

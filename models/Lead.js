@@ -91,6 +91,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "Users", key: "id" },
       },
+      /** When sharedViewerUserId was last set (cleared with share). Does not bump Lead.updatedAt. */
+      sharedViewerAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       processorUserId: {
         type: DataTypes.INTEGER,
         allowNull: true,
