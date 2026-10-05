@@ -367,8 +367,10 @@ export default function LeadsClient({
   const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const showAgentColumn = showLeadFilters || isProcessor;
+  const showSharedViewerColumn = isAdmin;
   const showBulkShareView = isAdmin && leadsListTab === "leads";
-  const colSpan = (showAgentColumn ? 7 : 6) + (showBulkShareView ? 1 : 0);
+  const colSpan =
+    (showAgentColumn ? 7 : 6) + (showBulkShareView ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
   const selectedShareCount = selectedShareLeadIds.size;
   const pageLeadIds = useMemo(() => leads.map((lead) => lead.id), [leads]);
   const allPageShareSelected =
@@ -1958,6 +1960,9 @@ export default function LeadsClient({
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
               {showAgentColumn ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
+              {showSharedViewerColumn ? (
+                <th className={`${tableHeadClass} max-w-[88px]`}>Shared</th>
+              ) : null}
               <th className={`${tableHeadClass} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -2055,6 +2060,24 @@ export default function LeadsClient({
                       title={lead.createdByUsername || undefined}
                     >
                       {lead.createdByUsername || "—"}
+                    </td>
+                  ) : null}
+                  {showSharedViewerColumn ? (
+                    <td
+                      className={`${tableCellClass} max-w-[88px] truncate`}
+                      title={
+                        lead.sharedViewerUsername
+                          ? `Shared with ${lead.sharedViewerUsername}`
+                          : undefined
+                      }
+                    >
+                      {lead.sharedViewerUsername ? (
+                        <span className="inline-flex max-w-full items-center rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+                          <span className="truncate">{lead.sharedViewerUsername}</span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400 dark:text-zinc-500">—</span>
+                      )}
                     </td>
                   ) : null}
                   <td className={`${tableCellClass} whitespace-nowrap text-right`}>
