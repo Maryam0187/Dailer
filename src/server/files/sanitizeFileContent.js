@@ -20,5 +20,5 @@ export function sanitizeFileContent(value) {
     const alt = (altMatch?.[2] ?? altMatch?.[3] ?? "").replace(/[<>]/g, "");
     return `<img data-attachment-id="${id}" src="/api/files/attachments/${id}/file?disposition=inline" alt="${alt}" class="file-doc-image">`;
   });
-  return safe.slice(0, 65535);
+  return safe;
 }
