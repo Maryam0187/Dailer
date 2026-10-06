@@ -12,6 +12,7 @@ import MessagingSlideOver from "@/components/Messaging/MessagingSlideOver";
 import IvrStaffAlert from "@/components/layout/IvrStaffAlert";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
 import ShiftLogoutGuard from "@/components/layout/ShiftLogoutGuard";
+import ActivityTracker from "@/components/layout/ActivityTracker";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 export default function MainAppShell({
@@ -25,6 +26,7 @@ export default function MainAppShell({
 
   const inner = (
     <ThemeProvider>
+      {outsideManager ? null : <ActivityTracker />}
       {outsideManager ? null : <ShiftLogoutGuard />}
       {outsideManager ? null : <VoiceLockBanner />}
       {children}

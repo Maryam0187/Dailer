@@ -13,6 +13,7 @@ import {
 } from "./presence";
 import { readMessageDraft, writeMessageDraft } from "@/contexts/MessagingContext";
 import { formatAllowedAttachmentTypesLabel } from "@/lib/messageAttachments";
+import { trackCopyActivity } from "@/lib/clientActivity";
 import {
   AttachFileIcon,
   MessageAttachmentList,
@@ -67,6 +68,12 @@ function CopyMessageButton({ text, mine }) {
   async function onCopy() {
     const ok = await copyText(body);
     if (!ok) return;
+    trackCopyActivity({
+      source: "message_button",
+      selectionLength: body.length,
+      entityType: "message",
+      field: "body",
+    });
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }

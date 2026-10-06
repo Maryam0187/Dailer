@@ -13,6 +13,7 @@ import {
   validateExpDate,
 } from "@/lib/cardPaymentFormat";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { trackCopyActivity } from "@/lib/clientActivity";
 import { US_STATES } from "@/lib/usStates";
 import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import { isOutsideSaleSource } from "@/lib/outsideSale";
@@ -1601,6 +1602,13 @@ export default function CustomersClient({
     const url = `${window.location.origin}/leads/${leadId}`;
     try {
       await navigator.clipboard.writeText(url);
+      trackCopyActivity({
+        source: "lead_link",
+        selectionLength: url.length,
+        entityType: "lead",
+        entityId: leadId,
+        field: "url",
+      });
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = url;
@@ -1611,6 +1619,13 @@ export default function CustomersClient({
       textarea.select();
       try {
         document.execCommand("copy");
+        trackCopyActivity({
+          source: "lead_link",
+          selectionLength: url.length,
+          entityType: "lead",
+          entityId: leadId,
+          field: "url",
+        });
       } finally {
         document.body.removeChild(textarea);
       }

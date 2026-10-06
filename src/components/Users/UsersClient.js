@@ -56,6 +56,8 @@ function activityActionLabel(action, metadata) {
   if (action === "lead_processor_assigned") return "Processor assigned";
   if (action === "after_shift_access_granted") return "After-shift access granted";
   if (action === "after_shift_access_revoked") return "After-shift access revoked";
+  if (action === "text_copy") return "Text copied";
+  if (action === "copy_blocked") return "Copy blocked";
   return String(action || "Unknown").replace(/_/g, " ");
 }
 
@@ -108,6 +110,10 @@ function formatActivityDetails(metadata, entityType, entityId) {
   if (metadata.summary) parts.push(stripHtml(metadata.summary));
   if (metadata.reason) parts.push(String(metadata.reason).replace(/_/g, " "));
   if (metadata.username) parts.push(`user: ${metadata.username}`);
+  if (metadata.path) parts.push(metadata.path);
+  if (metadata.source) parts.push(`source: ${String(metadata.source).replace(/_/g, " ")}`);
+  if (metadata.selectionLength != null) parts.push(`${metadata.selectionLength} chars`);
+  if (metadata.field) parts.push(String(metadata.field));
   if (parts.length === 0 && entityType === "lead" && entityId) {
     parts.push(`Lead #${entityId}`);
   }

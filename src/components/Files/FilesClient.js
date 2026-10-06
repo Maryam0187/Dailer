@@ -7,6 +7,7 @@ import { isEmptyRichText, normalizeRichHtml, richTextPreview } from "@/lib/richT
 import { uploadFileImage } from "@/lib/fileAttachments";
 import FilesStatsPanel from "@/components/Files/FilesStatsPanel";
 import FileAttachmentPanel from "@/components/Files/FileAttachmentPanel";
+import { trackCopyBlocked } from "@/lib/clientActivity";
 
 const MAX_OPEN_TABS = 5;
 const FILES_PAGE_SIZE = 24;
@@ -74,8 +75,13 @@ function isCopyShortcut(event) {
   return key === "c" || key === "x" || key === "a";
 }
 
-function blockCopyEvent(event) {
+function blockCopyEvent(event, fileId = null) {
   event.preventDefault();
+  trackCopyBlocked({
+    source: "protected_file",
+    entityType: fileId ? "file" : null,
+    entityId: fileId,
+  });
 }
 
 function createNewTab() {
@@ -1090,8 +1096,16 @@ function BrowseTab({
                     ? "border-indigo-400 ring-1 ring-indigo-400/30 dark:border-indigo-600"
                     : "border-zinc-200 hover:border-indigo-300 hover:shadow-md dark:border-zinc-700 dark:hover:border-indigo-700"
               }${file.preventCopy && file.readOnly ? " select-none" : ""}`}
-              onCopy={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
-              onCut={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
+              onCopy={
+                file.preventCopy && file.readOnly
+                  ? (event) => blockCopyEvent(event, file.id)
+                  : undefined
+              }
+              onCut={
+                file.preventCopy && file.readOnly
+                  ? (event) => blockCopyEvent(event, file.id)
+                  : undefined
+              }
             >
               <button
                 type="button"
@@ -1140,8 +1154,16 @@ function BrowseTab({
                   className={`mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400 ${
                     file.preventCopy && file.readOnly ? "cursor-default select-none" : ""
                   }`}
-                  onCopy={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
-                  onCut={file.preventCopy && file.readOnly ? blockCopyEvent : undefined}
+                  onCopy={
+                    file.preventCopy && file.readOnly
+                      ? (event) => blockCopyEvent(event, file.id)
+                      : undefined
+                  }
+                  onCut={
+                    file.preventCopy && file.readOnly
+                      ? (event) => blockCopyEvent(event, file.id)
+                      : undefined
+                  }
                 >
                   {isEmptyRichText(file.content) ? (
                     <span className="italic text-zinc-400 dark:text-zinc-500">Empty document</span>
@@ -1562,6 +1584,9 @@ function WriteTab({
   const isRestoring = tab.fileId != null && restoring;
   const isReadOnlyView = isDeleted || readOnly;
   const blockTextCopy = Boolean(tab.preventCopy) && isReadOnlyView && !isAdmin;
+  const blockProtectedCopy = blockTextCopy
+    ? (event) => blockCopyEvent(event, tab.fileId)
+    : undefined;
   const canAttachImages = !isDeleted && !isReadOnlyView && (isAdmin || Boolean(tab.canManageImages));
   const ownerId = tab.owner?.id ?? null;
   const editAccessIds = new Set((tab.editAccessUsers || []).map((user) => user.id));
@@ -1663,8 +1688,8 @@ function WriteTab({
             value={tab.fileName}
             onChange={(e) => onFileNameChange(e.target.value)}
             readOnly={isReadOnlyView}
-            onCopy={blockTextCopy ? blockCopyEvent : undefined}
-            onCut={blockTextCopy ? blockCopyEvent : undefined}
+            onCopy={blockProtectedCopy}
+            onCut={blockProtectedCopy}
             onMouseDown={blockTextCopy ? (event) => event.preventDefault() : undefined}
             onSelect={
               blockTextCopy
@@ -1679,7 +1704,7 @@ function WriteTab({
             onKeyDown={
               blockTextCopy
                 ? (event) => {
-                    if (isCopyShortcut(event)) blockCopyEvent(event);
+                    if (isCopyShortcut(event)) blockCopyEvent(event, tab.fileId);
                   }
                 : undefined
             }
@@ -1814,12 +1839,12 @@ function WriteTab({
 
       <div
         className={`min-h-0 flex-1 overflow-y-auto overscroll-y-contain${blockTextCopy ? " cursor-default" : ""}`}
-        onCopy={blockTextCopy ? blockCopyEvent : undefined}
-        onCut={blockTextCopy ? blockCopyEvent : undefined}
+        onCopy={blockProtectedCopy}
+        onCut={blockProtectedCopy}
         onKeyDown={
           blockTextCopy
             ? (event) => {
-                if (isCopyShortcut(event)) blockCopyEvent(event);
+                if (isCopyShortcut(event)) blockCopyEvent(event, tab.fileId);
               }
             : undefined
         }

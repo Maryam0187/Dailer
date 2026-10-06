@@ -15,6 +15,7 @@ import { Color, TextStyleKit } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { trackCopyBlocked } from "@/lib/clientActivity";
 import {
   isEmptyRichText,
   isThemeDefaultTextColor,
@@ -693,6 +694,7 @@ export default function RichTextEditor({
   function blockIfPreventCopy(_view, event) {
     if (!preventCopyRef.current) return false;
     event.preventDefault();
+    trackCopyBlocked({ source: "richtext_editor" });
     return true;
   }
 

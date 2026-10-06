@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { digitsOnly } from "@/lib/phoneFormat";
+import { trackCopyActivity } from "@/lib/clientActivity";
 
-export default function CopyPhoneButton({ phone, className = "" }) {
+export default function CopyPhoneButton({ phone, className = "", leadId = null }) {
   const [copied, setCopied] = useState(false);
 
   async function onCopy() {
@@ -11,6 +12,13 @@ export default function CopyPhoneButton({ phone, className = "" }) {
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
+      trackCopyActivity({
+        source: "phone_button",
+        selectionLength: text.length,
+        entityType: leadId ? "lead" : null,
+        entityId: leadId,
+        field: "phone",
+      });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -23,6 +31,13 @@ export default function CopyPhoneButton({ phone, className = "" }) {
       textarea.select();
       try {
         document.execCommand("copy");
+        trackCopyActivity({
+          source: "phone_button",
+          selectionLength: text.length,
+          entityType: leadId ? "lead" : null,
+          entityId: leadId,
+          field: "phone",
+        });
         setCopied(true);
         window.setTimeout(() => setCopied(false), 2000);
       } finally {

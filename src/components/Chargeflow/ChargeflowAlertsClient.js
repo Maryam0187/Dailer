@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { trackCopyActivity } from "@/lib/clientActivity";
 
 const PAGE_SIZE = 25;
 const TABLE_COL_SPAN = 9;
@@ -110,7 +111,13 @@ function CopyButton({ value, label }) {
   async function onCopy(e) {
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(String(value));
+      const text = String(value);
+      await navigator.clipboard.writeText(text);
+      trackCopyActivity({
+        source: "chargeflow_field",
+        selectionLength: text.length,
+        field: label,
+      });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch {
