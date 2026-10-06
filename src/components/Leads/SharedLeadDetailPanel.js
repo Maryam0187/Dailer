@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
@@ -33,14 +32,6 @@ function formatDateTime(iso) {
   });
 }
 
-function paymentTypeLabel(type) {
-  if (type === "card") return "Card";
-  if (type === "e_check") return "E-check";
-  if (type === "check_mail") return "Check mail";
-  if (type === "pos_link") return "POS link";
-  return type || "—";
-}
-
 function Field({ label, children }) {
   return (
     <div>
@@ -64,38 +55,6 @@ function StatusBadge({ lead, workflowTagLookup, preferShortLabels }) {
   );
 }
 
-function PaymentMethodCard({ pm }) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-950">
-      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        {paymentTypeLabel(pm.type)}
-        {pm.isDefault ? " · Default" : ""}
-      </p>
-      <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-        {pm.type === "card" ? (
-          <>
-            <Field label="Name on card">{pm.nameOnCard}</Field>
-            <Field label="Card number">{pm.cardNumber}</Field>
-            <Field label="Card type">{pm.cardType || pm.brand}</Field>
-            <Field label="Exp date">{pm.expDate}</Field>
-            <Field label="CVV">{pm.cvv}</Field>
-            <Field label="Bank">{pm.bankName}</Field>
-          </>
-        ) : null}
-        {pm.type === "e_check" || pm.type === "check_mail" ? (
-          <>
-            <Field label="Routing">{pm.routingNumber}</Field>
-            <Field label="Account">{pm.accountNumber}</Field>
-            <Field label="Check #">{pm.checkNumber}</Field>
-            <Field label="Bank">{pm.bankName}</Field>
-          </>
-        ) : null}
-        {pm.type === "pos_link" ? <Field label="Email">{pm.email}</Field> : null}
-      </dl>
-    </div>
-  );
-}
-
 export default function SharedLeadDetailPanel({
   lead,
   onClose,
@@ -106,102 +65,69 @@ export default function SharedLeadDetailPanel({
   showFullPageLink = true,
 }) {
   const isPage = variant === "page";
-  const [paymentMethods, setPaymentMethods] = useState([]);
-  const [loadingPayments, setLoadingPayments] = useState(true);
-  const [paymentError, setPaymentError] = useState(null);
-
-  useEffect(() => {
-    if (!lead?.id) return undefined;
-    let cancelled = false;
-    setLoadingPayments(true);
-    setPaymentError(null);
-    (async () => {
-      try {
-        const res = await fetch(`/api/leads/${lead.id}/payment-methods`, {
-          credentials: "include",
-          cache: "no-store",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || "Failed to load payment methods");
-        if (!cancelled) setPaymentMethods(json.paymentMethods || []);
-      } catch (e) {
-        if (!cancelled) {
-          setPaymentMethods([]);
-          setPaymentError(e.message || "Failed to load payment methods");
-        }
-      } finally {
-        if (!cancelled) setLoadingPayments(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [lead?.id]);
-
-  if (!lead) return null;
-
-  const shellClass = isPage
-    ? "flex w-full flex-col overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm dark:border-sky-900/50 dark:bg-zinc-950"
-    : "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-sky-200 bg-white shadow-2xl dark:border-sky-900/50 dark:bg-zinc-950";
   const Shell = isPage ? "div" : "aside";
-  const isCancelled = lead.leadPhase === "cancelled";
+  const isCancelled = lead?.leadPhase === "cancelled";
 
   return (
     <>
       {!isPage ? (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-zinc-950/40 backdrop-blur-[2px]"
-          aria-label="Close shared sale details"
+          className="fixed inset-0 z-40 bg-zinc-950/40"
+          aria-label="Close lead detail"
           onClick={onClose}
         />
       ) : null}
-      <Shell className={shellClass}>
-        <div className="border-b border-sky-200 bg-gradient-to-r from-sky-50/90 to-white px-5 py-4 dark:border-sky-900/50 dark:from-sky-950/40 dark:to-zinc-950">
+      <Shell
+        className={
+          isPage
+            ? "flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+            : "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        }
+      >
+        <div className="border-b border-sky-200 bg-sky-50 px-5 py-4 dark:border-sky-900/50 dark:bg-sky-950/30">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-                Shared sale
-                <span className="ml-2 font-mono normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
-                  #{lead.id}
-                </span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-200">
+                Shared view
               </p>
-              <h2 className="mt-1 truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
+              <h2 className="mt-1 truncate text-lg font-semibold text-zinc-950 dark:text-zinc-50">
                 {formatLeadName(lead)}
               </h2>
-              <div className="mt-2">
-                <StatusBadge
-                  lead={lead}
-                  workflowTagLookup={workflowTagLookup}
-                  preferShortLabels={preferShortLabels}
-                />
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-700 dark:text-zinc-300">
+                <span className="inline-flex items-center gap-1 font-mono">
+                  {!phonesRedacted && !lead.phonesRedacted ? (
+                    <CopyPhoneButton phone={lead.phone} className="h-6 w-6" />
+                  ) : null}
+                  {formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted)}
+                </span>
+                {lead.cellNumber ? (
+                  <span className="inline-flex items-center gap-1 font-mono text-zinc-600 dark:text-zinc-400">
+                    Cell:{" "}
+                    {!phonesRedacted && !lead.phonesRedacted ? (
+                      <CopyPhoneButton phone={lead.cellNumber} className="h-6 w-6" />
+                    ) : null}
+                    {formatLeadPhoneDisplay(lead.cellNumber, phonesRedacted || lead.phonesRedacted)}
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="flex shrink-0 items-start gap-1.5">
-              {!isPage && showFullPageLink ? (
+              {showFullPageLink ? (
                 <Link
                   href={`/leads/${lead.id}`}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                   title="Open full page"
                   aria-label="Open full page"
                 >
                   <ExpandIcon className="h-4 w-4" />
                 </Link>
               ) : null}
-              {isPage ? (
-                <Link
-                  href="/leads"
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                  title="Back to leads"
-                  aria-label="Back to leads"
-                >
-                  <CloseIcon />
-                </Link>
-              ) : (
+              {!isPage ? (
                 <IconTooltipButton title="Close" onClick={onClose}>
                   <CloseIcon />
                 </IconTooltipButton>
-              )}
+              ) : null}
             </div>
           </div>
           <p className="mt-3 text-xs text-sky-900/80 dark:text-sky-200/80">
@@ -227,7 +153,7 @@ export default function SharedLeadDetailPanel({
               <Field label="Last updated">{formatDateTime(lead.updatedAt)}</Field>
             </dl>
             {isCancelled || lead.leadCancelReason ? (
-              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50/80 p-3 dark:border-red-900/50 dark:bg-red-950/30">
                 <p className={labelClass}>Cancel notes</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-red-950 dark:text-red-100">
                   {lead.leadCancelReason?.trim() || "No cancel reason recorded."}
@@ -237,13 +163,11 @@ export default function SharedLeadDetailPanel({
           </section>
 
           <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-950">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Customer information
-            </h3>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Customer</h3>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Full name">{formatLeadName(lead)}</Field>
+              <Field label="Name">{formatLeadName(lead)}</Field>
               <Field label="Phone">
-                <span className="inline-flex items-center gap-1.5 font-mono">
+                <span className="inline-flex items-center gap-1 font-mono">
                   {!phonesRedacted && !lead.phonesRedacted ? (
                     <CopyPhoneButton phone={lead.phone} className="h-6 w-6" />
                   ) : null}
@@ -252,7 +176,7 @@ export default function SharedLeadDetailPanel({
               </Field>
               <Field label="Cell">
                 {lead.cellNumber ? (
-                  <span className="inline-flex items-center gap-1.5 font-mono">
+                  <span className="inline-flex items-center gap-1 font-mono">
                     {!phonesRedacted && !lead.phonesRedacted ? (
                       <CopyPhoneButton phone={lead.cellNumber} className="h-6 w-6" />
                     ) : null}
@@ -293,30 +217,6 @@ export default function SharedLeadDetailPanel({
                 html={lead.breakdown}
                 className="mt-2 text-sm text-zinc-800 dark:text-zinc-200"
               />
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-950">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Payment methods
-            </h3>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Card and account details are masked.
-            </p>
-            {loadingPayments ? (
-              <p className="mt-3 text-sm text-zinc-500">Loading…</p>
-            ) : paymentError ? (
-              <p className="mt-3 text-sm text-red-700 dark:text-red-300">{paymentError}</p>
-            ) : paymentMethods.length === 0 ? (
-              <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-                No payment methods on file.
-              </p>
-            ) : (
-              <div className="mt-3 space-y-3">
-                {paymentMethods.map((pm) => (
-                  <PaymentMethodCard key={pm.id} pm={pm} />
-                ))}
-              </div>
             )}
           </section>
         </div>

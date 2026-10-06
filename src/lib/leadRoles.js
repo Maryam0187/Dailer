@@ -104,8 +104,9 @@ export function shouldHideLeadNotes(viewerRole, lead, viewerId = null) {
   return lead?.processorUserId != null || Boolean(lead?.leadProcessedRequired);
 }
 
-/** Same rule as notes: hide payment methods from processors on processing leads. */
+/** Same rule as notes for processors; also hidden for view-only shared viewers. */
 export function shouldHideLeadPaymentSection(viewerRole, lead, viewerId = null) {
+  if (isViewOnlySharedViewer(lead, viewerRole, viewerId)) return true;
   return shouldHideLeadNotes(viewerRole, lead, viewerId);
 }
 
