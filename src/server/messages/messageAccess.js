@@ -203,6 +203,8 @@ export function serializeContact(user, now = Date.now()) {
     id: user.id,
     username: user.username,
     role: user.role,
+    shiftKey: user.shiftKey === "night" ? "night" : "day",
+    isOutside: Boolean(user.isOutside),
     presence: presence.status,
     lastActiveAt: presence.lastActiveAt,
   };
@@ -213,6 +215,8 @@ function unknownContact(id) {
     id: id ?? null,
     username: "Unknown",
     role: null,
+    shiftKey: "day",
+    isOutside: false,
     presence: "offline",
     lastActiveAt: null,
   };
@@ -246,6 +250,7 @@ export async function listContacts(viewer) {
       "username",
       "role",
       "shiftKey",
+      "isOutside",
       "activeSessionId",
       "activeSessionLastSeenAt",
     ],
@@ -264,6 +269,7 @@ async function loadPeerUsers(peerIds) {
       "username",
       "role",
       "shiftKey",
+      "isOutside",
       "managerId",
       "activeSessionId",
       "activeSessionLastSeenAt",

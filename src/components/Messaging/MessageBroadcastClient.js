@@ -6,10 +6,16 @@ import { roleLabel } from "./presence";
 const MAX_BODY = 5000;
 const MAX_RECIPIENTS = 100;
 
+const filterLabelClass = "mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400";
+const filterSelectClass =
+  "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
+
 export default function MessageBroadcastClient() {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [shiftFilter, setShiftFilter] = useState("day");
+  const [outsideFilter, setOutsideFilter] = useState("inhouse");
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [body, setBody] = useState("");
   const [error, setError] = useState(null);
@@ -43,9 +49,21 @@ export default function MessageBroadcastClient() {
   }, []);
 
   const filtered = useMemo(() => {
+    let list = contacts;
+
+    if (shiftFilter === "day" || shiftFilter === "night") {
+      list = list.filter((c) => (c.shiftKey === "night" ? "night" : "day") === shiftFilter);
+    }
+
+    if (outsideFilter === "outside") {
+      list = list.filter((c) => Boolean(c.isOutside));
+    } else if (outsideFilter === "inhouse") {
+      list = list.filter((c) => !c.isOutside);
+    }
+
     const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter(
+    if (!q) return list;
+    return list.filter(
       (c) =>
         String(c.username || "")
           .toLowerCase()
@@ -57,7 +75,7 @@ export default function MessageBroadcastClient() {
           .toLowerCase()
           .includes(q),
     );
-  }, [contacts, search]);
+  }, [contacts, search, shiftFilter, outsideFilter]);
 
   const selectedContacts = useMemo(
     () => contacts.filter((c) => selectedIds.has(c.id)),
@@ -172,18 +190,54 @@ export default function MessageBroadcastClient() {
           </div>
         </div>
 
-        <label htmlFor="broadcast-search" className="sr-only">
-          Search contacts
-        </label>
-        <input
-          id="broadcast-search"
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or role…"
-          autoComplete="off"
-          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-indigo-500/80 focus:ring-2 focus:ring-indigo-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-        />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="min-w-0 sm:col-span-1">
+            <label htmlFor="broadcast-search" className={filterLabelClass}>
+              Search
+            </label>
+            <input
+              id="broadcast-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name or role…"
+              autoComplete="off"
+              className={filterSelectClass}
+            />
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="broadcast-shift-filter" className={filterLabelClass}>
+              Shift
+            </label>
+            <select
+              id="broadcast-shift-filter"
+              className={filterSelectClass}
+              value={shiftFilter}
+              onChange={(e) => setShiftFilter(e.target.value)}
+              aria-label="Filter by day or night shift"
+            >
+              <option value="all">Combined (all)</option>
+              <option value="day">Day shift</option>
+              <option value="night">Night shift</option>
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="broadcast-outside-filter" className={filterLabelClass}>
+              Outside
+            </label>
+            <select
+              id="broadcast-outside-filter"
+              className={filterSelectClass}
+              value={outsideFilter}
+              onChange={(e) => setOutsideFilter(e.target.value)}
+              aria-label="Filter by outside staff"
+            >
+              <option value="all">Combined (all)</option>
+              <option value="outside">Outside</option>
+              <option value="inhouse">In-house</option>
+            </select>
+          </div>
+        </div>
 
         <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-zinc-100 dark:border-zinc-800">
           {loading ? (
@@ -192,12 +246,14 @@ export default function MessageBroadcastClient() {
             <p className="px-4 py-6 text-sm text-zinc-500 dark:text-zinc-400">No contacts available.</p>
           ) : filtered.length === 0 ? (
             <p className="px-4 py-6 text-sm text-zinc-500 dark:text-zinc-400">
-              No contacts match “{search.trim()}”.
+              No contacts match these filters
+              {search.trim() ? ` (“${search.trim()}”)` : ""}.
             </p>
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {filtered.map((user) => {
                 const checked = selectedIds.has(user.id);
+                const shiftLabel = user.shiftKey === "night" ? "Night" : "Day";
                 return (
                   <li key={user.id}>
                     <label className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm text-zinc-800 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900/60">
@@ -208,8 +264,15 @@ export default function MessageBroadcastClient() {
                         className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
                       />
                       <span className="min-w-0 flex-1 truncate font-medium">{user.username}</span>
-                      <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-                        {roleLabel(user.role)}
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        {user.isOutside ? (
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                            Outside
+                          </span>
+                        ) : null}
+                        <span>{shiftLabel}</span>
+                        <span aria-hidden>·</span>
+                        <span>{roleLabel(user.role)}</span>
                       </span>
                     </label>
                   </li>
