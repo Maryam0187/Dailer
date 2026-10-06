@@ -66,6 +66,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/message-oversight",
     },
     {
+      href: "/message-broadcast",
+      label: "Broadcast message",
+      active: pathname === "/message-broadcast",
+    },
+    {
       href: "/message-attachments",
       label: "Chat attachments",
       active: pathname === "/message-attachments",
@@ -177,6 +182,15 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
       label: "Users",
       active: pathname === "/users",
       palette: "emerald",
+    });
+  }
+
+  if (accessMode !== "limited" && role === "manager" && !isOutside) {
+    items.push({
+      href: "/message-broadcast",
+      label: "Broadcast",
+      active: pathname === "/message-broadcast",
+      palette: "violet",
     });
   }
 

@@ -766,3 +766,76 @@ export async function deleteMessage(messageId, user) {
     conversationId: loaded.conversation.id,
   };
 }
+
+const BROADCAST_MAX_RECIPIENTS = 100;
+
+/** Admin/manager: send the same text to many users via separate 1:1 DMs. */
+export async function broadcastMessageToUsers(viewer, { body, recipientUserIds } = {}) {
+  const role = viewer?.role;
+  if (role !== "admin" && role !== "manager") {
+    return { error: "Forbidden", status: 403 };
+  }
+
+  const text = typeof body === "string" ? body.trim() : "";
+  if (!text) {
+    return { error: "Message body is required", status: 400 };
+  }
+  if (text.length > 5000) {
+    return { error: "Message is too long (max 5000 characters)", status: 400 };
+  }
+
+  const ids = [
+    ...new Set(
+      (Array.isArray(recipientUserIds) ? recipientUserIds : [])
+        .map((value) => Number(value))
+        .filter((n) => Number.isInteger(n) && n > 0),
+    ),
+  ];
+  if (!ids.length) {
+    return { error: "Select at least one recipient", status: 400 };
+  }
+  if (ids.length > BROADCAST_MAX_RECIPIENTS) {
+    return {
+      error: `Too many recipients (max ${BROADCAST_MAX_RECIPIENTS})`,
+      status: 400,
+    };
+  }
+
+  const viewerId = Number(viewer.id);
+  const sent = [];
+  const failed = [];
+
+  for (const userId of ids) {
+    if (userId === viewerId) {
+      failed.push({ userId, error: "Cannot message yourself" });
+      continue;
+    }
+
+    const allowed = await canMessageUser(viewer, userId);
+    if (!allowed) {
+      failed.push({ userId, error: "Cannot message this user" });
+      continue;
+    }
+
+    const dm = await findOrCreateDm(viewerId, userId);
+    if (dm.error) {
+      failed.push({ userId, error: dm.error });
+      continue;
+    }
+
+    const result = await createMessage(dm.conversation, viewer, text);
+    if (result.error) {
+      failed.push({ userId, error: result.error });
+      continue;
+    }
+
+    sent.push({
+      userId,
+      conversationId: dm.conversation.id,
+      messageId: result.message.id,
+      message: result.message,
+    });
+  }
+
+  return { sent, failed };
+}
