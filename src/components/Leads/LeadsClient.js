@@ -169,12 +169,14 @@ function hasActiveLeadFilters({
 }
 
 function resolveLeadListDateField(leadPhaseFilter, sortBy) {
+  if (sortBy === "sharedViewerAt") return "shared";
   if (sortBy === "updatedAt") return "updated";
   if (leadPhaseFilter === "closed" || leadPhaseFilter === "cancelled") return "updated";
   return "created";
 }
 
 function dateRangeHint(leadPhaseFilter, sortBy) {
+  if (sortBy === "sharedViewerAt") return "shared in";
   if (sortBy === "updatedAt") return "updated in";
   if (leadPhaseFilter === "closed") return "closed in";
   if (leadPhaseFilter === "cancelled") return "cancelled in";
@@ -368,20 +370,22 @@ export default function LeadsClient({
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const showAgentColumn = showLeadFilters || isProcessor;
   const showSharedViewerColumn = isAdmin;
+  const onSharedWithMeTab = leadsListTab === "shared_with_me";
   const showBulkShareView = isAdmin && leadsListTab === "leads";
+  const showBulkRevokeShare = isAdmin && onSharedWithMeTab;
+  const showShareSelection = showBulkShareView || showBulkRevokeShare;
   const colSpan =
-    (showAgentColumn ? 7 : 6) + (showBulkShareView ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
+    (showAgentColumn ? 7 : 6) + (showShareSelection ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
   const selectedShareCount = selectedShareLeadIds.size;
   const pageLeadIds = useMemo(() => leads.map((lead) => lead.id), [leads]);
   const allPageShareSelected =
-    showBulkShareView &&
+    showShareSelection &&
     pageLeadIds.length > 0 &&
     pageLeadIds.every((id) => selectedShareLeadIds.has(id));
   const somePageShareSelected =
-    showBulkShareView &&
+    showShareSelection &&
     pageLeadIds.some((id) => selectedShareLeadIds.has(id)) &&
     !allPageShareSelected;
-  const onSharedWithMeTab = leadsListTab === "shared_with_me";
 
   const filteredAgents = useMemo(() => {
     let list = assignableAgents;
@@ -667,6 +671,7 @@ export default function LeadsClient({
   useEffect(() => {
     if (!showSharedWithMeTab && leadsListTab === "shared_with_me") {
       setLeadsListTab("leads");
+      setSortBy((prev) => (prev === "sharedViewerAt" ? "updatedAt" : prev));
       setPage(1);
     }
   }, [showSharedWithMeTab, leadsListTab]);
@@ -763,10 +768,29 @@ export default function LeadsClient({
     if (ids.length === 0) return;
     const target = bulkShareUsers.find((u) => Number(u.id) === Number(userId));
     setBulkShareConfirm({
+      mode: "share",
       userId: Number(userId),
       username: target?.username || `user #${userId}`,
       leadIds: ids,
       count: ids.length,
+    });
+  }
+
+  function openRevokeSelectedConfirm() {
+    const ids = [...selectedShareLeadIds];
+    if (ids.length === 0) return;
+    setBulkShareConfirm({
+      mode: "revoke",
+      leadIds: ids,
+      count: ids.length,
+    });
+  }
+
+  function openRevokeAllConfirm() {
+    if (pagination.total <= 0) return;
+    setBulkShareConfirm({
+      mode: "revokeAll",
+      count: pagination.total,
     });
   }
 
@@ -776,7 +800,7 @@ export default function LeadsClient({
   }
 
   async function confirmBulkShareView() {
-    if (!bulkShareConfirm) return;
+    if (!bulkShareConfirm || bulkShareConfirm.mode !== "share") return;
     const { userId, username: targetName, leadIds: ids } = bulkShareConfirm;
     setBulkShareSaving(true);
     setBulkShareMessage(null);
@@ -810,6 +834,65 @@ export default function LeadsClient({
     }
   }
 
+  function buildRevokeSharedBody(mode, leadIds = []) {
+    if (mode === "revoke") {
+      return { leadIds };
+    }
+    const body = { revokeAll: true };
+    if (supervisorFilter && supervisorFilter !== "all") body.supervisorId = supervisorFilter;
+    if (agentFilter && agentFilter !== "all") body.agentId = agentFilter;
+    if (leadPhaseFilter && leadPhaseFilter !== "all") body.leadPhase = leadPhaseFilter;
+    if (leadContactTagFilter && leadContactTagFilter !== "all") {
+      body.leadContactTag = leadContactTagFilter;
+    }
+    if (stateFilter && stateFilter !== "all") body.state = stateFilter;
+    if (q.trim()) {
+      body.q = q.trim();
+    } else if (appliedFrom && appliedTo) {
+      body.fromDate = appliedFrom;
+      body.toDate = appliedTo;
+      body.dateField = resolveLeadListDateField(leadPhaseFilter, sortBy);
+    }
+    return body;
+  }
+
+  async function confirmRevokeShared() {
+    if (!bulkShareConfirm) return;
+    const mode = bulkShareConfirm.mode;
+    if (mode !== "revoke" && mode !== "revokeAll") return;
+    setBulkShareSaving(true);
+    setBulkShareMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/leads/revoke-shared", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(buildRevokeSharedBody(mode, bulkShareConfirm.leadIds || [])),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Revoke shared view failed");
+
+      const parts = [];
+      if (json.updatedCount) {
+        parts.push(
+          `${json.updatedCount} share${json.updatedCount === 1 ? "" : "s"} revoked`,
+        );
+      }
+      if (json.skippedCount) parts.push(`${json.skippedCount} already clear`);
+      if (json.missingCount) parts.push(`${json.missingCount} not found`);
+      if (json.failedCount) parts.push(`${json.failedCount} failed`);
+      setBulkShareMessage(parts.join(" · ") || "No changes");
+      setSelectedShareLeadIds(new Set());
+      setBulkShareConfirm(null);
+      await loadLeads(page, { silent: true });
+    } catch (e) {
+      setError(e.message || "Revoke shared view failed");
+    } finally {
+      setBulkShareSaving(false);
+    }
+  }
+
   async function onExportSharedExcel() {
     if (!isAdmin || exportingSharedExcel) return;
     setExportingSharedExcel(true);
@@ -832,6 +915,8 @@ export default function LeadsClient({
         params.set("toDate", appliedTo);
         params.set("dateField", resolveLeadListDateField(leadPhaseFilter, sortBy));
       }
+      params.set("sortBy", sortBy);
+      params.set("sortDir", sortDir);
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/leads/export-shared${qs}`, {
         credentials: "include",
@@ -1732,10 +1817,17 @@ export default function LeadsClient({
             <div className="sm:col-span-2 lg:col-span-3">
               <span className={labelClass}>Sort by</span>
               <div className="flex flex-wrap gap-2" role="group" aria-label="Sort leads">
-                {[
-                  { id: "createdAt", label: "Created" },
-                  { id: "updatedAt", label: "Updated" },
-                ].map((option) => (
+                {(onSharedWithMeTab
+                  ? [
+                      { id: "sharedViewerAt", label: "Shared" },
+                      { id: "createdAt", label: "Created" },
+                      { id: "updatedAt", label: "Updated" },
+                    ]
+                  : [
+                      { id: "createdAt", label: "Created" },
+                      { id: "updatedAt", label: "Updated" },
+                    ]
+                ).map((option) => (
                   <button
                     key={option.id}
                     type="button"
@@ -1877,6 +1969,11 @@ export default function LeadsClient({
               type="button"
               onClick={() => {
                 setLeadsListTab(option.id);
+                if (option.id === "shared_with_me") {
+                  setSortBy("sharedViewerAt");
+                } else if (sortBy === "sharedViewerAt") {
+                  setSortBy("updatedAt");
+                }
                 setPage(1);
               }}
               className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
@@ -1890,14 +1987,24 @@ export default function LeadsClient({
             </button>
           ))}
           {isAdmin && onSharedWithMeTab ? (
-            <button
-              type="button"
-              disabled={exportingSharedExcel || loading}
-              onClick={() => void onExportSharedExcel()}
-              className="ml-auto h-9 rounded-xl border border-emerald-600 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {exportingSharedExcel ? "Exporting…" : "Export Excel"}
-            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={bulkShareSaving || loading || pagination.total <= 0}
+                onClick={openRevokeAllConfirm}
+                className="h-9 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
+              >
+                Revoke all
+              </button>
+              <button
+                type="button"
+                disabled={exportingSharedExcel || loading}
+                onClick={() => void onExportSharedExcel()}
+                className="h-9 rounded-xl border border-emerald-600 bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {exportingSharedExcel ? "Exporting…" : "Export Excel"}
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -1929,7 +2036,32 @@ export default function LeadsClient({
             <p className="text-sm text-sky-900 dark:text-sky-200">{bulkShareMessage}</p>
           ) : null}
         </div>
-      ) : showBulkShareView && bulkShareMessage ? (
+      ) : showBulkRevokeShare && selectedShareCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-3 dark:border-rose-800 dark:bg-rose-950/30">
+          <p className="text-sm font-semibold text-rose-950 dark:text-rose-100">
+            {selectedShareCount} selected
+          </p>
+          <button
+            type="button"
+            disabled={bulkShareSaving}
+            onClick={openRevokeSelectedConfirm}
+            className="h-9 rounded-lg border border-rose-600 bg-rose-600 px-3 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+          >
+            Revoke selected
+          </button>
+          <button
+            type="button"
+            disabled={bulkShareSaving}
+            onClick={clearShareSelection}
+            className="h-9 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Clear
+          </button>
+          {bulkShareMessage ? (
+            <p className="text-sm text-rose-900 dark:text-rose-200">{bulkShareMessage}</p>
+          ) : null}
+        </div>
+      ) : (showBulkShareView || showBulkRevokeShare) && bulkShareMessage ? (
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           {bulkShareMessage}
         </div>
@@ -1939,7 +2071,7 @@ export default function LeadsClient({
         <table className="w-full min-w-[760px] table-fixed text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
             <tr>
-              {showBulkShareView ? (
+              {showShareSelection ? (
                 <th className={`${tableHeadClass} w-10 px-3`}>
                   <input
                     type="checkbox"
@@ -1949,7 +2081,11 @@ export default function LeadsClient({
                     }}
                     onChange={toggleSelectAllShareOnPage}
                     disabled={loading || leads.length === 0 || bulkShareSaving}
-                    aria-label="Select all leads on this page for share view"
+                    aria-label={
+                      showBulkRevokeShare
+                        ? "Select all shared leads on this page to revoke"
+                        : "Select all leads on this page for share view"
+                    }
                     className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500/40 dark:border-zinc-600 dark:bg-zinc-900"
                   />
                 </th>
@@ -2013,14 +2149,18 @@ export default function LeadsClient({
                         : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                   }`}
                 >
-                  {showBulkShareView ? (
+                  {showShareSelection ? (
                     <td className={`${tableCellClass} w-10 px-3`}>
                       <input
                         type="checkbox"
                         checked={selectedShareLeadIds.has(lead.id)}
                         onChange={() => toggleShareLeadSelected(lead.id)}
                         disabled={bulkShareSaving}
-                        aria-label={`Select ${formatLeadName(lead)} for share view`}
+                        aria-label={
+                          showBulkRevokeShare
+                            ? `Select ${formatLeadName(lead)} to revoke shared view`
+                            : `Select ${formatLeadName(lead)} for share view`
+                        }
                         className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500/40 dark:border-zinc-600 dark:bg-zinc-900"
                       />
                     </td>
@@ -2189,7 +2329,7 @@ export default function LeadsClient({
           <button
             type="button"
             className="fixed inset-0 z-[60] bg-zinc-950/50"
-            aria-label="Close bulk share confirmation"
+            aria-label="Close confirmation"
             disabled={bulkShareSaving}
             onClick={closeBulkShareConfirm}
           />
@@ -2204,24 +2344,49 @@ export default function LeadsClient({
                 id="bulk-share-confirm-title"
                 className="text-base font-semibold text-zinc-950 dark:text-zinc-50"
               >
-                Confirm bulk share view
+                {bulkShareConfirm.mode === "share"
+                  ? "Confirm bulk share view"
+                  : bulkShareConfirm.mode === "revokeAll"
+                    ? "Revoke all shared views"
+                    : "Revoke shared views"}
               </h3>
-              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-                Share view-only access for{" "}
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                  {bulkShareConfirm.count} lead
-                  {bulkShareConfirm.count === 1 ? "" : "s"}
-                </span>{" "}
-                with{" "}
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                  {bulkShareConfirm.username}
-                </span>
-                ?
-              </p>
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                Agent and Assigned stay the same. Replaces any existing shared viewer on each
-                selected lead.
-              </p>
+              {bulkShareConfirm.mode === "share" ? (
+                <>
+                  <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                    Share view-only access for{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {bulkShareConfirm.count} lead
+                      {bulkShareConfirm.count === 1 ? "" : "s"}
+                    </span>{" "}
+                    with{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {bulkShareConfirm.username}
+                    </span>
+                    ?
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                    Agent and Assigned stay the same. Replaces any existing shared viewer on each
+                    selected lead.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                    Clear shared view access for{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {bulkShareConfirm.count} lead
+                      {bulkShareConfirm.count === 1 ? "" : "s"}
+                    </span>
+                    {bulkShareConfirm.mode === "revokeAll"
+                      ? " matching the current filters"
+                      : " selected"}
+                    ?
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                    Viewers will lose access immediately. Agent and Assigned stay the same.
+                  </p>
+                </>
+              )}
               <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
@@ -2234,10 +2399,24 @@ export default function LeadsClient({
                 <button
                   type="button"
                   disabled={bulkShareSaving}
-                  onClick={() => void confirmBulkShareView()}
-                  className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  onClick={() =>
+                    void (bulkShareConfirm.mode === "share"
+                      ? confirmBulkShareView()
+                      : confirmRevokeShared())
+                  }
+                  className={`h-9 rounded-lg px-3 text-sm font-semibold text-white disabled:opacity-50 ${
+                    bulkShareConfirm.mode === "share"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-rose-600 hover:bg-rose-700"
+                  }`}
                 >
-                  {bulkShareSaving ? "Sharing…" : "Confirm share"}
+                  {bulkShareSaving
+                    ? bulkShareConfirm.mode === "share"
+                      ? "Sharing…"
+                      : "Revoking…"
+                    : bulkShareConfirm.mode === "share"
+                      ? "Confirm share"
+                      : "Confirm revoke"}
                 </button>
               </div>
             </div>

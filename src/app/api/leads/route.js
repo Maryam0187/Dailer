@@ -133,6 +133,7 @@ function parseLeadsDateField(value) {
   const field = String(value || "").trim().toLowerCase();
   if (!field || field === "created") return "createdAt";
   if (field === "updated") return "updatedAt";
+  if (field === "shared" || field === "sharedviewerat") return "sharedViewerAt";
   return undefined;
 }
 
@@ -150,12 +151,15 @@ function resolveLeadListDateRange({ fromDate, toDate, leadPhase, dateFieldRaw })
 }
 
 function parseLeadsOrder(searchParams) {
-  const sortBy = searchParams.get("sortBy") === "updatedAt" ? "updatedAt" : "createdAt";
+  const rawSortBy = String(searchParams.get("sortBy") || "").trim();
+  const sortBy =
+    rawSortBy === "updatedAt" || rawSortBy === "sharedViewerAt" ? rawSortBy : "createdAt";
   const sortDir = searchParams.get("sortDir") === "asc" ? "ASC" : "DESC";
   const tieBreaker = sortBy === "createdAt" ? "updatedAt" : "createdAt";
   return [
     [sortBy, sortDir],
     [tieBreaker, "DESC"],
+    ["id", "DESC"],
   ];
 }
 

@@ -250,13 +250,19 @@ function ActivityRowDetail({ row }) {
   );
 }
 
+function formatDateOnly(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString();
+}
+
 function formatLastActive(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
   const diffMs = Date.now() - date.getTime();
   const sec = Math.floor(diffMs / 1000);
-  if (sec < 0) return date.toLocaleString();
+  if (sec < 0) return formatDateOnly(date) || "Unknown";
   if (sec < 60) return "just now";
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
@@ -264,7 +270,7 @@ function formatLastActive(value) {
   if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
-  return date.toLocaleString();
+  return formatDateOnly(date) || "Unknown";
 }
 
 function todayIsoDate() {
@@ -314,7 +320,26 @@ function RoleBadge({ value }) {
   );
 }
 
-function ActiveBadge({ active }) {
+function StatusDot({ colorClass, label, title }) {
+  return (
+    <span
+      className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-zinc-900 ${colorClass}`}
+      title={title || label}
+      aria-label={label}
+      role="img"
+    />
+  );
+}
+
+function ActiveBadge({ active, compact = false }) {
+  if (compact) {
+    return (
+      <StatusDot
+        colorClass={active ? "bg-emerald-500" : "bg-zinc-400"}
+        label={active ? "Active" : "Inactive"}
+      />
+    );
+  }
   return active ? (
     <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
       Active
@@ -326,7 +351,19 @@ function ActiveBadge({ active }) {
   );
 }
 
-function LeaveBadge({ leave, showDates = true }) {
+function LeaveBadge({ leave, showDates = true, compact = false }) {
+  if (compact) {
+    if (!leave) {
+      return <StatusDot colorClass="bg-zinc-300 dark:bg-zinc-600" label="Not on leave" />;
+    }
+    return (
+      <StatusDot
+        colorClass="bg-amber-500"
+        label="On leave"
+        title={`On leave · ${formatLeaveRange(leave)}`}
+      />
+    );
+  }
   if (!leave) {
     return <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>;
   }
@@ -377,7 +414,16 @@ function formatGrantTimeRemaining(expiresAt) {
   return `${hours}h ${rem}m left`;
 }
 
-function LoginWindowBadge({ exempt, role }) {
+function LoginWindowBadge({ exempt, role, compact = false }) {
+  if (compact) {
+    if (role === "admin") {
+      return <StatusDot colorClass="bg-sky-500" label="Always open" />;
+    }
+    if (exempt) {
+      return <StatusDot colorClass="bg-emerald-500" label="Window lifted" />;
+    }
+    return <StatusDot colorClass="bg-zinc-400" label="Window restricted" />;
+  }
   if (role === "admin") {
     return <span className="text-xs text-zinc-500 dark:text-zinc-400">Always open</span>;
   }
@@ -400,6 +446,7 @@ function AfterShiftAccessBadge({
   expiresAt,
   grantDurationMinutes,
   isCustomGrantDuration = false,
+  compact = false,
 }) {
   const durationLabel = grantDurationMinutes ? grantDurationLabel(grantDurationMinutes) : null;
   const durationHint = durationLabel
@@ -409,6 +456,20 @@ function AfterShiftAccessBadge({
     : null;
   const remainingLabel = formatGrantTimeRemaining(expiresAt);
   const expiryLabel = expiresAt ? formatGrantExpiry(expiresAt) : null;
+
+  if (compact) {
+    const titleParts = [];
+    if (access === "full") titleParts.push("Full after-shift");
+    else if (access === "limited") titleParts.push("Limited after-shift");
+    else titleParts.push("No after-shift access");
+    if (remainingLabel && expiryLabel) titleParts.push(`${remainingLabel} · until ${expiryLabel}`);
+    else if (durationHint && (access === "full" || access === "limited")) {
+      titleParts.push(`${durationHint} each grant`);
+    }
+    const colorClass =
+      access === "full" ? "bg-sky-500" : access === "limited" ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-600";
+    return <StatusDot colorClass={colorClass} label={titleParts[0]} title={titleParts.join(" · ")} />;
+  }
 
   if (access === "full") {
     return (
@@ -451,7 +512,7 @@ function AfterShiftAccessBadge({
   );
 }
 
-function PresenceBadge({ status }) {
+function PresenceBadge({ status, compact = false }) {
   const value = normalizePresence(status);
   const styles = {
     online: {
@@ -471,6 +532,9 @@ function PresenceBadge({ status }) {
     },
   };
   const s = styles[value];
+  if (compact) {
+    return <StatusDot colorClass={s.dot} label={s.label} />;
+  }
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.pill}`}
@@ -1252,7 +1316,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 </span>
                 {lastActiveAt ? (
                   <span className="ml-1.5 text-xs text-zinc-500">
-                    ({new Date(lastActiveAt).toLocaleString()})
+                    ({formatDateOnly(lastActiveAt) || "—"})
                   </span>
                 ) : null}
               </p>
@@ -1267,7 +1331,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   {detailLoading && !detail
                     ? "Loading…"
                     : createdAtValue
-                      ? new Date(createdAtValue).toLocaleString()
+                      ? formatDateOnly(createdAtValue) || "—"
                       : "—"}
                 </span>
               </p>
@@ -3332,6 +3396,26 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 ? ` ${visibleUsersOnLeaveCount} currently on leave.`
                 : null}
             </p>
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+              <span className="inline-flex items-center gap-1">
+                <StatusDot colorClass="bg-emerald-500" label="Online / active / lifted" />
+                online · active · lifted
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <StatusDot colorClass="bg-amber-500" label="Away / on leave" />
+                away · leave
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <StatusDot colorClass="bg-zinc-400" label="Offline / inactive / restricted" />
+                offline · inactive · restricted
+              </span>
+              {showAfterShiftColumn ? (
+                <span className="inline-flex items-center gap-1">
+                  <StatusDot colorClass="bg-sky-500" label="Full after-shift" />
+                  after-shift full
+                </span>
+              ) : null}
+            </p>
           </div>
           <div className="flex flex-wrap items-end justify-end gap-3">
             <div className="w-full min-w-0 sm:min-w-[12rem] sm:w-auto sm:max-w-[16rem]">
@@ -3489,24 +3573,38 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-200/80 dark:border-zinc-700">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
-                    <th className="px-4 py-3.5">Username</th>
-                    <th className="px-4 py-3.5">Role</th>
-                    {showShiftColumn ? <th className="px-4 py-3.5">Shift</th> : null}
-                    <th className="px-4 py-3.5">Presence</th>
-                    <th className="px-4 py-3.5">Last active</th>
-                    <th className="px-4 py-3.5">Status</th>
-                    {showLeaveColumn ? <th className="px-4 py-3.5">Leave</th> : null}
-                    {showWindowColumn ? <th className="px-4 py-3.5">Window</th> : null}
+                    <th className="px-3 py-3">Username</th>
+                    <th className="px-3 py-3">Role</th>
+                    {showShiftColumn ? <th className="px-3 py-3">Shift</th> : null}
+                    <th className="w-10 px-2 py-3 text-center" title="Presence">
+                      Pr
+                    </th>
+                    <th className="px-3 py-3">Last active</th>
+                    <th className="w-10 px-2 py-3 text-center" title="Account status">
+                      Act
+                    </th>
+                    {showLeaveColumn ? (
+                      <th className="w-10 px-2 py-3 text-center" title="Leave">
+                        Lv
+                      </th>
+                    ) : null}
+                    {showWindowColumn ? (
+                      <th className="w-10 px-2 py-3 text-center" title="Login window">
+                        Win
+                      </th>
+                    ) : null}
                     {showAfterShiftColumn ? (
-                      <th className="px-4 py-3.5">After shift</th>
+                      <th className="w-10 px-2 py-3 text-center" title="After-shift access">
+                        AS
+                      </th>
                     ) : null}
                     {showHierarchyColumns ? (
-                      <th className="px-4 py-3.5">Supervisor</th>
+                      <th className="px-3 py-3">Supervisor</th>
                     ) : null}
-                    <th className="px-4 py-3.5 text-right">Actions</th>
+                    <th className="px-3 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -3517,7 +3615,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         key={u.id}
                         className={`transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 ${!active ? "opacity-70" : ""}`}
                       >
-                        <td className="px-4 py-3.5 font-medium text-zinc-900 dark:text-zinc-100">
+                        <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
                           <button
                             type="button"
                             onClick={() => setViewingUser(u)}
@@ -3527,7 +3625,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             {u.username}
                           </button>
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-3 py-2.5">
                           <RoleBadge value={u.role} />
                           {u.isOutside ? (
                             <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
@@ -3536,7 +3634,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           ) : null}
                         </td>
                         {showShiftColumn ? (
-                          <td className="px-4 py-3.5 text-zinc-700 dark:text-zinc-300">
+                          <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-300">
                             {u.role === "admin"
                               ? "—"
                               : u.shiftKey === "night"
@@ -3544,43 +3642,58 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                                 : "Day"}
                           </td>
                         ) : null}
-                        <td className="px-4 py-3.5">
-                          <PresenceBadge status={u.presence} />
+                        <td className="px-2 py-2.5 text-center">
+                          <span className="inline-flex justify-center">
+                            <PresenceBadge status={u.presence} compact />
+                          </span>
                         </td>
-                        <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                        <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
                           {formatLastActive(u.lastActiveAt)}
                         </td>
-                        <td className="px-4 py-3.5">
-                          <ActiveBadge active={active} />
+                        <td className="px-2 py-2.5 text-center">
+                          <span className="inline-flex justify-center">
+                            <ActiveBadge active={active} compact />
+                          </span>
                         </td>
                         {showLeaveColumn ? (
-                          <td className="px-4 py-3.5">
-                            <LeaveBadge leave={u.currentLeave} showDates={false} />
+                          <td className="px-2 py-2.5 text-center">
+                            <span className="inline-flex justify-center">
+                              <LeaveBadge leave={u.currentLeave} showDates={false} compact />
+                            </span>
                           </td>
                         ) : null}
                         {showWindowColumn ? (
-                          <td className="px-4 py-3.5">
-                            <LoginWindowBadge exempt={Boolean(u.loginWindowExempt)} role={u.role} />
+                          <td className="px-2 py-2.5 text-center">
+                            <span className="inline-flex justify-center">
+                              <LoginWindowBadge
+                                exempt={Boolean(u.loginWindowExempt)}
+                                role={u.role}
+                                compact
+                              />
+                            </span>
                           </td>
                         ) : null}
                         {showAfterShiftColumn ? (
-                          <td className="px-4 py-3.5">
-                            {u.role === "admin" ? (
-                              <span className="text-xs text-zinc-500 dark:text-zinc-400">Always</span>
-                            ) : (
-                              <AfterShiftAccessBadge
-                                access={u.afterShiftAccess || "none"}
-                                expiresAt={u.afterShiftAccessExpiresAt}
-                                grantDurationMinutes={
-                                  u.afterShiftGrantDurationMinutes ?? defaultGrantDurationMinutes
-                                }
-                                isCustomGrantDuration={u.afterShiftGrantDurationMinutes != null}
-                              />
-                            )}
+                          <td className="px-2 py-2.5 text-center">
+                            <span className="inline-flex justify-center">
+                              {u.role === "admin" ? (
+                                <StatusDot colorClass="bg-sky-500" label="Always full access" />
+                              ) : (
+                                <AfterShiftAccessBadge
+                                  access={u.afterShiftAccess || "none"}
+                                  expiresAt={u.afterShiftAccessExpiresAt}
+                                  grantDurationMinutes={
+                                    u.afterShiftGrantDurationMinutes ?? defaultGrantDurationMinutes
+                                  }
+                                  isCustomGrantDuration={u.afterShiftGrantDurationMinutes != null}
+                                  compact
+                                />
+                              )}
+                            </span>
                           </td>
                         ) : null}
                         {showHierarchyColumns ? (
-                          <td className="px-4 py-3.5 text-zinc-600 dark:text-zinc-300">
+                          <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
                             {u.role === "agent"
                               ? users.find((x) => x.id === u.supervisorId)?.username ??
                                 u.supervisorId ??
@@ -3588,7 +3701,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                               : "—"}
                           </td>
                         ) : null}
-                        <td className="px-4 py-3.5 text-right">
+                        <td className="px-3 py-2.5 text-right">
                           <UserRowActionsMenu
                             user={u}
                             active={active}

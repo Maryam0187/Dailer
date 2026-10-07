@@ -23,8 +23,22 @@ function resolveDateField(leadPhase, dateFieldRaw) {
   const raw = String(dateFieldRaw || "").trim().toLowerCase();
   if (raw === "created" || raw === "createdat") return "createdAt";
   if (raw === "updated" || raw === "updatedat") return "updatedAt";
+  if (raw === "shared" || raw === "sharedviewerat") return "sharedViewerAt";
   if (leadPhase === "closed" || leadPhase === "cancelled") return "updatedAt";
   return "createdAt";
+}
+
+function resolveExportOrder(searchParams) {
+  const rawSortBy = String(searchParams.get("sortBy") || "").trim();
+  const sortBy =
+    rawSortBy === "createdAt" || rawSortBy === "sharedViewerAt" ? rawSortBy : "updatedAt";
+  const sortDir = searchParams.get("sortDir") === "asc" ? "ASC" : "DESC";
+  const tieBreaker = sortBy === "createdAt" ? "updatedAt" : "createdAt";
+  return [
+    [sortBy, sortDir],
+    [tieBreaker, "DESC"],
+    ["id", "DESC"],
+  ];
 }
 
 function formatIsoDate(value) {
@@ -116,10 +130,7 @@ export async function GET(req) {
   const leads = await db.Lead.findAll({
     where,
     include: leadListIncludes,
-    order: [
-      ["updatedAt", "DESC"],
-      ["id", "DESC"],
-    ],
+    order: resolveExportOrder(searchParams),
     limit: MAX_EXPORT_ROWS,
   });
 
