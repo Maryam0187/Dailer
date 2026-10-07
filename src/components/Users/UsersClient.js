@@ -56,6 +56,8 @@ function activityActionLabel(action, metadata) {
   if (action === "lead_processor_assigned") return "Processor assigned";
   if (action === "after_shift_access_granted") return "After-shift access granted";
   if (action === "after_shift_access_revoked") return "After-shift access revoked";
+  if (action === "login_window_restriction_lifted") return "Login window restriction lifted";
+  if (action === "login_window_restriction_added") return "Login window restriction added";
   if (action === "text_copy") return "Text copied";
   if (action === "copy_blocked") return "Copy blocked";
   return String(action || "Unknown").replace(/_/g, " ");
@@ -375,6 +377,24 @@ function formatGrantTimeRemaining(expiresAt) {
   return `${hours}h ${rem}m left`;
 }
 
+function LoginWindowBadge({ exempt, role }) {
+  if (role === "admin") {
+    return <span className="text-xs text-zinc-500 dark:text-zinc-400">Always open</span>;
+  }
+  if (exempt) {
+    return (
+      <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+        Lifted
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+      Restricted
+    </span>
+  );
+}
+
 function AfterShiftAccessBadge({
   access,
   expiresAt,
@@ -593,6 +613,8 @@ function UserRowActionsMenu({
   onDeactivate,
   onGrantAfterShift,
   onRevokeAfterShift,
+  onLiftWindowRestriction,
+  onAddWindowRestriction,
   onMarkLeave,
 }) {
   const [open, setOpen] = useState(false);
@@ -696,6 +718,29 @@ function UserRowActionsMenu({
               onClick={() => runAction(onActivate)}
             >
               {busy ? "Activating…" : "Activate"}
+            </button>
+          )
+        ) : null}
+        {isAdmin && user.role !== "admin" && active ? (
+          user.loginWindowExempt ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuDeactivateClass}
+              onClick={() => runAction(onAddWindowRestriction)}
+            >
+              {busy ? "Updating…" : "Add window restriction"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              className={menuActivateClass}
+              onClick={() => runAction(onLiftWindowRestriction)}
+            >
+              {busy ? "Updating…" : "Lift window restriction"}
             </button>
           )
         ) : null}
@@ -1191,6 +1236,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 {user.canReceiveSharedLeads ? (
                   <span className="inline-flex rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
                     Shared view
+                  </span>
+                ) : null}
+                {user.role !== "admin" && user.loginWindowExempt ? (
+                  <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                    Window lifted
                   </span>
                 ) : null}
                 <LeaveBadge leave={currentLeave} />
@@ -1844,6 +1894,7 @@ function EditUserModal({
   const [canReceiveSharedLeads, setCanReceiveSharedLeads] = useState(
     Boolean(user.canReceiveSharedLeads),
   );
+  const [loginWindowExempt, setLoginWindowExempt] = useState(Boolean(user.loginWindowExempt));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
     user.afterShiftGrantDurationMinutes ?? 120,
@@ -1873,6 +1924,7 @@ function EditUserModal({
     setCanUseDialer2(Boolean(user.canUseDialer2));
     setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
     setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
+    setLoginWindowExempt(Boolean(user.loginWindowExempt));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
     setLimitedFileId(user.afterShiftLimitedFileId != null ? String(user.afterShiftLimitedFileId) : "");
@@ -1986,6 +2038,13 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
         payload.canReceiveSharedLeads = canReceiveSharedLeads;
+      }
+      if (
+        isAdmin &&
+        user.role !== "admin" &&
+        Boolean(loginWindowExempt) !== Boolean(user.loginWindowExempt)
+      ) {
+        payload.loginWindowExempt = loginWindowExempt;
       }
       if (isAdmin && editRole === "admin" && user.isOutside) {
         payload.isOutside = false;
@@ -2420,6 +2479,27 @@ function EditUserModal({
           ) : null}
 
           {isAdmin && user.role !== "admin" ? (
+            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+              <input
+                id="edit-login-window-exempt"
+                type="checkbox"
+                checked={loginWindowExempt}
+                onChange={(e) => setLoginWindowExempt(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+              />
+              <label
+                htmlFor="edit-login-window-exempt"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Lift window restriction
+                <span className="ml-1 font-normal text-zinc-500">
+                  (permanent; user can sign in outside their day/night login window)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          {isAdmin && user.role !== "admin" ? (
             <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">After-shift access</p>
               <div className="flex flex-col gap-2 text-sm text-zinc-700 dark:text-zinc-300">
@@ -2538,6 +2618,7 @@ function normalizeUsersList(list) {
     canUseDialer2: Boolean(u.canUseDialer2),
     canTrainAddressBot: Boolean(u.canTrainAddressBot),
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
+    loginWindowExempt: Boolean(u.loginWindowExempt),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
     afterShiftLimitedFileId: u.afterShiftLimitedFileId ?? null,
@@ -2896,6 +2977,27 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     }
   }
 
+  async function setLoginWindowExemptForUser(u, exempt) {
+    if (u.role === "admin") return;
+    setListError(null);
+    setRowBusyId(u.id);
+    try {
+      const res = await fetch(`/api/users/${u.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ loginWindowExempt: Boolean(exempt) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Update failed");
+      await loadUsers();
+    } catch (err) {
+      setListError(err.message || "Update failed");
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
   const isManager = role === "manager";
   const isSupervisor = isAgentSupervisorRole(role);
   const showRoleSelector = role === "admin" || isManager;
@@ -2920,6 +3022,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const showLeaveColumn = true;
   const showShiftColumn = role === "admin" || isManager;
   const showAfterShiftColumn = role === "admin";
+  const showWindowColumn = role === "admin";
   const filteredSupervisorOptions =
     managerId == null || managerId === ""
       ? supervisorOptions
@@ -3396,6 +3499,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                     <th className="px-4 py-3.5">Last active</th>
                     <th className="px-4 py-3.5">Status</th>
                     {showLeaveColumn ? <th className="px-4 py-3.5">Leave</th> : null}
+                    {showWindowColumn ? <th className="px-4 py-3.5">Window</th> : null}
                     {showAfterShiftColumn ? (
                       <th className="px-4 py-3.5">After shift</th>
                     ) : null}
@@ -3454,6 +3558,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             <LeaveBadge leave={u.currentLeave} showDates={false} />
                           </td>
                         ) : null}
+                        {showWindowColumn ? (
+                          <td className="px-4 py-3.5">
+                            <LoginWindowBadge exempt={Boolean(u.loginWindowExempt)} role={u.role} />
+                          </td>
+                        ) : null}
                         {showAfterShiftColumn ? (
                           <td className="px-4 py-3.5">
                             {u.role === "admin" ? (
@@ -3493,6 +3602,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             onActivate={() => toggleActive(u, true)}
                             onGrantAfterShift={() => setAfterShiftAccessForUser(u, "full")}
                             onRevokeAfterShift={() => setAfterShiftAccessForUser(u, "none")}
+                            onLiftWindowRestriction={() => setLoginWindowExemptForUser(u, true)}
+                            onAddWindowRestriction={() => setLoginWindowExemptForUser(u, false)}
                             onMarkLeave={() => setEditingUser(u)}
                           />
                         </td>

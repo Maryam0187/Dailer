@@ -34,6 +34,11 @@ function isOutsideManager(user) {
   );
 }
 
+/** Permanent per-user lift of the shift login window. */
+function isLoginWindowExempt(user) {
+  return Boolean(user && typeof user === "object" && user.loginWindowExempt);
+}
+
 function resolveShiftKey(userOrKey) {
   if (userOrKey == null) return DEFAULT_SHIFT_KEY;
   if (typeof userOrKey === "string") return normalizeShiftKey(userOrKey);
@@ -65,6 +70,7 @@ function hasAfterShiftGrant(user, date = new Date()) {
 
 function isShiftWindowEnforced(userOrKey) {
   if (isOutsideManager(userOrKey)) return false;
+  if (isLoginWindowExempt(userOrKey)) return false;
   return readShiftEnabled(settingsFor(userOrKey).enabled, true);
 }
 
@@ -268,6 +274,7 @@ function isSessionValidForToday(payload, date = new Date(), userOrKey) {
 
 module.exports = {
   isOutsideManager,
+  isLoginWindowExempt,
   getAfterShiftAccess,
   hasAfterShiftGrant,
   isShiftWindowEnforced,

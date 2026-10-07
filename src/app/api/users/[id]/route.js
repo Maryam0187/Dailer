@@ -6,7 +6,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { derivePresence } from "@/server/auth/presence";
 import { assertCanManageTarget } from "@/server/auth/userAccess";
 import { ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
-import { isWithinLoginWindow } from "@/server/auth/loginWindow";
+import { isLoginAllowed, isWithinLoginWindow } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 import { getDefaultGrantDurationMinutes } from "@/server/auth/shiftSettings";
 import {
@@ -39,6 +39,7 @@ export async function GET(_req, { params }) {
       "isActive",
       "isOutside",
       "shiftKey",
+      "loginWindowExempt",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
       "afterShiftAccessExpiresAt",
@@ -91,6 +92,8 @@ export async function GET(_req, { params }) {
       isActive: target.isActive !== false,
       isOutside: Boolean(target.isOutside),
       shiftKey: target.shiftKey === "night" ? "night" : "day",
+      loginWindowExempt:
+        authedUser.role === "admin" ? Boolean(target.loginWindowExempt) : undefined,
       afterShiftAccess: authedUser.role === "admin" ? target.afterShiftAccess || "none" : undefined,
       afterShiftLimitedFileId:
         authedUser.role === "admin" ? target.afterShiftLimitedFileId ?? null : undefined,
@@ -266,6 +269,16 @@ export async function PATCH(req, { params }) {
     updates.canReceiveSharedLeads = Boolean(body.canReceiveSharedLeads);
   }
 
+  if (isAdmin && body.loginWindowExempt !== undefined) {
+    if (target.role === "admin") {
+      return NextResponse.json(
+        { error: "Admin accounts are always exempt from the login window" },
+        { status: 400 },
+      );
+    }
+    updates.loginWindowExempt = Boolean(body.loginWindowExempt);
+  }
+
   const globalGrantDuration = isAdmin ? await getDefaultGrantDurationMinutes() : null;
 
   if (isAdmin && body.afterShiftGrantDurationMinutes !== undefined) {
@@ -397,7 +410,13 @@ export async function PATCH(req, { params }) {
 
   const accessRevoked =
     updates.afterShiftAccess === "none" || body.afterShiftFullAccess === false;
-  if (isAdmin && accessRevoked && !isWithinLoginWindow(new Date(), target) && target.activeSessionId) {
+  const windowRestrictionAdded = updates.loginWindowExempt === false;
+  const shouldClearSession =
+    target.activeSessionId &&
+    ((accessRevoked && !isWithinLoginWindow(new Date(), { ...target.toJSON(), ...updates })) ||
+      (windowRestrictionAdded &&
+        !isLoginAllowed({ ...target.toJSON(), ...updates, loginWindowExempt: false })));
+  if (isAdmin && shouldClearSession) {
     await db.User.update(
       { activeSessionId: null, activeSessionLastSeenAt: new Date() },
       { where: { id: target.id } },
@@ -417,6 +436,22 @@ export async function PATCH(req, { params }) {
         afterShiftAccess: next,
         afterShiftLimitedFileId: nextLimitedFileId ?? null,
         afterShiftAccessExpiresAt: updates.afterShiftAccessExpiresAt ?? null,
+      },
+    });
+  }
+
+  if (isAdmin && body.loginWindowExempt !== undefined) {
+    await logUserActivity({
+      req,
+      userId: authedUser.id,
+      action: updates.loginWindowExempt
+        ? "login_window_restriction_lifted"
+        : "login_window_restriction_added",
+      entityType: "user",
+      entityId: target.id,
+      metadata: {
+        targetUsername: target.username,
+        loginWindowExempt: Boolean(updates.loginWindowExempt),
       },
     });
   }
@@ -442,6 +477,8 @@ export async function PATCH(req, { params }) {
       "createdAt",
       "isActive",
       "isOutside",
+      "shiftKey",
+      "loginWindowExempt",
       "afterShiftAccess",
       "afterShiftLimitedFileId",
       "afterShiftAccessExpiresAt",

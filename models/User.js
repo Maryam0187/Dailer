@@ -64,6 +64,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "day",
       },
+      /** When true, shift login window is not enforced for this user. */
+      loginWindowExempt: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       activeSessionId: {
         type: DataTypes.STRING(64),
         allowNull: true,

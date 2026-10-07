@@ -20,6 +20,7 @@ const LIST_ATTRIBUTES = [
   "isActive",
   "isOutside",
   "shiftKey",
+  "loginWindowExempt",
   "afterShiftAccess",
   "afterShiftLimitedFileId",
   "afterShiftAccessExpiresAt",
@@ -78,6 +79,7 @@ function serializeUserRow(
     shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
     ...(includeShiftAccess
       ? {
+          loginWindowExempt: Boolean(row.loginWindowExempt),
           afterShiftAccess: row.afterShiftAccess || "none",
           afterShiftLimitedFileId: row.afterShiftLimitedFileId ?? null,
           afterShiftAccessExpiresAt: row.afterShiftAccessExpiresAt ?? null,
