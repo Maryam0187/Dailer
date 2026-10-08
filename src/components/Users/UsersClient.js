@@ -114,6 +114,7 @@ function formatActivityDetails(metadata, entityType, entityId) {
   if (metadata.username) parts.push(`user: ${metadata.username}`);
   if (metadata.path) parts.push(metadata.path);
   if (metadata.source) parts.push(`source: ${String(metadata.source).replace(/_/g, " ")}`);
+  if (metadata.text) parts.push(`“${metadata.text}”`);
   if (metadata.selectionLength != null) parts.push(`${metadata.selectionLength} chars`);
   if (metadata.field) parts.push(String(metadata.field));
   if (parts.length === 0 && entityType === "lead" && entityId) {

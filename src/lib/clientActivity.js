@@ -45,10 +45,22 @@ export function trackClientActivity(action, metadata = {}, entityType = null, en
   scheduleFlush();
 }
 
+const COPY_TEXT_PREVIEW_MAX = 15;
+
+function copyTextPreview(value) {
+  if (value == null) return null;
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > COPY_TEXT_PREVIEW_MAX
+    ? text.slice(0, COPY_TEXT_PREVIEW_MAX)
+    : text;
+}
+
 export function trackCopyActivity({
   source = "unknown",
   path = null,
   selectionLength = null,
+  text = null,
   entityType = null,
   entityId = null,
   field = null,
@@ -59,6 +71,7 @@ export function trackCopyActivity({
       source,
       path: path || currentPath(),
       selectionLength,
+      text: copyTextPreview(text),
       field,
     },
     entityType,

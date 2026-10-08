@@ -3,20 +3,22 @@
 import { useEffect } from "react";
 import { flushClientActivity, trackCopyActivity } from "@/lib/clientActivity";
 
-function selectionLength() {
+function selectedText() {
   const selection = window.getSelection?.();
-  if (!selection || selection.isCollapsed) return 0;
-  return selection.toString().length;
+  if (!selection || selection.isCollapsed) return "";
+  return selection.toString();
 }
 
 export default function ActivityTracker() {
   useEffect(() => {
     function onCopy() {
-      const length = selectionLength();
+      const text = selectedText();
+      const length = text.length;
       if (length <= 0) return;
       trackCopyActivity({
         source: "selection",
         selectionLength: length,
+        text,
       });
     }
 
