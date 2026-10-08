@@ -311,6 +311,11 @@ export default function LeadDetailPanel({
   const [nightUsers, setNightUsers] = useState([]);
   const [legacyAgentId, setLegacyAgentId] = useState("");
   const [legacyAssignBusy, setLegacyAssignBusy] = useState(false);
+  const [linkedOpen, setLinkedOpen] = useState(false);
+  const [linkedLeads, setLinkedLeads] = useState([]);
+  const [linkedLoading, setLinkedLoading] = useState(false);
+  const [linkedError, setLinkedError] = useState(null);
+  const [linkedLoadedForId, setLinkedLoadedForId] = useState(null);
 
   const viewOnlyShare = Boolean(lead?.viewOnlyShare);
   const canManageShareView = userRole === "admin";
@@ -372,6 +377,42 @@ export default function LeadDetailPanel({
   useEffect(() => {
     setActivityFilter("all");
   }, [lead?.id]);
+
+  useEffect(() => {
+    setLinkedOpen(false);
+    setLinkedLeads([]);
+    setLinkedError(null);
+    setLinkedLoadedForId(null);
+  }, [lead?.id]);
+
+  async function loadLinkedLeads() {
+    if (!lead?.id || viewOnlyShare) return;
+    setLinkedLoading(true);
+    setLinkedError(null);
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/linked`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load linked leads");
+      setLinkedLeads(json.leads || []);
+      setLinkedLoadedForId(lead.id);
+    } catch (e) {
+      setLinkedLeads([]);
+      setLinkedError(e.message || "Failed to load linked leads");
+    } finally {
+      setLinkedLoading(false);
+    }
+  }
+
+  function toggleLinkedLeads() {
+    const next = !linkedOpen;
+    setLinkedOpen(next);
+    if (next && linkedLoadedForId !== lead?.id) {
+      void loadLinkedLeads();
+    }
+  }
 
   useEffect(() => {
     if (viewOnlyShare) return undefined;
@@ -908,6 +949,117 @@ export default function LeadDetailPanel({
         ) : null}
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
+          <section className="mb-5 rounded-2xl border border-indigo-200/80 bg-indigo-50/40 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+            <button
+              type="button"
+              onClick={toggleLinkedLeads}
+              className="flex w-full items-center justify-between gap-2 text-left"
+              aria-expanded={linkedOpen}
+            >
+              <span className="text-sm font-semibold text-indigo-950 dark:text-indigo-100">
+                Linked leads
+                {linkedLoadedForId === lead.id && !linkedLoading ? (
+                  <span className="ml-1.5 font-normal text-indigo-700/80 dark:text-indigo-300/80">
+                    ({linkedLeads.length})
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                {linkedOpen ? "Hide" : "Show"}
+              </span>
+            </button>
+            {linkedOpen ? (
+              <div className="mt-3 space-y-2">
+                {linkedLoading ? (
+                  <p className="text-sm text-zinc-500">Loading…</p>
+                ) : linkedError ? (
+                  <p className="text-sm text-red-700 dark:text-red-300">{linkedError}</p>
+                ) : linkedLeads.length === 0 ? (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    No sale found
+                  </p>
+                ) : (
+                  linkedLeads.map((row) => {
+                    const chargeTone =
+                      row.chargeStatusLabel === "Done"
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                        : row.chargeStatusLabel === "Chargeback"
+                          ? "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
+                          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+                    const body = (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            #{row.id}
+                          </span>
+                          <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200">
+                            {row.saleStatusLabel}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${chargeTone}`}>
+                            {row.chargeStatusLabel}
+                          </span>
+                          <span className="truncate text-xs font-bold text-zinc-800 dark:text-zinc-100">
+                            {row.serviceLabel}
+                          </span>
+                        </div>
+                        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          <div>
+                            <dt className="inline font-semibold text-zinc-500">Created: </dt>
+                            <dd className="inline">{formatDateTime(row.createdAt)}</dd>
+                          </div>
+                          <div>
+                            <dt className="inline font-semibold text-zinc-500">Updated: </dt>
+                            <dd className="inline">{formatDateTime(row.updatedAt)}</dd>
+                          </div>
+                          <div>
+                            <dt className="inline font-semibold text-zinc-500">Sale done: </dt>
+                            <dd className="inline">{formatDateTime(row.saleDoneAt)}</dd>
+                          </div>
+                          {row.createdByUsername ? (
+                            <div>
+                              <dt className="inline font-semibold text-zinc-500">Agent: </dt>
+                              <dd className="inline">{row.createdByUsername}</dd>
+                            </div>
+                          ) : null}
+                          {row.supervisorUsername ? (
+                            <div>
+                              <dt className="inline font-semibold text-zinc-500">Supervisor: </dt>
+                              <dd className="inline">{row.supervisorUsername}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                        {row.leadCancelReason ? (
+                          <p className="mt-1.5 whitespace-pre-wrap text-[11px] text-red-700 dark:text-red-300">
+                            Cancel: {row.leadCancelReason}
+                          </p>
+                        ) : null}
+                      </>
+                    );
+                    if (row.canOpen) {
+                      return (
+                        <Link
+                          key={row.id}
+                          href={`/leads/${row.id}`}
+                          className="block rounded-xl border border-indigo-200/80 bg-white p-3 transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 dark:border-indigo-900/50 dark:bg-zinc-950 dark:hover:bg-indigo-950/30"
+                        >
+                          {body}
+                        </Link>
+                      );
+                    }
+                    return (
+                      <div
+                        key={row.id}
+                        className="rounded-xl border border-zinc-200 bg-white/80 p-3 dark:border-zinc-700 dark:bg-zinc-950/60"
+                      >
+                        {body}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : null}
+          </section>
+
           {!viewOnlyShare ? (
             <LeadWorkflowSection
               lead={lead}
