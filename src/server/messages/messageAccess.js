@@ -1,5 +1,6 @@
 import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
+import { canHaveAssignedAgents } from "@/lib/leadRoles";
 import { derivePresence } from "@/server/auth/presence";
 import {
   linkAttachmentsToMessage,
@@ -14,33 +15,61 @@ export function normalizeShiftKey(shiftKey) {
   return shiftKey === "night" ? "night" : "day";
 }
 
-/** Outside agents may only DM their assigned manager (not shift-wide or admins). */
+/** Outside agents may only DM their assigned manager, supervisor, and admins (not shift-wide). */
 export function isOutsideAgent(user) {
   return Boolean(user?.isOutside) && user?.role === "agent";
 }
 
-function isAssignedManagerPair(agent, manager) {
+/** Outside supervisors may only DM their agents, assigned manager, and admins. */
+export function isOutsideSupervisor(user) {
+  return Boolean(user?.isOutside) && canHaveAssignedAgents(user?.role);
+}
+
+function isAssignedManagerPair(member, manager) {
   return (
     manager?.role === "manager" &&
-    Number(agent?.managerId) === Number(manager?.id) &&
-    Number(agent.managerId) > 0
+    Number(member?.managerId) === Number(manager?.id) &&
+    Number(member.managerId) > 0
+  );
+}
+
+function isAssignedSupervisorPair(agent, supervisor) {
+  return (
+    canHaveAssignedAgents(supervisor?.role) &&
+    Number(agent?.supervisorId) === Number(supervisor?.id) &&
+    Number(agent.supervisorId) > 0
   );
 }
 
 /**
  * Day and night agents only message their own shift.
- * Admins can message anyone and may be messaged by anyone (they ignore shift),
- * except outside agents — those only talk to their assigned manager.
- * Managers can message their team across day/night (and team members can reach them).
+ * Admins can message anyone and may be messaged by anyone (they ignore shift).
+ * Outside agents may only talk to their assigned manager, supervisor, and admins.
+ * Outside supervisors may only talk to their agents, assigned manager, and admins.
+ * Managers/supervisors can message their team across day/night (and team members can reach them).
  */
 export function canMessageAcrossShifts(viewer, target) {
   if (!viewer || !target) return false;
 
   if (isOutsideAgent(viewer)) {
+    if (isAdminRole(target.role)) return true;
+    if (isAssignedSupervisorPair(viewer, target)) return true;
     return isAssignedManagerPair(viewer, target);
   }
   if (isOutsideAgent(target)) {
     if (isAdminRole(viewer.role)) return true;
+    if (isAssignedSupervisorPair(target, viewer)) return true;
+    return isAssignedManagerPair(target, viewer);
+  }
+
+  if (isOutsideSupervisor(viewer)) {
+    if (isAdminRole(target.role)) return true;
+    if (isAssignedSupervisorPair(target, viewer)) return true;
+    return isAssignedManagerPair(viewer, target);
+  }
+  if (isOutsideSupervisor(target)) {
+    if (isAdminRole(viewer.role)) return true;
+    if (isAssignedSupervisorPair(viewer, target)) return true;
     return isAssignedManagerPair(target, viewer);
   }
 
@@ -55,6 +84,9 @@ export function canMessageAcrossShifts(viewer, target) {
     target.role === "manager" &&
     Number(viewer.managerId) === Number(target.id)
   ) {
+    return true;
+  }
+  if (isAssignedSupervisorPair(viewer, target) || isAssignedSupervisorPair(target, viewer)) {
     return true;
   }
   return normalizeShiftKey(viewer.shiftKey) === normalizeShiftKey(target.shiftKey);
@@ -93,7 +125,15 @@ export async function canMessageUser(viewer, targetUserId) {
   // getAuthedUser() already rejects inactive viewers and omits isActive from
   // the returned object — only re-check the target here.
   const target = await db.User.findByPk(targetId, {
-    attributes: ["id", "isActive", "role", "shiftKey", "managerId", "isOutside"],
+    attributes: [
+      "id",
+      "isActive",
+      "role",
+      "shiftKey",
+      "managerId",
+      "supervisorId",
+      "isOutside",
+    ],
   });
   if (!target || !target.isActive) return false;
   return canMessageAcrossShifts(viewer, target);
@@ -120,7 +160,15 @@ export async function getConversationForUser(conversationId, user, { forWrite = 
       const peerId = otherDmUserId(conversation, uid);
       const peer = peerId
         ? await db.User.findByPk(peerId, {
-            attributes: ["id", "role", "shiftKey", "isActive", "managerId", "isOutside"],
+            attributes: [
+              "id",
+              "role",
+              "shiftKey",
+              "isActive",
+              "managerId",
+              "supervisorId",
+              "isOutside",
+            ],
           })
         : null;
       if (!peer || !canMessageAcrossShifts(user, peer)) {
@@ -245,7 +293,7 @@ function unknownContact(id) {
   };
 }
 
-/** Active contacts the viewer may message (same shift; admins unrestricted; managers include their team). */
+/** Active contacts the viewer may message (same shift; admins unrestricted; outside staff: assigned peers only). */
 export async function listContacts(viewer) {
   const viewerId = Number(viewer?.id ?? viewer);
   if (!Number.isInteger(viewerId) || viewerId <= 0) return [];
@@ -257,23 +305,49 @@ export async function listContacts(viewer) {
 
   if (isOutsideAgent(viewer)) {
     const managerId = Number(viewer?.managerId);
-    if (!Number.isInteger(managerId) || managerId <= 0) return [];
-    where.id = managerId;
-    where.role = "manager";
+    const supervisorId = Number(viewer?.supervisorId);
+    const or = [{ role: "admin" }];
+    if (Number.isInteger(managerId) && managerId > 0) {
+      or.push({ id: managerId, role: "manager" });
+    }
+    if (Number.isInteger(supervisorId) && supervisorId > 0) {
+      or.push({
+        id: supervisorId,
+        role: { [Op.in]: ["supervisor", "lead_supervisor"] },
+      });
+    }
+    where[Op.or] = or;
+  } else if (isOutsideSupervisor(viewer)) {
+    const managerId = Number(viewer?.managerId);
+    const or = [{ role: "admin" }, { supervisorId: viewerId }];
+    if (Number.isInteger(managerId) && managerId > 0) {
+      or.push({ id: managerId, role: "manager" });
+    }
+    where[Op.or] = or;
   } else if (!isAdminRole(viewer?.role)) {
     const shiftKey = normalizeShiftKey(viewer?.shiftKey);
-    // Outside agents are excluded from shift-wide lists; managers still see their team.
+    // Outside staff are excluded from shift-wide lists; managers/supervisors still see their team.
     const or = [
       { role: "admin" },
-      {
-        shiftKey,
-        [Op.or]: [{ isOutside: { [Op.ne]: true } }, { role: { [Op.ne]: "agent" } }],
-      },
+      { shiftKey, isOutside: { [Op.ne]: true } },
     ];
     if (viewer?.role === "manager") {
       or.push({ managerId: viewerId });
-    } else if (viewer?.managerId) {
-      or.push({ id: Number(viewer.managerId), role: "manager" });
+    } else if (canHaveAssignedAgents(viewer?.role)) {
+      or.push({ supervisorId: viewerId });
+      if (viewer?.managerId) {
+        or.push({ id: Number(viewer.managerId), role: "manager" });
+      }
+    } else {
+      if (viewer?.managerId) {
+        or.push({ id: Number(viewer.managerId), role: "manager" });
+      }
+      if (viewer?.supervisorId) {
+        or.push({
+          id: Number(viewer.supervisorId),
+          role: { [Op.in]: ["supervisor", "lead_supervisor"] },
+        });
+      }
     }
     where[Op.or] = or;
   }
@@ -306,6 +380,7 @@ async function loadPeerUsers(peerIds) {
       "shiftKey",
       "isOutside",
       "managerId",
+      "supervisorId",
       "activeSessionId",
       "activeSessionLastSeenAt",
       "isActive",
@@ -640,8 +715,10 @@ export async function createMessage(conversation, authorUser, body, { attachment
     if (!allowed) {
       return {
         error: isOutsideAgent(authorUser)
-          ? "Outside agents can only message their manager"
-          : "Cannot message users on a different shift",
+          ? "Outside agents can only message their manager, supervisor, or admin"
+          : isOutsideSupervisor(authorUser)
+            ? "Outside supervisors can only message their agents, manager, or admin"
+            : "Cannot message users on a different shift",
         status: 403,
       };
     }

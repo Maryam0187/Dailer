@@ -179,6 +179,7 @@ async function resolveAuthedUser() {
       username: user.username,
       role: user.role,
       managerId: user.managerId,
+      supervisorId: user.supervisorId,
       isOutside: Boolean(user.isOutside),
       accessMode,
       afterShiftLimitedFileId: user.afterShiftLimitedFileId ?? null,

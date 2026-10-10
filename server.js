@@ -181,11 +181,21 @@ app.prepare().then(async () => {
     const viewerId = Number(socket.data.userId);
     if (!Number.isInteger(viewerId) || viewerId <= 0) return;
     try {
-      const viewer = await db.User.findByPk(viewerId, { attributes: ["role"] });
+      const viewer = await db.User.findByPk(viewerId, {
+        attributes: ["role", "isOutside"],
+      });
       if (
         viewer?.role !== "admin" &&
         viewer?.role !== "manager" &&
-        viewer?.role !== "supervisor"
+        viewer?.role !== "supervisor" &&
+        viewer?.role !== "lead_supervisor"
+      ) {
+        return;
+      }
+      // Outside supervisors do not use the Users tab / presence board.
+      if (
+        Boolean(viewer.isOutside) &&
+        (viewer.role === "supervisor" || viewer.role === "lead_supervisor")
       ) {
         return;
       }

@@ -176,7 +176,12 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
     });
   }
 
-  if (accessMode !== "limited" && (role === "admin" || role === "manager" || role === "supervisor" || role === "lead_supervisor")) {
+  if (
+    accessMode !== "limited" &&
+    (role === "admin" ||
+      (role === "manager" && !isOutside) ||
+      ((role === "supervisor" || role === "lead_supervisor") && !isOutside))
+  ) {
     items.push({
       href: "/users",
       label: "Users",

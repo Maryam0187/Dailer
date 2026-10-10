@@ -1,12 +1,22 @@
 import { canHaveAssignedAgents, isLeadSupervisor } from "@/lib/leadRoles";
 
-/** Roles that can open /users and observe team presence over Socket.IO. */
-export function canAccessUsersPage(role) {
+/**
+ * Roles that can open /users and observe team presence over Socket.IO.
+ * Accepts a role string or a user object (`{ role, isOutside }`).
+ * Outside supervisors / lead supervisors do not get the Users tab.
+ */
+export function canAccessUsersPage(userOrRole) {
+  if (userOrRole == null) return false;
+  const role = typeof userOrRole === "string" ? userOrRole : userOrRole.role;
+  const isOutside =
+    typeof userOrRole === "string" ? false : Boolean(userOrRole.isOutside);
+  if (isOutside && canHaveAssignedAgents(role)) return false;
+  if (isOutside && role === "manager") return false;
   return role === "admin" || role === "manager" || canHaveAssignedAgents(role);
 }
 
-export function isUsersPageObserver(role) {
-  return canAccessUsersPage(role);
+export function isUsersPageObserver(userOrRole) {
+  return canAccessUsersPage(userOrRole);
 }
 
 const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];

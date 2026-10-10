@@ -16,7 +16,7 @@ export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   if (isOutsideManager(authedUser)) redirect("/customers");
-  if (!canAccessUsersPage(authedUser.role)) {
+  if (!canAccessUsersPage(authedUser)) {
     redirect("/");
   }
 
