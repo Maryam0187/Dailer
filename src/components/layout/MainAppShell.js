@@ -24,36 +24,24 @@ export default function MainAppShell({
 }) {
   const outsideManager = userRole === "manager" && isOutside;
 
-  const inner = (
-    <ThemeProvider>
-      {outsideManager ? null : <ActivityTracker />}
-      {outsideManager ? null : <ShiftLogoutGuard />}
-      {outsideManager ? null : <VoiceLockBanner />}
-      {children}
-      {outsideManager ? null : (
-        <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
-      )}
-      {outsideManager ? null : <IvrStaffAlert userRole={userRole} />}
-      {outsideManager ? null : <GlobalWebCallInterface />}
-      {outsideManager ? null : <Line2CallInterface />}
-    </ThemeProvider>
-  );
-
-  if (outsideManager) {
-    return (
-      <DialerCapabilitiesProvider canUseDialer2={false}>
-        <ActiveCallProvider>{inner}</ActiveCallProvider>
-      </DialerCapabilitiesProvider>
-    );
-  }
-
   return (
     <DialerCapabilitiesProvider canUseDialer2={canUseDialer2}>
       <ActiveCallProvider>
         <TwilioVoiceProvider>
           <Line2CallProvider>
             <TwilioVoiceLine2Provider>
-              <MessagingProvider>{inner}</MessagingProvider>
+              <MessagingProvider>
+                <ThemeProvider>
+                  {outsideManager ? null : <ActivityTracker />}
+                  {outsideManager ? null : <ShiftLogoutGuard />}
+                  {outsideManager ? null : <VoiceLockBanner />}
+                  {children}
+                  <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
+                  {outsideManager ? null : <IvrStaffAlert userRole={userRole} />}
+                  <GlobalWebCallInterface />
+                  <Line2CallInterface />
+                </ThemeProvider>
+              </MessagingProvider>
             </TwilioVoiceLine2Provider>
           </Line2CallProvider>
         </TwilioVoiceProvider>

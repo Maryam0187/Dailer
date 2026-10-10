@@ -3,19 +3,18 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canAccessUsersPage } from "@/server/auth/userAccess";
-import { isOutsideManager } from "@/server/customers/customerAccess";
 import { isLeadSupervisor, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import { leadSupervisorVisibleAgentWhere } from "@/server/leads/leadAccess";
 import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import UsersClient from "@/components/Users/UsersClient";
+import SignedInAs from "@/components/layout/SignedInAs";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  if (isOutsideManager(authedUser)) redirect("/customers");
   if (!canAccessUsersPage(authedUser)) {
     redirect("/");
   }
@@ -139,12 +138,8 @@ export default async function UsersPage() {
           Users
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Manage team accounts and permissions. Signed in as{" "}
-          <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-            {authedUser.username}
-          </span>
-          <span className="mx-1.5 text-zinc-400 dark:text-zinc-500">·</span>
-          <span className="capitalize">{authedUser.role}</span>
+          Manage team accounts and permissions.{" "}
+          <SignedInAs username={authedUser.username} role={authedUser.role} />
         </p>
       </div>
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
-import { getSessionCalendarDate, isOutsideManager } from "@/server/auth/loginWindow";
+import { getSessionCalendarDate } from "@/server/auth/loginWindow";
 import { logUserActivity } from "@/server/activity/logUserActivity";
 import { resolveDeviceTypeFromRequest, isDesktopAttendanceLogin } from "@/server/activity/resolveDeviceType";
 import { processLoginGamification } from "@/server/attendance/processLoginGamification";
@@ -101,11 +101,7 @@ export async function issueFullSessionResponse({
   const token = jwt.sign(tokenPayload, secret, { expiresIn: "7d" });
 
   const homeRedirect =
-    purpose === "leave_application"
-      ? "/leave-application"
-      : isOutsideManager(user)
-        ? "/customers"
-        : "/";
+    purpose === "leave_application" ? "/leave-application" : "/";
 
   if (purpose === "full" && isDesktopAttendanceLogin(device)) {
     try {

@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { isOutsideManager } from "@/server/customers/customerAccess";
 import CallLogsClient from "@/components/CallLogs/CallLogsClient";
 import QuickDialPanel from "@/components/Dialer/QuickDialPanel";
+import SignedInAs, { loadAssignedSupervisorName } from "@/components/layout/SignedInAs";
 
 export default async function Home({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
-  if (isOutsideManager(authedUser)) redirect("/customers");
   const role = authedUser.role;
+  const supervisorName = await loadAssignedSupervisorName(authedUser);
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
   const scopeRaw = typeof sp?.scope === "string" ? sp.scope.trim().toLowerCase() : "";
@@ -25,10 +25,12 @@ export default async function Home({ searchParams }) {
           Place outbound calls and review call logs below — use{" "}
           <span className="font-medium text-zinc-700 dark:text-zinc-300">With recording</span> or{" "}
           <span className="font-medium text-zinc-700 dark:text-zinc-300">Conference calls</span> in the
-          log filters. Signed in as{" "}
-          <span className="font-semibold text-zinc-800 dark:text-zinc-200">{authedUser.username}</span>
-          <span className="mx-1.5 text-zinc-400 dark:text-zinc-500">·</span>
-          <span className="capitalize">{role}</span>
+          log filters.{" "}
+          <SignedInAs
+            username={authedUser.username}
+            role={role}
+            supervisorName={supervisorName}
+          />
         </p>
       </div>
 

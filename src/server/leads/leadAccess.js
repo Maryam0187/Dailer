@@ -697,7 +697,13 @@ export async function resolveLeadsListWhere(
       if (teamIds.length === 0) {
         return andWhereClause(clause, { createdByUserId: -1 });
       }
-      return andWhereClause(clause, { createdByUserId: { [Op.in]: teamIds } });
+      // Team-created leads, plus leads assigned to the manager/team (e.g. admin-created).
+      return andWhereClause(clause, {
+        [Op.or]: [
+          { createdByUserId: { [Op.in]: teamIds } },
+          { assignedUserId: { [Op.in]: teamIds } },
+        ],
+      });
     };
 
     const applyManagerScopes = async (clause) => {

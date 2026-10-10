@@ -4,6 +4,7 @@ import {
   canMessageUser,
   findOrCreateDm,
   isOutsideAgent,
+  isOutsideManagerUser,
   isOutsideSupervisor,
   listConversationsForUser,
 } from "@/server/messages/messageAccess";
@@ -48,7 +49,9 @@ export async function POST(req) {
           ? "Outside agents can only message their manager, supervisor, or admin"
           : isOutsideSupervisor(authedUser)
             ? "Outside supervisors can only message their agents, manager, or admin"
-            : "Cannot message this user",
+            : isOutsideManagerUser(authedUser)
+              ? "Outside managers can only message their team or admin"
+              : "Cannot message this user",
       },
       { status: 403 },
     );

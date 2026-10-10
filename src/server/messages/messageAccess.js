@@ -25,6 +25,11 @@ export function isOutsideSupervisor(user) {
   return Boolean(user?.isOutside) && canHaveAssignedAgents(user?.role);
 }
 
+/** Outside managers may only DM their team and admins (not shift-wide). */
+export function isOutsideManagerUser(user) {
+  return Boolean(user?.isOutside) && user?.role === "manager";
+}
+
 function isAssignedManagerPair(member, manager) {
   return (
     manager?.role === "manager" &&
@@ -46,6 +51,7 @@ function isAssignedSupervisorPair(agent, supervisor) {
  * Admins can message anyone and may be messaged by anyone (they ignore shift).
  * Outside agents may only talk to their assigned manager, supervisor, and admins.
  * Outside supervisors may only talk to their agents, assigned manager, and admins.
+ * Outside managers may only talk to their team and admins.
  * Managers/supervisors can message their team across day/night (and team members can reach them).
  */
 export function canMessageAcrossShifts(viewer, target) {
@@ -71,6 +77,15 @@ export function canMessageAcrossShifts(viewer, target) {
     if (isAdminRole(viewer.role)) return true;
     if (isAssignedSupervisorPair(viewer, target)) return true;
     return isAssignedManagerPair(target, viewer);
+  }
+
+  if (isOutsideManagerUser(viewer)) {
+    if (isAdminRole(target.role)) return true;
+    return Number(target.managerId) === Number(viewer.id);
+  }
+  if (isOutsideManagerUser(target)) {
+    if (isAdminRole(viewer.role)) return true;
+    return Number(viewer.managerId) === Number(target.id);
   }
 
   if (isAdminRole(viewer.role) || isAdminRole(target.role)) return true;
@@ -324,6 +339,8 @@ export async function listContacts(viewer) {
       or.push({ id: managerId, role: "manager" });
     }
     where[Op.or] = or;
+  } else if (isOutsideManagerUser(viewer)) {
+    where[Op.or] = [{ role: "admin" }, { managerId: viewerId }];
   } else if (!isAdminRole(viewer?.role)) {
     const shiftKey = normalizeShiftKey(viewer?.shiftKey);
     // Outside staff are excluded from shift-wide lists; managers/supervisors still see their team.
@@ -718,7 +735,9 @@ export async function createMessage(conversation, authorUser, body, { attachment
           ? "Outside agents can only message their manager, supervisor, or admin"
           : isOutsideSupervisor(authorUser)
             ? "Outside supervisors can only message their agents, manager, or admin"
-            : "Cannot message users on a different shift",
+            : isOutsideManagerUser(authorUser)
+              ? "Outside managers can only message their team or admin"
+              : "Cannot message users on a different shift",
         status: 403,
       };
     }

@@ -9,7 +9,8 @@ export function isOutsideManager(user) {
 }
 
 export function canAccessCustomers(user) {
-  return user?.role === "admin" || isOutsideManager(user);
+  // Outside managers temporarily use Dialer/Leads only (Customers re-enable later).
+  return user?.role === "admin";
 }
 
 export async function requireCustomerAccess() {
