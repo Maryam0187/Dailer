@@ -4,7 +4,11 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canViewTargetCalls } from "@/server/auth/userAccess";
 import { applyDialerIndexToWhere, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
-import { conferenceCallIds, invitedConferenceCallIds } from "@/server/calls/aggregateMetrics";
+import {
+  conferenceCallIds,
+  dateRangeWhere,
+  invitedConferenceCallIds,
+} from "@/server/calls/aggregateMetrics";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -96,9 +100,7 @@ export async function GET(req, { params }) {
     where = { userId: target.id };
   }
   if (fromDate && toDate) {
-    const after = new Date(`${fromDate}T00:00:00.000Z`);
-    const before = new Date(`${toDate}T23:59:59.999Z`);
-    where.createdAt = { [Op.between]: [after, before] };
+    Object.assign(where, dateRangeWhere(fromDate, toDate));
   }
   if (hasRecording) {
     where.recordingSid = { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: "" }] };

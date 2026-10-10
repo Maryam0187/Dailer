@@ -1,5 +1,6 @@
 import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
+import { calendarDateRangeBounds } from "@/lib/calendarDayBounds";
 
 /**
  * Distinct CallLog ids that have invite legs.
@@ -8,13 +9,14 @@ import db from "@/server/db";
  */
 export async function conferenceCallIds({ fromDate, toDate } = {}) {
   if (fromDate && toDate) {
-    const after = new Date(`${fromDate}T00:00:00.000Z`);
-    const before = new Date(`${toDate}T23:59:59.999Z`);
+    const bounds = calendarDateRangeBounds(fromDate, toDate);
+    if (!bounds) return [];
+    const { after, before } = bounds;
     const rows = await db.sequelize.query(
       `SELECT DISTINCT idl.callLogId AS callLogId
        FROM InviteDialLegs AS idl
        INNER JOIN CallLogs AS cl ON cl.id = idl.callLogId
-       WHERE cl.createdAt BETWEEN :after AND :before`,
+       WHERE cl.createdAt >= :after AND cl.createdAt < :before`,
       {
         replacements: { after, before },
         type: QueryTypes.SELECT,
@@ -39,14 +41,15 @@ export async function invitedConferenceCallIds(userId, { fromDate, toDate } = {}
   if (!Number.isInteger(id)) return [];
 
   if (fromDate && toDate) {
-    const after = new Date(`${fromDate}T00:00:00.000Z`);
-    const before = new Date(`${toDate}T23:59:59.999Z`);
+    const bounds = calendarDateRangeBounds(fromDate, toDate);
+    if (!bounds) return [];
+    const { after, before } = bounds;
     const rows = await db.sequelize.query(
       `SELECT DISTINCT idl.callLogId AS callLogId
        FROM InviteDialLegs AS idl
        INNER JOIN CallLogs AS cl ON cl.id = idl.callLogId
        WHERE idl.invitedUserId = :userId
-         AND cl.createdAt BETWEEN :after AND :before`,
+         AND cl.createdAt >= :after AND cl.createdAt < :before`,
       {
         replacements: { userId: id, after, before },
         type: QueryTypes.SELECT,
@@ -70,10 +73,11 @@ export function dateRangeWhere(fromDate, toDate) {
   return dateRangeWhereOn("createdAt", fromDate, toDate);
 }
 
+/** Filter a datetime field by inclusive calendar days in the app timezone (Asia/Karachi). */
 export function dateRangeWhereOn(field, fromDate, toDate) {
-  const after = new Date(`${fromDate}T00:00:00.000Z`);
-  const before = new Date(`${toDate}T23:59:59.999Z`);
-  return { [field]: { [Op.between]: [after, before] } };
+  const bounds = calendarDateRangeBounds(fromDate, toDate);
+  if (!bounds) return {};
+  return { [field]: { [Op.gte]: bounds.after, [Op.lt]: bounds.before } };
 }
 
 const NON_ADMIN_USER_WHERE = { role: { [Op.ne]: "admin" } };
