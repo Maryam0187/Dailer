@@ -14,13 +14,36 @@ export function normalizeShiftKey(shiftKey) {
   return shiftKey === "night" ? "night" : "day";
 }
 
+/** Outside agents may only DM their assigned manager (not shift-wide or admins). */
+export function isOutsideAgent(user) {
+  return Boolean(user?.isOutside) && user?.role === "agent";
+}
+
+function isAssignedManagerPair(agent, manager) {
+  return (
+    manager?.role === "manager" &&
+    Number(agent?.managerId) === Number(manager?.id) &&
+    Number(agent.managerId) > 0
+  );
+}
+
 /**
  * Day and night agents only message their own shift.
- * Admins can message anyone and may be messaged by anyone (they ignore shift).
+ * Admins can message anyone and may be messaged by anyone (they ignore shift),
+ * except outside agents — those only talk to their assigned manager.
  * Managers can message their team across day/night (and team members can reach them).
  */
 export function canMessageAcrossShifts(viewer, target) {
   if (!viewer || !target) return false;
+
+  if (isOutsideAgent(viewer)) {
+    return isAssignedManagerPair(viewer, target);
+  }
+  if (isOutsideAgent(target)) {
+    if (isAdminRole(viewer.role)) return true;
+    return isAssignedManagerPair(target, viewer);
+  }
+
   if (isAdminRole(viewer.role) || isAdminRole(target.role)) return true;
   if (
     viewer.role === "manager" &&
@@ -70,7 +93,7 @@ export async function canMessageUser(viewer, targetUserId) {
   // getAuthedUser() already rejects inactive viewers and omits isActive from
   // the returned object — only re-check the target here.
   const target = await db.User.findByPk(targetId, {
-    attributes: ["id", "isActive", "role", "shiftKey", "managerId"],
+    attributes: ["id", "isActive", "role", "shiftKey", "managerId", "isOutside"],
   });
   if (!target || !target.isActive) return false;
   return canMessageAcrossShifts(viewer, target);
@@ -97,7 +120,7 @@ export async function getConversationForUser(conversationId, user, { forWrite = 
       const peerId = otherDmUserId(conversation, uid);
       const peer = peerId
         ? await db.User.findByPk(peerId, {
-            attributes: ["id", "role", "shiftKey", "isActive", "managerId"],
+            attributes: ["id", "role", "shiftKey", "isActive", "managerId", "isOutside"],
           })
         : null;
       if (!peer || !canMessageAcrossShifts(user, peer)) {
@@ -232,9 +255,21 @@ export async function listContacts(viewer) {
     id: { [Op.ne]: viewerId },
   };
 
-  if (!isAdminRole(viewer?.role)) {
+  if (isOutsideAgent(viewer)) {
+    const managerId = Number(viewer?.managerId);
+    if (!Number.isInteger(managerId) || managerId <= 0) return [];
+    where.id = managerId;
+    where.role = "manager";
+  } else if (!isAdminRole(viewer?.role)) {
     const shiftKey = normalizeShiftKey(viewer?.shiftKey);
-    const or = [{ role: "admin" }, { shiftKey }];
+    // Outside agents are excluded from shift-wide lists; managers still see their team.
+    const or = [
+      { role: "admin" },
+      {
+        shiftKey,
+        [Op.or]: [{ isOutside: { [Op.ne]: true } }, { role: { [Op.ne]: "agent" } }],
+      },
+    ];
     if (viewer?.role === "manager") {
       or.push({ managerId: viewerId });
     } else if (viewer?.managerId) {
@@ -603,7 +638,12 @@ export async function createMessage(conversation, authorUser, body, { attachment
   if (peerId != null) {
     const allowed = await canMessageUser(authorUser, peerId);
     if (!allowed) {
-      return { error: "Cannot message users on a different shift", status: 403 };
+      return {
+        error: isOutsideAgent(authorUser)
+          ? "Outside agents can only message their manager"
+          : "Cannot message users on a different shift",
+        status: 403,
+      };
     }
   }
 

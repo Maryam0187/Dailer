@@ -3,6 +3,7 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
   canMessageUser,
   findOrCreateDm,
+  isOutsideAgent,
   listConversationsForUser,
 } from "@/server/messages/messageAccess";
 import db from "@/server/db";
@@ -40,7 +41,14 @@ export async function POST(req) {
 
   const allowed = await canMessageUser(authedUser, recipientUserId);
   if (!allowed) {
-    return NextResponse.json({ error: "Cannot message this user" }, { status: 403 });
+    return NextResponse.json(
+      {
+        error: isOutsideAgent(authedUser)
+          ? "Outside agents can only message their manager"
+          : "Cannot message this user",
+      },
+      { status: 403 },
+    );
   }
 
   const result = await findOrCreateDm(authedUser.id, recipientUserId);
