@@ -30,6 +30,7 @@ export default async function UsersPage() {
     "isActive",
     "isOutside",
     "shiftKey",
+    "loginWindowExempt",
     "afterShiftAccess",
     "afterShiftLimitedFileId",
     "afterShiftAccessExpiresAt",
@@ -106,6 +107,7 @@ export default async function UsersPage() {
       shiftKey: r.shiftKey === "night" ? "night" : "day",
       ...(authedUser.role === "admin"
         ? {
+            loginWindowExempt: Boolean(r.loginWindowExempt),
             afterShiftAccess: r.afterShiftAccess || "none",
             afterShiftLimitedFileId: r.afterShiftLimitedFileId ?? null,
             afterShiftAccessExpiresAt: r.afterShiftAccessExpiresAt ?? null,
