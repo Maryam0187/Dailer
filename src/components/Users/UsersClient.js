@@ -931,7 +931,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
   });
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: 10,
+    pageSize: 25,
     total: 0,
     totalPages: 1,
     hasNext: false,
@@ -985,7 +985,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
       try {
         const qs = new URLSearchParams({
           page: String(nextPage),
-          pageSize: "10",
+          pageSize: "25",
         });
         if (fromDate && toDate) {
           qs.set("fromDate", fromDate);
@@ -1522,7 +1522,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   No activity for this user in this date range.
                 </p>
               ) : (
-                <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
                   <table className="w-full min-w-[32rem] table-fixed text-left text-sm">
                     <colgroup>
                       <col className="w-9" />
@@ -1622,6 +1623,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
 
@@ -1835,7 +1837,8 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 />
               ))}
             </div>
-            <div className="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-zinc-200 md:block dark:border-zinc-700">
+            <div className="hidden min-h-0 flex-1 overflow-auto md:block">
+              <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
               <table className="w-full min-w-[48rem] text-left text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
@@ -1923,6 +1926,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             </>
           )}
