@@ -219,9 +219,9 @@ function activityDetailFields(row) {
 function ActivityDetailRow({ label, value, wide = false, mono = false }) {
   return (
     <div className={`grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-2 ${wide ? "sm:col-span-2" : ""}`}>
-      <dt className="truncate pt-px text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</dt>
+      <dt className="truncate pt-px text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</dt>
       <dd
-        className={`min-w-0 break-all text-[11px] leading-snug text-zinc-800 dark:text-zinc-200 ${
+        className={`min-w-0 break-all text-xs leading-snug text-zinc-800 dark:text-zinc-200 ${
           mono ? "whitespace-pre-wrap font-mono" : ""
         }`}
       >
@@ -579,13 +579,19 @@ function getPresetRange(preset) {
 }
 
 const callsDateInputClass =
-  "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
+  "h-9 w-full rounded-lg border border-zinc-200 bg-white px-2.5 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400/70 dark:focus:ring-emerald-400/20";
+
+const detailFilterLabelClass =
+  "mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+
+const detailChipClass =
+  "rounded-md border px-2.5 py-1 text-xs font-semibold";
 
 function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, downloadingId }) {
   const isLine2 = Number(call.dialerIndex) === 2;
   return (
-    <article className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-950/40">
-      <div className="flex items-start justify-between gap-3">
+    <article className="rounded-lg border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-950/40">
+      <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-zinc-700 dark:text-zinc-200">
           {new Date(call.createdAt).toLocaleString()}
         </p>
@@ -604,16 +610,16 @@ function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, down
           </span>
         </div>
       </div>
-      <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100">{call.toNumber || "—"}</p>
+      <p className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">{call.toNumber || "—"}</p>
       {showConferenceColumn ? (
-        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+        <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-300">
           Invited:{" "}
           {Array.isArray(call.invitedToNames) && call.invitedToNames.length > 0
             ? call.invitedToNames.join(", ")
             : "—"}
         </p>
       ) : null}
-      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-zinc-700 dark:text-zinc-200">
+      <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-zinc-700 dark:text-zinc-200">
         {isAdmin ? (
           <>
             <div>
@@ -643,7 +649,7 @@ function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, down
                 type="button"
                 onClick={() => onDownload(call.id, call.recordingDownloadUrl)}
                 disabled={downloadingId === call.id}
-                className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                className="rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
               >
                 {downloadingId === call.id ? "Downloading…" : "Download"}
               </button>
@@ -1270,9 +1276,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-detail-title"
-        className="relative z-10 flex max-h-[100dvh] w-full max-w-6xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative z-10 flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:h-[94vh] sm:max-h-[94vh] sm:rounded-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
-        <div className="shrink-0 border-b border-zinc-200 px-4 py-4 sm:px-6 dark:border-zinc-700">
+        <div className="shrink-0 border-b border-zinc-200 px-4 py-3 sm:px-5 dark:border-zinc-700">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2
@@ -1350,12 +1356,12 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-zinc-200 bg-white px-4 pt-3 dark:border-zinc-700 dark:bg-zinc-900 sm:px-6">
+        <div className="shrink-0 border-b border-zinc-200 bg-white px-4 pt-2 dark:border-zinc-700 dark:bg-zinc-900 sm:px-5">
           <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
               onClick={() => setActiveTab("calls")}
-              className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
+              className={`shrink-0 border-b-2 px-3 py-1.5 text-sm font-semibold transition-colors sm:px-3.5 ${
                 activeTab === "calls"
                   ? "border-emerald-600 text-emerald-800 dark:border-emerald-500 dark:text-emerald-200"
                   : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -1367,7 +1373,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               <button
                 type="button"
                 onClick={() => setActiveTab("metrics")}
-                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
+                className={`shrink-0 border-b-2 px-3 py-1.5 text-sm font-semibold transition-colors sm:px-3.5 ${
                   activeTab === "metrics"
                     ? "border-violet-600 text-violet-800 dark:border-violet-500 dark:text-violet-200"
                     : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -1380,7 +1386,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               <button
                 type="button"
                 onClick={() => setActiveTab("activity")}
-                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors sm:px-4 ${
+                className={`shrink-0 border-b-2 px-3 py-1.5 text-sm font-semibold transition-colors sm:px-3.5 ${
                   activeTab === "activity"
                     ? "border-sky-600 text-sky-800 dark:border-sky-500 dark:text-sky-200"
                     : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -1392,119 +1398,119 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-          <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
-            <div className="mb-3">
-              <label className={labelClass}>Range presets</label>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { id: "today", label: "Today" },
-                  { id: "yesterday", label: "Yesterday" },
-                  { id: "week", label: "Week" },
-                  { id: "month", label: "Month" },
-                  { id: "custom", label: "Custom" },
-                ].map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => applyPreset(p.id)}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                      rangePreset === p.id
-                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+          <div className="mb-3 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-2">
+              <div className="min-w-0 flex-1">
+                <label className={detailFilterLabelClass}>Range</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: "today", label: "Today" },
+                    { id: "yesterday", label: "Yesterday" },
+                    { id: "week", label: "Week" },
+                    { id: "month", label: "Month" },
+                    { id: "custom", label: "Custom" },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => applyPreset(p.id)}
+                      className={`${detailChipClass} ${
+                        rangePreset === p.id
+                          ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <label htmlFor="user-detail-from-date" className={labelClass}>
-                  From date
-                </label>
-                <input
-                  id="user-detail-from-date"
-                  type="date"
-                  className={callsDateInputClass}
-                  value={rangeFrom}
-                  disabled={rangePreset !== "custom"}
-                  onChange={(e) => {
-                    setRangePreset("custom");
-                    setRangeFrom(e.target.value);
-                  }}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="user-detail-to-date" className={labelClass}>
-                  To date
-                </label>
-                <input
-                  id="user-detail-to-date"
-                  type="date"
-                  className={callsDateInputClass}
-                  value={rangeTo}
-                  disabled={rangePreset !== "custom"}
-                  onChange={(e) => {
-                    setRangePreset("custom");
-                    setRangeTo(e.target.value);
-                  }}
-                  required
-                />
-              </div>
-              <div className="flex items-end sm:col-span-1">
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label htmlFor="user-detail-from-date" className={detailFilterLabelClass}>
+                    From
+                  </label>
+                  <input
+                    id="user-detail-from-date"
+                    type="date"
+                    className={`${callsDateInputClass} w-[9.5rem]`}
+                    value={rangeFrom}
+                    disabled={rangePreset !== "custom"}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeFrom(e.target.value);
+                    }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="user-detail-to-date" className={detailFilterLabelClass}>
+                    To
+                  </label>
+                  <input
+                    id="user-detail-to-date"
+                    type="date"
+                    className={`${callsDateInputClass} w-[9.5rem]`}
+                    value={rangeTo}
+                    disabled={rangePreset !== "custom"}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRangeTo(e.target.value);
+                    }}
+                    required
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={onApplyRange}
                   disabled={
                     callsLoading || metricsLoading || activitiesLoading || rangePreset !== "custom"
                   }
-                  className="h-10 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
+                  className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  Apply range
+                  Apply
                 </button>
               </div>
             </div>
           </div>
 
           {activeTab === "activity" && isAdmin ? (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                  User activity
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Login, logout, and other tracked actions for this user in the selected date range.
-                  Click a row to view the full database record.
-                </p>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={onActivityPrev}
-                  disabled={!activityPagination.hasPrev || activitiesLoading}
-                  className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  Prev
-                </button>
-                <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-                  Page {activityPagination.page} / {activityPagination.totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={onActivityNext}
-                  disabled={!activityPagination.hasNext || activitiesLoading}
-                  className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  Next
-                </button>
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    User activity
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Click a row for the full record.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={onActivityPrev}
+                    disabled={!activityPagination.hasPrev || activitiesLoading}
+                    className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    Prev
+                  </button>
+                  <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+                    {activityPagination.page}/{activityPagination.totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onActivityNext}
+                    disabled={!activityPagination.hasNext || activitiesLoading}
+                    className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
 
               {activitiesError ? (
-                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+                <p className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
                   {activitiesError}
                 </p>
               ) : null}
@@ -1516,22 +1522,22 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   No activity for this user in this date range.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700">
+                <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
                   <table className="w-full min-w-[32rem] table-fixed text-left text-sm">
                     <colgroup>
-                      <col className="w-10" />
+                      <col className="w-9" />
                       <col className="w-[10.5rem]" />
-                      <col className="w-[8.5rem]" />
+                      <col className="w-[8rem]" />
                       <col className="w-[13rem]" />
                       <col className="w-[11rem]" />
                     </colgroup>
-                    <thead>
-                      <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
-                        <th className="w-10 px-2 py-2.5" aria-label="Expand" />
-                        <th className="whitespace-nowrap px-3 py-2.5">When</th>
-                        <th className="whitespace-nowrap px-3 py-2.5">Action</th>
-                        <th className="w-[13rem] max-w-[13rem] px-3 py-2.5">Details</th>
-                        <th className="w-[11rem] max-w-[11rem] px-3 py-2.5">Location</th>
+                    <thead className="sticky top-0 z-10">
+                      <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                        <th className="w-9 px-2 py-2" aria-label="Expand" />
+                        <th className="whitespace-nowrap px-2.5 py-2">When</th>
+                        <th className="whitespace-nowrap px-2.5 py-2">Action</th>
+                        <th className="w-[13rem] max-w-[13rem] px-2.5 py-2">Details</th>
+                        <th className="w-[11rem] max-w-[11rem] px-2.5 py-2">Location</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1562,18 +1568,18 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                               tabIndex={0}
                               aria-expanded={open}
                             >
-                              <td className="px-2 py-2.5">
-                                <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                              <td className="px-2 py-1.5">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
                                   <ActivityChevron open={open} />
                                 </span>
                               </td>
-                              <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                              <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
                                 {new Date(row.createdAt).toLocaleString()}
                               </td>
-                              <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                              <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-zinc-900 dark:text-zinc-100">
                                 {activityActionLabel(row.action, row.metadata)}
                               </td>
-                              <td className="w-[13rem] max-w-[13rem] overflow-hidden px-3 py-2.5">
+                              <td className="w-[13rem] max-w-[13rem] overflow-hidden px-2.5 py-1.5">
                                 <p
                                   className="truncate text-zinc-700 dark:text-zinc-200"
                                   title={detailsFull !== "—" ? detailsFull : undefined}
@@ -1581,7 +1587,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                                   {details}
                                 </p>
                               </td>
-                              <td className="w-[11rem] max-w-[11rem] overflow-hidden px-3 py-2.5">
+                              <td className="w-[11rem] max-w-[11rem] overflow-hidden px-2.5 py-1.5">
                                 <p
                                   className="truncate text-zinc-700 dark:text-zinc-200"
                                   title={formatActivityLocationTitle(row)}
@@ -1592,7 +1598,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                             </tr>
                             {open ? (
                               <tr className="bg-zinc-50/80 dark:bg-zinc-900/40">
-                                <td colSpan={5} className="px-3 py-2 sm:px-4">
+                                <td colSpan={5} className="px-2.5 py-2 sm:px-3">
                                   {activityDetailLoadingId === row.id ? (
                                     <p className="text-xs text-zinc-600 dark:text-zinc-300">
                                       Loading record…
@@ -1620,20 +1626,20 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               )}
 
               {!activitiesLoading && !activitiesError && activities.length > 0 ? (
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
                   Showing {activities.length} of {activityPagination.total} activity entries
                 </p>
               ) : null}
             </div>
           ) : activeTab === "metrics" && isAdmin ? (
-            <div className="flex flex-col gap-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
               <div>
-                <label className={labelClass}>Call scope</label>
-                <div className="flex flex-wrap gap-2">
+                <label className={detailFilterLabelClass}>Call scope</label>
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => setMetricsScope("all")}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    className={`${detailChipClass} ${
                       metricsScope === "all"
                         ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
                         : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1644,7 +1650,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   <button
                     type="button"
                     onClick={() => setMetricsScope("conference")}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    className={`${detailChipClass} ${
                       metricsScope === "conference"
                         ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
                         : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1653,7 +1659,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     Conference calls
                   </button>
                 </div>
-                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   Outbound calls placed by this user in the selected date range.
                 </p>
               </div>
@@ -1679,123 +1685,124 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
               )}
             </div>
           ) : (
-          <>
-          <div className="mb-4 flex flex-col gap-4">
-            <div>
-              <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                {callsFilter === "conference" ? "Conference call logs" : "Recent call logs"}
-              </h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCallsFilter("all");
-                    setPage(1);
-                  }}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    callsFilter === "all"
-                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  All calls
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCallsFilter("recording");
-                    setPage(1);
-                  }}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    callsFilter === "recording"
-                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  With recording
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCallsFilter("conference");
-                    setPage(1);
-                  }}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    callsFilter === "conference"
-                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  Conference calls
-                </button>
-              </div>
-              <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Dialer line
-              </p>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                {[
-                  { id: "all", label: "All lines" },
-                  { id: "1", label: "Line 1" },
-                  ...(user.canUseDialer2 ? [{ id: "2", label: "Line 2" }] : []),
-                ].map((opt) => (
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <div className="flex shrink-0 flex-col gap-2">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                  {callsFilter === "conference" ? "Conference call logs" : "Recent call logs"}
+                </h3>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <button
-                    key={opt.id}
                     type="button"
                     onClick={() => {
-                      setCallsLineFilter(opt.id);
+                      setCallsFilter("all");
                       setPage(1);
                     }}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                      callsLineFilter === opt.id
-                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                    className={`${detailChipClass} ${
+                      callsFilter === "all"
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
                         : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     }`}
                   >
-                    {opt.label}
+                    All calls
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCallsFilter("recording");
+                      setPage(1);
+                    }}
+                    className={`${detailChipClass} ${
+                      callsFilter === "recording"
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    With recording
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCallsFilter("conference");
+                      setPage(1);
+                    }}
+                    className={`${detailChipClass} ${
+                      callsFilter === "conference"
+                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    Conference
+                  </button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Line
+                  </span>
+                  {[
+                    { id: "all", label: "All" },
+                    { id: "1", label: "1" },
+                    ...(user.canUseDialer2 ? [{ id: "2", label: "2" }] : []),
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setCallsLineFilter(opt.id);
+                        setPage(1);
+                      }}
+                      className={`${detailChipClass} ${
+                        callsLineFilter === opt.id
+                          ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {callsFilter === "conference" ? (
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Invites via “Add agent”, or conferences this user joined.
+                  </p>
+                ) : null}
               </div>
-              {callsFilter === "conference" ? (
-                <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  Calls where another agent was invited via “Add agent”, or where this user was
-                  invited to a conference.
-                </p>
-              ) : null}
-            </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onPrev}
-                disabled={!pagination.hasPrev || callsLoading || refreshing}
-                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Prev
-              </button>
-              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-                Page {pagination.page} / {pagination.totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={onNext}
-                disabled={!pagination.hasNext || callsLoading || refreshing}
-                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Next
-              </button>
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={callsLoading || refreshing}
-                className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
-              >
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={onPrev}
+                  disabled={!pagination.hasPrev || callsLoading || refreshing}
+                  className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Prev
+                </button>
+                <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+                  {pagination.page}/{pagination.totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={onNext}
+                  disabled={!pagination.hasNext || callsLoading || refreshing}
+                  className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={callsLoading || refreshing}
+                  className="shrink-0 rounded-md border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+                >
+                  {refreshing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
             </div>
           </div>
 
           {callsError ? (
-            <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+            <p className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
               {callsError}
             </p>
           ) : null}
@@ -1816,7 +1823,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
             </p>
           ) : (
             <>
-            <div className="space-y-3 md:hidden">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto md:hidden">
               {calls.map((c) => (
                 <UserCallLogCard
                   key={c.id}
@@ -1828,36 +1835,36 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 />
               ))}
             </div>
-            <div className="hidden overflow-x-auto rounded-xl border border-zinc-200 md:block dark:border-zinc-700">
-              <table className="w-full min-w-[52rem] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
-                    <th className="whitespace-nowrap px-3 py-2.5">When</th>
-                    <th className="whitespace-nowrap px-3 py-2.5">Line</th>
+            <div className="hidden min-h-0 flex-1 overflow-auto rounded-lg border border-zinc-200 md:block dark:border-zinc-700">
+              <table className="w-full min-w-[48rem] text-left text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                    <th className="whitespace-nowrap px-2.5 py-2">When</th>
+                    <th className="whitespace-nowrap px-2.5 py-2">Line</th>
                     {callsFilter === "conference" ? (
-                      <th className="px-3 py-2.5">Invited</th>
+                      <th className="px-2.5 py-2">Invited</th>
                     ) : null}
-                    <th className="px-3 py-2.5">To</th>
-                    <th className="px-3 py-2.5">Status</th>
+                    <th className="px-2.5 py-2">To</th>
+                    <th className="px-2.5 py-2">Status</th>
                     {isAdmin ? (
                       <>
-                        <th className="whitespace-nowrap px-3 py-2.5">Agent leg</th>
-                        <th className="whitespace-nowrap px-3 py-2.5">Customer leg</th>
-                        <th className="whitespace-nowrap px-3 py-2.5">Total</th>
+                        <th className="whitespace-nowrap px-2.5 py-2">Agent</th>
+                        <th className="whitespace-nowrap px-2.5 py-2">Customer</th>
+                        <th className="whitespace-nowrap px-2.5 py-2">Total</th>
                       </>
                     ) : (
-                      <th className="whitespace-nowrap px-3 py-2.5">Duration</th>
+                      <th className="whitespace-nowrap px-2.5 py-2">Duration</th>
                     )}
-                    <th className="whitespace-nowrap px-3 py-2.5">Recording</th>
+                    <th className="whitespace-nowrap px-2.5 py-2">Recording</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {calls.map((c) => (
-                    <tr key={c.id}>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                    <tr key={c.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
                         {new Date(c.createdAt).toLocaleString()}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="whitespace-nowrap px-2.5 py-1.5">
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
                             Number(c.dialerIndex) === 2
@@ -1869,42 +1876,42 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                         </span>
                       </td>
                       {callsFilter === "conference" ? (
-                        <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                        <td className="max-w-[10rem] truncate px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
                           {Array.isArray(c.invitedToNames) && c.invitedToNames.length > 0
                             ? c.invitedToNames.join(", ")
                             : "—"}
                         </td>
                       ) : null}
-                      <td className="px-3 py-2.5 font-medium text-zinc-900 dark:text-zinc-100">
+                      <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-zinc-900 dark:text-zinc-100">
                         {c.toNumber || "—"}
                       </td>
-                      <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-200">
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
                         {c.status || "—"}
                       </td>
                       {isAdmin ? (
                         <>
-                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.agentDurationSeconds)}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.customerDurationSeconds)}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                          <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                             {formatDuration(c.durationSeconds)}
                           </td>
                         </>
                       ) : (
-                        <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-zinc-700 dark:text-zinc-200">
+                        <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                           {formatDuration(c.durationSeconds)}
                         </td>
                       )}
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="whitespace-nowrap px-2.5 py-1.5">
                         {c.recordingDownloadUrl ? (
                           <button
                             type="button"
                             onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
                             disabled={downloadingId === c.id}
-                            className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                            className="rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
                           >
                             {downloadingId === c.id ? "Downloading…" : "Download"}
                           </button>
@@ -1921,13 +1928,13 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
           )}
 
           {!callsLoading && !callsError && calls.length > 0 ? (
-            <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
               Showing {calls.length} of {pagination.total}{" "}
               {callsFilter === "conference" ? "conference calls" : "calls"}
               {callsFilter === "recording" ? " with a recording" : ""}
             </p>
           ) : null}
-          </>
+          </div>
           )}
         </div>
       </div>
