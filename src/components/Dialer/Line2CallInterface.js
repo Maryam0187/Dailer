@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useLine2Call } from "@/contexts/Line2CallContext";
 import { useTwilioVoiceLine2 } from "@/contexts/TwilioVoiceLine2Context";
+import CallQualityIndicator, {
+  CallQualityStatusDot,
+} from "@/components/Dialer/CallQualityIndicator";
 
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -20,7 +23,14 @@ function hasResolvedNumericCallId(sess) {
 }
 
 function Line2ActiveCallPanel({ session, hangup }) {
-  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError } = useTwilioVoiceLine2();
+  const {
+    voiceConnected,
+    muted: sdkMuted,
+    toggleMute,
+    sendDtmf,
+    sdkError,
+    callQuality,
+  } = useTwilioVoiceLine2();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -73,11 +83,10 @@ function Line2ActiveCallPanel({ session, hangup }) {
         <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="flex-shrink-0">
-              {displayCallStatus === "in-progress" ? (
-                <div className="h-3 w-3 animate-pulse rounded-full bg-green-400" />
-              ) : (
-                <div className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
-              )}
+              <CallQualityStatusDot
+                callQuality={callQuality}
+                inProgress={displayCallStatus === "in-progress"}
+              />
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">Line 2 · {title}</div>
@@ -92,6 +101,10 @@ function Line2ActiveCallPanel({ session, hangup }) {
                 >
                   {displayCallStatus === "in-progress" ? "In progress" : "Queued"}
                 </div>
+                <CallQualityIndicator
+                  callQuality={callQuality}
+                  inProgress={displayCallStatus === "in-progress" && voiceConnected}
+                />
                 {displayCallStatus === "in-progress" ? (
                   <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div>
                 ) : null}

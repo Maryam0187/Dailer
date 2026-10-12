@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQuality";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -67,6 +68,10 @@ export function TwilioVoiceProvider({ children }) {
   const [incomingInvite, setIncomingInvite] = useState(null);
   const [inviteNotification, setInviteNotification] = useState(null);
   const [agentJoinedNotification, setAgentJoinedNotification] = useState(null);
+  /** Live Voice SDK network quality: `{ level, mos }` while a call is connected. */
+  const [callQuality, setCallQuality] = useState(null);
+  const qualityMosRef = useRef(null);
+  const qualityWarningsRef = useRef(new Set());
   const callRef = useRef(null);
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
@@ -118,6 +123,25 @@ export function TwilioVoiceProvider({ children }) {
     keepaliveEndCall(callId);
   }, [sessionSyncRef]);
 
+  const clearCallQuality = useCallback(() => {
+    qualityMosRef.current = null;
+    qualityWarningsRef.current = new Set();
+    setCallQuality(null);
+  }, []);
+
+  const publishCallQuality = useCallback(() => {
+    const mos = qualityMosRef.current;
+    const level = deriveCallQualityLevel({
+      mos,
+      activeWarnings: qualityWarningsRef.current,
+    });
+    if (level == null && mos == null && qualityWarningsRef.current.size === 0) {
+      setCallQuality(null);
+      return;
+    }
+    setCallQuality({ level, mos });
+  }, []);
+
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
     deviceRef.current = null;
@@ -128,7 +152,8 @@ export function TwilioVoiceProvider({ children }) {
     setRegistered(false);
     setVoiceConnected(false);
     setMuted(false);
-  }, []);
+    clearCallQuality();
+  }, [clearCallQuality]);
 
   const stopInviteTone = useCallback(() => {
     if (inviteToneIntervalRef.current) {
@@ -215,12 +240,31 @@ export function TwilioVoiceProvider({ children }) {
       setMuted(call.isMuted());
       setVoiceConnected(true);
       markInProgress();
+      clearCallQuality();
 
       call.on("mute", (isMuted) => setMuted(isMuted));
+      call.on("sample", (sample) => {
+        const mos = typeof sample?.mos === "number" && Number.isFinite(sample.mos) ? sample.mos : null;
+        qualityMosRef.current = mos;
+        publishCallQuality();
+      });
+      call.on("warning", (name) => {
+        const key = normalizeQualityWarningName(name);
+        if (!key) return;
+        qualityWarningsRef.current.add(key);
+        publishCallQuality();
+      });
+      call.on("warning-cleared", (name) => {
+        const key = normalizeQualityWarningName(name);
+        if (!key) return;
+        qualityWarningsRef.current.delete(key);
+        publishCallQuality();
+      });
       call.on("disconnect", () => {
         callRef.current = null;
         setVoiceConnected(false);
         setMuted(false);
+        clearCallQuality();
         if (leaveWithoutEndingRef.current) {
           leaveWithoutEndingRef.current = false;
           clearLocalSession();
@@ -234,7 +278,7 @@ export function TwilioVoiceProvider({ children }) {
         endCall();
       });
     },
-    [clearLocalSession, endCall, markInProgress, sessionSyncRef],
+    [clearCallQuality, clearLocalSession, endCall, markInProgress, publishCallQuality, sessionSyncRef],
   );
 
   // Cleanup when the provider unmounts.
@@ -763,7 +807,8 @@ export function TwilioVoiceProvider({ children }) {
     expectedInviteJoinUntilRef.current = 0;
     setVoiceConnected(false);
     setMuted(false);
-  }, [session]);
+    clearCallQuality();
+  }, [clearCallQuality, session]);
 
   useEffect(() => {
     const pending = Boolean(incomingInvite || inviteNotification);
@@ -1121,6 +1166,7 @@ export function TwilioVoiceProvider({ children }) {
         sdkInitializing,
         registered,
         voiceConnected,
+        callQuality,
         voiceDisplaced,
         isPrimaryTab,
         takeOverDialer,

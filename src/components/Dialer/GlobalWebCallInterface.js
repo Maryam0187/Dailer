@@ -5,6 +5,9 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import AddressBotCallControls from "@/components/Dialer/AddressBotCallControls";
 import CallPanelErrorBoundary from "@/components/Dialer/CallPanelErrorBoundary";
+import CallQualityIndicator, {
+  CallQualityStatusDot,
+} from "@/components/Dialer/CallQualityIndicator";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -22,7 +25,15 @@ function hasResolvedNumericCallId(sess) {
 }
 
 function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) {
-  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError, leaveConference } = useTwilioVoice();
+  const {
+    voiceConnected,
+    muted: sdkMuted,
+    toggleMute,
+    sendDtmf,
+    sdkError,
+    leaveConference,
+    callQuality,
+  } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
   const isDirectCall =
     isCallOwner && session.callMode !== "conference" && !session.conferenceName;
@@ -362,11 +373,10 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
         <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="flex-shrink-0">
-              {displayCallStatus === "in-progress" ? (
-                <div className="h-3 w-3 animate-pulse rounded-full bg-green-400" />
-              ) : (
-                <div className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
-              )}
+              <CallQualityStatusDot
+                callQuality={callQuality}
+                inProgress={displayCallStatus === "in-progress"}
+              />
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{title}</div>
@@ -383,6 +393,10 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
                 >
                   {displayCallStatus === "in-progress" ? "In progress" : "Queued"}
                 </div>
+                <CallQualityIndicator
+                  callQuality={callQuality}
+                  inProgress={displayCallStatus === "in-progress" && voiceConnected}
+                />
                 {displayCallStatus === "in-progress" ? <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div> : null}
               </div>
             </div>
