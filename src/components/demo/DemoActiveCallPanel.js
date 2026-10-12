@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import CallQualityIndicator from "@/components/Dialer/CallQualityIndicator";
+import { PREVIEW_CALL_QUALITY_SAMPLES } from "@/lib/callQuality";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { useDemo } from "@/lib/demo/DemoProvider";
 
@@ -25,6 +27,7 @@ export default function DemoActiveCallPanel() {
   } = useDemo();
   const call = state.activeCall;
   const [elapsed, setElapsed] = useState(0);
+  const [previewQualityIndex, setPreviewQualityIndex] = useState(0);
 
   useEffect(() => {
     if (!call) return undefined;
@@ -52,8 +55,17 @@ export default function DemoActiveCallPanel() {
     return () => window.clearInterval(id);
   }, [call]);
 
+  useEffect(() => {
+    if (!call || call.phase !== "in_progress") return undefined;
+    const id = window.setInterval(() => {
+      setPreviewQualityIndex((i) => (i + 1) % PREVIEW_CALL_QUALITY_SAMPLES.length);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [call]);
+
   if (!call) return null;
 
+  const previewCallQuality = PREVIEW_CALL_QUALITY_SAMPLES[previewQualityIndex];
   const isInboundIvr = call.direction === "inbound" || call.callKind === "ivr";
   const statusLabel =
     call.phase === "connecting"
@@ -90,6 +102,20 @@ export default function DemoActiveCallPanel() {
       </div>
 
       <div className="space-y-4 px-5 py-5 sm:px-6">
+        {call.phase === "in_progress" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
+              <div className="text-sm font-semibold text-green-700">Call connected</div>
+            </div>
+            <CallQualityIndicator
+              callQuality={previewCallQuality}
+              inProgress
+              variant="panel"
+            />
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           {call.conference ? (
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800">

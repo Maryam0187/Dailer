@@ -5,9 +5,8 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import AddressBotCallControls from "@/components/Dialer/AddressBotCallControls";
 import CallPanelErrorBoundary from "@/components/Dialer/CallPanelErrorBoundary";
-import CallQualityIndicator, {
-  CallQualityStatusDot,
-} from "@/components/Dialer/CallQualityIndicator";
+import CallQualityIndicator from "@/components/Dialer/CallQualityIndicator";
+import { PREVIEW_CALL_QUALITY_SAMPLES } from "@/lib/callQuality";
 
 function formatTimer(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
@@ -24,7 +23,7 @@ function hasResolvedNumericCallId(sess) {
   return Number.isInteger(n) && n > 0;
 }
 
-function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) {
+function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent, previewUi = false }) {
   const {
     voiceConnected,
     muted: sdkMuted,
@@ -32,12 +31,13 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
     sendDtmf,
     sdkError,
     leaveConference,
-    callQuality,
+    callQuality: sdkCallQuality,
   } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
   const isDirectCall =
     isCallOwner && session.callMode !== "conference" && !session.conferenceName;
   const [isMinimized, setIsMinimized] = useState(false);
+  const [previewQualityIndex, setPreviewQualityIndex] = useState(0);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [participants, setParticipants] = useState([]);
@@ -61,6 +61,19 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
   const [upgradeError, setUpgradeError] = useState(null);
   const [collabOpen, setCollabOpen] = useState(false);
   const isMuted = voiceConnected ? sdkMuted : uiMuted;
+
+  useEffect(() => {
+    if (!previewUi) return undefined;
+    const id = window.setInterval(() => {
+      setPreviewQualityIndex((i) => (i + 1) % PREVIEW_CALL_QUALITY_SAMPLES.length);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [previewUi]);
+
+  const callQuality = previewUi
+    ? PREVIEW_CALL_QUALITY_SAMPLES[previewQualityIndex]
+    : sdkCallQuality;
+  const qualityConnected = previewUi || voiceConnected;
 
   async function upgradeToConference() {
     const callId = Number(session?.callId);
@@ -373,10 +386,11 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
         <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="flex-shrink-0">
-              <CallQualityStatusDot
-                callQuality={callQuality}
-                inProgress={displayCallStatus === "in-progress"}
-              />
+              {displayCallStatus === "in-progress" ? (
+                <div className="h-3 w-3 animate-pulse rounded-full bg-green-400" />
+              ) : (
+                <div className="h-3 w-3 animate-pulse rounded-full bg-gray-300" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{title}</div>
@@ -393,10 +407,6 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
                 >
                   {displayCallStatus === "in-progress" ? "In progress" : "Queued"}
                 </div>
-                <CallQualityIndicator
-                  callQuality={callQuality}
-                  inProgress={displayCallStatus === "in-progress" && voiceConnected}
-                />
                 {displayCallStatus === "in-progress" ? <div className="text-xs font-bold text-white">{formatTimer(elapsed)}</div> : null}
               </div>
             </div>
@@ -432,15 +442,22 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent }) 
             )}
 
             {session.phase === "in_progress" && (
-              <div className="mb-3 flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
-                <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
-                <div className="text-sm font-semibold text-green-700 dark:text-green-300">
-                  Call connected
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
+                <div className="flex items-center gap-3">
+                  <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
+                  <div className="text-sm font-semibold text-green-700 dark:text-green-300">
+                    Call connected
+                  </div>
                 </div>
+                <CallQualityIndicator
+                  callQuality={callQuality}
+                  inProgress={qualityConnected}
+                  variant="panel"
+                />
               </div>
             )}
 
-            {sdkError ? (
+            {sdkError && !previewUi ? (
               <p
                 className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
                 role="status"
@@ -993,12 +1010,13 @@ export default function GlobalWebCallInterface() {
     <>
       {ownerJoinToast}
       <div className="fixed bottom-4 left-4 z-[9999] rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 shadow-md dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
-        Dev preview mode: showing GlobalWebCallInterface without active call.
+        Dev preview mode: Call connected + quality cycles Good → Low → Poor (local UI only).
       </div>
       <ActiveCallPanel
         key={devPreviewSession.callId}
         session={devPreviewSession}
         endCall={() => {}}
+        previewUi
       />
     </>
   );

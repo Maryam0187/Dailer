@@ -21,6 +21,13 @@ export const CALL_QUALITY_LEVELS = {
   poor: "poor",
 };
 
+/** Cycling samples for local / demo UI (no live Voice SDK). */
+export const PREVIEW_CALL_QUALITY_SAMPLES = [
+  { level: CALL_QUALITY_LEVELS.good, mos: 4.2 },
+  { level: CALL_QUALITY_LEVELS.low, mos: 3.2 },
+  { level: CALL_QUALITY_LEVELS.poor, mos: 2.4 },
+];
+
 /**
  * Normalize Twilio warning names (docs use both `low-mos` and prefixed forms).
  * @param {unknown} name
@@ -59,10 +66,23 @@ export function callQualityLabel(level) {
 }
 
 /**
- * Tailwind classes for the in-call quality pill (on colored call headers).
+ * Tailwind classes for the in-call quality pill.
  * @param {"good" | "low" | "poor" | null | undefined} level
+ * @param {"header" | "panel"} [variant="header"] header = on gradient bar; panel = on light status row
  */
-export function callQualityPillClass(level) {
+export function callQualityPillClass(level, variant = "header") {
+  if (variant === "panel") {
+    if (level === CALL_QUALITY_LEVELS.good) {
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200";
+    }
+    if (level === CALL_QUALITY_LEVELS.low) {
+      return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200";
+    }
+    if (level === CALL_QUALITY_LEVELS.poor) {
+      return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200";
+    }
+    return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
+  }
   if (level === CALL_QUALITY_LEVELS.good) return "bg-emerald-500/35 text-emerald-50";
   if (level === CALL_QUALITY_LEVELS.low) return "bg-amber-400/40 text-amber-50";
   if (level === CALL_QUALITY_LEVELS.poor) return "bg-red-500/40 text-red-50";
