@@ -1,7 +1,20 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
-import DateRangeFilter, { getPresetRange } from "@/components/DateRangeFilter";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { getPresetRange } from "@/components/DateRangeFilter";
+
+const RANGE_PRESET_OPTIONS = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "custom", label: "Custom" },
+];
+
+const labelClass =
+  "mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+const dateInputClass =
+  "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
 
 const tableClass = "min-w-full text-left text-sm";
 const thClass =
@@ -9,7 +22,13 @@ const thClass =
 const tdClass = "px-3 py-2 align-middle text-zinc-800 dark:text-zinc-200";
 const tdClassRight = `${tdClass} text-right tabular-nums whitespace-nowrap`;
 
-const TEXT_SORT_KEYS = new Set(["username", "shiftKey", "firstLoginDeviceLabel", "date"]);
+const TEXT_SORT_KEYS = new Set([
+  "username",
+  "shiftKey",
+  "locationLabel",
+  "firstLoginDeviceLabel",
+  "date",
+]);
 
 function compareAttendanceValue(a, b, key, dir) {
   const mult = dir === "asc" ? 1 : -1;
@@ -47,9 +66,10 @@ function sortAttendanceRows(rows, sortKey, sortDir) {
 }
 
 function tierSortValue(day) {
-  if (day.status === "on_leave" || day.status === "exempt") return -3;
-  if (day.status === "absent") return -2;
-  return day.pointPercent ?? 0;
+  if (day.status === "on_leave") return -3;
+  if (day.status === "exempt") return -2;
+  if (day.status === "absent") return -1;
+  return 1;
 }
 
 function useTableSort(defaultKey, defaultDir = "desc") {
@@ -106,25 +126,34 @@ function StaticHeader({ label, align = "left", className = "" }) {
 
 const SHIFT_FILTER_OPTIONS = [
   { id: "all", label: "All shifts" },
-  { id: "day", label: "Day shift" },
-  { id: "night", label: "Night shift" },
+  { id: "day", label: "Day" },
+  { id: "night", label: "Night" },
 ];
 
-function shiftFilterButtonClass(active) {
-  return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-    active
-      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
-      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-  }`;
-}
+const LOCATION_FILTER_OPTIONS = [
+  { id: "all", label: "Combined" },
+  { id: "in_house", label: "In-house" },
+  { id: "outside", label: "Outside" },
+];
 
-function usersForShift(users, shiftFilter) {
-  if (shiftFilter === "all") return users;
-  return users.filter((u) => u.shiftKey === shiftFilter);
+const selectClass =
+  "h-10 min-w-[10rem] rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200";
+
+function usersForFilters(users, shiftFilter, locationFilter) {
+  return users.filter((u) => {
+    if (shiftFilter !== "all" && u.shiftKey !== shiftFilter) return false;
+    if (locationFilter === "outside" && !u.isOutside) return false;
+    if (locationFilter === "in_house" && u.isOutside) return false;
+    return true;
+  });
 }
 
 function shiftLabel(shiftKey) {
   return shiftKey === "night" ? "Night" : "Day";
+}
+
+function locationLabel(isOutside) {
+  return isOutside ? "Outside" : "In-house";
 }
 
 function formatTime(value) {
@@ -136,7 +165,17 @@ function formatTime(value) {
   });
 }
 
-function tierBadge(day) {
+function formatOnlineMs(value) {
+  const ms = Number(value) || 0;
+  if (ms <= 0) return "—";
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  if (hours <= 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+}
+
+function statusBadge(day) {
   if (day.status === "on_leave") {
     return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">On leave</span>;
   }
@@ -146,95 +185,7 @@ function tierBadge(day) {
   if (day.status === "exempt") {
     return <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">Exempt</span>;
   }
-  if (day.tierKey === "full") {
-    return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">On time 100%</span>;
-  }
-  if (day.tierKey === "tier_90") {
-    return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">90%</span>;
-  }
-  if (day.pointPercent === 0) {
-    return <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-900 dark:bg-rose-950/50 dark:text-rose-200">0%</span>;
-  }
-  return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">{day.pointPercent}%</span>;
-}
-
-function GamificationHero({ gamification, tierLegend }) {
-  if (!gamification) return null;
-
-  const nextBadge = gamification.badges?.find((b) => !b.earned);
-
-  return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Total points
-          </p>
-          <p className="text-4xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50">
-            {gamification.totalPoints}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Current streak
-          </p>
-          <p className="text-3xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-            {gamification.currentOnTimeStreak} days
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Best streak
-          </p>
-          <p className="text-2xl font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
-            {gamification.longestOnTimeStreak}
-          </p>
-        </div>
-      </div>
-
-      {tierLegend?.shiftStartLabel ? (
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-          Shift starts at <strong>{tierLegend.shiftStartLabel}</strong>. Point tiers by login time:
-        </p>
-      ) : null}
-
-      {tierLegend?.tierDeadlines?.length ? (
-        <ul className="mt-2 flex flex-wrap gap-2 text-xs">
-          {tierLegend.tierDeadlines.map((row) => (
-            <li
-              key={row.minutesAfterStart}
-              className="rounded-lg border border-zinc-200 px-2 py-1 dark:border-zinc-700"
-            >
-              {row.label}: {row.percent}%
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {nextBadge ? (
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-          Next badge: <strong>{nextBadge.label}</strong>
-        </p>
-      ) : null}
-
-      {gamification.badges?.length ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {gamification.badges.map((badge) => (
-            <span
-              key={badge.badgeKey}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                badge.earned
-                  ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
-                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500"
-              }`}
-            >
-              {badge.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+  return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">Present</span>;
 }
 
 function formatDevice(label) {
@@ -363,8 +314,8 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
             <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <SortableHeader label="Device" columnKey="firstLoginDeviceLabel" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <StaticHeader label="Office fingerprint" className="min-w-[11rem]" />
-            <SortableHeader label="Tier" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortableHeader label="Points" columnKey="pointsEarned" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Status" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableHeader label="Online time" columnKey="onlineMs" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
             <SortableHeader label="Logins" columnKey="loginCount" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
           </tr>
         </thead>
@@ -386,8 +337,8 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
                     onSaved={onSaved}
                   />
                 </td>
-                <td className={tdClass}>{tierBadge(day)}</td>
-                <td className={tdClassRight}>{day.pointsEarned ?? 0}</td>
+                <td className={tdClass}>{statusBadge(day)}</td>
+                <td className={tdClassRight}>{formatOnlineMs(day.onlineMs)}</td>
                 <td className={tdClassRight}>{day.loginCount}</td>
               </tr>
               {expanded === day.date ? (
@@ -426,48 +377,62 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [shiftFilter, setShiftFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [adminTab, setAdminTab] = useState("summary");
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
   const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
-    "daysAbsent",
+    "totalOnlineMs",
     "desc",
   );
 
   const sortedSummaryRows = useMemo(
-    () => sortAttendanceRows(summaryRows, summarySortKey, summarySortDir),
+    () =>
+      sortAttendanceRows(
+        summaryRows.map((row) => ({
+          ...row,
+          locationLabel: locationLabel(row.isOutside),
+        })),
+        summarySortKey,
+        summarySortDir,
+      ),
     [summaryRows, summarySortKey, summarySortDir],
   );
 
-  const filteredUsers = usersForShift(users, shiftFilter);
+  const summaryTotals = useMemo(() => {
+    let present = 0;
+    let absent = 0;
+    for (const row of sortedSummaryRows) {
+      // Present = at least one desktop login in the selected range.
+      if ((Number(row.totalLogins) || 0) > 0) present += 1;
+      else absent += 1;
+    }
+    return {
+      totalUsers: sortedSummaryRows.length,
+      present,
+      absent,
+    };
+  }, [sortedSummaryRows]);
+
+  const filteredUsers = usersForFilters(users, shiftFilter, locationFilter);
 
   useEffect(() => {
     if (!isAdmin) return;
-    const list = usersForShift(users, shiftFilter);
+    const list = usersForFilters(users, shiftFilter, locationFilter);
     if (list.length === 0) return;
     if (!selectedUserId || !list.some((u) => u.id === selectedUserId)) {
       setSelectedUserId(list[0].id);
     }
-  }, [isAdmin, users, shiftFilter, selectedUserId]);
+  }, [isAdmin, users, shiftFilter, locationFilter, selectedUserId]);
 
-  async function reloadDetail() {
-    const params = new URLSearchParams({ fromDate: appliedFrom, toDate: appliedTo });
-    if (isAdmin && adminTab === "detail" && selectedUserId) {
-      params.set("userId", String(selectedUserId));
-    }
-    const res = await fetch(`/api/attendance?${params}`, { credentials: "include" });
-    const json = await res.json().catch(() => ({}));
-    if (res.ok) setDetail(json);
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      setLoading(true);
+  const loadAttendance = useCallback(
+    async ({ silent = false } = {}) => {
+      if (silent) setRefreshing(true);
+      else setLoading(true);
       setError(null);
       try {
         if (isAdmin && adminTab === "summary") {
@@ -475,15 +440,15 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
           if (shiftFilter === "day" || shiftFilter === "night") {
             params.set("shiftKey", shiftFilter);
           }
+          if (locationFilter === "in_house" || locationFilter === "outside") {
+            params.set("location", locationFilter);
+          }
           const res = await fetch(`/api/attendance/summary?${params}`, { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error || "Failed to load summary");
-          if (!cancelled) setSummaryRows(json.users || []);
+          setSummaryRows(json.users || []);
         } else if (isAdmin) {
-          if (!selectedUserId) {
-            if (!cancelled) setLoading(false);
-            return;
-          }
+          if (!selectedUserId) return;
           const params = new URLSearchParams({
             fromDate: appliedFrom,
             toDate: appliedTo,
@@ -492,111 +457,207 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
           const res = await fetch(`/api/attendance?${params}`, { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error || "Failed to load detail");
-          if (!cancelled) setDetail(json);
+          setDetail(json);
         } else {
           const params = new URLSearchParams({ fromDate: appliedFrom, toDate: appliedTo });
           const res = await fetch(`/api/attendance?${params}`, { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error || "Failed to load attendance");
-          if (!cancelled) setDetail(json);
+          setDetail(json);
         }
       } catch (err) {
-        if (!cancelled) setError(err.message || "Failed to load");
+        setError(err.message || "Failed to load");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (silent) setRefreshing(false);
+        else setLoading(false);
       }
+    },
+    [
+      isAdmin,
+      adminTab,
+      selectedUserId,
+      appliedFrom,
+      appliedTo,
+      shiftFilter,
+      locationFilter,
+    ],
+  );
+
+  async function reloadDetail() {
+    await loadAttendance({ silent: true });
+  }
+
+  useEffect(() => {
+    void loadAttendance();
+  }, [loadAttendance]);
+
+  function applyPreset(nextPreset) {
+    setPreset(nextPreset);
+    setError(null);
+    if (nextPreset === "custom") return;
+    const next = getPresetRange(nextPreset);
+    setFrom(next.from);
+    setTo(next.to);
+    setAppliedFrom(next.from);
+    setAppliedTo(next.to);
+  }
+
+  function onApplyRange() {
+    if (preset !== "custom") return;
+    if (!from || !to) {
+      setError("From date and to date are required");
+      return;
     }
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin, adminTab, selectedUserId, appliedFrom, appliedTo, shiftFilter]);
-
-  function applyRange() {
-    if (!from || !to) return;
+    if (from > to) {
+      setError("From date must be on or before to date");
+      return;
+    }
+    setError(null);
     setAppliedFrom(from);
     setAppliedTo(to);
   }
 
-  const tierLegend = detail?.tierLegend ?? detail?.gamification?.tierLegend;
-
   return (
     <div className="space-y-6">
       <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[200px] flex-1">
-            <DateRangeFilter
-              preset={preset}
-              from={from}
-              to={to}
-              onChange={({ preset: p, from: f, to: t }) => {
-                setPreset(p);
-                setFrom(f);
-                setTo(t);
-                if (p !== "custom" && f && t) {
-                  setAppliedFrom(f);
-                  setAppliedTo(t);
-                }
-              }}
-            />
-          </div>
-          {preset === "custom" ? (
-            <button
-              type="button"
-              onClick={applyRange}
-              className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Apply dates
-            </button>
-          ) : null}
-        </div>
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Shift
-          </p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by shift">
-            {SHIFT_FILTER_OPTIONS.map((option) => (
+          <label className={labelClass}>Date range</label>
+          <div className="flex flex-wrap items-end gap-2">
+            {RANGE_PRESET_OPTIONS.map((p) => (
               <button
-                key={option.id}
+                key={p.id}
                 type="button"
-                onClick={() => setShiftFilter(option.id)}
-                className={shiftFilterButtonClass(shiftFilter === option.id)}
-                aria-pressed={shiftFilter === option.id}
+                onClick={() => applyPreset(p.id)}
+                className={`h-10 rounded-lg border px-3 text-sm font-semibold ${
+                  preset === p.id
+                    ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                }`}
               >
-                {option.label}
+                {p.label}
               </button>
             ))}
+            {preset === "custom" ? (
+              <>
+                <div>
+                  <label htmlFor="attendance-from-date" className="sr-only">
+                    From date
+                  </label>
+                  <input
+                    id="attendance-from-date"
+                    type="date"
+                    className={`${dateInputClass} w-[9.5rem]`}
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="attendance-to-date" className="sr-only">
+                    To date
+                  </label>
+                  <input
+                    id="attendance-to-date"
+                    type="date"
+                    className={`${dateInputClass} w-[9.5rem]`}
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={onApplyRange}
+                  disabled={loading || refreshing || !from || !to || from > to}
+                  className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Apply range
+                </button>
+              </>
+            ) : null}
           </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Location
+            <select
+              className={`${selectClass} mt-1.5 block`}
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              aria-label="Filter by location"
+            >
+              {LOCATION_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Shift
+            <select
+              className={`${selectClass} mt-1.5 block`}
+              value={shiftFilter}
+              onChange={(e) => setShiftFilter(e.target.value)}
+              aria-label="Filter by shift"
+            >
+              {SHIFT_FILTER_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
       {isAdmin ? (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setAdminTab("summary")}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+                adminTab === "summary"
+                  ? "bg-violet-600 text-white"
+                  : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              }`}
+            >
+              All users
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdminTab("detail")}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+                adminTab === "detail"
+                  ? "bg-violet-600 text-white"
+                  : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              }`}
+            >
+              User detail
+            </button>
+          </div>
           <button
             type="button"
-            onClick={() => setAdminTab("summary")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-              adminTab === "summary"
-                ? "bg-violet-600 text-white"
-                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-            }`}
+            onClick={() => void loadAttendance({ silent: true })}
+            disabled={loading || refreshing || !appliedFrom || !appliedTo}
+            className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
-            All users
-          </button>
-          <button
-            type="button"
-            onClick={() => setAdminTab("detail")}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-              adminTab === "detail"
-                ? "bg-violet-600 text-white"
-                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-            }`}
-          >
-            User detail
+            {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => void loadAttendance({ silent: true })}
+            disabled={loading || refreshing || !appliedFrom || !appliedTo}
+            className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      )}
 
       {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
@@ -607,46 +668,68 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
       {loading ? <p className="text-sm text-zinc-500">Loading…</p> : null}
 
       {isAdmin && adminTab === "summary" && !loading ? (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-          <table className={tableClass}>
-            <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
-              <tr>
-                <SortableHeader label="User" columnKey="username" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                <SortableHeader label="Shift" columnKey="shiftKey" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                <SortableHeader label="100%" columnKey="daysFullPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="90%" columnKey="daysTier90" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="Partial" columnKey="daysPartialPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="0%" columnKey="daysZeroPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="Points" columnKey="totalPoints" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                <SortableHeader label="Streak" columnKey="currentStreak" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {sortedSummaryRows.map((row) => (
-                <tr
-                  key={row.userId}
-                  className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
-                  onClick={() => {
-                    setSelectedUserId(row.userId);
-                    setAdminTab("detail");
-                  }}
-                >
-                  <td className={tdClass}>{row.username}</td>
-                  <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
-                  <td className={`${tdClass} tabular-nums`}>{formatTime(row.firstLoginAt)}</td>
-                  <td className={tdClassRight}>{row.daysFullPoints}</td>
-                  <td className={tdClassRight}>{row.daysTier90}</td>
-                  <td className={tdClassRight}>{row.daysPartialPoints}</td>
-                  <td className={tdClassRight}>{row.daysZeroPoints}</td>
-                  <td className={tdClassRight}>{row.daysAbsent}</td>
-                  <td className={tdClassRight}>{row.totalPoints}</td>
-                  <td className={tdClassRight}>{row.currentStreak}</td>
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Total users
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-zinc-950 dark:text-zinc-50">
+                {summaryTotals.totalUsers}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/30">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                Present
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">
+                {summaryTotals.present}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                Absent
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-rose-900 dark:text-rose-100">
+                {summaryTotals.absent}
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+            <table className={tableClass}>
+              <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <tr>
+                  <SortableHeader label="User" columnKey="username" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <SortableHeader label="Location" columnKey="locationLabel" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <SortableHeader label="Shift" columnKey="shiftKey" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                  <SortableHeader label="Logins" columnKey="totalLogins" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                  <SortableHeader label="Online time" columnKey="totalOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {sortedSummaryRows.map((row) => (
+                  <tr
+                    key={row.userId}
+                    className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
+                    onClick={() => {
+                      setSelectedUserId(row.userId);
+                      setAdminTab("detail");
+                    }}
+                  >
+                    <td className={tdClass}>{row.username}</td>
+                    <td className={tdClass}>{row.locationLabel}</td>
+                    <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
+                    <td className={`${tdClass} tabular-nums`}>{formatTime(row.firstLoginAt)}</td>
+                    <td className={tdClassRight}>{row.daysAbsent}</td>
+                    <td className={tdClassRight}>{row.totalLogins}</td>
+                    <td className={tdClassRight}>{formatOnlineMs(row.totalOnlineMs)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 
@@ -659,7 +742,9 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
             className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-950"
           >
             {filteredUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.username}</option>
+              <option key={u.id} value={u.id}>
+                {u.username} ({locationLabel(u.isOutside)} · {shiftLabel(u.shiftKey)})
+              </option>
             ))}
           </select>
         </div>
@@ -667,15 +752,12 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
 
       {((isAdmin && adminTab === "detail" && !loading && detail) ||
         (!isAdmin && !loading && detail)) && (
-        <>
-          <GamificationHero gamification={detail.gamification} tierLegend={detail.tierLegend} />
-          <DailyTable
-            days={detail.days || []}
-            userId={detail.userId}
-            isAdmin={isAdmin && adminTab === "detail"}
-            onSaved={reloadDetail}
-          />
-        </>
+        <DailyTable
+          days={detail.days || []}
+          userId={detail.userId}
+          isAdmin={isAdmin && adminTab === "detail"}
+          onSaved={reloadDetail}
+        />
       )}
     </div>
   );

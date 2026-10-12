@@ -12,26 +12,25 @@ export default async function AttendancePage() {
   const rows = await db.User.findAll({
     where: {
       isActive: { [Op.ne]: false },
-      isOutside: { [Op.ne]: true },
     },
-    attributes: ["id", "username", "shiftKey"],
+    attributes: ["id", "username", "shiftKey", "isOutside"],
     order: [["username", "ASC"]],
   });
   const users = rows.map((row) => ({
     id: row.id,
     username: row.username,
     shiftKey: row.shiftKey === "night" ? "night" : "day",
+    isOutside: Boolean(row.isOutside),
   }));
 
   return (
     <>
       <div className="mb-8 border-b border-zinc-200/80 pb-6 dark:border-zinc-800">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          Attendance & rewards
+          Attendance
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Earn points for signing in on time. Full points within 30 minutes of shift start — partial
-          credit for later logins. Keep your streak with 100% or 90% tiers.
+          Daily login activity and online time while the dialer stays connected.
         </p>
       </div>
       <AttendanceClient isAdmin users={users} />

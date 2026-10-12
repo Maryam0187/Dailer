@@ -14,6 +14,9 @@ export async function GET(req) {
   const toDate = parseAttendanceDateOnly(searchParams.get("toDate"));
   const rawShift = String(searchParams.get("shiftKey") || "").trim().toLowerCase();
   const shiftKey = rawShift === "day" || rawShift === "night" ? rawShift : null;
+  const rawLocation = String(searchParams.get("location") || "all").trim().toLowerCase();
+  const locationFilter =
+    rawLocation === "outside" || rawLocation === "in_house" ? rawLocation : "all";
 
   if (!fromDate || !toDate) {
     return NextResponse.json({ error: "fromDate and toDate are required" }, { status: 400 });
@@ -26,6 +29,7 @@ export async function GET(req) {
     const report = await buildLoginAttendanceReport([], fromDate, toDate, {
       includeDays: false,
       allActiveUsers: true,
+      locationFilter,
     });
 
     const rows = report.users
@@ -34,15 +38,21 @@ export async function GET(req) {
         username: row.username,
         role: row.role,
         shiftKey: row.shiftKey === "night" ? "night" : "day",
+        isOutside: Boolean(row.isOutside),
         ...row.summary,
       }))
       .filter((row) => !shiftKey || row.shiftKey === shiftKey)
-      .sort((a, b) => b.daysZeroPoints - a.daysZeroPoints || a.daysOnTime - b.daysOnTime);
+      .sort(
+        (a, b) =>
+          (Number(b.totalOnlineMs) || 0) - (Number(a.totalOnlineMs) || 0) ||
+          (b.daysAbsent ?? 0) - (a.daysAbsent ?? 0),
+      );
 
     return NextResponse.json({
       fromDate,
       toDate,
       shiftKey,
+      location: locationFilter,
       users: rows,
     });
   } catch (err) {

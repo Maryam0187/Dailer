@@ -65,6 +65,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      /** Accumulated Socket.IO online time for this calendar day (milliseconds). */
+      onlineMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+        defaultValue: 0,
+      },
     },
     {
       tableName: "AttendanceDailyRecords",

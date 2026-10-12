@@ -141,9 +141,11 @@ function summarizeDays(days) {
   let daysOnLeave = 0;
   let daysExempt = 0;
   let totalLogins = 0;
+  let totalOnlineMs = 0;
 
   for (const day of days) {
     totalLogins += day.loginCount ?? 0;
+    totalOnlineMs += Number(day.onlineMs) || 0;
     if (day.status === "on_leave") daysOnLeave += 1;
     else if (day.status === "exempt") daysExempt += 1;
     else if (day.status === "absent") daysAbsent += 1;
@@ -164,6 +166,7 @@ function summarizeDays(days) {
     daysOnLeave,
     daysExempt,
     totalLogins,
+    totalOnlineMs,
     daysOnTime: daysFullPoints + daysTier90,
     firstLoginAt: anchorDay?.firstLoginAt ?? null,
     firstLoginDeviceLabel: anchorDay?.firstLoginDeviceLabel ?? null,
@@ -192,6 +195,7 @@ function buildDayRow(
       pointPercent: null,
       pointsEarned: 0,
       loginCount: record?.loginCount ?? 0,
+      onlineMs: Number(record?.onlineMs) || 0,
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
@@ -214,6 +218,7 @@ function buildDayRow(
       pointPercent: null,
       pointsEarned: 0,
       loginCount: record?.loginCount ?? 0,
+      onlineMs: Number(record?.onlineMs) || 0,
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
@@ -236,6 +241,7 @@ function buildDayRow(
       pointPercent: record.pointPercent,
       pointsEarned: record.pointsEarned,
       loginCount: record.loginCount,
+      onlineMs: Number(record.onlineMs) || 0,
       firstLoginAt: record.firstLoginAt,
       lastLoginAt: record.lastLoginAt,
       minutesAfterStart: record.minutesAfterStart,
@@ -261,6 +267,7 @@ function buildDayRow(
     pointPercent: 0,
     pointsEarned: 0,
     loginCount: 0,
+    onlineMs: 0,
     firstLoginAt: null,
     lastLoginAt: null,
     minutesAfterStart: null,
@@ -275,14 +282,23 @@ function buildDayRow(
   };
 }
 
-async function resolveUserIds(userIds, allActiveUsers) {
+/**
+ * @param {"all"|"in_house"|"outside"} locationFilter
+ */
+function locationWhere(locationFilter) {
+  if (locationFilter === "outside") return { isOutside: true };
+  if (locationFilter === "in_house") return { isOutside: { [Op.ne]: true } };
+  return {};
+}
+
+async function resolveUserIds(userIds, allActiveUsers, locationFilter = "all") {
   if (userIds?.length) return userIds;
   if (!allActiveUsers) return [];
 
   const rows = await db.User.findAll({
     where: {
       isActive: { [Op.ne]: false },
-      isOutside: { [Op.ne]: true },
+      ...locationWhere(locationFilter),
     },
     attributes: ["id"],
     order: [["username", "ASC"]],
@@ -414,7 +430,10 @@ export async function buildLoginAttendanceReport(userIds, fromDate, toDate, opti
   }
 
   const dates = assertRangeLimit(from, to);
-  const ids = await resolveUserIds(userIds, options.allActiveUsers);
+  const rawLocation = String(options.locationFilter || "all").trim().toLowerCase();
+  const locationFilter =
+    rawLocation === "outside" || rawLocation === "in_house" ? rawLocation : "all";
+  const ids = await resolveUserIds(userIds, options.allActiveUsers, locationFilter);
   if (ids.length === 0) {
     return { fromDate: from, toDate: to, users: [] };
   }
@@ -423,7 +442,7 @@ export async function buildLoginAttendanceReport(userIds, fromDate, toDate, opti
     where: {
       id: { [Op.in]: ids },
       isActive: { [Op.ne]: false },
-      isOutside: { [Op.ne]: true },
+      ...locationWhere(locationFilter),
     },
     attributes: ["id", "username", "role", "shiftKey", "isOutside"],
   });

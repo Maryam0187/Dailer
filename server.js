@@ -129,6 +129,13 @@ app.prepare().then(async () => {
   globalThis[HUB_KEY].io = io;
   const presence = globalThis[HUB_KEY].presence;
 
+  const {
+    markUserOnline,
+    markUserOffline,
+    startOnlineTimeFlushTimer,
+  } = require("./src/server/attendance/onlineTime.boot.cjs");
+  startOnlineTimeFlushTimer();
+
   const AWAY_GRACE_MS = 5 * 60 * 1000;
 
   async function touchLastSeen(userId) {
@@ -227,6 +234,7 @@ app.prepare().then(async () => {
 
     const next = (presence.get(userId) || 0) + 1;
     presence.set(userId, next);
+    if (next === 1) markUserOnline(userId);
     void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
 
     socket.on("disconnect", () => {
@@ -234,6 +242,7 @@ app.prepare().then(async () => {
       const after = Math.max(0, current - 1);
       if (after === 0) {
         presence.delete(userId);
+        void markUserOffline(userId);
         void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
       } else {
         presence.set(userId, after);
