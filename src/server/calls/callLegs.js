@@ -105,11 +105,24 @@ export async function applyCallLegUpdate(call, patch) {
 /**
  * Discover customer leg from Twilio and persist sid + duration when possible.
  */
+async function twilioClientForCall(call) {
+  const ownerId = Number(call?.userId);
+  if (Number.isInteger(ownerId) && ownerId > 0) {
+    try {
+      const { getTwilioContextForUserId } = await import("@/server/twilio/callOwnerTwilio");
+      return (await getTwilioContextForUserId(ownerId)).client;
+    } catch {
+      /* fall through */
+    }
+  }
+  return getTwilioClient();
+}
+
 export async function syncCustomerLegFromTwilio(call) {
   const parentSid = String(call?.twilioSid || "").trim();
   if (!parentSid) return call;
 
-  const client = getTwilioClient();
+  const client = await twilioClientForCall(call);
   const child = await findCustomerDialChild(client, parentSid);
   if (!child?.sid) return call;
 
@@ -129,7 +142,7 @@ export async function syncAllLegDurationsFromTwilio(call) {
   const parentSid = String(call?.twilioSid || "").trim();
   if (!parentSid) return call;
 
-  const client = getTwilioClient();
+  const client = await twilioClientForCall(call);
   let next = call;
 
   try {

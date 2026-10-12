@@ -15,11 +15,22 @@ function rowAgeMs(row) {
   return Date.now() - new Date(touched).getTime();
 }
 
-async function fetchTwilioCallStatus(callSid) {
+async function fetchTwilioCallStatus(callSid, userId = null) {
   const sid = String(callSid || "").trim();
   if (!sid) return null;
   try {
-    const client = getTwilioClient();
+    let client;
+    const ownerId = Number(userId);
+    if (Number.isInteger(ownerId) && ownerId > 0) {
+      try {
+        const { getTwilioContextForUserId } = await import("@/server/twilio/callOwnerTwilio");
+        client = (await getTwilioContextForUserId(ownerId)).client;
+      } catch {
+        client = await getTwilioClient();
+      }
+    } else {
+      client = await getTwilioClient();
+    }
     const call = await client.calls(sid).fetch();
     return String(call.status || "").toLowerCase();
   } catch (err) {
@@ -48,7 +59,7 @@ async function isOwnedCallActiveForUser(call) {
     return true;
   }
 
-  const agentStatus = await fetchTwilioCallStatus(agentSid);
+  const agentStatus = await fetchTwilioCallStatus(agentSid, call.userId);
   if (agentStatus && TWILIO_ACTIVE.has(agentStatus)) return true;
 
   if (agentStatus && TWILIO_TERMINAL.has(agentStatus)) {
@@ -78,7 +89,10 @@ async function isInviteLegActiveForUser(leg) {
   const inviteSid = String(leg.callSid || "").trim();
   if (!inviteSid) return false;
 
-  const inviteStatus = await fetchTwilioCallStatus(inviteSid);
+  const inviteStatus = await fetchTwilioCallStatus(
+    inviteSid,
+    leg.invitedUserId || leg.userId || null,
+  );
   if (inviteStatus && TWILIO_ACTIVE.has(inviteStatus)) return true;
   if (inviteStatus && TWILIO_TERMINAL.has(inviteStatus)) return false;
   if (inviteStatus === "completed") return false;

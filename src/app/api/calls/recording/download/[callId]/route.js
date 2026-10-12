@@ -61,9 +61,26 @@ export async function GET(_req, { params }) {
       return NextResponse.json({ error: "Recording not available" }, { status: 404 });
     }
 
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
+    let accountSid;
+    let authToken;
+    try {
+      const { getTwilioContextForUserId } = await import("@/server/twilio/callOwnerTwilio");
+      const { ctx } = await getTwilioContextForUserId(callLog.userId);
+      accountSid = ctx.accountSid;
+      // Prefer team auth from ManagerTwilioAccount via client username/password is not exposed;
+      // rebuild from resolve for Basic auth.
+      if (ctx.mode === "team") {
+        const dbMod = (await import("@/server/db")).default;
+        const acct = await dbMod.ManagerTwilioAccount.findOne({
+          where: { managerId: ctx.managerId },
+        });
+        authToken = acct?.authToken || null;
+      } else {
+        const { getTwilioAuthToken } = await import("@/server/twilio");
+        authToken = await getTwilioAuthToken();
+      }
+      if (!accountSid || !authToken) throw new Error("missing creds");
+    } catch {
       return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 });
     }
 

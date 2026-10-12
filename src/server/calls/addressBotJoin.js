@@ -86,7 +86,7 @@ export async function addMutedAddressBot({ client, conferenceSid, origin, callId
     client,
     `/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`,
     {
-      From: getTwilioFromNumber(),
+      From: await getTwilioFromNumber(),
       To: to,
       Label: ADDRESS_BOT_LABEL,
       Muted: "true",

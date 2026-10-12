@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
-  createVoiceAccessToken,
+  createVoiceAccessTokenForUser,
   getAgentClientIdentityLine2,
-  isTwilioBrowserAgentConfigured,
+  isTwilioBrowserAgentConfiguredForUser,
 } from "@/server/twilioVoiceToken";
+import { resolveDialUser } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,12 @@ export async function GET() {
     return NextResponse.json({ error: "Second dialer is not enabled for this account" }, { status: 403 });
   }
 
-  if (!isTwilioBrowserAgentConfigured()) {
+  const dialUser = await resolveDialUser(authedUser);
+  if (!dialUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!(await isTwilioBrowserAgentConfiguredForUser(dialUser))) {
     return NextResponse.json(
       { error: "Twilio browser agent is not configured" },
       { status: 503 },
@@ -26,7 +32,7 @@ export async function GET() {
 
   try {
     const identity = getAgentClientIdentityLine2(authedUser.id, authedUser.username);
-    const { token } = createVoiceAccessToken(identity);
+    const { token } = await createVoiceAccessTokenForUser(dialUser, identity);
     return NextResponse.json(
       { token, identity, dialerIndex: 2 },
       { headers: { "Cache-Control": "no-store" } },

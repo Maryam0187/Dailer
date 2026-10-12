@@ -15,15 +15,37 @@ export async function GET() {
       "fromDate",
       "toDate",
       "currency",
-      "twilioBaseAmount",
-      "fixedMarkupPerCall",
-      "markupAmount",
-      "totalCalls",
       "totalAmount",
+      "usageBreakdown",
+      "pdfPath",
+      "managerId",
       "createdAt",
+    ],
+    include: [
+      {
+        model: db.User,
+        as: "teamManager",
+        attributes: ["id", "username"],
+        required: false,
+      },
     ],
     limit: 50,
   });
 
-  return NextResponse.json({ bills });
+  return NextResponse.json({
+    bills: bills.map((b) => ({
+      id: b.id,
+      fromDate: b.fromDate,
+      toDate: b.toDate,
+      currency: b.currency,
+      totalAmount: b.totalAmount,
+      categories: Array.isArray(b.usageBreakdown) ? b.usageBreakdown : [],
+      managerId: b.managerId,
+      managerUsername: b.teamManager?.username || null,
+      accountScope: b.managerId ? "team" : "main",
+      createdAt: b.createdAt,
+      hasPdf: Boolean(b.pdfPath),
+      pdfUrl: b.pdfPath ? `/api/billing/bills/${b.id}/pdf` : null,
+    })),
+  });
 }

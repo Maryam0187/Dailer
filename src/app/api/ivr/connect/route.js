@@ -140,7 +140,7 @@ export async function POST(req) {
 
   let callerId = "";
   try {
-    callerId = getTwilioFromNumber();
+    callerId = await getTwilioFromNumber();
   } catch {
     callerId = process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_FROM_NUMBER || "";
   }

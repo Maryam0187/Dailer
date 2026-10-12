@@ -135,6 +135,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /** Assigned Twilio From for Line 1 (E.164). */
+      twilioFromNumber: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      /** Assigned Twilio From for Line 2 when canUseDialer2 (E.164). */
+      twilioFromNumberLine2: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
     },
     {
       tableName: "Users",
@@ -157,6 +167,19 @@ module.exports = (sequelize, DataTypes) => {
     });
     User.hasMany(models.CallLog, { as: "callLogs", foreignKey: "userId" });
     User.hasMany(models.Bill, { as: "generatedBills", foreignKey: "generatedBy" });
+    User.hasMany(models.Bill, { as: "teamBills", foreignKey: "managerId" });
+    if (models.ManagerTwilioAccount) {
+      User.hasOne(models.ManagerTwilioAccount, {
+        as: "managerTwilioAccount",
+        foreignKey: "managerId",
+      });
+    }
+    if (models.TwilioPhoneNumber) {
+      User.hasMany(models.TwilioPhoneNumber, {
+        as: "teamTwilioPhoneNumbers",
+        foreignKey: "managerId",
+      });
+    }
     User.hasMany(models.BillingSetting, { as: "updatedBillingSettings", foreignKey: "updatedBy" });
     User.hasMany(models.CompanyAddress, { as: "updatedCompanyAddresses", foreignKey: "updatedBy" });
     User.hasMany(models.AddressBotProfile, { as: "updatedAddressBotProfiles", foreignKey: "updatedBy" });

@@ -14,7 +14,8 @@ export default async function BillingPage() {
           Billing
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Generate consolidated Twilio usage bills with fixed markup and download invoice PDFs.
+          Preview total cost and category breakdown (Client, Programmable Voice, Recording,
+          Phone Numbers), then save invoice PDFs to storage.
         </p>
       </div>
       <BillingClient />

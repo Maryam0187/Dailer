@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import {
-  getTwilioClient,
   getTwilioFromNumber,
   getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
@@ -104,7 +103,7 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "userId", "toNumber"],
+    attributes: ["id", "userId", "toNumber", "fromNumber"],
   });
   if (!callLog) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -132,8 +131,10 @@ export async function POST(req) {
   }
 
   try {
-    const client = getTwilioClient();
-    const fromNumber = getTwilioFromNumber();
+    const { getTwilioContextForUserId } = await import("@/server/twilio/callOwnerTwilio");
+    const { client } = await getTwilioContextForUserId(callLog.userId);
+    const fromNumber =
+      String(callLog.fromNumber || "").trim() || (await getTwilioFromNumber());
     const agentIdentity = getAgentClientIdentity(targetAgent.id, targetAgent.username);
     const conferenceMatches = await client.conferences.list({
       friendlyName: conferenceName,

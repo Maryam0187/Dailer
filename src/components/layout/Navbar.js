@@ -86,6 +86,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/billing",
     },
     {
+      href: "/numbers",
+      label: "Twilio numbers",
+      active: pathname === "/numbers",
+    },
+    {
       href: "/chargeflow/alerts",
       label: "CF alerts",
       active: pathname === "/chargeflow/alerts" || pathname?.startsWith("/chargeflow/"),

@@ -5,12 +5,13 @@ import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
 import { userHasActiveOwnedCallOnDialer } from "@/server/calls/userActiveCall";
-import {
-  getTwilioClient,
-  getTwilioLine2FromNumber,
-  getTwilioStatusCallbackParamsWithFallback,
-} from "@/server/twilio";
+import { getTwilioStatusCallbackParamsWithFallback } from "@/server/twilio";
 import { getAgentClientIdentityLine2 } from "@/server/twilioVoiceToken";
+import {
+  resolveDialUser,
+  getTeamTwilioContext,
+  resolveFromNumberLine2,
+} from "@/server/twilio/callOwnerTwilio";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -60,11 +61,21 @@ export async function POST(req) {
     );
   }
 
+  const dialUser = await resolveDialUser(authedUser);
+  if (!dialUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 401 });
+  }
+
+  let ctx;
   let fromNumber;
   try {
-    fromNumber = getTwilioLine2FromNumber();
+    ctx = await getTeamTwilioContext(dialUser);
+    fromNumber = await resolveFromNumberLine2(dialUser, ctx);
   } catch (err) {
-    return NextResponse.json({ error: err?.message || "Line 2 number is not configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: err?.message || "Line 2 number is not configured" },
+      { status: 503 },
+    );
   }
 
   const fallbackBaseUrl = getRequestBaseUrl(req);
@@ -95,7 +106,7 @@ export async function POST(req) {
 
   let agentLeg = null;
   try {
-    const client = getTwilioClient();
+    const client = ctx.client;
     const clientIdentity = getAgentClientIdentityLine2(authedUser.id, authedUser.username);
     const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });

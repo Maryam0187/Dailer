@@ -1,4 +1,5 @@
 import twilio from "twilio";
+import { resolveMainTwilioCredentials } from "@/server/twilio/mainSettings";
 
 function requireVar(name) {
   const value = process.env[name];
@@ -6,28 +7,26 @@ function requireVar(name) {
   return value;
 }
 
-export function getTwilioClient() {
-  const isTestMode =
-    process.env.NODE_ENV === "development" || process.env.TWILIO_TEST_MODE === "true";
-
-  const accountSid = isTestMode
-    ? process.env.TWILIO_TEST_ACCOUNT_SID || process.env.TWILIO_ACCOUNT_SID
-    : process.env.TWILIO_ACCOUNT_SID;
-  const authToken = isTestMode
-    ? process.env.TWILIO_TEST_AUTH_TOKEN || process.env.TWILIO_AUTH_TOKEN
-    : process.env.TWILIO_AUTH_TOKEN;
-
-  if (!accountSid || !authToken) {
+/**
+ * Main-account Twilio REST client.
+ * Prefers admin-saved DB credentials (`TwilioMainSettings`), then env.
+ */
+export async function getTwilioClient() {
+  const creds = await resolveMainTwilioCredentials();
+  if (!creds.accountSid || !creds.authToken) {
     throw new Error(
-      "Twilio credentials not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.",
+      "Twilio credentials not configured. Set them in Admin → Twilio numbers, or set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.",
     );
   }
-  return twilio(accountSid, authToken);
+  return twilio(creds.accountSid, creds.authToken);
 }
 
-export function getTwilioFromNumber(fallback) {
+/** @deprecated Prefer await getTwilioFromNumber — kept name; now async. */
+export async function getTwilioFromNumber(fallback) {
+  if (fallback) return fallback;
+  const creds = await resolveMainTwilioCredentials();
   return (
-    fallback ||
+    creds.phoneNumber ||
     process.env.TWILIO_PHONE_NUMBER ||
     process.env.TWILIO_FROM_NUMBER ||
     requireVar("TWILIO_PHONE_NUMBER")
@@ -35,12 +34,32 @@ export function getTwilioFromNumber(fallback) {
 }
 
 /** Sidecar Line 2 caller ID. Does not fall back to Line 1. */
-export function getTwilioLine2FromNumber() {
-  const value = String(process.env.TWILIO_PHONE_NUMBER_2 || "").trim();
+export async function getTwilioLine2FromNumber() {
+  const creds = await resolveMainTwilioCredentials();
+  const value = String(creds.phoneNumber2 || process.env.TWILIO_PHONE_NUMBER_2 || "").trim();
   if (!value) {
-    throw new Error("TWILIO_PHONE_NUMBER_2 is required for the second dialer.");
+    throw new Error(
+      "Line 2 Twilio number is required. Set phoneNumber2 in Admin → Twilio numbers, or TWILIO_PHONE_NUMBER_2.",
+    );
   }
   return value;
+}
+
+/** Account SID for Basic auth (recordings, etc.). */
+export async function getTwilioAccountSid() {
+  const creds = await resolveMainTwilioCredentials();
+  if (!creds.accountSid) {
+    throw new Error("Twilio account SID not configured");
+  }
+  return creds.accountSid;
+}
+
+export async function getTwilioAuthToken() {
+  const creds = await resolveMainTwilioCredentials();
+  if (!creds.authToken) {
+    throw new Error("Twilio auth token not configured");
+  }
+  return creds.authToken;
 }
 
 function getWebhookBaseUrl(fallbackBaseUrl) {
@@ -116,4 +135,3 @@ export function getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl } = 
     statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
   };
 }
-

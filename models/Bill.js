@@ -47,13 +47,28 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "generated",
       },
+      /** Storage key (S3/local attachment bucket) or legacy filesystem path. */
       pdfPath: {
         type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      /** Category costs: Client, Programmable Voice, Recording, Phone Numbers. */
+      usageBreakdown: {
+        type: DataTypes.JSON,
         allowNull: true,
       },
       generatedBy: {
         type: DataTypes.INTEGER,
         allowNull: false,
+        references: {
+          model: "Users",
+          key: "id",
+        },
+      },
+      /** When set, bill is for that manager's Twilio subaccount team. */
+      managerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
         references: {
           model: "Users",
           key: "id",
@@ -68,6 +83,7 @@ module.exports = (sequelize, DataTypes) => {
 
   Bill.associate = (models) => {
     Bill.belongsTo(models.User, { as: "generatedByUser", foreignKey: "generatedBy" });
+    Bill.belongsTo(models.User, { as: "teamManager", foreignKey: "managerId" });
     Bill.hasMany(models.BillItem, { as: "items", foreignKey: "billId" });
   };
 
