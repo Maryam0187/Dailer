@@ -312,7 +312,7 @@ export default function ReportsClient() {
         <form className="grid gap-4" onSubmit={onApplyRange}>
           <div className="sm:col-span-3">
             <label className={labelClass}>Date range</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-end gap-2">
               {[
                 { id: "today", label: "Today" },
                 { id: "yesterday", label: "Yesterday" },
@@ -324,7 +324,7 @@ export default function ReportsClient() {
                   key={p.id}
                   type="button"
                   onClick={() => applyPreset(p.id)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                  className={`h-11 rounded-lg border px-3 text-sm font-semibold ${
                     rangePreset === p.id
                       ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -333,48 +333,45 @@ export default function ReportsClient() {
                   {p.label}
                 </button>
               ))}
+              {rangePreset === "custom" ? (
+                <>
+                  <div>
+                    <label htmlFor="report-from-date" className="sr-only">
+                      From date
+                    </label>
+                    <input
+                      id="report-from-date"
+                      type="date"
+                      className={`${inputClass} w-[9.5rem]`}
+                      value={rangeFrom}
+                      onChange={(e) => setRangeFrom(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="report-to-date" className="sr-only">
+                      To date
+                    </label>
+                    <input
+                      id="report-to-date"
+                      type="date"
+                      className={`${inputClass} w-[9.5rem]`}
+                      value={rangeTo}
+                      onChange={(e) => setRangeTo(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading || !rangeFrom || !rangeTo || rangeFrom > rangeTo}
+                    className="h-11 rounded-xl bg-amber-600 px-5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {loading ? "Loading…" : "Apply"}
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
-
-          {rangePreset === "custom" ? (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label htmlFor="report-from-date" className={labelClass}>
-                  From date
-                </label>
-                <input
-                  id="report-from-date"
-                  type="date"
-                  className={inputClass}
-                  value={rangeFrom}
-                  onChange={(e) => setRangeFrom(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="report-to-date" className={labelClass}>
-                  To date
-                </label>
-                <input
-                  id="report-to-date"
-                  type="date"
-                  className={inputClass}
-                  value={rangeTo}
-                  onChange={(e) => setRangeTo(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <button
-                  type="submit"
-                  disabled={loading || !rangeFrom || !rangeTo || rangeFrom > rangeTo}
-                  className="h-11 flex-1 rounded-xl bg-amber-600 px-5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-                >
-                  {loading ? "Loading…" : "Apply"}
-                </button>
-              </div>
-            </div>
-          ) : null}
 
           <div className="flex flex-wrap items-end gap-4">
             <label className="block text-sm font-semibold text-zinc-800 dark:text-zinc-200">

@@ -5,11 +5,46 @@ import ConversationView from "@/components/Messaging/ConversationView";
 import { UserAvatar, formatMessageTime } from "@/components/Messaging/presence";
 import { messagePreviewText } from "@/lib/messageAttachments";
 
+const SHIFT_FILTER_OPTIONS = [
+  { id: "all", label: "All shifts" },
+  { id: "day", label: "Day" },
+  { id: "night", label: "Night" },
+];
+
+const LOCATION_FILTER_OPTIONS = [
+  { id: "all", label: "Combined" },
+  { id: "in_house", label: "In-house" },
+  { id: "outside", label: "Outside" },
+];
+
+const filterSelectClass =
+  "h-9 w-full rounded-lg border border-amber-200/80 bg-white px-2.5 text-xs font-semibold text-zinc-800 outline-none ring-amber-400/40 focus:ring-2 dark:border-amber-900/50 dark:bg-zinc-900 dark:text-zinc-200";
+
+function participantMatchesFilters(participant, shiftFilter, locationFilter) {
+  if (!participant) return false;
+  if (shiftFilter !== "all" && participant.shiftKey !== shiftFilter) return false;
+  if (locationFilter === "outside" && !participant.isOutside) return false;
+  if (locationFilter === "in_house" && participant.isOutside) return false;
+  return true;
+}
+
+function conversationMatchesFilters(conversation, shiftFilter, locationFilter) {
+  if (shiftFilter === "all" && locationFilter === "all") return true;
+  const participants = Array.isArray(conversation.participants)
+    ? conversation.participants
+    : [];
+  return participants.some((p) =>
+    participantMatchesFilters(p, shiftFilter, locationFilter),
+  );
+}
+
 export default function MessageOversightClient({ currentUserId }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [activeId, setActiveId] = useState(null);
   const [mobileShowThread, setMobileShowThread] = useState(false);
 
@@ -75,19 +110,28 @@ export default function MessageOversightClient({ currentUserId }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return conversations;
     return conversations.filter((c) => {
+      if (!conversationMatchesFilters(c, shiftFilter, locationFilter)) return false;
+      if (!q) return true;
       const label = c.peer?.username || "";
       const names = (c.participants || []).map((p) => p.username).join(" ");
       const preview = messagePreviewText(c) || "";
       return `${label} ${names} ${preview}`.toLowerCase().includes(q);
     });
-  }, [conversations, search]);
+  }, [conversations, search, shiftFilter, locationFilter]);
 
   const active = useMemo(
-    () => conversations.find((c) => Number(c.id) === Number(activeId)) || null,
-    [conversations, activeId],
+    () => filtered.find((c) => Number(c.id) === Number(activeId)) || null,
+    [filtered, activeId],
   );
+
+  useEffect(() => {
+    if (activeId == null) return;
+    if (!filtered.some((c) => Number(c.id) === Number(activeId))) {
+      setActiveId(null);
+      setMobileShowThread(false);
+    }
+  }, [filtered, activeId]);
 
   function handleSelect(id) {
     setActiveId(id);
@@ -160,6 +204,38 @@ export default function MessageOversightClient({ currentUserId }) {
               placeholder="Search users or messages…"
               className="w-full rounded-xl border border-amber-200/80 bg-white py-2 pl-9 pr-3 text-sm text-zinc-900 outline-none ring-amber-400/40 placeholder:text-zinc-400 focus:ring-2 dark:border-amber-900/50 dark:bg-zinc-900 dark:text-zinc-50"
             />
+          </div>
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <label className="block text-[10px] font-semibold uppercase tracking-wide text-amber-800/70 dark:text-amber-300/70">
+              Location
+              <select
+                className={`${filterSelectClass} mt-1`}
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                aria-label="Filter by location"
+              >
+                {LOCATION_FILTER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-[10px] font-semibold uppercase tracking-wide text-amber-800/70 dark:text-amber-300/70">
+              Shift
+              <select
+                className={`${filterSelectClass} mt-1`}
+                value={shiftFilter}
+                onChange={(e) => setShiftFilter(e.target.value)}
+                aria-label="Filter by shift"
+              >
+                {SHIFT_FILTER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
