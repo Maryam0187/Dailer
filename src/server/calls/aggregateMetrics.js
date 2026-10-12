@@ -81,6 +81,7 @@ export function dateRangeWhereOn(field, fromDate, toDate) {
 }
 
 const NON_ADMIN_USER_WHERE = { role: { [Op.ne]: "admin" } };
+const USER_METRIC_ATTRIBUTES = ["id", "username", "role", "shiftKey", "isOutside"];
 
 function isAdminRole(role) {
   return String(role || "").trim().toLowerCase() === "admin";
@@ -88,6 +89,47 @@ function isAdminRole(role) {
 
 function filterOutAdminMetrics(metrics) {
   return metrics.filter((m) => !isAdminRole(m.role));
+}
+
+/**
+ * @param {{ excludeAdmin?: boolean, locationFilter?: string, shiftKey?: string|null }} opts
+ */
+function userListWhere({ excludeAdmin = false, locationFilter = "all", shiftKey = null } = {}) {
+  const parts = [];
+  if (excludeAdmin) parts.push(NON_ADMIN_USER_WHERE);
+  if (locationFilter === "outside") parts.push({ isOutside: true });
+  if (locationFilter === "in_house") parts.push({ isOutside: { [Op.ne]: true } });
+  if (shiftKey === "day" || shiftKey === "night") {
+    parts.push({ shiftKey: shiftKey === "night" ? "night" : "day" });
+  }
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1) return parts[0];
+  return { [Op.and]: parts };
+}
+
+function serializeUserMetrics(u, totals) {
+  return {
+    userId: u.id,
+    username: u.username,
+    role: u.role,
+    shiftKey: u.shiftKey === "night" ? "night" : "day",
+    isOutside: Boolean(u.isOutside),
+    ...totals,
+  };
+}
+
+function sumMetricTotals(metrics) {
+  return metrics.reduce(
+    (acc, m) => ({
+      total: acc.total + m.total,
+      completed: acc.completed + m.completed,
+      noAnswer: acc.noAnswer + m.noAnswer,
+      failedOrCanceled: acc.failedOrCanceled + m.failedOrCanceled,
+      busy: acc.busy + m.busy,
+      durationSeconds: acc.durationSeconds + m.durationSeconds,
+    }),
+    emptyTotals(),
+  );
 }
 
 export async function aggregateCallMetrics(where) {
@@ -121,10 +163,13 @@ export async function aggregateMetricsByUser({
   conferenceOnly,
   includeAllUsers = false,
   excludeAdmin = false,
+  locationFilter = "all",
+  shiftKey = null,
 }) {
   const where = {
     ...dateRangeWhere(fromDate, toDate),
   };
+  const usersWhere = userListWhere({ excludeAdmin, locationFilter, shiftKey });
 
   if (conferenceOnly) {
     const ids = await conferenceCallIds({ fromDate, toDate });
@@ -133,17 +178,12 @@ export async function aggregateMetricsByUser({
         return { metrics: [], totals: emptyTotals() };
       }
       const allUsers = await db.User.findAll({
-        attributes: ["id", "username", "role"],
-        where: excludeAdmin ? NON_ADMIN_USER_WHERE : undefined,
+        attributes: USER_METRIC_ATTRIBUTES,
+        where: usersWhere,
         order: [["username", "ASC"]],
         raw: true,
       });
-      let metrics = allUsers.map((u) => ({
-        userId: u.id,
-        username: u.username,
-        role: u.role,
-        ...emptyTotals(),
-      }));
+      let metrics = allUsers.map((u) => serializeUserMetrics(u, emptyTotals()));
       if (excludeAdmin) metrics = filterOutAdminMetrics(metrics);
       return { metrics, totals: emptyTotals() };
     }
@@ -177,8 +217,8 @@ export async function aggregateMetricsByUser({
   const users =
     userIds.length > 0
       ? await db.User.findAll({
-          where: { id: userIds },
-          attributes: ["id", "username", "role"],
+          where: usersWhere ? { id: userIds, ...usersWhere } : { id: userIds },
+          attributes: USER_METRIC_ATTRIBUTES,
           raw: true,
         })
       : [];
@@ -188,16 +228,9 @@ export async function aggregateMetricsByUser({
     aggregated
       .map((row) => {
         const u = userById.get(row.userId);
-        if (excludeAdmin && isAdminRole(u?.role)) return null;
-        return [
-          row.userId,
-          {
-            userId: row.userId,
-            username: u?.username || "—",
-            role: u?.role || null,
-            ...mapMetricsRow(row),
-          },
-        ];
+        if (!u) return null;
+        if (excludeAdmin && isAdminRole(u.role)) return null;
+        return [row.userId, serializeUserMetrics(u, mapMetricsRow(row))];
       })
       .filter(Boolean),
   );
@@ -205,20 +238,15 @@ export async function aggregateMetricsByUser({
   let metrics;
   if (includeAllUsers) {
     const allUsers = await db.User.findAll({
-      attributes: ["id", "username", "role"],
-      where: excludeAdmin ? NON_ADMIN_USER_WHERE : undefined,
+      attributes: USER_METRIC_ATTRIBUTES,
+      where: usersWhere,
       order: [["username", "ASC"]],
       raw: true,
     });
     metrics = allUsers.map((u) => {
       const existing = metricsByUserId.get(u.id);
       if (existing) return existing;
-      return {
-        userId: u.id,
-        username: u.username,
-        role: u.role,
-        ...emptyTotals(),
-      };
+      return serializeUserMetrics(u, emptyTotals());
     });
     metrics.sort((a, b) => {
       if (b.total !== a.total) return b.total - a.total;
@@ -235,19 +263,7 @@ export async function aggregateMetricsByUser({
     metrics = filterOutAdminMetrics(metrics);
   }
 
-  const totals = metrics.reduce(
-    (acc, m) => ({
-      total: acc.total + m.total,
-      completed: acc.completed + m.completed,
-      noAnswer: acc.noAnswer + m.noAnswer,
-      failedOrCanceled: acc.failedOrCanceled + m.failedOrCanceled,
-      busy: acc.busy + m.busy,
-      durationSeconds: acc.durationSeconds + m.durationSeconds,
-    }),
-    emptyTotals(),
-  );
-
-  return { metrics, totals };
+  return { metrics, totals: sumMetricTotals(metrics) };
 }
 
 function toInt(value) {

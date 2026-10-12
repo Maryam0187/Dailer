@@ -43,6 +43,8 @@ function getPresetRange(preset) {
 const CSV_HEADERS = [
   "Username",
   "Role",
+  "Location",
+  "Shift",
   "Total calls",
   "Completed",
   "No answer",
@@ -56,6 +58,8 @@ function metricsToCsvRow(row) {
   return [
     row.username,
     row.role,
+    locationLabel(row.isOutside),
+    shiftLabel(row.shiftKey),
     row.total,
     row.completed,
     row.noAnswer,
@@ -69,9 +73,32 @@ function metricsToCsvRow(row) {
 const DEFAULT_SORT_KEY = "total";
 const DEFAULT_SORT_DIR = "desc";
 
+const SHIFT_FILTER_OPTIONS = [
+  { id: "all", label: "All shifts" },
+  { id: "day", label: "Day" },
+  { id: "night", label: "Night" },
+];
+
+const LOCATION_FILTER_OPTIONS = [
+  { id: "all", label: "Combined" },
+  { id: "in_house", label: "In-house" },
+  { id: "outside", label: "Outside" },
+];
+
+const selectClass =
+  "h-11 min-w-[10rem] rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
+
+function locationLabel(isOutside) {
+  return isOutside ? "Outside" : "In-house";
+}
+
+function shiftLabel(shiftKey) {
+  return shiftKey === "night" ? "Night" : "Day";
+}
+
 function compareReportRows(a, b, key, dir) {
   const mult = dir === "asc" ? 1 : -1;
-  if (key === "username" || key === "role") {
+  if (key === "username" || key === "role" || key === "locationLabel" || key === "shiftKey") {
     const av = String(a[key] ?? "").toLowerCase();
     const bv = String(b[key] ?? "").toLowerCase();
     return mult * av.localeCompare(bv);
@@ -114,6 +141,8 @@ export default function ReportsClient() {
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [metricsScope, setMetricsScope] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -124,7 +153,18 @@ export default function ReportsClient() {
   const [sortDir, setSortDir] = useState(DEFAULT_SORT_DIR);
 
   const sortedRows = useMemo(
-    () => (rows.length ? sortReportRows(rows, sortKey, sortDir) : []),
+    () =>
+      rows.length
+        ? sortReportRows(
+            rows.map((row) => ({
+              ...row,
+              locationLabel: locationLabel(row.isOutside),
+              shiftKey: row.shiftKey === "night" ? "night" : "day",
+            })),
+            sortKey,
+            sortDir,
+          )
+        : [],
     [rows, sortKey, sortDir],
   );
 
@@ -134,10 +174,17 @@ export default function ReportsClient() {
       return;
     }
     setSortKey(columnKey);
-    setSortDir(columnKey === "username" || columnKey === "role" ? "asc" : "desc");
+    setSortDir(
+      columnKey === "username" ||
+        columnKey === "role" ||
+        columnKey === "locationLabel" ||
+        columnKey === "shiftKey"
+        ? "asc"
+        : "desc",
+    );
   }
 
-  const loadReport = useCallback(async (fromDate, toDate, scope) => {
+  const loadReport = useCallback(async (fromDate, toDate, scope, shift, location) => {
     setLoading(true);
     setError(null);
     try {
@@ -149,6 +196,12 @@ export default function ReportsClient() {
       if (scope === "conference") {
         qs.set("scope", "conference");
       }
+      if (shift === "day" || shift === "night") {
+        qs.set("shiftKey", shift);
+      }
+      if (location === "in_house" || location === "outside") {
+        qs.set("location", location);
+      }
       const res = await fetch(`/api/calls/metrics?${qs.toString()}`, {
         credentials: "include",
       });
@@ -156,7 +209,7 @@ export default function ReportsClient() {
       if (!res.ok) throw new Error(json?.error || "Failed to load report");
       setRows(json.metrics || []);
       setTotals(json.totals || null);
-      setLoadedRange({ from: fromDate, to: toDate, scope });
+      setLoadedRange({ from: fromDate, to: toDate, scope, shift, location });
     } catch (err) {
       setError(err.message || "Failed to load report");
       setRows([]);
@@ -169,8 +222,8 @@ export default function ReportsClient() {
 
   useEffect(() => {
     if (!appliedFrom || !appliedTo) return;
-    void loadReport(appliedFrom, appliedTo, metricsScope);
-  }, [appliedFrom, appliedTo, metricsScope, loadReport]);
+    void loadReport(appliedFrom, appliedTo, metricsScope, shiftFilter, locationFilter);
+  }, [appliedFrom, appliedTo, metricsScope, shiftFilter, locationFilter, loadReport]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -210,6 +263,8 @@ export default function ReportsClient() {
         csvRows.push([
           "TOTAL",
           "",
+          "",
+          "",
           totals.total,
           totals.completed,
           totals.noAnswer,
@@ -220,8 +275,18 @@ export default function ReportsClient() {
         ]);
       }
       const scopeLabel = loadedRange.scope === "conference" ? "conference" : "all-calls";
+      const locationPart =
+        loadedRange.location && loadedRange.location !== "all"
+          ? `_${loadedRange.location}`
+          : "";
+      const shiftPart =
+        loadedRange.shift && loadedRange.shift !== "all" ? `_${loadedRange.shift}` : "";
       const rangeLabel = `${loadedRange.from}_to_${loadedRange.to}`;
-      downloadCsv(`user-report_${scopeLabel}_${rangeLabel}.csv`, CSV_HEADERS, csvRows);
+      downloadCsv(
+        `user-report_${scopeLabel}${locationPart}${shiftPart}_${rangeLabel}.csv`,
+        CSV_HEADERS,
+        csvRows,
+      );
     } finally {
       setExporting(false);
     }
@@ -271,77 +336,103 @@ export default function ReportsClient() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label htmlFor="report-from-date" className={labelClass}>
-                From date
-              </label>
-              <input
-                id="report-from-date"
-                type="date"
-                className={inputClass}
-                value={rangeFrom}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeFrom(e.target.value);
-                }}
-                required
-              />
+          {rangePreset === "custom" ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label htmlFor="report-from-date" className={labelClass}>
+                  From date
+                </label>
+                <input
+                  id="report-from-date"
+                  type="date"
+                  className={inputClass}
+                  value={rangeFrom}
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="report-to-date" className={labelClass}>
+                  To date
+                </label>
+                <input
+                  id="report-to-date"
+                  type="date"
+                  className={inputClass}
+                  value={rangeTo}
+                  onChange={(e) => setRangeTo(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  type="submit"
+                  disabled={loading || !rangeFrom || !rangeTo || rangeFrom > rangeTo}
+                  className="h-11 flex-1 rounded-xl bg-amber-600 px-5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {loading ? "Loading…" : "Apply"}
+                </button>
+              </div>
             </div>
-            <div>
-              <label htmlFor="report-to-date" className={labelClass}>
-                To date
-              </label>
-              <input
-                id="report-to-date"
-                type="date"
-                className={inputClass}
-                value={rangeTo}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeTo(e.target.value);
-                }}
-                required
-              />
-            </div>
-            <div className="flex items-end gap-2">
-              <button
-                type="submit"
-                disabled={loading || rangePreset !== "custom"}
-                className="h-11 flex-1 rounded-xl bg-amber-600 px-5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {loading ? "Loading…" : "Apply"}
-              </button>
-            </div>
-          </div>
+          ) : null}
 
-          <div>
-            <label className={labelClass}>Call scope</label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setMetricsScope("all")}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  metricsScope === "all"
-                    ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="block text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+              Location
+              <select
+                className={`${selectClass} mt-1.5 block`}
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                aria-label="Filter by location"
               >
-                All calls
-              </button>
-              <button
-                type="button"
-                onClick={() => setMetricsScope("conference")}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  metricsScope === "conference"
-                    ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
+                {LOCATION_FILTER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+              Shift
+              <select
+                className={`${selectClass} mt-1.5 block`}
+                value={shiftFilter}
+                onChange={(e) => setShiftFilter(e.target.value)}
+                aria-label="Filter by shift"
               >
-                Conference only
-              </button>
+                {SHIFT_FILTER_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div>
+              <p className={labelClass}>Call scope</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMetricsScope("all")}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    metricsScope === "all"
+                      ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  All calls
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMetricsScope("conference")}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    metricsScope === "conference"
+                      ? "border-amber-600 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  Conference only
+                </button>
+              </div>
             </div>
           </div>
         </form>
@@ -357,6 +448,12 @@ export default function ReportsClient() {
                 ? loadedRange.scope === "conference"
                   ? " · conference calls"
                   : " · all calls"
+                : null}
+              {loadedRange?.location && loadedRange.location !== "all"
+                ? ` · ${loadedRange.location === "outside" ? "outside" : "in-house"}`
+                : null}
+              {loadedRange?.shift && loadedRange.shift !== "all"
+                ? ` · ${loadedRange.shift} shift`
                 : null}
               {rows.length ? ` · ${rows.length} users` : null}
             </p>
@@ -385,6 +482,20 @@ export default function ReportsClient() {
                 <SortableHeader
                   label="Role"
                   columnKey="role"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Location"
+                  columnKey="locationLabel"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSortColumn}
+                />
+                <SortableHeader
+                  label="Shift"
+                  columnKey="shiftKey"
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onSort={onSortColumn}
@@ -442,19 +553,19 @@ export default function ReportsClient() {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
+                  <td colSpan={10} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
                     Loading report…
                   </td>
                 </tr>
               ) : !loadedRange ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
+                  <td colSpan={10} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
                     Choose a date range and click Apply to view the report.
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
+                  <td colSpan={10} className="px-4 py-8 text-center text-zinc-600 dark:text-zinc-300">
                     No users to show for this range.
                   </td>
                 </tr>
@@ -465,6 +576,10 @@ export default function ReportsClient() {
                       {row.username}
                     </td>
                     <td className="px-4 py-3 capitalize text-zinc-700 dark:text-zinc-300">{row.role}</td>
+                    <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{row.locationLabel}</td>
+                    <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                      {shiftLabel(row.shiftKey)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums">{row.total}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{row.completed}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{row.noAnswer}</td>
@@ -480,7 +595,7 @@ export default function ReportsClient() {
             {totals && rows.length > 0 && !loading ? (
               <tfoot className="border-t-2 border-zinc-200 bg-zinc-50 font-semibold dark:border-zinc-600 dark:bg-zinc-950/60">
                 <tr>
-                  <td className="px-4 py-3 text-zinc-900 dark:text-zinc-100" colSpan={2}>
+                  <td className="px-4 py-3 text-zinc-900 dark:text-zinc-100" colSpan={4}>
                     Total
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">{totals.total}</td>

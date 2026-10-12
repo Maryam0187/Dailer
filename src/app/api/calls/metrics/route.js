@@ -21,6 +21,11 @@ export async function GET(req) {
   const includeAllUsers =
     String(searchParams.get("includeAllUsers") || "").trim() === "1" ||
     String(searchParams.get("includeAllUsers") || "").trim().toLowerCase() === "true";
+  const rawShift = String(searchParams.get("shiftKey") || "").trim().toLowerCase();
+  const shiftKey = rawShift === "day" || rawShift === "night" ? rawShift : null;
+  const rawLocation = String(searchParams.get("location") || "all").trim().toLowerCase();
+  const locationFilter =
+    rawLocation === "outside" || rawLocation === "in_house" ? rawLocation : "all";
 
   if (!fromDate || !toDate) {
     return NextResponse.json({ error: "fromDate and toDate are required" }, { status: 400 });
@@ -35,7 +40,17 @@ export async function GET(req) {
     conferenceOnly,
     includeAllUsers,
     excludeAdmin: true,
+    locationFilter,
+    shiftKey,
   });
 
-  return NextResponse.json({ fromDate, toDate, scope, metrics, totals });
+  return NextResponse.json({
+    fromDate,
+    toDate,
+    scope,
+    shiftKey,
+    location: locationFilter,
+    metrics,
+    totals,
+  });
 }
