@@ -68,6 +68,9 @@ app.prepare().then(async () => {
           "id",
           "role",
           "isActive",
+          "isOutside",
+          "shiftKey",
+          "loginWindowExempt",
           "afterShiftAccess",
           "afterShiftLimitedFileId",
           "afterShiftAccessExpiresAt",
@@ -75,7 +78,8 @@ app.prepare().then(async () => {
       });
       if (!user || user.isActive === false) return nextSocket(new Error("Unauthorized"));
 
-      if (!isSessionValidForToday(payload)) {
+      // Pass user so calendar-day checks use their shift timezone (not day default).
+      if (!isSessionValidForToday(payload, new Date(), user)) {
         return nextSocket(new Error("Unauthorized"));
       }
       if (payload?.purpose === "leave_application" || payload?.purpose === "totp_pending") {
@@ -142,12 +146,12 @@ app.prepare().then(async () => {
     const sessionId = row?.activeSessionId;
     const lastSeenRaw = row?.activeSessionLastSeenAt ?? null;
     const lastSeenMs = lastSeenRaw ? new Date(lastSeenRaw).getTime() : null;
-    const rowUserId = row?.id;
+    const rowUserId = Number(row?.id);
 
     if (!sessionId) {
       return { status: "offline", lastActiveAt: lastSeenRaw };
     }
-    if (rowUserId != null && (presence.get(rowUserId) || 0) > 0) {
+    if (Number.isInteger(rowUserId) && rowUserId > 0 && (presence.get(rowUserId) || 0) > 0) {
       return { status: "online", lastActiveAt: lastSeenRaw };
     }
     if (lastSeenMs && now - lastSeenMs <= AWAY_GRACE_MS) {

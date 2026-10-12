@@ -2847,7 +2847,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     const lastActiveAt = payload?.lastActiveAt ?? null;
     setUsers((prev) =>
       prev.map((u) => {
-        if (u.id !== userId) return u;
+        if (Number(u.id) !== userId) return u;
         return {
           ...u,
           presence: nextPresence,
