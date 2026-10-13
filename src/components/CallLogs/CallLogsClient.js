@@ -10,7 +10,45 @@ import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 const inputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
-const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+const selectClass =
+  "h-10 w-full appearance-none rounded-xl border border-zinc-200 bg-white py-2 pl-3 pr-9 text-sm font-medium text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow,background-color] hover:border-zinc-300 hover:bg-zinc-50/80 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-900 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
+
+const labelClass =
+  "mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
+
+function SelectChevron() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function FilterSelect({ id, label, value, onChange, children, className = "w-[11.5rem]" }) {
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <label htmlFor={id} className={labelClass}>
+        {label}
+      </label>
+      <div className="relative">
+        <select id={id} className={selectClass} value={value} onChange={onChange}>
+          {children}
+        </select>
+        <SelectChevron />
+      </div>
+    </div>
+  );
+}
 
 function formatDateInput(date) {
   const y = date.getFullYear();
@@ -53,6 +91,46 @@ function normalizeListScope(scope) {
 
 function isInProgressCallStatus(status) {
   return String(status || "").trim().toLowerCase() === "in-progress";
+}
+
+function formatCallWhen(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function lineDotClass(dialerIndex) {
+  return Number(dialerIndex) === 2 ? "bg-violet-500" : "bg-sky-500";
+}
+
+function statusDotClass(status) {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "completed") return "bg-emerald-500";
+  if (s === "in-progress" || s === "ringing" || s === "queued") return "bg-amber-500";
+  if (s === "busy" || s === "no-answer" || s === "failed" || s === "canceled" || s === "cancelled") {
+    return "bg-red-500";
+  }
+  return "bg-zinc-400";
+}
+
+function DownloadIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.69L6.3 8.49a.75.75 0 0 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 1 0-1.1-1.02l-2.95 3.12V2.75Z" />
+      <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+    </svg>
+  );
 }
 
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
@@ -417,152 +495,57 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       </div>
       <div className="p-4">
         <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
-          <div className="mb-3">
+          <div className="mb-3 flex flex-wrap items-end gap-2.5">
             {isAdmin ? (
-              <>
-                <label className={labelClass}>Whose calls</label>
-                <div className="mb-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLogAudience("mine");
-                      setPage(1);
-                    }}
-                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                      logAudience === "mine"
-                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    My calls
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLogAudience("all");
-                      setPage(1);
-                    }}
-                    className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                      logAudience === "all"
-                        ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
-                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    All users
-                  </button>
-                </div>
-                <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                  All users shows every call log in the system for the selected date range.
-                </p>
-              </>
+              <FilterSelect
+                id="calls-log-audience"
+                label="Whose calls"
+                value={logAudience}
+                onChange={(e) => {
+                  setLogAudience(e.target.value);
+                  setPage(1);
+                }}
+                className="w-[10.5rem]"
+              >
+                <option value="mine">My calls</option>
+                <option value="all">All users</option>
+              </FilterSelect>
             ) : null}
-            <label className={labelClass}>List</label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setListScope("all");
+            <FilterSelect
+              id="calls-list-scope"
+              label="List"
+              value={listScope}
+              onChange={(e) => {
+                setListScope(e.target.value);
+                setPage(1);
+              }}
+              className="w-[12.5rem]"
+            >
+              <option value="all">All calls</option>
+              <option value="lead">Lead calls</option>
+              <option value="recording">With recording</option>
+              <option value="conference">Conference calls</option>
+            </FilterSelect>
+            {canUseDialer2 ? (
+              <FilterSelect
+                id="calls-line-filter"
+                label="Dialer line"
+                value={lineFilter}
+                onChange={(e) => {
+                  setLineFilter(e.target.value);
                   setPage(1);
                 }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  listScope === "all"
-                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
+                className="w-[9.5rem]"
               >
-                All calls
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setListScope("lead");
-                  setPage(1);
-                }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  listScope === "lead"
-                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                Lead calls
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setListScope("recording");
-                  setPage(1);
-                }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  listScope === "recording"
-                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                With recording
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setListScope("conference");
-                  setPage(1);
-                }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  listScope === "conference"
-                    ? "border-sky-600 bg-sky-100 text-sky-950 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-100"
-                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                Conference calls
-              </button>
-            </div>
-            <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {listScope === "recording"
-                ? "Only calls with a saved recording appear here. Download from the Recording column."
-                : listScope === "lead"
-                  ? "Lead = agent-first follow-ups placed from Leads."
-                  : listScope === "conference"
-                      ? "Conference list includes calls where another agent was invited via “Add agent”."
-                      : "Filter by call type, dialer line, or date range."}
-            </p>
-          </div>
-          <div className="mb-3">
-            <label className={labelClass}>Dialer line</label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { id: "all", label: "All lines" },
-                { id: "1", label: "Line 1" },
-                ...(canUseDialer2 ? [{ id: "2", label: "Line 2" }] : []),
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => {
-                    setLineFilter(opt.id);
-                    setPage(1);
-                  }}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                    lineFilter === opt.id
-                      ? "border-violet-600 bg-violet-100 text-violet-950 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {lineFilter === "2"
-                ? "Only outbound calls placed on Line 2 (second number)."
-                : lineFilter === "1"
-                  ? "Only outbound calls placed on Line 1 (current number)."
-                  : canUseDialer2
-                    ? "Shows both Line 1 and Line 2. Choose a line to search that dialer only."
-                    : "Shows Line 1 outbound calls."}
-            </p>
+                <option value="all">All lines</option>
+                <option value="1">Line 1</option>
+                <option value="2">Line 2</option>
+              </FilterSelect>
+            ) : null}
           </div>
           <div className="mb-3">
             <label className={labelClass}>Range presets</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-end gap-2">
               {[
                 { id: "today", label: "Today" },
                 { id: "yesterday", label: "Yesterday" },
@@ -583,44 +566,40 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   {p.label}
                 </button>
               ))}
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label htmlFor="calls-from-date" className={labelClass}>
-                From date
-              </label>
-              <input
-                id="calls-from-date"
-                type="date"
-                className={inputClass}
-                value={rangeFrom}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeFrom(e.target.value);
-                }}
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="calls-to-date" className={labelClass}>
-                To date
-              </label>
-              <input
-                id="calls-to-date"
-                type="date"
-                className={inputClass}
-                value={rangeTo}
-                disabled={rangePreset !== "custom"}
-                onChange={(e) => {
-                  setRangePreset("custom");
-                  setRangeTo(e.target.value);
-                }}
-                required
-              />
-            </div>
-            <div className="flex items-end">
+              <div>
+                <label htmlFor="calls-from-date" className="sr-only">
+                  From date
+                </label>
+                <input
+                  id="calls-from-date"
+                  type="date"
+                  className={`${inputClass} w-[9.5rem]`}
+                  value={rangeFrom}
+                  disabled={rangePreset !== "custom"}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeFrom(e.target.value);
+                  }}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="calls-to-date" className="sr-only">
+                  To date
+                </label>
+                <input
+                  id="calls-to-date"
+                  type="date"
+                  className={`${inputClass} w-[9.5rem]`}
+                  value={rangeTo}
+                  disabled={rangePreset !== "custom"}
+                  onChange={(e) => {
+                    setRangePreset("custom");
+                    setRangeTo(e.target.value);
+                  }}
+                  required
+                />
+              </div>
               <button
                 type="button"
                 onClick={onApplyRange}
@@ -659,13 +638,20 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               <thead>
                 <tr className="border-b border-zinc-200 text-sm uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                   <th className="py-2 pr-3">When</th>
-                  <th className="py-2 pr-3">Line</th>
+                  {canUseDialer2 ? (
+                    <th className="py-2 pr-2" title="Line">
+                      {isAdmin ? "L" : "Line"}
+                    </th>
+                  ) : null}
                   <th className="py-2 pr-3">Agent</th>
                   {listScope === "conference" ? (
                     <th className="py-2 pr-3">Invited</th>
                   ) : null}
+                  {isAdmin ? <th className="py-2 pr-3">From</th> : null}
                   <th className="py-2 pr-3">To</th>
-                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-2" title="Status">
+                    {isAdmin ? "St" : "Status"}
+                  </th>
                   {isAdmin ? (
                     <>
                       <th className="py-2 pr-3">Agent leg</th>
@@ -675,7 +661,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   ) : (
                     <th className="py-2 pr-3">Duration</th>
                   )}
-                  <th className="py-2 pr-3">Recording</th>
+                  <th className="py-2 pr-2" title="Recording">
+                    {isAdmin ? "Rec" : "Recording"}
+                  </th>
                   <th className="py-2 text-right">Action</th>
                 </tr>
               </thead>
@@ -683,19 +671,29 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 {calls.map((c) => (
                   <tr key={c.id} className="border-b border-zinc-100 dark:border-zinc-800">
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
-                      {new Date(c.createdAt).toLocaleString()}
+                      {formatCallWhen(c.createdAt)}
                     </td>
-                    <td className="py-2 pr-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          Number(c.dialerIndex) === 2
-                            ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
-                            : "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200"
-                        }`}
-                      >
-                        {Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
-                      </span>
-                    </td>
+                    {canUseDialer2 ? (
+                      <td className="py-2 pr-2">
+                        {isAdmin ? (
+                          <span
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${lineDotClass(c.dialerIndex)}`}
+                            title={Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
+                            aria-label={Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
+                          />
+                        ) : (
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              Number(c.dialerIndex) === 2
+                                ? "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                                : "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200"
+                            }`}
+                          >
+                            {Number(c.dialerIndex) === 2 ? "Line 2" : "Line 1"}
+                          </span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
                       {c.agentName || "—"}
                     </td>
@@ -706,8 +704,23 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                           : "—"}
                       </td>
                     ) : null}
+                    {isAdmin ? (
+                      <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                        {c.fromNumber || "—"}
+                      </td>
+                    ) : null}
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
-                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">{c.status}</td>
+                    <td className="py-2 pr-2">
+                      {isAdmin ? (
+                        <span
+                          className={`inline-block h-2.5 w-2.5 rounded-full ${statusDotClass(c.status)}`}
+                          title={c.status || "—"}
+                          aria-label={c.status || "unknown"}
+                        />
+                      ) : (
+                        <span className="text-zinc-700 dark:text-zinc-200">{c.status}</span>
+                      )}
+                    </td>
                     {isAdmin ? (
                       <>
                         <td className="py-2 pr-3 tabular-nums text-zinc-700 dark:text-zinc-200">
@@ -725,16 +738,35 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         {formatDuration(c.durationSeconds)}
                       </td>
                     )}
-                    <td className="py-2 pr-3 text-zinc-700 dark:text-zinc-200">
+                    <td className="py-2 pr-2 text-zinc-700 dark:text-zinc-200">
                       {c.recordingDownloadUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
-                          disabled={downloadingId === c.id}
-                          className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
-                        >
-                          {downloadingId === c.id ? "Downloading..." : "Download"}
-                        </button>
+                        isAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
+                            disabled={downloadingId === c.id}
+                            title={downloadingId === c.id ? "Downloading…" : "Download recording"}
+                            aria-label={
+                              downloadingId === c.id ? "Downloading recording" : "Download recording"
+                            }
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                          >
+                            {downloadingId === c.id ? (
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+                            ) : (
+                              <DownloadIcon />
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => downloadRecording(c.id, c.recordingDownloadUrl)}
+                            disabled={downloadingId === c.id}
+                            className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                          >
+                            {downloadingId === c.id ? "Downloading..." : "Download"}
+                          </button>
+                        )
                       ) : (
                         "—"
                       )}
