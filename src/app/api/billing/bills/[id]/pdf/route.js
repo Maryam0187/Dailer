@@ -37,16 +37,16 @@ export async function DELETE(_req, { params }) {
   const { id } = await params;
   const bill = await db.Bill.findByPk(id);
   if (!bill) return NextResponse.json({ error: "Bill not found" }, { status: 404 });
-  if (!bill.pdfPath) {
-    return NextResponse.json({ error: "No PDF to delete" }, { status: 404 });
-  }
 
   try {
+    // Remove stored PDF (if any), then delete the bill for this range.
+    // BillItems are removed via FK onDelete CASCADE.
     await deleteBillPdf(bill);
-    return NextResponse.json({ ok: true, id: bill.id, hasPdf: false });
+    await bill.destroy();
+    return NextResponse.json({ ok: true, id: Number(id), deleted: true });
   } catch (err) {
     return NextResponse.json(
-      { error: err?.message || "Failed to delete PDF" },
+      { error: err?.message || "Failed to delete bill" },
       { status: 500 },
     );
   }

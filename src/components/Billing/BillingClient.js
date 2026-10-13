@@ -74,7 +74,7 @@ export default function BillingClient() {
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [deletingPdfId, setDeletingPdfId] = useState(null);
+  const [deletingBillId, setDeletingBillId] = useState(null);
   const [error, setError] = useState(null);
   const [billPreview, setBillPreview] = useState(null);
   const [billResult, setBillResult] = useState(null);
@@ -261,30 +261,26 @@ export default function BillingClient() {
     }
   }
 
-  async function onDeletePdf(billId) {
+  async function onDeleteBill(billId) {
     const id = Number(billId);
     if (!Number.isInteger(id) || id < 1) return;
     setError(null);
-    setDeletingPdfId(id);
+    setDeletingBillId(id);
     try {
       const res = await fetch(`/api/billing/bills/${id}/pdf`, {
         method: "DELETE",
         credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to delete PDF");
-      setBillHistory((prev) =>
-        prev.map((b) =>
-          Number(b.id) === id ? { ...b, hasPdf: false, pdfUrl: null } : b,
-        ),
-      );
+      if (!res.ok) throw new Error(json?.error || "Failed to delete bill");
+      setBillHistory((prev) => prev.filter((b) => Number(b.id) !== id));
       if (billResult && Number(billResult.id) === id) {
-        setBillResult((prev) => (prev ? { ...prev, hasPdf: false, pdfUrl: null } : prev));
+        setBillResult(null);
       }
     } catch (err) {
-      setError(err.message || "Failed to delete PDF");
+      setError(err.message || "Failed to delete bill");
     } finally {
-      setDeletingPdfId(null);
+      setDeletingBillId(null);
     }
   }
 
@@ -488,27 +484,23 @@ export default function BillingClient() {
             </div>
             <div className="mt-3 flex flex-wrap gap-3">
               {billResult.hasPdf !== false && billResult.pdfUrl ? (
-                <>
-                  <a
-                    href={billResult.pdfUrl}
-                    className="text-sm font-semibold text-emerald-700 underline underline-offset-4 dark:text-emerald-300"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open PDF
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => onDeletePdf(billResult.id)}
-                    disabled={deletingPdfId === Number(billResult.id)}
-                    className="text-sm font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
-                  >
-                    {deletingPdfId === Number(billResult.id) ? "Deleting..." : "Delete PDF"}
-                  </button>
-                </>
-              ) : (
-                <span className="text-sm text-zinc-500 dark:text-zinc-400">PDF deleted</span>
-              )}
+                <a
+                  href={billResult.pdfUrl}
+                  className="text-sm font-semibold text-emerald-700 underline underline-offset-4 dark:text-emerald-300"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open PDF
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onDeleteBill(billResult.id)}
+                disabled={deletingBillId === Number(billResult.id)}
+                className="text-sm font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
+              >
+                {deletingBillId === Number(billResult.id) ? "Deleting..." : "Delete bill"}
+              </button>
             </div>
           </div>
         ) : null}
@@ -543,27 +535,25 @@ export default function BillingClient() {
               </div>
               <div className="mt-3 flex flex-wrap gap-3">
                 {b.hasPdf && b.pdfUrl ? (
-                  <>
-                    <a
-                      href={b.pdfUrl}
-                      className="font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open PDF
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => onDeletePdf(b.id)}
-                      disabled={deletingPdfId === Number(b.id)}
-                      className="font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
-                    >
-                      {deletingPdfId === Number(b.id) ? "Deleting..." : "Delete PDF"}
-                    </button>
-                  </>
+                  <a
+                    href={b.pdfUrl}
+                    className="font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open PDF
+                  </a>
                 ) : (
                   <span className="text-zinc-500 dark:text-zinc-400">No PDF</span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => onDeleteBill(b.id)}
+                  disabled={deletingBillId === Number(b.id)}
+                  className="font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
+                >
+                  {deletingBillId === Number(b.id) ? "Deleting..." : "Delete bill"}
+                </button>
               </div>
             </article>
           ))}
