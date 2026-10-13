@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
+import db from "@/server/db";
 import {
   applyCallLegUpdate,
   findCallLogByAnyLegSid,
   parseDurationSeconds,
   syncCustomerLegFromTwilio,
 } from "@/server/calls/callLegs";
+import { endCallLegs } from "@/server/twilioEndCall";
+
 export const runtime = "nodejs";
+
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "canceled",
+  "cancelled",
+  "failed",
+  "busy",
+  "no-answer",
+]);
 
 function normalizeStatus(status) {
   if (!status || typeof status !== "string") return "unknown";
@@ -42,6 +54,20 @@ export async function POST(req) {
   if (!isCustomer && normalizedStatus === "completed") {
     const refreshed = await findCallLogByAnyLegSid(callSid);
     if (refreshed) await syncCustomerLegFromTwilio(refreshed);
+  }
+
+  const pendingUpgrade = String(call.pendingConferenceName || "").trim();
+  if (isCustomer && TERMINAL_STATUSES.has(normalizedStatus) && !pendingUpgrade) {
+    try {
+      const inviteLegs = await db.InviteDialLeg.findAll({
+        where: { callLogId: call.id },
+        attributes: ["callSid"],
+      });
+      await endCallLegs(call, inviteLegs);
+      await call.update({ status: "completed" }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
   }
 
   return new NextResponse("OK", { status: 200 });

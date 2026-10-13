@@ -71,7 +71,7 @@ export async function POST(req) {
     ? ` action="${escapeXmlAttr(`${baseUrl}/api/twilio/dial-action?callId=${callId}`)}" method="POST"`
     : "";
   const numberStatusAttr = baseUrl
-    ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
+    ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed busy no-answer canceled"`
     : "";
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

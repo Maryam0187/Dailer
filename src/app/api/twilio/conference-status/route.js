@@ -87,7 +87,17 @@ export async function POST(req) {
     );
     const hasAgent = agentPresence.some(Boolean);
 
-    if (hasAgent) return new NextResponse("OK", { status: 200 });
+    const customerSid = String(call.customerCallSid || "").trim();
+    const leavingIsCustomer =
+      Boolean(leavingCallSid) &&
+      Boolean(customerSid) &&
+      leavingCallSid === customerSid;
+
+    /**
+     * Only force teardown when the PSTN customer left (or no Voice agent remains).
+     * Do not treat address-bot / invite PSTN leave as "customer hung up".
+     */
+    if (hasAgent && !leavingIsCustomer) return new NextResponse("OK", { status: 200 });
 
     const inviteLegs = await db.InviteDialLeg.findAll({
       where: { callLogId: call.id },
