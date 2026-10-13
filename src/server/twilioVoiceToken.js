@@ -1,4 +1,6 @@
 import twilio from "twilio";
+import { getTeamTwilioContext } from "@/server/twilioTeam";
+import { resolveMainTwilioCredentials } from "@/server/twilio/mainSettings";
 
 const AccessToken = twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
@@ -33,26 +35,27 @@ export function getAgentClientIdentityLine2(userId, username) {
   return `${getAgentClientIdentity(userId, username)}-2`;
 }
 
-export function isTwilioBrowserAgentConfigured() {
-  return Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_API_KEY_SID &&
-      process.env.TWILIO_API_KEY_SECRET,
-  );
+export async function isTwilioBrowserAgentConfigured() {
+  const creds = await resolveMainTwilioCredentials();
+  return Boolean(creds.accountSid && creds.apiKeySid && creds.apiKeySecret);
 }
 
 /**
- * JWT for Twilio Voice JS SDK (`@twilio/voice-sdk`). Requires API Key (create in Twilio Console).
- * @param {string} identity – Twilio Client name (e.g. from {@link getAgentClientIdentity}).
+ * Whether Voice JWT can be issued for this user (main keys or team subaccount API keys).
+ * @param {object} user
  */
-export function createVoiceAccessToken(identity) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const apiKeySid = process.env.TWILIO_API_KEY_SID;
-  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
+export async function isTwilioBrowserAgentConfiguredForUser(user) {
+  const ctx = await getTeamTwilioContext(user);
+  if (ctx.mode === "team") {
+    return Boolean(ctx.accountSid && ctx.apiKeySid && ctx.apiKeySecret);
+  }
+  return await isTwilioBrowserAgentConfigured();
+}
 
+function buildVoiceAccessToken({ accountSid, apiKeySid, apiKeySecret, identity }) {
   if (!accountSid || !apiKeySid || !apiKeySecret) {
     throw new Error(
-      "Browser agent voice token requires TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID, and TWILIO_API_KEY_SECRET.",
+      "Browser agent voice token requires account SID, API key SID, and API key secret.",
     );
   }
   if (!identity || typeof identity !== "string") {
@@ -66,4 +69,36 @@ export function createVoiceAccessToken(identity) {
   const grant = new VoiceGrant({ incomingAllow: true });
   token.addGrant(grant);
   return { token: token.toJwt(), identity };
+}
+
+/**
+ * JWT for Twilio Voice JS SDK — main account (DB settings or env).
+ * @param {string} identity
+ */
+export async function createVoiceAccessToken(identity) {
+  const creds = await resolveMainTwilioCredentials();
+  return buildVoiceAccessToken({
+    accountSid: creds.accountSid,
+    apiKeySid: creds.apiKeySid,
+    apiKeySecret: creds.apiKeySecret,
+    identity,
+  });
+}
+
+/**
+ * Voice JWT for a user: team subaccount API keys when configured, else main account.
+ * @param {object} user
+ * @param {string} identity
+ */
+export async function createVoiceAccessTokenForUser(user, identity) {
+  const ctx = await getTeamTwilioContext(user);
+  if (ctx.mode === "team") {
+    return buildVoiceAccessToken({
+      accountSid: ctx.accountSid,
+      apiKeySid: ctx.apiKeySid,
+      apiKeySecret: ctx.apiKeySecret,
+      identity,
+    });
+  }
+  return await createVoiceAccessToken(identity);
 }

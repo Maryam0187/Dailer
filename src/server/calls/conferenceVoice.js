@@ -95,7 +95,14 @@ export function buildConferenceStatusCallbackUrl(baseUrl) {
   return `${origin}${buildConferenceStatusCallbackPath()}`;
 }
 
-export function getDefaultTwilioCallerId() {
+export async function getDefaultTwilioCallerId() {
+  try {
+    const { resolveMainTwilioCredentials } = await import("@/server/twilio/mainSettings");
+    const creds = await resolveMainTwilioCredentials();
+    if (creds.phoneNumber) return creds.phoneNumber;
+  } catch {
+    /* fall through */
+  }
   return (
     String(process.env.TWILIO_PHONE_NUMBER || "").trim() ||
     String(process.env.TWILIO_FROM_NUMBER || "").trim() ||

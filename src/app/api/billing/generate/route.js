@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { getTwilioClient } from "@/server/twilio";
-import { calculateTotals } from "@/server/billing/math";
+import { calculateUsageTotals } from "@/server/billing/math";
 import { writeBillPdf } from "@/server/billing/pdf";
+import {
+  listBillingUsageForClient,
+  resolveBillingTwilioClient,
+} from "@/server/billing/twilioUsage";
 
 export const runtime = "nodejs";
 
@@ -11,25 +14,6 @@ function normalizeDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
-}
-
-async function listCompletedCalls({ fromDate, toDate }) {
-  const client = getTwilioClient();
-  const after = new Date(fromDate);
-  const before = new Date(toDate);
-  before.setDate(before.getDate() + 1);
-
-  const calls = await client.calls.list({
-    startTimeAfter: after,
-    startTimeBefore: before,
-    status: "completed",
-    pageSize: 1000,
-  });
-
-  return calls.filter((call) => {
-    const twilioCost = Math.abs(Number(call.price));
-    return Number.isFinite(twilioCost) && twilioCost > 0;
-  });
 }
 
 export async function POST(req) {
@@ -50,9 +34,22 @@ export async function POST(req) {
     (await db.BillingSetting.findOne({ order: [["id", "DESC"]] })) ||
     (await db.BillingSetting.create({ fixedMarkupPerCall: 0, currency: "USD", updatedBy: null }));
 
-  let calls;
+  let billingAccount;
   try {
-    calls = await listCompletedCalls({ fromDate, toDate });
+    billingAccount = await resolveBillingTwilioClient(body?.managerId);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Invalid billing account" },
+      { status: err?.status || 400 },
+    );
+  }
+
+  let usageCategories;
+  try {
+    usageCategories = await listBillingUsageForClient(billingAccount.client, {
+      fromDate,
+      toDate,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err?.message || "Failed to fetch usage from Twilio" },
@@ -60,7 +57,7 @@ export async function POST(req) {
     );
   }
 
-  const totals = calculateTotals(calls, settings.fixedMarkupPerCall);
+  const totals = calculateUsageTotals(usageCategories, settings.fixedMarkupPerCall);
 
   const tx = await db.sequelize.transaction();
   let committed = false;
@@ -75,14 +72,19 @@ export async function POST(req) {
         markupAmount: totals.markupAmount,
         totalCalls: totals.totalCalls,
         totalAmount: totals.totalAmount,
+        usageBreakdown: totals.categories,
         status: "generated",
         generatedBy: authedUser.id,
+        managerId: billingAccount.managerId,
       },
       { transaction: tx },
     );
 
-    const pdfPath = await writeBillPdf({ bill });
-    await bill.update({ pdfPath }, { transaction: tx });
+    const { storageKey } = await writeBillPdf({
+      bill,
+      usageCategories: totals.categories,
+    });
+    await bill.update({ pdfPath: storageKey }, { transaction: tx });
     await tx.commit();
     committed = true;
 
@@ -93,11 +95,12 @@ export async function POST(req) {
           fromDate: bill.fromDate,
           toDate: bill.toDate,
           currency: bill.currency,
-          twilioBaseAmount: bill.twilioBaseAmount,
-          fixedMarkupPerCall: bill.fixedMarkupPerCall,
-          markupAmount: bill.markupAmount,
-          totalCalls: bill.totalCalls,
           totalAmount: bill.totalAmount,
+          categories: totals.categories,
+          managerId: bill.managerId,
+          managerUsername: billingAccount.managerUsername,
+          accountScope: billingAccount.managerId ? "team" : "main",
+          hasPdf: true,
           pdfUrl: `/api/billing/bills/${bill.id}/pdf`,
           createdAt: bill.createdAt,
         },

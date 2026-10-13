@@ -20,15 +20,14 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const customerNumber =
     String(body?.from || body?.customerNumber || "").trim() || "unknown";
-  const twilioNumber =
-    String(body?.to || "").trim() ||
-    (() => {
-      try {
-        return getTwilioFromNumber();
-      } catch {
-        return process.env.TWILIO_PHONE_NUMBER || "ivr";
-      }
-    })();
+  let twilioNumber = String(body?.to || "").trim();
+  if (!twilioNumber) {
+    try {
+      twilioNumber = await getTwilioFromNumber();
+    } catch {
+      twilioNumber = process.env.TWILIO_PHONE_NUMBER || "ivr";
+    }
+  }
   const clientCallSid = String(body?.callSid || "").trim() || null;
   const parentCallSid = String(body?.parentCallSid || "").trim() || null;
 

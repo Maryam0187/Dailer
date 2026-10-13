@@ -71,6 +71,11 @@ export function buildFileAttachmentStorageKey(fileId, originalName) {
   return `files/${Number(fileId)}/${randomUUID()}-${safeName}`;
 }
 
+export function buildBillPdfStorageKey(billId, originalName = "invoice.pdf") {
+  const safeName = sanitizeAttachmentFilename(originalName, "invoice.pdf");
+  return `bills/${Number(billId)}/${randomUUID()}-${safeName}`;
+}
+
 export async function createPresignedUploadUrl({ storageKey, mimeType, sizeBytes }) {
   const client = getS3Client();
   const command = new PutObjectCommand({

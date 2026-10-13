@@ -9,6 +9,7 @@ import {
   getRequestBaseUrlFromRequest,
 } from "@/server/calls/conferenceVoice";
 import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 const TERMINAL_STATUSES = new Set([
   "completed",
@@ -181,7 +182,12 @@ export async function upgradeCallToConference({ req, authedUser, callId }) {
   }
 
   try {
-    const client = getTwilioClient();
+    let client;
+    try {
+      client = (await getTwilioContextForUserId(call.userId)).client;
+    } catch {
+      client = await getTwilioClient();
+    }
 
     await syncCustomerLegFromTwilio(call).catch(() => {});
 
@@ -225,7 +231,8 @@ export async function upgradeCallToConference({ req, authedUser, callId }) {
     }
 
     const conferenceName = createConferenceName({ userId: authedUser.id });
-    const callerIdForConference = String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
+    const callerIdForConference =
+      String(call.fromNumber || "").trim() || (await getDefaultTwilioCallerId());
 
     const fallbackBaseUrl = getRequestBaseUrlFromRequest(req);
     const conferenceStatusCb = fallbackBaseUrl

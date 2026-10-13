@@ -1,12 +1,14 @@
-import fs from "node:fs";
-import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import {
+  isAttachmentStorageAvailable,
+  writeStoredAttachment,
+} from "@/server/messages/attachmentStorage";
+import { buildBillPdfStorageKey } from "@/server/messages/objectStorage";
 
-export async function writeBillPdf({ bill }) {
-  const invoicesDir = path.join(process.cwd(), "storage", "invoices");
-  fs.mkdirSync(invoicesDir, { recursive: true });
-  const fileName = `bill-${bill.id}.pdf`;
-  const filePath = path.join(invoicesDir, fileName);
+/**
+ * Build invoice PDF bytes: total cost + usage category breakdown only.
+ */
+export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
   const doc = await PDFDocument.create();
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -35,28 +37,50 @@ export async function writeBillPdf({ bill }) {
 
   drawText("Dialer - Twilio Billing Invoice", 40, 18, true);
   nextLine(26);
-  drawText(`Bill ID: ${bill.id}`, 40);
-  nextLine();
+  drawText(`Bill #${bill.id}`, 40, 12, true);
+  nextLine(18);
   drawText(
     `Range: ${new Date(bill.fromDate).toLocaleDateString()} - ${new Date(bill.toDate).toLocaleDateString()}`,
     40,
   );
   nextLine();
   drawText(`Currency: ${bill.currency}`, 40);
-  nextLine();
-  drawText(`Fixed markup per call: ${bill.currency} ${bill.fixedMarkupPerCall}`, 40);
   nextLine(22);
 
-  drawText(`Total calls: ${bill.totalCalls}`, 40, 11, true);
+  drawText("Breakdown", 40, 12, true);
   nextLine(16);
-  drawText(`Twilio base total: ${bill.currency} ${bill.twilioBaseAmount}`, 40);
-  nextLine();
-  drawText(`Markup total: ${bill.currency} ${bill.markupAmount}`, 40);
-  nextLine();
-  drawText(`Final total: ${bill.currency} ${bill.totalAmount}`, 40, 13, true);
+  if (usageCategories.length) {
+    for (const row of usageCategories) {
+      drawText(
+        `${row.label || row.category}: ${bill.currency} ${row.twilioCost}`,
+        40,
+      );
+      nextLine();
+    }
+  } else {
+    drawText("No category usage for this range.", 40);
+    nextLine();
+  }
 
-  const bytes = await doc.save();
-  fs.writeFileSync(filePath, bytes);
+  nextLine(10);
+  drawText(`Total cost: ${bill.currency} ${bill.totalAmount}`, 40, 14, true);
 
-  return filePath;
+  return Buffer.from(await doc.save());
+}
+
+/**
+ * Create PDF and store it in the same attachment bucket (S3 or local).
+ * @returns {Promise<{ storageKey: string }>}
+ */
+export async function writeBillPdf({ bill, usageCategories = [] }) {
+  if (!isAttachmentStorageAvailable()) {
+    throw new Error(
+      "Attachment storage is not configured. Set S3_* env vars (same as message/file attachments).",
+    );
+  }
+
+  const bytes = await buildBillPdfBytes({ bill, usageCategories });
+  const storageKey = buildBillPdfStorageKey(bill.id, `bill-${bill.id}.pdf`);
+  await writeStoredAttachment(storageKey, bytes, "application/pdf");
+  return { storageKey };
 }

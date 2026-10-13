@@ -12,6 +12,22 @@ function money(value, currency) {
   return `${currency} ${num.toFixed(2)}`;
 }
 
+function CategoryBreakdown({ categories, currency }) {
+  if (!Array.isArray(categories) || categories.length === 0) {
+    return <p className="text-sm text-zinc-600 dark:text-zinc-300">No usage in this range.</p>;
+  }
+  return (
+    <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
+      {categories.map((c) => (
+        <li key={c.category} className="flex items-center justify-between gap-3">
+          <span>{c.label || c.category}</span>
+          <span className="font-medium tabular-nums">{money(c.twilioCost, currency)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function formatDateInput(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -52,29 +68,52 @@ export default function BillingClient() {
   const [rangeTo, setRangeTo] = useState(initialRange.to);
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
+  const [accountScope, setAccountScope] = useState("main");
+  const [managerId, setManagerId] = useState("");
+  const [teamOptions, setTeamOptions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [deletingPdfId, setDeletingPdfId] = useState(null);
   const [error, setError] = useState(null);
   const [billPreview, setBillPreview] = useState(null);
   const [billResult, setBillResult] = useState(null);
   const [billHistory, setBillHistory] = useState([]);
 
+  function billingPayload(fromDate, toDate) {
+    const payload = { fromDate, toDate };
+    if (accountScope === "team" && managerId) {
+      payload.managerId = Number(managerId);
+    }
+    return payload;
+  }
+
   async function loadData() {
     setError(null);
     try {
-      const [settingsRes, billsRes] = await Promise.all([
+      const [settingsRes, billsRes, numbersRes] = await Promise.all([
         fetch("/api/billing/settings", { credentials: "include" }),
         fetch("/api/billing/bills", { credentials: "include" }),
+        fetch("/api/admin/twilio-numbers", { credentials: "include" }),
       ]);
       const settingsJson = await settingsRes.json().catch(() => ({}));
       const billsJson = await billsRes.json().catch(() => ({}));
+      const numbersJson = await numbersRes.json().catch(() => ({}));
       if (!settingsRes.ok) throw new Error(settingsJson?.error || "Failed to load settings");
       if (!billsRes.ok) throw new Error(billsJson?.error || "Failed to load bills");
 
       setFixedMarkupPerCall(String(settingsJson.settings?.fixedMarkupPerCall ?? "0.00"));
       setCurrency(String(settingsJson.settings?.currency ?? "USD"));
       setBillHistory(billsJson.bills || []);
+
+      const options = (numbersJson.teams || []).map((t) => ({
+        id: t.managerId,
+        username: t.managerUsername || `manager#${t.managerId}`,
+      }));
+      setTeamOptions(options);
+      if (options.length && !options.some((o) => String(o.id) === String(managerId))) {
+        setManagerId(String(options[0].id));
+      }
     } catch (err) {
       setError(err.message || "Failed to load billing data");
     }
@@ -82,34 +121,45 @@ export default function BillingClient() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const previewBill = useCallback(async (fromDate, toDate) => {
-    if (!fromDate || !toDate) return;
-    setError(null);
-    setPreviewing(true);
-    setBillResult(null);
-    setBillPreview(null);
-    try {
-      const res = await fetch("/api/billing/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ fromDate, toDate }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to preview bill");
-      setBillPreview(json.preview);
-    } catch (err) {
-      setError(err.message || "Failed to preview bill");
-    } finally {
-      setPreviewing(false);
-    }
-  }, []);
+  const previewBill = useCallback(
+    async (fromDate, toDate, scope = accountScope, mid = managerId) => {
+      if (!fromDate || !toDate) return;
+      if (scope === "team" && !mid) {
+        setError("Select a team with a Twilio subaccount");
+        return;
+      }
+      setError(null);
+      setPreviewing(true);
+      setBillResult(null);
+      setBillPreview(null);
+      try {
+        const payload = { fromDate, toDate };
+        if (scope === "team" && mid) payload.managerId = Number(mid);
+        const res = await fetch("/api/billing/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to preview bill");
+        setBillPreview(json.preview);
+      } catch (err) {
+        setError(err.message || "Failed to preview bill");
+      } finally {
+        setPreviewing(false);
+      }
+    },
+    [accountScope, managerId],
+  );
 
   useEffect(() => {
     void previewBill(initialRange.from, initialRange.to);
-  }, [previewBill]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSaveSettings(e) {
     e.preventDefault();
@@ -150,6 +200,24 @@ export default function BillingClient() {
     void previewBill(next.from, next.to);
   }
 
+  function onAccountScopeChange(nextScope) {
+    setAccountScope(nextScope);
+    setBillPreview(null);
+    setBillResult(null);
+    if (appliedFrom && appliedTo) {
+      void previewBill(appliedFrom, appliedTo, nextScope, managerId);
+    }
+  }
+
+  function onManagerChange(nextId) {
+    setManagerId(nextId);
+    setBillPreview(null);
+    setBillResult(null);
+    if (accountScope === "team" && appliedFrom && appliedTo && nextId) {
+      void previewBill(appliedFrom, appliedTo, "team", nextId);
+    }
+  }
+
   async function onPreviewBill(e) {
     e.preventDefault();
     if (rangePreset !== "custom") return;
@@ -175,7 +243,7 @@ export default function BillingClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ fromDate: appliedFrom, toDate: appliedTo }),
+        body: JSON.stringify(billingPayload(appliedFrom, appliedTo)),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to generate bill");
@@ -190,6 +258,33 @@ export default function BillingClient() {
       setError(err.message || "Failed to generate bill");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function onDeletePdf(billId) {
+    const id = Number(billId);
+    if (!Number.isInteger(id) || id < 1) return;
+    setError(null);
+    setDeletingPdfId(id);
+    try {
+      const res = await fetch(`/api/billing/bills/${id}/pdf`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to delete PDF");
+      setBillHistory((prev) =>
+        prev.map((b) =>
+          Number(b.id) === id ? { ...b, hasPdf: false, pdfUrl: null } : b,
+        ),
+      );
+      if (billResult && Number(billResult.id) === id) {
+        setBillResult((prev) => (prev ? { ...prev, hasPdf: false, pdfUrl: null } : prev));
+      }
+    } catch (err) {
+      setError(err.message || "Failed to delete PDF");
+    } finally {
+      setDeletingPdfId(null);
     }
   }
 
@@ -236,6 +331,44 @@ export default function BillingClient() {
       <section className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm sm:p-6 dark:border-emerald-900/40 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Generate bill</h2>
         <form className="mt-4 grid gap-4 sm:grid-cols-3" onSubmit={onPreviewBill}>
+          <div className="sm:col-span-3 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="account-scope" className={labelClass}>
+                Twilio account
+              </label>
+              <select
+                id="account-scope"
+                className={inputClass}
+                value={accountScope}
+                onChange={(e) => onAccountScopeChange(e.target.value)}
+              >
+                <option value="main">Main account (all unassigned / main usage)</option>
+                <option value="team" disabled={teamOptions.length === 0}>
+                  Team subaccount
+                  {teamOptions.length === 0 ? " (none configured)" : ""}
+                </option>
+              </select>
+            </div>
+            {accountScope === "team" ? (
+              <div>
+                <label htmlFor="team-manager" className={labelClass}>
+                  Team
+                </label>
+                <select
+                  id="team-manager"
+                  className={inputClass}
+                  value={managerId}
+                  onChange={(e) => onManagerChange(e.target.value)}
+                >
+                  {teamOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
           <div className="sm:col-span-3">
             <label className={labelClass}>Range presets</label>
             <div className="flex flex-wrap gap-2">
@@ -308,25 +441,25 @@ export default function BillingClient() {
 
         {billPreview ? (
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-            <div className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
-              <p>
-                Preview: {new Date(billPreview.fromDate).toLocaleDateString()} –{" "}
-                {new Date(billPreview.toDate).toLocaleDateString()}
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
+              {new Date(billPreview.fromDate).toLocaleDateString()} –{" "}
+              {new Date(billPreview.toDate).toLocaleDateString()}
+              {" · "}
+              {billPreview.accountScope === "team"
+                ? `Team ${billPreview.managerUsername || `#${billPreview.managerId}`}`
+                : "Main"}
+            </p>
+            <p className="mt-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              Total cost: {money(billPreview.totalAmount, billPreview.currency)}
+            </p>
+            <div className="mt-3">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Breakdown
               </p>
-              <p>
-                Calls: <span className="font-semibold">{billPreview.totalCalls}</span>
-              </p>
-              <p>
-                Total:{" "}
-                <span className="font-semibold">
-                  {money(billPreview.totalAmount, billPreview.currency)}
-                </span>
-              </p>
-            </div>
-            <div className="mt-3 grid gap-1 text-sm text-zinc-700 dark:text-zinc-200">
-              <p>Twilio base: {money(billPreview.twilioBaseAmount, billPreview.currency)}</p>
-              <p>Markup total: {money(billPreview.markupAmount, billPreview.currency)}</p>
-              <p>Fixed markup per call: {money(billPreview.fixedMarkupPerCall, billPreview.currency)}</p>
+              <CategoryBreakdown
+                categories={billPreview.categories}
+                currency={billPreview.currency}
+              />
             </div>
             <button
               type="button"
@@ -342,17 +475,41 @@ export default function BillingClient() {
         {billResult ? (
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
             <p className="text-sm text-zinc-700 dark:text-zinc-200">
-              Bill #{billResult.id} generated with {billResult.totalCalls} calls. Total:{" "}
-              <span className="font-semibold">{money(billResult.totalAmount, billResult.currency)}</span>
+              Bill #{billResult.id} saved. Total:{" "}
+              <span className="font-semibold">
+                {money(billResult.totalAmount, billResult.currency)}
+              </span>
             </p>
-            <a
-              href={billResult.pdfUrl}
-              className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline underline-offset-4 dark:text-emerald-300"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open PDF invoice
-            </a>
+            <div className="mt-3">
+              <CategoryBreakdown
+                categories={billResult.categories}
+                currency={billResult.currency}
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {billResult.hasPdf !== false && billResult.pdfUrl ? (
+                <>
+                  <a
+                    href={billResult.pdfUrl}
+                    className="text-sm font-semibold text-emerald-700 underline underline-offset-4 dark:text-emerald-300"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open PDF
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => onDeletePdf(billResult.id)}
+                    disabled={deletingPdfId === Number(billResult.id)}
+                    className="text-sm font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
+                  >
+                    {deletingPdfId === Number(billResult.id) ? "Deleting..." : "Delete PDF"}
+                  </button>
+                </>
+              ) : (
+                <span className="text-sm text-zinc-500 dark:text-zinc-400">PDF deleted</span>
+              )}
+            </div>
           </div>
         ) : null}
       </section>
@@ -360,96 +517,59 @@ export default function BillingClient() {
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6 dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Recent bills</h2>
 
-        <div className="mt-4 space-y-3 md:hidden">
+        <div className="mt-4 space-y-3">
           {billHistory.map((b) => (
             <article
               key={b.id}
               className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-950/40"
             >
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-semibold text-zinc-900 dark:text-zinc-100">Bill #{b.id}</p>
-                <a
-                  href={`/api/billing/bills/${b.id}/pdf`}
-                  className="shrink-0 text-sky-700 underline underline-offset-4 dark:text-sky-300"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open PDF
-                </a>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-zinc-900 dark:text-zinc-100">Bill #{b.id}</p>
+                  <p className="mt-0.5 text-zinc-600 dark:text-zinc-300">
+                    {b.accountScope === "team"
+                      ? `Team ${b.managerUsername || `#${b.managerId}`}`
+                      : "Main"}{" "}
+                    · {new Date(b.fromDate).toLocaleDateString()} –{" "}
+                    {new Date(b.toDate).toLocaleDateString()}
+                  </p>
+                </div>
+                <p className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                  {money(b.totalAmount, b.currency)}
+                </p>
               </div>
-              <p className="mt-1 text-zinc-600 dark:text-zinc-300">
-                {new Date(b.fromDate).toLocaleDateString()} – {new Date(b.toDate).toLocaleDateString()}
-              </p>
-              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-zinc-700 dark:text-zinc-200">
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Calls</dt>
-                  <dd className="font-medium">{b.totalCalls}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Total</dt>
-                  <dd className="font-semibold">{money(b.totalAmount, b.currency)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Twilio base</dt>
-                  <dd>{money(b.twilioBaseAmount, b.currency)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Markup</dt>
-                  <dd>{money(b.markupAmount, b.currency)}</dd>
-                </div>
-              </dl>
+              <div className="mt-3">
+                <CategoryBreakdown categories={b.categories} currency={b.currency} />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {b.hasPdf && b.pdfUrl ? (
+                  <>
+                    <a
+                      href={b.pdfUrl}
+                      className="font-semibold text-sky-700 underline underline-offset-4 dark:text-sky-300"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open PDF
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => onDeletePdf(b.id)}
+                      disabled={deletingPdfId === Number(b.id)}
+                      className="font-semibold text-red-700 underline underline-offset-4 disabled:opacity-50 dark:text-red-300"
+                    >
+                      {deletingPdfId === Number(b.id) ? "Deleting..." : "Delete PDF"}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-zinc-500 dark:text-zinc-400">No PDF</span>
+                )}
+              </div>
             </article>
           ))}
           {billHistory.length === 0 ? (
             <p className="py-3 text-sm text-zinc-600 dark:text-zinc-300">No bills yet.</p>
           ) : null}
-        </div>
-
-        <div className="mt-4 hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[700px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                <th className="py-2 pr-3">ID</th>
-                <th className="py-2 pr-3">Range</th>
-                <th className="py-2 pr-3">Calls</th>
-                <th className="py-2 pr-3">Twilio base</th>
-                <th className="py-2 pr-3">Markup</th>
-                <th className="py-2 pr-3">Total</th>
-                <th className="py-2">PDF</th>
-              </tr>
-            </thead>
-            <tbody>
-              {billHistory.map((b) => (
-                <tr key={b.id} className="border-b border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 pr-3">{b.id}</td>
-                  <td className="py-2 pr-3">
-                    {new Date(b.fromDate).toLocaleDateString()} - {new Date(b.toDate).toLocaleDateString()}
-                  </td>
-                  <td className="py-2 pr-3">{b.totalCalls}</td>
-                  <td className="py-2 pr-3">{money(b.twilioBaseAmount, b.currency)}</td>
-                  <td className="py-2 pr-3">{money(b.markupAmount, b.currency)}</td>
-                  <td className="py-2 pr-3 font-semibold">{money(b.totalAmount, b.currency)}</td>
-                  <td className="py-2">
-                    <a
-                      href={`/api/billing/bills/${b.id}/pdf`}
-                      className="text-sky-700 underline underline-offset-4 dark:text-sky-300"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open
-                    </a>
-                  </td>
-                </tr>
-              ))}
-              {billHistory.length === 0 ? (
-                <tr>
-                  <td className="py-3 text-zinc-600 dark:text-zinc-300" colSpan={7}>
-                    No bills yet.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
         </div>
       </section>
     </div>

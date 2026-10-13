@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 import { syncAllLegDurationsFromTwilio } from "@/server/calls/callLegs";
 import { endCallLegs } from "@/server/twilioEndCall";
 
@@ -46,6 +47,7 @@ export async function POST(req) {
       where: { conferenceName: friendlyName },
       attributes: [
         "id",
+        "userId",
         "twilioSid",
         "customerCallSid",
         "agentDurationSeconds",
@@ -56,7 +58,12 @@ export async function POST(req) {
     });
     if (!call) return new NextResponse("OK", { status: 200 });
 
-    const client = getTwilioClient();
+    let client;
+    try {
+      client = (await getTwilioContextForUserId(call.userId)).client;
+    } catch {
+      client = await getTwilioClient();
+    }
 
     /** Conference may already be tearing down — list is best-effort. */
     const matches = await client.conferences.list({

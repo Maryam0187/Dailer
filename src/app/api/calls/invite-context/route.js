@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
 
 export const runtime = "nodejs";
@@ -135,6 +136,20 @@ async function buildInviteJson(db, conferenceFriendlyName, twilioParticipants, r
   };
 }
 
+async function resolveInviteTwilioClient(ownerUserId, fallbackUserId) {
+  const tryIds = [ownerUserId, fallbackUserId].filter(
+    (id) => Number.isInteger(Number(id)) && Number(id) > 0,
+  );
+  for (const id of tryIds) {
+    try {
+      return (await getTwilioContextForUserId(id)).client;
+    } catch {
+      // try next
+    }
+  }
+  return getTwilioClient();
+}
+
 export async function GET(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -146,7 +161,6 @@ export async function GET(req) {
   }
 
   try {
-    const client = getTwilioClient();
     const identity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const clientTarget = `client:${identity}`;
 
@@ -155,6 +169,14 @@ export async function GET(req) {
     });
 
     if (mapping) {
+      let ownerUserId = null;
+      if (mapping.callLogId) {
+        const log = await db.CallLog.findByPk(mapping.callLogId, {
+          attributes: ["userId"],
+        });
+        ownerUserId = log?.userId ?? null;
+      }
+      const client = await resolveInviteTwilioClient(ownerUserId, authedUser.id);
       const conferenceMatches = await client.conferences.list({
         friendlyName: mapping.conferenceName,
         status: "in-progress",
@@ -172,6 +194,8 @@ export async function GET(req) {
       return NextResponse.json(json);
     }
 
+    // Fallback scan: conference lives on the call owner's (team) account.
+    const client = await resolveInviteTwilioClient(null, authedUser.id);
     const conferences = await client.conferences.list({ status: "in-progress", limit: 30 });
 
     for (const conference of conferences) {

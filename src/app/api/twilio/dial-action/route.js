@@ -54,7 +54,7 @@ export async function POST(req) {
 
   if (pendingConferenceName) {
     const callerId =
-      String(call.fromNumber || "").trim() || getDefaultTwilioCallerId();
+      String(call.fromNumber || "").trim() || (await getDefaultTwilioCallerId());
     const origin = getRequestBaseUrlFromRequest(req);
     const statusCbUrl = origin ? buildConferenceStatusCallbackUrl(origin) : "";
 

@@ -4,12 +4,13 @@ import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
-import {
-  getTwilioClient,
-  getTwilioFromNumber,
-  getTwilioStatusCallbackParamsWithFallback,
-} from "@/server/twilio";
+import { getTwilioStatusCallbackParamsWithFallback } from "@/server/twilio";
 import { getAgentClientIdentity } from "@/server/twilioVoiceToken";
+import {
+  resolveDialUser,
+  getTeamTwilioContext,
+  resolveFromNumberLine1,
+} from "@/server/twilio/callOwnerTwilio";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -52,7 +53,25 @@ export async function POST(req) {
     );
   }
 
-  const fromNumber = getTwilioFromNumber(body?.fromNumber);
+  const dialUser = await resolveDialUser(authedUser);
+  if (!dialUser) {
+    return NextResponse.json({ error: "User not found" }, { status: 401 });
+  }
+
+  let ctx;
+  let fromNumber;
+  try {
+    ctx = await getTeamTwilioContext(dialUser);
+    fromNumber = body?.fromNumber
+      ? String(body.fromNumber).trim()
+      : await resolveFromNumberLine1(dialUser, ctx);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Twilio From number is not configured for this user" },
+      { status: 400 },
+    );
+  }
+
   const fallbackBaseUrl = getRequestBaseUrl(req);
   if (!fallbackBaseUrl) {
     return NextResponse.json(
@@ -80,7 +99,7 @@ export async function POST(req) {
 
   let agentLeg = null;
   try {
-    const client = getTwilioClient();
+    const client = ctx.client;
     const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });

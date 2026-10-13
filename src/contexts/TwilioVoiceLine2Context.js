@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useLine2Call } from "@/contexts/Line2CallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
+import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQuality";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 
 const TwilioVoiceLine2Context = createContext(undefined);
@@ -45,6 +46,9 @@ export function TwilioVoiceLine2Provider({ children }) {
   const [sdkError, setSdkError] = useState(null);
   const [registered, setRegistered] = useState(false);
   const [sdkInitializing, setSdkInitializing] = useState(false);
+  const [callQuality, setCallQuality] = useState(null);
+  const qualityMosRef = useRef(null);
+  const qualityWarningsRef = useRef(new Set());
   const callRef = useRef(null);
   const deviceRef = useRef(null);
   const deviceInitPromiseRef = useRef(null);
@@ -64,6 +68,25 @@ export function TwilioVoiceLine2Provider({ children }) {
     ownerCallIdRef.current = callId;
   }, [session?.callId]);
 
+  const clearCallQuality = useCallback(() => {
+    qualityMosRef.current = null;
+    qualityWarningsRef.current = new Set();
+    setCallQuality(null);
+  }, []);
+
+  const publishCallQuality = useCallback(() => {
+    const mos = qualityMosRef.current;
+    const level = deriveCallQualityLevel({
+      mos,
+      activeWarnings: qualityWarningsRef.current,
+    });
+    if (level == null && mos == null && qualityWarningsRef.current.size === 0) {
+      setCallQuality(null);
+      return;
+    }
+    setCallQuality({ level, mos });
+  }, []);
+
   const destroyDevice = useCallback(() => {
     deviceRef.current?.destroy();
     deviceRef.current = null;
@@ -72,7 +95,8 @@ export function TwilioVoiceLine2Provider({ children }) {
     setRegistered(false);
     setVoiceConnected(false);
     setMuted(false);
-  }, []);
+    clearCallQuality();
+  }, [clearCallQuality]);
 
   const isFatalDeviceError = useCallback((err) => {
     const code = Number(err?.code);
@@ -92,16 +116,35 @@ export function TwilioVoiceLine2Provider({ children }) {
       setMuted(call.isMuted());
       setVoiceConnected(true);
       markInProgress();
+      clearCallQuality();
       call.on("mute", (isMuted) => setMuted(isMuted));
+      call.on("sample", (sample) => {
+        const mos = typeof sample?.mos === "number" && Number.isFinite(sample.mos) ? sample.mos : null;
+        qualityMosRef.current = mos;
+        publishCallQuality();
+      });
+      call.on("warning", (name) => {
+        const key = normalizeQualityWarningName(name);
+        if (!key) return;
+        qualityWarningsRef.current.add(key);
+        publishCallQuality();
+      });
+      call.on("warning-cleared", (name) => {
+        const key = normalizeQualityWarningName(name);
+        if (!key) return;
+        qualityWarningsRef.current.delete(key);
+        publishCallQuality();
+      });
       call.on("disconnect", () => {
         callRef.current = null;
         setVoiceConnected(false);
         setMuted(false);
+        clearCallQuality();
         if (!sessionSyncRef.current) return;
         endCall();
       });
     },
-    [endCall, markInProgress, sessionSyncRef],
+    [clearCallQuality, endCall, markInProgress, publishCallQuality, sessionSyncRef],
   );
 
   const endOwnedCallOnUnload = useCallback(() => {
@@ -325,6 +368,7 @@ export function TwilioVoiceLine2Provider({ children }) {
         sdkInitializing,
         registered,
         voiceConnected,
+        callQuality,
         toggleMute,
         sendDtmf,
         ensureRegistered,

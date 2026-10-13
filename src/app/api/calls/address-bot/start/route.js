@@ -10,7 +10,7 @@ import {
 import { findLabeledParticipant, setAddressBotSpeaking } from "@/server/calls/addressBotJoin";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { waitForInProgressConference } from "@/server/calls/upgradeToConference";
-import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -59,7 +59,7 @@ export async function POST(req) {
   const origin = getRequestBaseUrlFromRequest(req);
 
   try {
-    const client = getTwilioClient();
+    const { client } = await getTwilioContextForUserId(call.userId);
     const conference = await waitForInProgressConference(client, conferenceName);
     if (!conference?.sid) {
       return NextResponse.json(

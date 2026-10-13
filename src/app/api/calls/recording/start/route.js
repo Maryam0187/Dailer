@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,7 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "twilioSid", "recordingSid", "recordingStatus"],
+    attributes: ["id", "userId", "twilioSid", "recordingSid", "recordingStatus"],
   });
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
 
@@ -51,7 +51,7 @@ export async function POST(req) {
   }
 
   try {
-    const client = getTwilioClient();
+    const { client } = await getTwilioContextForUserId(callLog.userId);
 
     // Subsequent Start clicks just resume the same recording so the final
     // download is one file covering the whole call (with paused gaps skipped).

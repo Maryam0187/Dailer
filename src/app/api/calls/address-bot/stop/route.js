@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { ADDRESS_BOT_LABEL } from "@/server/calls/addressBot";
-import { getTwilioClient } from "@/server/twilio";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,7 @@ export async function POST(req) {
   }
 
   try {
-    const client = getTwilioClient();
+    const { client } = await getTwilioContextForUserId(call.userId);
     const matches = await client.conferences.list({
       friendlyName: name,
       status: "in-progress",

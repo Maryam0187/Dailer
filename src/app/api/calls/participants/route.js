@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { getTwilioClient } from "@/server/twilio";
-
 function extractIdentity(participant) {
   const to = String(participant?.to || "").trim();
   const from = String(participant?.from || "").trim();
@@ -141,7 +139,8 @@ export async function GET(req) {
   if (!callLog) return NextResponse.json({ error: "Call not found" }, { status: 404 });
 
   try {
-    const client = getTwilioClient();
+    const { getTwilioContextForUserId } = await import("@/server/twilio/callOwnerTwilio");
+    const { client } = await getTwilioContextForUserId(callLog.userId);
     const matches = await client.conferences.list({
       friendlyName: conferenceName,
       status: "in-progress",

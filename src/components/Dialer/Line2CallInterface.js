@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useLine2Call } from "@/contexts/Line2CallContext";
 import { useTwilioVoiceLine2 } from "@/contexts/TwilioVoiceLine2Context";
+import CallQualityIndicator from "@/components/Dialer/CallQualityIndicator";
 
 const DTMF_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -20,7 +21,14 @@ function hasResolvedNumericCallId(sess) {
 }
 
 function Line2ActiveCallPanel({ session, hangup }) {
-  const { voiceConnected, muted: sdkMuted, toggleMute, sendDtmf, sdkError } = useTwilioVoiceLine2();
+  const {
+    voiceConnected,
+    muted: sdkMuted,
+    toggleMute,
+    sendDtmf,
+    sdkError,
+    callQuality,
+  } = useTwilioVoiceLine2();
   const [isMinimized, setIsMinimized] = useState(false);
   const [uiMuted, setUiMuted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -125,6 +133,22 @@ function Line2ActiveCallPanel({ session, hangup }) {
                   <div className="font-semibold text-violet-700 dark:text-violet-300">Connecting…</div>
                   <div className="text-xs text-violet-600 dark:text-violet-400">Line 2 — stay on this screen</div>
                 </div>
+              </div>
+            ) : null}
+
+            {session.phase === "in_progress" ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 dark:border-green-900 dark:bg-green-950/40">
+                <div className="flex items-center gap-3">
+                  <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
+                  <div className="text-sm font-semibold text-green-700 dark:text-green-300">
+                    Call connected
+                  </div>
+                </div>
+                <CallQualityIndicator
+                  callQuality={callQuality}
+                  inProgress={voiceConnected}
+                  variant="panel"
+                />
               </div>
             ) : null}
 
