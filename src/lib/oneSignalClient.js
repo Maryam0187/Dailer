@@ -1,9 +1,6 @@
-const SDK_SRC = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-const SCRIPT_ID = "onesignal-sdk-page";
+import OneSignal from "react-onesignal";
 
-let scriptPromise = null;
 let initPromise = null;
-let didInit = false;
 
 function getAppId() {
   return String(process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "").trim();
@@ -17,77 +14,60 @@ export function isOneSignalConfigured() {
   return Boolean(getAppId());
 }
 
-function loadSdkScript() {
-  if (typeof window === "undefined") return Promise.reject(new Error("No window"));
-  if (document.getElementById(SCRIPT_ID) || window.OneSignal) {
-    return Promise.resolve();
+/** Native browser permission: "default" | "granted" | "denied" */
+export function getBrowserNotificationPermission() {
+  if (typeof window === "undefined" || typeof Notification === "undefined") {
+    return "denied";
   }
-  if (scriptPromise) return scriptPromise;
-
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-
-  scriptPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.id = SCRIPT_ID;
-    script.src = SDK_SRC;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => {
-      scriptPromise = null;
-      reject(new Error("OneSignal SDK failed to load"));
-    };
-    document.head.appendChild(script);
-  });
-
-  return scriptPromise;
-}
-
-function withOneSignal(fn) {
-  return new Promise((resolve, reject) => {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal) => {
-      try {
-        resolve(await fn(OneSignal));
-      } catch (err) {
-        reject(err);
-      }
-    });
-  });
+  return Notification.permission;
 }
 
 export async function ensureOneSignalInitialized() {
   const appId = getAppId();
-  if (!appId || typeof window === "undefined") return null;
-
-  await loadSdkScript();
+  if (!appId) {
+    console.warn("[onesignal] NEXT_PUBLIC_ONESIGNAL_APP_ID is not set");
+    return null;
+  }
+  if (typeof window === "undefined") return null;
 
   if (!initPromise) {
-    initPromise = withOneSignal(async (OneSignal) => {
-      if (!didInit) {
-        const options = {
-          appId,
-          allowLocalhostAsSecureOrigin: process.env.NODE_ENV === "development",
-          notifyButton: { enable: false },
-          serviceWorkerPath: "OneSignalSDKWorker.js",
-        };
-        const safariWebId = getSafariWebId();
-        if (safariWebId) options.safari_web_id = safariWebId;
+    initPromise = (async () => {
+      const options = {
+        appId,
+        allowLocalhostAsSecureOrigin: process.env.NODE_ENV === "development",
+        notifyButton: { enable: false },
+        serviceWorkerPath: "OneSignalSDKWorker.js",
+        // Do not auto-prompt; we show our own banner / Slidedown after login.
+        promptOptions: {
+          slidedown: {
+            prompts: [
+              {
+                type: "push",
+                autoPrompt: false,
+                text: {
+                  actionMessage: "Allow notifications so we can reach you when you're away from the dialer.",
+                  acceptButton: "Allow",
+                  cancelButton: "Not now",
+                },
+              },
+            ],
+          },
+        },
+      };
+      const safariWebId = getSafariWebId();
+      if (safariWebId) options.safari_web_id = safariWebId;
 
-        try {
-          await OneSignal.init(options);
-          didInit = true;
-        } catch (err) {
-          const message = String(err?.message || err || "");
-          if (/already initialized|initialized before/i.test(message)) {
-            didInit = true;
-          } else {
-            initPromise = null;
-            throw err;
-          }
+      try {
+        await OneSignal.init(options);
+      } catch (err) {
+        const message = String(err?.message || err || "");
+        if (!/already initialized|initialized before/i.test(message)) {
+          initPromise = null;
+          throw err;
         }
       }
       return OneSignal;
-    });
+    })();
   }
 
   return initPromise;
@@ -97,16 +77,49 @@ export async function loginOneSignalUser(userId) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return;
 
-  const OneSignal = await ensureOneSignalInitialized();
-  if (!OneSignal) return;
+  const sdk = await ensureOneSignalInitialized();
+  if (!sdk) return;
 
   await OneSignal.login(String(id));
+}
 
-  try {
-    if (OneSignal.Notifications?.permission !== true) {
-      await OneSignal.Notifications.requestPermission();
-    }
-  } catch (err) {
-    console.warn("[onesignal] permission request failed", err?.message || err);
+/**
+ * Ask for push when browser permission is still "default".
+ * Prefer Slidedown (user clicks Allow) so Chrome does not silently block it.
+ */
+export async function promptForPushPermission({ force = false } = {}) {
+  const sdk = await ensureOneSignalInitialized();
+  if (!sdk) return { ok: false, reason: "not_configured" };
+
+  if (!OneSignal.Notifications?.isPushSupported?.()) {
+    return { ok: false, reason: "unsupported" };
   }
+
+  const permission = getBrowserNotificationPermission();
+  if (permission === "granted") {
+    try {
+      await OneSignal.User.PushSubscription.optIn();
+    } catch {
+      /* already opted in */
+    }
+    return { ok: true, permission: "granted" };
+  }
+  if (permission === "denied") {
+    return { ok: false, reason: "denied", permission: "denied" };
+  }
+
+  // permission === "default" — show OneSignal slide prompt, then native dialog
+  try {
+    await OneSignal.Slidedown.promptPush({ force: Boolean(force) });
+  } catch (err) {
+    console.warn("[onesignal] Slidedown.promptPush failed, trying native", err?.message || err);
+    try {
+      await OneSignal.Notifications.requestPermission();
+    } catch (nativeErr) {
+      console.warn("[onesignal] requestPermission failed", nativeErr?.message || nativeErr);
+      return { ok: false, reason: "prompt_failed" };
+    }
+  }
+
+  return { ok: true, permission: getBrowserNotificationPermission() };
 }
