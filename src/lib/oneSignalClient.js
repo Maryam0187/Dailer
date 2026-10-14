@@ -4,6 +4,7 @@ import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 let initPromise = null;
 let configPromise = null;
 let runtimeConfig = null;
+let indexedDbOk = null;
 
 function getBuildTimeAppId() {
   return String(process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "").trim();
@@ -11,6 +12,48 @@ function getBuildTimeAppId() {
 
 function getBuildTimeSafariWebId() {
   return String(process.env.NEXT_PUBLIC_ONESIGNAL_SAFARI_WEB_ID || "").trim();
+}
+
+/**
+ * OneSignal requires IndexedDB. Private mode / blocked storage / some Linux
+ * profiles fail with "Internal error opening backing store for indexedDB.open".
+ */
+export async function checkIndexedDbAvailable() {
+  if (typeof window === "undefined") return false;
+  if (indexedDbOk != null) return indexedDbOk;
+
+  if (!window.indexedDB) {
+    indexedDbOk = false;
+    return false;
+  }
+
+  indexedDbOk = await new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      const req = window.indexedDB.open("__dialer_onesignal_idb_probe__");
+      req.onerror = () => done(false);
+      req.onblocked = () => done(false);
+      req.onsuccess = () => {
+        try {
+          req.result?.close?.();
+          window.indexedDB.deleteDatabase("__dialer_onesignal_idb_probe__");
+        } catch {
+          /* ignore */
+        }
+        done(true);
+      };
+      setTimeout(() => done(false), 2500);
+    } catch {
+      done(false);
+    }
+  });
+
+  return indexedDbOk;
 }
 
 /**
@@ -64,16 +107,47 @@ export function isOneSignalConfigured() {
   return Boolean(getBuildTimeAppId());
 }
 
-/** Native browser permission: "default" | "granted" | "denied" */
+/** Native browser permission: "default" | "granted" | "denied" | "unsupported" */
 export function getBrowserNotificationPermission() {
-  if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return "denied";
-  }
+  if (typeof window === "undefined") return "unsupported";
+  if (typeof Notification === "undefined") return "unsupported";
   return Notification.permission;
+}
+
+/**
+ * Whether this browser has an active OneSignal web-push subscription.
+ * Permission can be "granted" while optedIn is still false (common after
+ * switching accounts or before the user taps Enable).
+ */
+export function getPushSubscriptionState() {
+  const permission = getBrowserNotificationPermission();
+  try {
+    const sub = OneSignal?.User?.PushSubscription;
+    return {
+      permission,
+      id: sub?.id ? String(sub.id) : null,
+      optedIn: Boolean(sub?.optedIn),
+    };
+  } catch {
+    return { permission, id: null, optedIn: false };
+  }
+}
+
+export function isDevicePushReady() {
+  const state = getPushSubscriptionState();
+  return state.permission === "granted" && state.optedIn;
 }
 
 export async function ensureOneSignalInitialized() {
   if (typeof window === "undefined") return null;
+
+  const idbOk = await checkIndexedDbAvailable();
+  if (!idbOk) {
+    console.warn(
+      "[onesignal] IndexedDB unavailable — close all tabs for this site and reopen in a normal (non-private) window",
+    );
+    return null;
+  }
 
   const config = await loadOneSignalConfig();
   const appId = config?.appId;
@@ -114,6 +188,12 @@ export async function ensureOneSignalInitialized() {
         await OneSignal.init(options);
       } catch (err) {
         const message = String(err?.message || err || "");
+        if (/indexeddb|backing store|internal error/i.test(message)) {
+          indexedDbOk = false;
+          initPromise = null;
+          console.warn("[onesignal] init failed due to IndexedDB", message);
+          return null;
+        }
         if (!/already initialized|initialized before/i.test(message)) {
           initPromise = null;
           throw err;
@@ -156,7 +236,9 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
   if (!externalId) return null;
 
   const sdk = await ensureOneSignalInitialized();
-  if (!sdk) return null;
+  if (!sdk || typeof OneSignal?.login !== "function") {
+    return null;
+  }
 
   const currentExternalId = String(OneSignal.User?.externalId || "");
 
@@ -165,9 +247,7 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
     return externalId;
   }
 
-  // Only logout when switching from a *different identified* user on a shared browser
-  // (e.g. maryam_5 → john_8). Never logout when current is empty/anonymous or already target —
-  // logout creates a new anonymous user that then conflicts claiming the same alias.
+  // Only logout when switching from a *different identified* user on a shared browser.
   const switchingIdentifiedUser =
     Boolean(currentExternalId) &&
     currentExternalId !== externalId &&
@@ -186,15 +266,19 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
     await OneSignal.login(externalId);
   } catch (err) {
     const message = String(err?.message || err || "");
-    // user-2 / alias claimed: login() should still bind to the existing user; don't logout-retry.
     console.warn("[onesignal] login warning", message || err);
+    // SDK can throw opaque "reading 'Qe'" when IndexedDB/init is broken — don't retry loop.
+    if (/indexeddb|backing store|Qe|undefined/i.test(message)) {
+      indexedDbOk = false;
+      return null;
+    }
     if (!/user-2|Aliases claimed|claimed by another/i.test(message)) {
-      // Soft retry once without logout
       try {
         await new Promise((r) => setTimeout(r, 400));
         await OneSignal.login(externalId);
       } catch (retryErr) {
         console.warn("[onesignal] login retry failed", retryErr?.message || retryErr);
+        return null;
       }
     }
   }
@@ -203,17 +287,10 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
 
   await new Promise((r) => setTimeout(r, 500));
   const linked = getOneSignalExternalId();
-  if (linked !== externalId) {
-    console.warn(
-      "[onesignal] External ID not visible yet after login; expected",
-      externalId,
-      "got",
-      linked,
-    );
-  } else {
+  if (linked === externalId) {
     console.info("[onesignal] linked External ID", linked);
   }
-  return externalId;
+  return linked === externalId ? externalId : null;
 }
 
 function withTimeout(promise, ms, label = "operation") {
@@ -231,10 +308,13 @@ function withTimeout(promise, ms, label = "operation") {
  */
 export async function promptForPushPermission({ force = false } = {}) {
   if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return { ok: false, reason: "unsupported" };
+    return { ok: false, reason: "unsupported", permission: "unsupported" };
   }
 
   let permission = getBrowserNotificationPermission();
+  if (permission === "unsupported") {
+    return { ok: false, reason: "unsupported", permission: "unsupported" };
+  }
   if (permission === "granted") {
     try {
       await ensureOneSignalInitialized();

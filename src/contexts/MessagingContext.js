@@ -216,14 +216,15 @@ export function MessagingProvider({ children }) {
       if (!isSelf) {
         playIncomingMessageSound();
 
-        // Local browser notification when dialer tab is open but not visible.
-        // (OneSignal covers fully closed / offline browsers.)
+        // Browser popup when the chat is not visibly open in this tab.
+        // OneSignal covers the case when the dialer is fully closed.
         try {
+          const tabHidden =
+            typeof document !== "undefined" && document.visibilityState === "hidden";
           if (
-            typeof document !== "undefined" &&
-            document.visibilityState === "hidden" &&
             typeof Notification !== "undefined" &&
-            Notification.permission === "granted"
+            Notification.permission === "granted" &&
+            (!viewingThread || tabHidden)
           ) {
             const sender = message?.author?.username || "New message";
             const bodyText =
@@ -234,11 +235,17 @@ export function MessagingProvider({ children }) {
                   : "You have a new message";
             const n = new Notification(sender, {
               body: bodyText.slice(0, 120),
-              tag: `dialer-msg-${conversationId}`,
+              tag: `dialer-msg-${conversationId}-${message?.id || Date.now()}`,
+              requireInteraction: false,
             });
             n.onclick = () => {
               try {
                 window.focus();
+                window.dispatchEvent(
+                  new CustomEvent("dialer:open-conversation", {
+                    detail: { conversationId },
+                  }),
+                );
               } catch {
                 /* ignore */
               }
@@ -377,6 +384,16 @@ export function MessagingProvider({ children }) {
     setComposeRecipientId(null);
     setInboxOpen(true);
   }, [setActiveConversationId]);
+
+  useEffect(() => {
+    function onOpenFromNotification(event) {
+      const conversationId = Number(event?.detail?.conversationId);
+      if (!Number.isInteger(conversationId) || conversationId <= 0) return;
+      openConversation(conversationId);
+    }
+    window.addEventListener("dialer:open-conversation", onOpenFromNotification);
+    return () => window.removeEventListener("dialer:open-conversation", onOpenFromNotification);
+  }, [openConversation]);
 
   const startCompose = useCallback((recipientUserId = null) => {
     setActiveConversationId(null);

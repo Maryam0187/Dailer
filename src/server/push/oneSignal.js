@@ -47,19 +47,29 @@ async function resolveExternalId(userId, usernameHint = null) {
 function isWebPushSubscription(s) {
   if (!s?.id) return false;
   const type = String(s.type || "");
-  // OneSignal web types: ChromePush, FirefoxPush, SafariPush, etc.
+  // Skip non-push channels
   if (/email|sms|iospush|androidpush|huawei|adm/i.test(type)) return false;
-  if (/chrome|firefox|safari|edge|web/i.test(type)) return true;
-  // Unknown type with a push token — treat as push candidate
+  // ChromePush / FirefoxPush / SafariPush / any chrome/firefox/safari/web label
+  if (/chrome|firefox|safari|edge|web|push/i.test(type)) return true;
+  // FCM web tokens look like https://fcm.googleapis.com/...
+  if (typeof s.token === "string" && /fcm\.googleapis\.com|mozilla\.com|web\.push/i.test(s.token)) {
+    return true;
+  }
   return Boolean(s.token);
 }
 
-function isLikelySubscribed(s) {
-  // enabled false / missing token → skip
+/**
+ * Only clearly Subscribed web push.
+ * Dashboard "Unsubscribed" → notification_types <= 0 (often -2).
+ * Sending to those shows Audience 1 / Unsubscribed 1 / Delivered 0.
+ * Require notification_types >= 1 — do not treat null as subscribed.
+ */
+function isSubscribedPush(s) {
+  if (!isWebPushSubscription(s)) return false;
   if (s.enabled === false) return false;
-  if (!s.token) return false;
-  // notification_types: positive = subscribed; -2 often unsubscribed; null = unknown
-  if (s.notification_types != null && Number(s.notification_types) <= 0) return false;
+  const nt = Number(s.notification_types);
+  if (!Number.isFinite(nt) || nt < 1) return false;
+  // Prefer a real push token when present; some API payloads omit it but still subscribed
   return true;
 }
 
@@ -96,28 +106,45 @@ async function fetchUserPushSubscriptions(externalId) {
     }
 
     const all = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
-    const pushSubs = all.filter((s) => isWebPushSubscription(s) && isLikelySubscribed(s));
-    // If strict filter finds nothing, still try any web-looking id (dashboard may show odd flags)
-    const fallback = pushSubs.length
-      ? pushSubs
-      : all.filter((s) => isWebPushSubscription(s) && s.id);
+    const subscribed = all.filter(isSubscribedPush);
+
+    // Prefer most recently active subscribed device
+    subscribed.sort((a, b) => {
+      const ta = Date.parse(a.last_active || a.updated_at || a.created_at || 0) || 0;
+      const tb = Date.parse(b.last_active || b.updated_at || b.created_at || 0) || 0;
+      return tb - ta;
+    });
+
+    const unsubscribedCount = all.filter(
+      (s) => isWebPushSubscription(s) && s.notification_types != null && Number(s.notification_types) <= 0,
+    ).length;
 
     return {
       found: true,
-      pushCount: fallback.length,
-      subscriptionIds: fallback.map((s) => s.id).filter(Boolean),
-      subscriptions: fallback.map((s) => ({
+      pushCount: subscribed.length,
+      subscriptionIds: subscribed.map((s) => s.id).filter(Boolean),
+      subscriptions: subscribed.map((s) => ({
         id: s.id,
         type: s.type,
         enabled: s.enabled,
         notification_types: s.notification_types,
         hasToken: Boolean(s.token),
+        last_active: s.last_active || null,
+        // Helps tell phone vs desktop in Railway logs / OneSignal Audience
+        device_model: s.device_model || s.device_os || null,
+        device_os: s.device_os || null,
+        sdk: s.sdk || null,
+        session_count: s.session_count ?? null,
       })),
+      unsubscribedCount,
       allTypes: all.map((s) => ({
         id: s.id,
         type: s.type,
         enabled: s.enabled,
         notification_types: s.notification_types,
+        device_model: s.device_model || null,
+        device_os: s.device_os || null,
+        status: s.notification_types != null && Number(s.notification_types) > 0 ? "subscribed" : "unsubscribed_or_unknown",
       })),
       onesignalId: json?.identity?.onesignal_id || null,
     };
@@ -174,11 +201,20 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
   const subInfo = await fetchUserPushSubscriptions(externalId);
   if (!subInfo.found || !subInfo.subscriptionIds.length) {
     console.warn(
-      "[onesignal] no web push subscription for user — log in as that user and Allow notifications",
+      "[onesignal] no Subscribed web push for user — Allow notifications again (ignore Unsubscribed rows)",
       { externalId, userId: id, subInfo },
     );
     return { ok: false, skipped: true, reason: "no_subscription", externalId, subInfo };
   }
+
+  console.info("[onesignal] targeting subscribed devices", {
+    externalId,
+    userId: id,
+    subscriptionIds: subInfo.subscriptionIds,
+    subscriptions: subInfo.subscriptions,
+    unsubscribedIgnored: subInfo.unsubscribedCount || 0,
+    allTypes: subInfo.allTypes,
+  });
 
   const base = {
     app_id: appId,
@@ -189,29 +225,13 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
   if (url) base.url = String(url);
 
   try {
-    // 1) Direct subscription IDs (most reliable for web push)
-    let { res, json } = await postNotification({
+    // Only subscription IDs that passed notification_types >= 1.
+    // Do NOT fall back to external_id alias — that can hit Unsubscribed devices
+    // and produce Audience 1 / Unsubscribed 1 / Delivered 0.
+    const { res, json } = await postNotification({
       ...base,
       include_subscription_ids: subInfo.subscriptionIds,
     });
-
-    // 2) Fallback: external_id alias targeting
-    const aliasNeeded =
-      !res.ok || !json?.id || json?.recipients === 0 || json?.errors;
-    if (aliasNeeded) {
-      console.warn("[onesignal] subscription_ids send weak, trying external_id alias", {
-        status: res.status,
-        externalId,
-        subscriptionIds: subInfo.subscriptionIds,
-        errors: json?.errors || null,
-        recipients: json?.recipients ?? null,
-      });
-      ({ res, json } = await postNotification({
-        ...base,
-        target_channel: "push",
-        include_aliases: { external_id: [externalId] },
-      }));
-    }
 
     if (res.status === 401) {
       console.warn("[onesignal] 401 — invalid REST API key", authInfo);
@@ -240,7 +260,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     }
 
     if (json.recipients === 0) {
-      console.warn("[onesignal] still 0 recipients after subscription_ids + alias", {
+      console.warn("[onesignal] 0 recipients for subscription_ids", {
         externalId,
         userId: id,
         response: json,
@@ -252,7 +272,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     console.info("[onesignal] push sent", {
       externalId,
       userId: id,
-      via: aliasNeeded ? "alias_fallback" : "subscription_ids",
+      via: "subscription_ids",
       subscriptionIds: subInfo.subscriptionIds,
       recipients: json.recipients ?? "n/a",
       id: json.id,
