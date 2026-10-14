@@ -74,7 +74,17 @@ async function getSubscribedIds(externalId) {
     return [];
   }
   const all = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
-  return all.filter(isSubscribedWebPush).map((s) => s.id).filter(Boolean);
+  const subscribed = all.filter(isSubscribedWebPush);
+  console.info(
+    "[onesignal] devices for",
+    externalId,
+    subscribed.map((s) => ({
+      id: s.id,
+      type: s.type,
+      os: s.device_os || s.device_model || null,
+    })),
+  );
+  return subscribed.map((s) => s.id).filter(Boolean);
 }
 
 /**

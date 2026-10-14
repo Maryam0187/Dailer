@@ -48,8 +48,23 @@ export function getBrowserNotificationPermission() {
   return Notification.permission;
 }
 
-export function isPushEnabled() {
-  return getBrowserNotificationPermission() === "granted";
+/** This browser's OneSignal subscription — not shared via Chrome sync / same Google account. */
+export function getLocalPushState() {
+  const permission = getBrowserNotificationPermission();
+  try {
+    const sub = OneSignal?.User?.PushSubscription;
+    const id = sub?.id ? String(sub.id) : null;
+    const optedIn = Boolean(sub?.optedIn);
+    return {
+      permission,
+      id,
+      optedIn,
+      // Ready only when THIS device has a real subscription id
+      ready: permission === "granted" && optedIn && Boolean(id),
+    };
+  } catch {
+    return { permission, id: null, optedIn: false, ready: false };
+  }
 }
 
 export async function ensureOneSignalInitialized() {
@@ -89,12 +104,22 @@ export async function ensureOneSignalInitialized() {
 }
 
 async function optInIfAllowed() {
-  if (getBrowserNotificationPermission() !== "granted") return;
+  if (getBrowserNotificationPermission() !== "granted") return null;
   try {
     await OneSignal.User.PushSubscription.optIn();
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.warn("[onesignal] optIn failed", err?.message || err);
   }
+  // Subscription id can appear a moment after optIn (esp. on mobile Chrome)
+  for (let i = 0; i < 8; i++) {
+    const state = getLocalPushState();
+    if (state.id) {
+      console.info("[onesignal] this device subscription", state.id);
+      return state;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return getLocalPushState();
 }
 
 /** Link this browser to dialer user as <username>_<id>. */
@@ -134,11 +159,11 @@ export async function loginOneSignalUser(userId, username) {
 
 /**
  * Call from a button click only (needs user gesture).
- * Asks Chrome for permission, then opts into OneSignal push.
+ * Asks Chrome for permission, then opts into OneSignal push on THIS device.
  */
 export async function enablePush() {
   if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return { ok: false, permission: "unsupported" };
+    return { ok: false, permission: "unsupported", ready: false };
   }
 
   let permission = Notification.permission;
@@ -146,10 +171,16 @@ export async function enablePush() {
     permission = await Notification.requestPermission();
   }
 
-  if (permission === "granted") {
-    await ensureOneSignalInitialized();
-    await optInIfAllowed();
+  if (permission !== "granted") {
+    return { ok: false, permission, ready: false };
   }
 
-  return { ok: permission === "granted", permission };
+  await ensureOneSignalInitialized();
+  const state = await optInIfAllowed();
+  return {
+    ok: Boolean(state?.ready),
+    permission,
+    ready: Boolean(state?.ready),
+    subscriptionId: state?.id || null,
+  };
 }
