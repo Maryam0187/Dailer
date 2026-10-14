@@ -1,5 +1,4 @@
 import db from "@/server/db";
-import { isUserOnline } from "@/server/socketHub";
 import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 import {
   describeOneSignalAuth,
