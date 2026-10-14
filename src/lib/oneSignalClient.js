@@ -1,17 +1,66 @@
 import OneSignal from "react-onesignal";
 
 let initPromise = null;
+let configPromise = null;
+let runtimeConfig = null;
 
-function getAppId() {
+function getBuildTimeAppId() {
   return String(process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "").trim();
 }
 
-function getSafariWebId() {
+function getBuildTimeSafariWebId() {
   return String(process.env.NEXT_PUBLIC_ONESIGNAL_SAFARI_WEB_ID || "").trim();
 }
 
+/**
+ * Resolve App ID at runtime via /api/push/config so Railway server env works
+ * even when NEXT_PUBLIC_* was missing from the client build.
+ */
+export async function loadOneSignalConfig() {
+  if (runtimeConfig) return runtimeConfig;
+  if (configPromise) return configPromise;
+
+  configPromise = (async () => {
+    const buildAppId = getBuildTimeAppId();
+    const buildSafari = getBuildTimeSafariWebId();
+
+    if (typeof window === "undefined") {
+      runtimeConfig = {
+        enabled: Boolean(buildAppId),
+        appId: buildAppId || null,
+        safariWebId: buildSafari || null,
+      };
+      return runtimeConfig;
+    }
+
+    try {
+      const res = await fetch("/api/push/config", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      runtimeConfig = {
+        enabled: Boolean(json?.appId || buildAppId),
+        appId: String(json?.appId || buildAppId || "").trim() || null,
+        safariWebId: String(json?.safariWebId || buildSafari || "").trim() || null,
+      };
+    } catch (err) {
+      console.warn("[onesignal] failed to load /api/push/config", err?.message || err);
+      runtimeConfig = {
+        enabled: Boolean(buildAppId),
+        appId: buildAppId || null,
+        safariWebId: buildSafari || null,
+      };
+    }
+    return runtimeConfig;
+  })();
+
+  return configPromise;
+}
+
 export function isOneSignalConfigured() {
-  return Boolean(getAppId());
+  if (runtimeConfig) return Boolean(runtimeConfig.appId);
+  return Boolean(getBuildTimeAppId());
 }
 
 /** Native browser permission: "default" | "granted" | "denied" */
@@ -23,12 +72,16 @@ export function getBrowserNotificationPermission() {
 }
 
 export async function ensureOneSignalInitialized() {
-  const appId = getAppId();
+  if (typeof window === "undefined") return null;
+
+  const config = await loadOneSignalConfig();
+  const appId = config?.appId;
   if (!appId) {
-    console.warn("[onesignal] NEXT_PUBLIC_ONESIGNAL_APP_ID is not set");
+    console.warn(
+      "[onesignal] App ID missing. Set ONESIGNAL_APP_ID or NEXT_PUBLIC_ONESIGNAL_APP_ID on the server and redeploy.",
+    );
     return null;
   }
-  if (typeof window === "undefined") return null;
 
   if (!initPromise) {
     initPromise = (async () => {
@@ -37,7 +90,6 @@ export async function ensureOneSignalInitialized() {
         allowLocalhostAsSecureOrigin: process.env.NODE_ENV === "development",
         notifyButton: { enable: false },
         serviceWorkerPath: "OneSignalSDKWorker.js",
-        // Do not auto-prompt; we show our own banner / Slidedown after login.
         promptOptions: {
           slidedown: {
             prompts: [
@@ -45,7 +97,8 @@ export async function ensureOneSignalInitialized() {
                 type: "push",
                 autoPrompt: false,
                 text: {
-                  actionMessage: "Allow notifications so we can reach you when you're away from the dialer.",
+                  actionMessage:
+                    "Allow notifications so we can reach you when you're away from the dialer.",
                   acceptButton: "Allow",
                   cancelButton: "Not now",
                 },
@@ -54,8 +107,7 @@ export async function ensureOneSignalInitialized() {
           },
         },
       };
-      const safariWebId = getSafariWebId();
-      if (safariWebId) options.safari_web_id = safariWebId;
+      if (config.safariWebId) options.safari_web_id = config.safariWebId;
 
       try {
         await OneSignal.init(options);
@@ -108,7 +160,6 @@ export async function promptForPushPermission({ force = false } = {}) {
     return { ok: false, reason: "denied", permission: "denied" };
   }
 
-  // permission === "default" — show OneSignal slide prompt, then native dialog
   try {
     await OneSignal.Slidedown.promptPush({ force: Boolean(force) });
   } catch (err) {

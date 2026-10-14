@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   getBrowserNotificationPermission,
-  isOneSignalConfigured,
+  loadOneSignalConfig,
   loginOneSignalUser,
   promptForPushPermission,
 } from "@/lib/oneSignalClient";
@@ -18,27 +18,36 @@ export default function OneSignalProvider({ userId = null }) {
   );
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const configured = isOneSignalConfigured();
+  const [configured, setConfigured] = useState(false);
+  const [configChecked, setConfigChecked] = useState(false);
 
   const refreshPermission = useCallback(() => {
     setPermission(getBrowserNotificationPermission());
   }, []);
 
   useEffect(() => {
-    if (!configured) {
-      console.warn("[onesignal] NEXT_PUBLIC_ONESIGNAL_APP_ID missing — push disabled");
-      return undefined;
-    }
     const id = Number(userId);
     if (!Number.isInteger(id) || id <= 0) return undefined;
 
     let cancelled = false;
     void (async () => {
       try {
+        const config = await loadOneSignalConfig();
+        if (cancelled) return;
+        const enabled = Boolean(config?.appId);
+        setConfigured(enabled);
+        setConfigChecked(true);
+        if (!enabled) {
+          console.warn(
+            "[onesignal] App ID missing on server. Set ONESIGNAL_APP_ID or NEXT_PUBLIC_ONESIGNAL_APP_ID and redeploy.",
+          );
+          return;
+        }
+
         await loginOneSignalUser(id);
         if (cancelled) return;
         refreshPermission();
-        // Soft ask once when still default (Slidedown = user click → native allow).
+
         if (getBrowserNotificationPermission() === "default") {
           await promptForPushPermission({ force: false });
           if (!cancelled) refreshPermission();
@@ -47,17 +56,17 @@ export default function OneSignalProvider({ userId = null }) {
         }
       } catch (err) {
         console.warn("[onesignal] setup failed", err?.message || err);
+        if (!cancelled) setConfigChecked(true);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [configured, userId, refreshPermission]);
+  }, [userId, refreshPermission]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.Notification) return undefined;
-    // Some browsers fire this when permission changes.
     const onChange = () => refreshPermission();
     try {
       navigator.permissions?.query?.({ name: "notifications" }).then((status) => {
@@ -86,6 +95,7 @@ export default function OneSignalProvider({ userId = null }) {
   }
 
   const showBanner =
+    configChecked &&
     configured &&
     !dismissed &&
     Number(userId) > 0 &&
