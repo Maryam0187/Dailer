@@ -58,6 +58,15 @@ export function isOptedIn() {
   }
 }
 
+export function getLocalSubscriptionId() {
+  try {
+    const id = OneSignal?.User?.PushSubscription?.id;
+    return id ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureOneSignalInitialized() {
   if (typeof window === "undefined") return null;
 
@@ -186,10 +195,45 @@ export async function enablePush() {
   return { ok: permission === "granted" && isOptedIn(), permission, optedIn: isOptedIn() };
 }
 
+/** Turn off push on this browser only (keeps other devices). */
+export async function disablePushOnThisDevice() {
+  const sdk = await ensureOneSignalInitialized();
+  if (!sdk) return { ok: false, reason: "not_configured" };
+  try {
+    await OneSignal.User.PushSubscription.optOut();
+  } catch (err) {
+    console.warn("[onesignal] optOut failed", err?.message || err);
+    return { ok: false, reason: "opt_out_failed" };
+  }
+  return { ok: true, permission: getPermission(), optedIn: isOptedIn() };
+}
+
 /** POST /api/push/test — server sends a push to the logged-in user. */
 export async function sendTestPush() {
   const res = await fetch("/api/push/test", {
     method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  const json = await res.json().catch(() => ({}));
+  return { httpOk: res.ok, status: res.status, ...json };
+}
+
+/** GET /api/push/devices */
+export async function fetchPushDevices() {
+  const res = await fetch("/api/push/devices", {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const json = await res.json().catch(() => ({}));
+  return { httpOk: res.ok, status: res.status, ...json };
+}
+
+/** DELETE /api/push/devices/:id */
+export async function removePushDevice(subscriptionId) {
+  const res = await fetch(`/api/push/devices/${encodeURIComponent(subscriptionId)}`, {
+    method: "DELETE",
     credentials: "include",
     headers: { Accept: "application/json" },
   });

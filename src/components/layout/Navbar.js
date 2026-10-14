@@ -152,6 +152,13 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
     });
   }
 
+  items.push({
+    href: "/profile",
+    label: "Profile",
+    active: pathname === "/profile",
+    palette: "amber",
+  });
+
   if (accessMode !== "limited" && role !== "admin" && canTrainAddressBot) {
     items.push({
       href: "/address-bot",

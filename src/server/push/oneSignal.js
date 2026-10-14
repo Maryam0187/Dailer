@@ -41,31 +41,119 @@ async function resolveExternalId(userId, usernameHint = null) {
   return toOneSignalExternalId(id, username);
 }
 
-function isSubscribedWebPush(s) {
-  if (!s?.id || s.enabled === false) return false;
-  const type = String(s.type || "");
-  if (/email|sms|iospush|androidpush|huawei|adm/i.test(type)) return false;
+function summarizeSubscription(s) {
   const nt = Number(s.notification_types);
-  return Number.isFinite(nt) && nt >= 1;
+  const subscribed = Number.isFinite(nt) && nt >= 1 && s.enabled !== false;
+  const type = String(s.type || "web");
+  return {
+    id: s.id,
+    type,
+    label: /chrome/i.test(type)
+      ? "Chrome"
+      : /firefox/i.test(type)
+        ? "Firefox"
+        : /safari/i.test(type)
+          ? "Safari"
+          : /edge/i.test(type)
+            ? "Edge"
+            : type || "Web",
+    subscribed,
+    enabled: s.enabled !== false,
+    notification_types: s.notification_types ?? null,
+    device_os: s.device_os || null,
+    device_model: s.device_model || null,
+    last_active: s.last_active || s.updated_at || s.created_at || null,
+    session_count: s.session_count ?? null,
+  };
 }
 
-async function getSubscribedIds(externalId) {
+function isWebPushChannel(s) {
+  if (!s?.id) return false;
+  const type = String(s.type || "");
+  if (/email|sms|iospush|androidpush|huawei|adm/i.test(type)) return false;
+  return true;
+}
+
+/** All web-push subscriptions for External ID (subscribed + unsubscribed). */
+export async function listPushDevicesForExternalId(externalId) {
   const appId = getOneSignalAppId();
   const apiKey = getOneSignalRestApiKey();
-  if (!appId || !apiKey || !externalId) return [];
+  if (!appId || !apiKey || !externalId) {
+    return { ok: false, reason: "not_configured", devices: [] };
+  }
 
   const res = await fetch(
     `https://api.onesignal.com/apps/${encodeURIComponent(appId)}/users/by/external_id/${encodeURIComponent(externalId)}`,
     { headers: { Authorization: `Key ${apiKey}`, Accept: "application/json" } },
   );
-  if (res.status === 404) return [];
+  if (res.status === 404) {
+    return { ok: true, found: false, externalId, devices: [] };
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     console.warn("[onesignal] user lookup failed", res.status, json?.errors || json);
-    return [];
+    return { ok: false, reason: "lookup_failed", status: res.status, devices: [] };
   }
+
   const all = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
-  return all.filter(isSubscribedWebPush).map((s) => s.id).filter(Boolean);
+  const devices = all.filter(isWebPushChannel).map(summarizeSubscription);
+  devices.sort((a, b) => {
+    if (a.subscribed !== b.subscribed) return a.subscribed ? -1 : 1;
+    const ta = Date.parse(a.last_active || 0) || 0;
+    const tb = Date.parse(b.last_active || 0) || 0;
+    return tb - ta;
+  });
+
+  return {
+    ok: true,
+    found: true,
+    externalId,
+    onesignalId: json?.identity?.onesignal_id || null,
+    devices,
+    subscribedCount: devices.filter((d) => d.subscribed).length,
+  };
+}
+
+export async function listPushDevicesForUser(userId, usernameHint = null) {
+  const externalId = await resolveExternalId(userId, usernameHint);
+  if (!externalId) return { ok: false, reason: "invalid_user", devices: [] };
+  return listPushDevicesForExternalId(externalId);
+}
+
+/** Delete one subscription (must belong to this External ID). */
+export async function deletePushSubscription(externalId, subscriptionId) {
+  const appId = getOneSignalAppId();
+  const apiKey = getOneSignalRestApiKey();
+  const subId = String(subscriptionId || "").trim();
+  if (!appId || !apiKey || !externalId || !subId) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  const listed = await listPushDevicesForExternalId(externalId);
+  if (!listed.ok) return { ok: false, reason: listed.reason || "lookup_failed" };
+  if (!listed.devices.some((d) => d.id === subId)) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const res = await fetch(
+    `https://api.onesignal.com/apps/${encodeURIComponent(appId)}/subscriptions/${encodeURIComponent(subId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Key ${apiKey}`, Accept: "application/json" },
+    },
+  );
+  if (res.status !== 202 && res.status !== 200 && res.status !== 204) {
+    const json = await res.json().catch(() => ({}));
+    console.warn("[onesignal] delete subscription failed", res.status, json);
+    return { ok: false, reason: "delete_failed", status: res.status, error: json };
+  }
+  return { ok: true, subscriptionId: subId };
+}
+
+async function getSubscribedIds(externalId) {
+  const listed = await listPushDevicesForExternalId(externalId);
+  if (!listed.ok) return [];
+  return listed.devices.filter((d) => d.subscribed).map((d) => d.id);
 }
 
 /**
