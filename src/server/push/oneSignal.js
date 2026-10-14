@@ -1,16 +1,11 @@
 import db from "@/server/db";
 import { isUserOnline } from "@/server/socketHub";
 import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
-
-function getAppId() {
-  return String(
-    process.env.ONESIGNAL_APP_ID || process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "",
-  ).trim();
-}
-
-function getRestApiKey() {
-  return String(process.env.ONESIGNAL_REST_API_KEY || "").trim();
-}
+import {
+  describeOneSignalAuth,
+  getOneSignalAppId,
+  getOneSignalRestApiKey,
+} from "@/server/push/oneSignalEnv";
 
 function getAppBaseUrl() {
   const raw =
@@ -18,7 +13,7 @@ function getAppBaseUrl() {
     process.env.TWILIO_WEBHOOK_BASE_URL ||
     process.env.RAILWAY_PUBLIC_DOMAIN ||
     "";
-  let base = String(raw).trim().replace(/\/$/, "");
+  let base = String(raw).trim().replace(/\/$/, "").replace(/^["']|["']$/g, "");
   if (base && !/^https?:\/\//i.test(base)) {
     base = `https://${base}`;
   }
@@ -49,9 +44,59 @@ async function resolveExternalId(userId, usernameHint = null) {
   return toOneSignalExternalId(id, username);
 }
 
+async function fetchUserPushSubscriptions(externalId) {
+  const appId = getOneSignalAppId();
+  const apiKey = getOneSignalRestApiKey();
+  if (!appId || !apiKey || !externalId) {
+    return { found: false, pushCount: 0, subscriptions: [], error: "not_configured" };
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.onesignal.com/apps/${encodeURIComponent(appId)}/users/by/external_id/${encodeURIComponent(externalId)}`,
+      {
+        headers: {
+          Authorization: `Key ${apiKey}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 404) {
+      return { found: false, pushCount: 0, subscriptions: [], error: "user_not_found" };
+    }
+    if (!res.ok) {
+      return { found: false, pushCount: 0, subscriptions: [], error: json?.errors || json, status: res.status };
+    }
+
+    const subscriptions = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
+    const pushSubs = subscriptions.filter((s) => {
+      const type = String(s?.type || "").toLowerCase();
+      const isPush = type.includes("chrome") || type.includes("firefox") || type.includes("safari") || type.includes("push") || type === "web";
+      const enabled = s?.enabled !== false;
+      // notification_types > 0 means subscribed; negative often means unsubscribed
+      const optedIn = s?.notification_types == null || Number(s.notification_types) > 0;
+      return isPush && enabled && optedIn && s?.token;
+    });
+
+    return {
+      found: true,
+      pushCount: pushSubs.length,
+      subscriptions: pushSubs.map((s) => ({
+        id: s.id,
+        type: s.type,
+        enabled: s.enabled,
+        notification_types: s.notification_types,
+      })),
+      onesignalId: json?.identity?.onesignal_id || null,
+    };
+  } catch (err) {
+    return { found: false, pushCount: 0, subscriptions: [], error: err?.message || String(err) };
+  }
+}
+
 /**
  * Send a web push to every subscription linked to this dialer userId (external_id).
- * Fire-and-forget safe: never throws to callers.
  */
 export async function sendPushToUser(userId, { title, body, url, username } = {}) {
   const id = Number(userId);
@@ -59,10 +104,17 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     return { ok: false, skipped: true, reason: "invalid_user" };
   }
 
-  const appId = getAppId();
-  const apiKey = getRestApiKey();
+  const appId = getOneSignalAppId();
+  const apiKey = getOneSignalRestApiKey();
+  const authInfo = describeOneSignalAuth();
+
   if (!appId || !apiKey) {
-    return { ok: false, skipped: true, reason: "not_configured" };
+    console.warn("[onesignal] not configured", authInfo);
+    return { ok: false, skipped: true, reason: "not_configured", auth: authInfo };
+  }
+
+  if (!authInfo.restApiKeyLooksValid) {
+    console.warn("[onesignal] REST API key looks wrong", authInfo);
   }
 
   const externalId = await resolveExternalId(id, username);
@@ -70,49 +122,52 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     return { ok: false, skipped: true, reason: "invalid_user" };
   }
 
-  const basePayload = {
+  const subInfo = await fetchUserPushSubscriptions(externalId);
+  if (!subInfo.found || subInfo.pushCount === 0) {
+    console.warn("[onesignal] no active web push subscription for user — they must Allow notifications while logged in", {
+      externalId,
+      userId: id,
+      subInfo,
+    });
+    return {
+      ok: false,
+      skipped: true,
+      reason: "no_subscription",
+      externalId,
+      subInfo,
+    };
+  }
+
+  const payload = {
     app_id: appId,
+    target_channel: "push",
+    include_aliases: { external_id: [externalId] },
+    isAnyWeb: true,
     headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
     contents: { en: truncate(body || "You have a new message", 120) || "You have a new message" },
-    isAnyWeb: true,
   };
-  if (url) basePayload.url = String(url);
+  if (url) payload.url = String(url);
 
-  async function postNotification(payload) {
+  try {
     const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
+        Accept: "application/json",
         Authorization: `Key ${apiKey}`,
       },
       body: JSON.stringify(payload),
     });
     const json = await res.json().catch(() => ({}));
-    return { res, json };
-  }
 
-  try {
-    // User Model targeting
-    let { res, json } = await postNotification({
-      ...basePayload,
-      target_channel: "push",
-      include_aliases: { external_id: [externalId] },
-    });
-
-    // Fallback for apps still on classic External User Ids targeting
-    if (!res.ok || !json?.id || json?.recipients === 0) {
-      console.warn("[onesignal] aliases send weak/failed, retrying include_external_user_ids", {
-        status: res.status,
-        externalId,
-        userId: id,
-        errors: json?.errors || null,
-        recipients: json?.recipients ?? null,
+    if (res.status === 401) {
+      console.warn("[onesignal] 401 — invalid REST API key", {
+        ...authInfo,
+        hint:
+          authInfo.hint ||
+          "Create/rotate App API key in OneSignal → Settings → Keys & IDs. Paste the os_v2_app_… value into Railway ONESIGNAL_REST_API_KEY with no quotes, then redeploy.",
       });
-      ({ res, json } = await postNotification({
-        ...basePayload,
-        include_external_user_ids: [externalId],
-        channel_for_external_user_ids: "push",
-      }));
+      return { ok: false, status: 401, reason: "invalid_api_key", externalId, auth: authInfo, error: json };
     }
 
     if (!res.ok) {
@@ -124,17 +179,42 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
       });
       return { ok: false, status: res.status, error: json, externalId };
     }
-    const recipients = json?.recipients ?? null;
-    if (!json?.id || recipients === 0) {
-      console.warn("[onesignal] send reached API but 0 recipients — check External ID in OneSignal", {
+
+    // Newer OneSignal responses often omit `recipients` (null). An `id` means accepted.
+    if (!json?.id) {
+      console.warn("[onesignal] accepted request but no message id", {
         externalId,
         userId: id,
         response: json,
+        subInfo,
       });
-      return { ok: false, skipped: true, reason: "no_recipients", externalId, response: json };
+      return { ok: false, skipped: true, reason: "no_message_id", externalId, response: json, subInfo };
     }
-    console.info("[onesignal] push sent", { externalId, userId: id, recipients, id: json.id });
-    return { ok: true, id: json.id, recipients, externalId };
+
+    if (json.recipients === 0) {
+      console.warn("[onesignal] 0 recipients despite subscription lookup", {
+        externalId,
+        userId: id,
+        response: json,
+        subInfo,
+      });
+      return { ok: false, skipped: true, reason: "no_recipients", externalId, response: json, subInfo };
+    }
+
+    console.info("[onesignal] push sent", {
+      externalId,
+      userId: id,
+      recipients: json.recipients ?? "n/a",
+      pushSubscriptions: subInfo.pushCount,
+      id: json.id,
+    });
+    return {
+      ok: true,
+      id: json.id,
+      recipients: json.recipients ?? null,
+      externalId,
+      pushSubscriptions: subInfo.pushCount,
+    };
   } catch (err) {
     console.warn("[onesignal] send error", err?.message || err);
     return { ok: false, error: err?.message || String(err) };
@@ -142,11 +222,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
 }
 
 /**
- * Push a new-message alert to the recipient's registered browsers.
- *
- * Presence sockets stay up in background tabs, so "online" used to skip push
- * exactly when the user was away from the dialer UI. We only skip when the
- * REST key/app is missing; live tabs still get Socket.IO as well.
+ * Push on new message (all registered devices for that user).
  */
 export function notifyOfflineMessage(userId, { title, body, conversationId } = {}) {
   const id = Number(userId);

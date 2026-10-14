@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  describeOneSignalAuth,
+  getOneSignalAppId,
+  getOneSignalSafariWebId,
+} from "@/server/push/oneSignalEnv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,18 +13,18 @@ export const dynamic = "force-dynamic";
  * App ID is not secret; REST API key is never returned.
  */
 export async function GET() {
-  const appId = String(
-    process.env.ONESIGNAL_APP_ID || process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "",
-  ).trim();
-  const safariWebId = String(
-    process.env.ONESIGNAL_SAFARI_WEB_ID ||
-      process.env.NEXT_PUBLIC_ONESIGNAL_SAFARI_WEB_ID ||
-      "",
-  ).trim();
+  const appId = getOneSignalAppId();
+  const safariWebId = getOneSignalSafariWebId();
+  const auth = describeOneSignalAuth();
 
   return NextResponse.json({
     enabled: Boolean(appId),
     appId: appId || null,
     safariWebId: safariWebId || null,
+    // Safe diagnostics for admins debugging Railway env (no secret values).
+    serverPushReady: Boolean(auth.hasAppId && auth.hasRestApiKey && auth.restApiKeyLooksValid),
+    restApiKeyConfigured: auth.hasRestApiKey,
+    restApiKeyLooksValid: auth.restApiKeyLooksValid,
+    hint: auth.hint,
   });
 }
