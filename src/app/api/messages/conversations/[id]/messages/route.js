@@ -8,6 +8,7 @@ import {
   stripMessageModerationFlags,
 } from "@/server/messages/messageAccess";
 import { emitToUser } from "@/server/socketHub";
+import { buildMessagePushCopy, notifyOfflineMessage } from "@/server/push/oneSignal";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,20 @@ export async function POST(req, { params }) {
     emitToUser(recipientId, "message:new", {
       conversationId: access.conversation.id,
       message: stripMessageModerationFlags(result.message),
+    });
+
+    const hasAttachments = Array.isArray(result.message?.attachments)
+      ? result.message.attachments.length > 0
+      : false;
+    const push = buildMessagePushCopy({
+      senderName: authedUser.username || result.message?.author?.username,
+      messageBody: result.message?.body,
+      hasAttachments,
+    });
+    notifyOfflineMessage(recipientId, {
+      title: push.title,
+      body: push.body,
+      conversationId: access.conversation.id,
     });
   }
 

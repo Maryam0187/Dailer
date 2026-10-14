@@ -13,6 +13,7 @@ import IvrStaffAlert from "@/components/layout/IvrStaffAlert";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
 import ShiftLogoutGuard from "@/components/layout/ShiftLogoutGuard";
 import ActivityTracker from "@/components/layout/ActivityTracker";
+import OneSignalProvider from "@/components/push/OneSignalProvider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 export default function MainAppShell({
@@ -32,6 +33,7 @@ export default function MainAppShell({
             <TwilioVoiceLine2Provider>
               <MessagingProvider>
                 <ThemeProvider>
+                  <OneSignalProvider userId={currentUserId} />
                   {outsideManager ? null : <ActivityTracker />}
                   {outsideManager ? null : <ShiftLogoutGuard />}
                   {outsideManager ? null : <VoiceLockBanner />}

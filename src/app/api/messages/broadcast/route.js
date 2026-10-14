@@ -5,6 +5,7 @@ import {
   stripMessageModerationFlags,
 } from "@/server/messages/messageAccess";
 import { emitToUser } from "@/server/socketHub";
+import { buildMessagePushCopy, notifyOfflineMessage } from "@/server/push/oneSignal";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,11 @@ export async function POST(req) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
+  const push = buildMessagePushCopy({
+    senderName: authedUser.username,
+    messageBody: payload?.body,
+  });
+
   for (const item of result.sent) {
     emitToUser(item.userId, "message:new", {
       conversationId: item.conversationId,
@@ -44,6 +50,11 @@ export async function POST(req) {
       conversationId: item.conversationId,
       message: item.message,
       self: true,
+    });
+    notifyOfflineMessage(item.userId, {
+      title: push.title,
+      body: push.body,
+      conversationId: item.conversationId,
     });
   }
 

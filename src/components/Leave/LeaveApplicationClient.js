@@ -210,6 +210,9 @@ export default function LeaveApplicationClient({ username }) {
   async function onLogout() {
     setLoggingOut(true);
     try {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+      }
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
       router.push("/sign-in?mode=leave");
     } catch {
