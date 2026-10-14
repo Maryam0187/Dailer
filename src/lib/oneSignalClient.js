@@ -151,7 +151,6 @@ export async function loginOneSignalUser(userId, username) {
     }
     try {
       await OneSignal.login(externalId);
-      console.info("[onesignal] linked", externalId);
     } catch (err) {
       console.warn("[onesignal] login failed", err?.message || err);
       return null;

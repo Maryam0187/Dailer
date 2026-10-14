@@ -116,6 +116,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/security",
     },
     {
+      href: "/push-devices",
+      label: "Push devices",
+      active: pathname === "/push-devices",
+    },
+    {
       href: "/sql-health",
       label: "SQL health",
       active: pathname === "/sql-health",
