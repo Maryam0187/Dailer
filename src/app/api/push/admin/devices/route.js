@@ -1,70 +1,62 @@
 import { NextResponse } from "next/server";
-import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import db from "@/server/db";
-import { listPushDevicesForUsers } from "@/server/push/oneSignal";
+import { requireAdmin } from "@/server/auth/requireAdmin";
+import { listPushDevicesForAllUsers, listPushDevicesForUser } from "@/server/push/oneSignal";
 import { describeOneSignalAuth } from "@/server/push/oneSignalEnv";
-import { getNotificationScheduleForUser } from "@/server/push/notificationSchedule";
+import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
+import db from "@/server/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/push/admin/devices — all users' push devices (admin only). */
-export async function GET() {
-  const authedUser = await getAuthedUser();
-  if (!authedUser) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (authedUser.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+/**
+ * GET /api/push/admin/devices
+ * Admin only — all users' OneSignal web push subscriptions.
+ * Optional ?userId= for a single user.
+ */
+export async function GET(req) {
+  const { errorResponse } = await requireAdmin();
+  if (errorResponse) return errorResponse;
 
   const auth = describeOneSignalAuth();
   if (!auth.serverPushReady) {
-    return NextResponse.json({
-      ok: false,
-      users: [],
-      auth: { serverPushReady: false, hint: auth.hint },
-      error: auth.hint || "Push not configured",
-    });
+    return NextResponse.json(
+      { ok: false, error: auth.hint || "Push not configured", auth },
+      { status: 503 },
+    );
   }
 
-  const users = await db.User.findAll({
-    attributes: ["id", "username", "role", "active"],
-    order: [["username", "ASC"]],
-  });
+  const url = new URL(req.url);
+  const userIdParam = url.searchParams.get("userId");
+  const includeInactive = url.searchParams.get("inactive") === "1";
 
-  const rows = await listPushDevicesForUsers(
-    users.map((u) => ({
-      id: u.id,
-      username: u.username,
-      role: u.role,
-      active: u.active,
-    })),
-  );
-
-  const withSchedule = [];
-  for (const row of rows) {
-    const schedule = await getNotificationScheduleForUser(row.userId);
-    withSchedule.push({
-      ...row,
-      schedule: {
-        scheduleEnabled: schedule.scheduleEnabled,
-        inQuietHours: schedule.inQuietHours,
-        timezone: schedule.timezone,
-        allowStartLocal: schedule.allowStartLocal,
-        allowEndLocal: schedule.allowEndLocal,
-        allowDaysLabels: schedule.allowDaysLabels,
+  if (userIdParam != null) {
+    const userId = Number(userIdParam);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return NextResponse.json({ ok: false, error: "Invalid userId" }, { status: 400 });
+    }
+    const user = await db.User.findByPk(userId, {
+      attributes: ["id", "username", "role", "isActive"],
+    });
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
+    }
+    const listed = await listPushDevicesForUser(user.id, user.username);
+    return NextResponse.json({
+      ok: true,
+      user: {
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        isActive: Boolean(user.isActive),
+        externalId: listed.externalId || toOneSignalExternalId(user.id, user.username),
+        onesignalId: listed.onesignalId || null,
+        found: Boolean(listed.found),
+        subscribedCount: listed.subscribedCount ?? 0,
+        devices: listed.devices || [],
       },
     });
   }
 
-  return NextResponse.json({
-    ok: true,
-    users: withSchedule,
-    totals: {
-      users: withSchedule.length,
-      withDevices: withSchedule.filter((u) => u.subscribedCount > 0).length,
-      subscribedDevices: withSchedule.reduce((n, u) => n + (u.subscribedCount || 0), 0),
-    },
-  });
+  const listed = await listPushDevicesForAllUsers({ activeOnly: !includeInactive });
+  return NextResponse.json(listed);
 }

@@ -106,6 +106,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/ivr-notifications",
     },
     {
+      href: "/push-subscriptions",
+      label: "Push subscriptions",
+      active: pathname === "/push-subscriptions",
+    },
+    {
       href: "/address-bot",
       label: "Address bot",
       active: pathname === "/address-bot",
@@ -114,11 +119,6 @@ function buildAdminDropdownItems(pathname) {
       href: "/security",
       label: "Security",
       active: pathname === "/security",
-    },
-    {
-      href: "/push-devices",
-      label: "Push devices",
-      active: pathname === "/push-devices",
     },
     {
       href: "/sql-health",

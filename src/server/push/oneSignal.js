@@ -1,11 +1,11 @@
 import db from "@/server/db";
+import { isUserOnline } from "@/server/socketHub";
 import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 import {
   describeOneSignalAuth,
   getOneSignalAppId,
   getOneSignalRestApiKey,
 } from "@/server/push/oneSignalEnv";
-import { isUserInQuietHours } from "@/server/push/notificationSchedule";
 
 function getAppBaseUrl() {
   const raw =
@@ -43,6 +43,7 @@ async function resolveExternalId(userId, usernameHint = null) {
 
 function summarizeSubscription(s) {
   const nt = Number(s.notification_types);
+  const subscribed = Number.isFinite(nt) && nt >= 1 && s.enabled !== false;
   const type = String(s.type || "web");
   return {
     id: s.id,
@@ -56,8 +57,7 @@ function summarizeSubscription(s) {
           : /edge/i.test(type)
             ? "Edge"
             : type || "Web",
-    subscribed: Number.isFinite(nt) && nt >= 1 && s.enabled !== false,
-    hasToken: Boolean(s.token),
+    subscribed,
     enabled: s.enabled !== false,
     notification_types: s.notification_types ?? null,
     device_os: s.device_os || null,
@@ -91,7 +91,7 @@ export async function listPushDevicesForExternalId(externalId) {
   }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.warn("[onesignal] user lookup failed", res.status);
+    console.warn("[onesignal] user lookup failed", res.status, json?.errors || json);
     return { ok: false, reason: "lookup_failed", status: res.status, devices: [] };
   }
 
@@ -120,27 +120,63 @@ export async function listPushDevicesForUser(userId, usernameHint = null) {
   return listPushDevicesForExternalId(externalId);
 }
 
-/** Admin: devices for many dialer users (sequential to avoid rate limits). */
-export async function listPushDevicesForUsers(users) {
-  const out = [];
-  for (const u of users) {
-    const externalId = toOneSignalExternalId(u.id, u.username);
-    const listed = externalId
-      ? await listPushDevicesForExternalId(externalId)
-      : { ok: false, devices: [], subscribedCount: 0 };
-    out.push({
-      userId: u.id,
-      username: u.username,
-      role: u.role,
-      active: u.active !== false,
-      externalId,
+async function mapPool(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      results[i] = await mapper(items[i], i);
+    }
+  }
+  const n = Math.min(concurrency, Math.max(items.length, 1));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
+/**
+ * Admin: list push devices for every dialer user (batched OneSignal lookups).
+ */
+export async function listPushDevicesForAllUsers({ activeOnly = true } = {}) {
+  const where = activeOnly ? { isActive: true } : {};
+  const users = await db.User.findAll({
+    where,
+    attributes: ["id", "username", "role", "isActive"],
+    order: [["username", "ASC"]],
+  });
+
+  const rows = await mapPool(users, 6, async (user) => {
+    const listed = await listPushDevicesForUser(user.id, user.username);
+    return {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      isActive: Boolean(user.isActive),
+      externalId: listed.externalId || toOneSignalExternalId(user.id, user.username),
       onesignalId: listed.onesignalId || null,
       found: Boolean(listed.found),
-      subscribedCount: listed.subscribedCount || 0,
+      subscribedCount: listed.subscribedCount ?? 0,
+      deviceCount: Array.isArray(listed.devices) ? listed.devices.length : 0,
       devices: listed.devices || [],
-    });
-  }
-  return out;
+      ok: listed.ok !== false,
+    };
+  });
+
+  const subscribedUsers = rows.filter((r) => r.subscribedCount > 0).length;
+  const totalDevices = rows.reduce((sum, r) => sum + r.deviceCount, 0);
+  const totalSubscribed = rows.reduce((sum, r) => sum + r.subscribedCount, 0);
+
+  return {
+    ok: true,
+    users: rows,
+    summary: {
+      userCount: rows.length,
+      subscribedUsers,
+      totalDevices,
+      totalSubscribed,
+    },
+  };
 }
 
 /** Delete one subscription (must belong to this External ID). */
@@ -166,8 +202,9 @@ export async function deletePushSubscription(externalId, subscriptionId) {
     },
   );
   if (res.status !== 202 && res.status !== 200 && res.status !== 204) {
-    console.warn("[onesignal] delete subscription failed", res.status);
-    return { ok: false, reason: "delete_failed", status: res.status };
+    const json = await res.json().catch(() => ({}));
+    console.warn("[onesignal] delete subscription failed", res.status, json);
+    return { ok: false, reason: "delete_failed", status: res.status, error: json };
   }
   return { ok: true, subscriptionId: subId };
 }
@@ -175,12 +212,12 @@ export async function deletePushSubscription(externalId, subscriptionId) {
 async function getSubscribedIds(externalId) {
   const listed = await listPushDevicesForExternalId(externalId);
   if (!listed.ok) return [];
-  return listed.devices.filter((d) => d.subscribed && d.id).map((d) => d.id);
+  return listed.devices.filter((d) => d.subscribed).map((d) => d.id);
 }
 
 /**
  * Send web push to every Subscribed device for this dialer user.
- * ONLY include_subscription_ids — do not mix isAnyWeb (causes "No recipients").
+ * Uses include_subscription_ids (aliases often return "No recipients").
  */
 export async function sendPushToUser(userId, { title, body, url, username } = {}) {
   const id = Number(userId);
@@ -193,6 +230,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
   const auth = describeOneSignalAuth();
 
   if (!appId || !apiKey) {
+    console.warn("[onesignal] not configured", auth);
     return { ok: false, skipped: true, reason: "not_configured", auth };
   }
 
@@ -210,21 +248,11 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
   }
 
   if (!subscriptionIds.length) {
+    console.warn("[onesignal] no subscribed devices", { externalId, userId: id });
     return { ok: false, skipped: true, reason: "no_subscription", externalId };
   }
 
   try {
-    const payload = {
-      app_id: appId,
-      include_subscription_ids: subscriptionIds,
-      target_channel: "push",
-      headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
-      contents: {
-        en: truncate(body || "You have a new message", 120) || "You have a new message",
-      },
-    };
-    if (url) payload.url = String(url);
-
     const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
@@ -232,7 +260,16 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
         Accept: "application/json",
         Authorization: `Key ${apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        app_id: appId,
+        include_subscription_ids: subscriptionIds,
+        headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
+        contents: {
+          en: truncate(body || "You have a new message", 120) || "You have a new message",
+        },
+        isAnyWeb: true,
+        ...(url ? { url: String(url) } : {}),
+      }),
     });
     const json = await res.json().catch(() => ({}));
 
@@ -240,31 +277,14 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
       console.warn("[onesignal] 401 — REST key wrong", auth);
       return { ok: false, status: 401, reason: "invalid_api_key", auth, error: json };
     }
-
-    const messageId = typeof json?.id === "string" ? json.id.trim() : "";
-    const recipients = Number(json?.recipients);
-    const noRecipients =
-      !messageId ||
-      recipients === 0 ||
-      (Array.isArray(json?.errors) &&
-        json.errors.some((e) => /not subscribed|no.*recipient|no.*subscriber/i.test(String(e))));
-
-    if (!res.ok || noRecipients) {
-      console.warn("[onesignal] send failed", { status: res.status, externalId, error: json?.errors || json });
-      return {
-        ok: false,
-        status: res.status,
-        reason: messageId && recipients === 0 ? "no_recipients" : "send_failed",
-        error: json,
-        externalId,
-        subscriptionIds,
-      };
+    if (!res.ok || !json?.id) {
+      console.warn("[onesignal] send failed", { status: res.status, externalId, error: json });
+      return { ok: false, status: res.status, error: json, externalId };
     }
 
     return {
       ok: true,
-      id: messageId,
-      recipients: json.recipients ?? null,
+      id: json.id,
       externalId,
       subscriptionIds,
       pushSubscriptions: subscriptionIds.length,
@@ -275,13 +295,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
   }
 }
 
-/**
- * Enqueue push for a message. Skips when recipient is in quiet hours unless notifyAnyway.
- */
-export function notifyOfflineMessage(
-  userId,
-  { title, body, conversationId, notifyAnyway = false } = {},
-) {
+export function notifyOfflineMessage(userId, { title, body, conversationId } = {}) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return;
 
@@ -292,18 +306,7 @@ export function notifyOfflineMessage(
       : "/messages";
   const url = base ? `${base}${path}` : path;
 
-  void (async () => {
-    if (!notifyAnyway) {
-      try {
-        if (await isUserInQuietHours(id)) {
-          return;
-        }
-      } catch {
-        /* send if schedule check fails */
-      }
-    }
-    void sendPushToUser(id, { title, body, url });
-  })();
+  void sendPushToUser(id, { title, body, url });
 }
 
 export function buildMessagePushCopy({ senderName, messageBody, hasAttachments = false } = {}) {
