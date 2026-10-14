@@ -23,17 +23,17 @@ module.exports = (sequelize, DataTypes) => {
       timezone: {
         type: DataTypes.STRING(64),
         allowNull: false,
-        defaultValue: "Asia/Karachi",
+        defaultValue: "America/New_York",
       },
       allowStartLocal: {
         type: DataTypes.STRING(5),
         allowNull: false,
-        defaultValue: "09:00",
+        defaultValue: "08:00",
       },
       allowEndLocal: {
         type: DataTypes.STRING(5),
         allowNull: false,
-        defaultValue: "18:00",
+        defaultValue: "21:00",
       },
       allowDays: {
         type: DataTypes.JSON,

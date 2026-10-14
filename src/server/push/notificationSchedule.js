@@ -1,15 +1,20 @@
 import db from "@/server/db";
 
-const DEFAULT_TIMEZONE = "Asia/Karachi";
+const DEFAULT_TIMEZONE = "America/New_York";
+const DEFAULT_ALLOW_START = "08:00";
+const DEFAULT_ALLOW_END = "21:00";
 const DEFAULT_ALLOW_DAYS = [1, 2, 3, 4, 5];
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const TIMEZONE_OPTIONS = [
+  { value: "America/New_York", label: "US Eastern" },
+  { value: "America/Chicago", label: "US Central" },
+  { value: "America/Denver", label: "US Mountain" },
+  { value: "America/Los_Angeles", label: "US Pacific" },
   { value: "Asia/Karachi", label: "Pakistan (PKT)" },
   { value: "Asia/Dubai", label: "UAE (GST)" },
   { value: "Asia/Kolkata", label: "India (IST)" },
   { value: "Europe/London", label: "UK (GMT/BST)" },
-  { value: "America/New_York", label: "US Eastern" },
   { value: "UTC", label: "UTC" },
 ];
 
@@ -88,8 +93,8 @@ export function isWithinAllowWindow(settings, now = new Date()) {
 export function serializeNotificationSchedule(row) {
   const scheduleEnabled = Boolean(row?.scheduleEnabled);
   const timezone = row?.timezone || DEFAULT_TIMEZONE;
-  const allowStartLocal = normalizeHhmm(row?.allowStartLocal, "09:00");
-  const allowEndLocal = normalizeHhmm(row?.allowEndLocal, "18:00");
+  const allowStartLocal = normalizeHhmm(row?.allowStartLocal, DEFAULT_ALLOW_START);
+  const allowEndLocal = normalizeHhmm(row?.allowEndLocal, DEFAULT_ALLOW_END);
   const allowDays = normalizeAllowDays(row?.allowDays);
   const inQuietHours =
     scheduleEnabled &&
@@ -147,8 +152,8 @@ export async function upsertNotificationSchedule(userId, input = {}) {
   const timezone = TIMEZONE_OPTIONS.some((t) => t.value === input.timezone)
     ? input.timezone
     : DEFAULT_TIMEZONE;
-  const allowStartLocal = normalizeHhmm(input.allowStartLocal, "09:00");
-  const allowEndLocal = normalizeHhmm(input.allowEndLocal, "18:00");
+  const allowStartLocal = normalizeHhmm(input.allowStartLocal, DEFAULT_ALLOW_START);
+  const allowEndLocal = normalizeHhmm(input.allowEndLocal, DEFAULT_ALLOW_END);
   const allowDays = normalizeAllowDays(input.allowDays);
 
   const [row] = await db.UserNotificationSetting.findOrCreate({
