@@ -43,30 +43,20 @@ export async function loadOneSignalConfig() {
   return configPromise;
 }
 
-export function getBrowserNotificationPermission() {
-  if (typeof window === "undefined" || typeof Notification === "undefined") return "unsupported";
-  return Notification.permission;
-}
-
-/** This browser's OneSignal subscription — not shared via Chrome sync / same Google account. */
-export function getLocalPushState() {
-  const permission = getBrowserNotificationPermission();
+function isOptedIn() {
   try {
-    const sub = OneSignal?.User?.PushSubscription;
-    const id = sub?.id ? String(sub.id) : null;
-    const optedIn = Boolean(sub?.optedIn);
-    return {
-      permission,
-      id,
-      optedIn,
-      // Hide banner once this browser opted in (subscription id can lag a second)
-      ready: permission === "granted" && optedIn,
-    };
+    return Boolean(OneSignal?.User?.PushSubscription?.optedIn);
   } catch {
-    return { permission, id: null, optedIn: false, ready: false };
+    return false;
   }
 }
 
+/**
+ * OneSignal built-ins only:
+ * - Slidedown soft prompt (auto)
+ * - Subscription Bell (re-subscribe on any device)
+ * - Welcome notification after Allow
+ */
 export async function ensureOneSignalInitialized() {
   if (typeof window === "undefined") return null;
 
@@ -81,8 +71,54 @@ export async function ensureOneSignalInitialized() {
       const options = {
         appId: config.appId,
         allowLocalhostAsSecureOrigin: process.env.NODE_ENV === "development",
-        notifyButton: { enable: false },
         serviceWorkerPath: "OneSignalSDKWorker.js",
+        autoResubscribe: true,
+        welcomeNotification: {
+          title: "Dialer",
+          message: "Notifications enabled on this device.",
+        },
+        // OneSignal Subscription Bell — use this on phone/desktop to Allow again
+        notifyButton: {
+          enable: true,
+          size: "medium",
+          position: "bottom-right",
+          prenotify: true,
+          showCredit: false,
+          text: {
+            "tip.state.unsubscribed": "Subscribe to message alerts",
+            "tip.state.subscribed": "Message alerts on",
+            "tip.state.blocked": "Notifications blocked — unblock in site settings",
+            "message.prenotify": "Click to enable message alerts",
+            "message.action.subscribed": "Thanks for subscribing!",
+            "message.action.resubscribed": "You're subscribed again",
+            "message.action.unsubscribed": "You won't receive alerts",
+            "dialog.main.title": "Message notifications",
+            "dialog.main.button.subscribe": "Allow",
+            "dialog.main.button.unsubscribe": "Unsubscribe",
+            "dialog.blocked.title": "Unblock notifications",
+            "dialog.blocked.message": "Follow these instructions to allow notifications:",
+          },
+        },
+        // OneSignal Slidedown → then browser native Allow
+        promptOptions: {
+          slidedown: {
+            prompts: [
+              {
+                type: "push",
+                autoPrompt: true,
+                text: {
+                  actionMessage: "Get dialer message alerts on this device.",
+                  acceptButton: "Allow",
+                  cancelButton: "No Thanks",
+                },
+                delay: {
+                  pageViews: 1,
+                  timeDelay: 1,
+                },
+              },
+            ],
+          },
+        },
       };
       if (config.safariWebId) options.safari_web_id = config.safariWebId;
 
@@ -104,22 +140,37 @@ export async function ensureOneSignalInitialized() {
 }
 
 async function optInIfAllowed() {
-  if (getBrowserNotificationPermission() !== "granted") return null;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   try {
     await OneSignal.User.PushSubscription.optIn();
-  } catch (err) {
-    console.warn("[onesignal] optIn failed", err?.message || err);
+  } catch {
+    /* ignore */
   }
-  // Subscription id can appear a moment after optIn (esp. on mobile Chrome)
-  for (let i = 0; i < 8; i++) {
-    const state = getLocalPushState();
-    if (state.id) {
-      console.info("[onesignal] this device subscription", state.id);
-      return state;
+}
+
+/** OneSignal Slidedown (built-in). force=true if still not opted in after autoPrompt. */
+export async function promptOneSignalPush({ force = false } = {}) {
+  const sdk = await ensureOneSignalInitialized();
+  if (!sdk) return;
+
+  if (isOptedIn()) {
+    await optInIfAllowed();
+    return;
+  }
+
+  if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+    return;
+  }
+
+  try {
+    if (OneSignal.Slidedown?.promptPush) {
+      await OneSignal.Slidedown.promptPush({ force });
     }
-    await new Promise((r) => setTimeout(r, 250));
+  } catch (err) {
+    console.warn("[onesignal] Slidedown failed", err?.message || err);
   }
-  return getLocalPushState();
+
+  await optInIfAllowed();
 }
 
 /** Link this browser to dialer user as <username>_<id>. */
@@ -131,56 +182,30 @@ export async function loginOneSignalUser(userId, username) {
   if (!sdk) return null;
 
   const current = String(OneSignal.User?.externalId || "");
-  if (current === externalId) {
-    await optInIfAllowed();
-    return externalId;
-  }
-
-  // Switching accounts on a shared browser
-  if (current && current !== externalId && !current.startsWith("local-")) {
+  if (current !== externalId) {
+    if (current && !current.startsWith("local-")) {
+      try {
+        await OneSignal.logout();
+      } catch {
+        /* ignore */
+      }
+    }
     try {
-      await OneSignal.logout();
-    } catch {
-      /* ignore */
+      await OneSignal.login(externalId);
+      console.info("[onesignal] linked", externalId);
+    } catch (err) {
+      console.warn("[onesignal] login failed", err?.message || err);
+      return null;
     }
   }
 
-  try {
-    await OneSignal.login(externalId);
-  } catch (err) {
-    console.warn("[onesignal] login failed", err?.message || err);
-    return null;
-  }
-
   await optInIfAllowed();
-  console.info("[onesignal] linked", externalId);
+
+  // If autoPrompt didn't subscribe this device yet, show Slidedown again
+  if (!isOptedIn()) {
+    await new Promise((r) => setTimeout(r, 1200));
+    await promptOneSignalPush({ force: true });
+  }
+
   return externalId;
-}
-
-/**
- * Call from a button click only (needs user gesture).
- * Asks Chrome for permission, then opts into OneSignal push on THIS device.
- */
-export async function enablePush() {
-  if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return { ok: false, permission: "unsupported", ready: false };
-  }
-
-  let permission = Notification.permission;
-  if (permission === "default") {
-    permission = await Notification.requestPermission();
-  }
-
-  if (permission !== "granted") {
-    return { ok: false, permission, ready: false };
-  }
-
-  await ensureOneSignalInitialized();
-  const state = await optInIfAllowed();
-  return {
-    ok: Boolean(state?.ready),
-    permission,
-    ready: Boolean(state?.ready),
-    subscriptionId: state?.id || null,
-  };
 }
