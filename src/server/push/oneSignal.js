@@ -70,19 +70,15 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     return { ok: false, skipped: true, reason: "invalid_user" };
   }
 
-  const payload = {
+  const basePayload = {
     app_id: appId,
-    target_channel: "push",
-    include_aliases: { external_id: [externalId] },
     headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
     contents: { en: truncate(body || "You have a new message", 120) || "You have a new message" },
+    isAnyWeb: true,
   };
+  if (url) basePayload.url = String(url);
 
-  if (url) {
-    payload.url = String(url);
-  }
-
-  try {
+  async function postNotification(payload) {
     const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
@@ -92,11 +88,53 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
       body: JSON.stringify(payload),
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.warn("[onesignal] send failed", res.status, json?.errors || json);
-      return { ok: false, status: res.status, error: json };
+    return { res, json };
+  }
+
+  try {
+    // User Model targeting
+    let { res, json } = await postNotification({
+      ...basePayload,
+      target_channel: "push",
+      include_aliases: { external_id: [externalId] },
+    });
+
+    // Fallback for apps still on classic External User Ids targeting
+    if (!res.ok || !json?.id || json?.recipients === 0) {
+      console.warn("[onesignal] aliases send weak/failed, retrying include_external_user_ids", {
+        status: res.status,
+        externalId,
+        userId: id,
+        errors: json?.errors || null,
+        recipients: json?.recipients ?? null,
+      });
+      ({ res, json } = await postNotification({
+        ...basePayload,
+        include_external_user_ids: [externalId],
+        channel_for_external_user_ids: "push",
+      }));
     }
-    return { ok: true, id: json?.id || null, recipients: json?.recipients ?? null };
+
+    if (!res.ok) {
+      console.warn("[onesignal] send failed", {
+        status: res.status,
+        externalId,
+        userId: id,
+        errors: json?.errors || json,
+      });
+      return { ok: false, status: res.status, error: json, externalId };
+    }
+    const recipients = json?.recipients ?? null;
+    if (!json?.id || recipients === 0) {
+      console.warn("[onesignal] send reached API but 0 recipients — check External ID in OneSignal", {
+        externalId,
+        userId: id,
+        response: json,
+      });
+      return { ok: false, skipped: true, reason: "no_recipients", externalId, response: json };
+    }
+    console.info("[onesignal] push sent", { externalId, userId: id, recipients, id: json.id });
+    return { ok: true, id: json.id, recipients, externalId };
   } catch (err) {
     console.warn("[onesignal] send error", err?.message || err);
     return { ok: false, error: err?.message || String(err) };
@@ -104,13 +142,17 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
 }
 
 /**
- * If the recipient has no active dialer socket, push to all their registered browsers.
+ * Push a new-message alert to the recipient's registered browsers.
+ *
+ * Presence sockets stay up in background tabs, so "online" used to skip push
+ * exactly when the user was away from the dialer UI. We only skip when the
+ * REST key/app is missing; live tabs still get Socket.IO as well.
  */
 export function notifyOfflineMessage(userId, { title, body, conversationId } = {}) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return;
-  if (isUserOnline(id)) return;
 
+  const online = isUserOnline(id);
   const base = getAppBaseUrl();
   const path =
     conversationId != null && Number(conversationId) > 0
@@ -118,6 +160,7 @@ export function notifyOfflineMessage(userId, { title, body, conversationId } = {
       : "/messages";
   const url = base ? `${base}${path}` : path;
 
+  console.info("[onesignal] message push enqueue", { userId: id, online });
   void sendPushToUser(id, { title, body, url });
 }
 
