@@ -145,8 +145,11 @@ export function getOneSignalExternalId() {
 
 /**
  * Link this browser subscription to dialer userId (OneSignal external_id).
- * Uses <username>_<id> (avoids OneSignal rejecting bare "1" for admin).
- * @param {{ force?: boolean }} [options] force=true always logout+login to repair orphan subscriptions
+ * Uses <username>_<id>.
+ *
+ * Important: do NOT logout()+login() when the External ID already exists on
+ * another OneSignal user — that causes user-2 "Aliases claimed by another User".
+ * Just call login(externalId); OneSignal switches this subscription to that user.
  */
 export async function loginOneSignalUser(userId, username, { force = false } = {}) {
   const externalId = toOneSignalExternalId(userId, username);
@@ -162,47 +165,42 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
     return externalId;
   }
 
-  // Reset when forcing, or when switching away from a bad/old id (e.g. raw "1").
-  if (force || (currentExternalId && currentExternalId !== externalId)) {
+  // Only logout when switching from a *different identified* user on a shared browser
+  // (e.g. maryam_5 → john_8). Never logout when current is empty/anonymous or already target —
+  // logout creates a new anonymous user that then conflicts claiming the same alias.
+  const switchingIdentifiedUser =
+    Boolean(currentExternalId) &&
+    currentExternalId !== externalId &&
+    !currentExternalId.startsWith("local-");
+
+  if (switchingIdentifiedUser) {
     try {
       await OneSignal.logout();
+      await new Promise((r) => setTimeout(r, 200));
     } catch {
       /* ignore */
     }
-    await new Promise((r) => setTimeout(r, 300));
-  }
-
-  async function tryLogin() {
-    await OneSignal.login(externalId);
   }
 
   try {
-    await tryLogin();
+    await OneSignal.login(externalId);
   } catch (err) {
-    console.warn(
-      "[onesignal] login failed, resetting local identity and retrying",
-      err?.message || err,
-    );
-    try {
-      await OneSignal.logout();
-    } catch {
-      /* ignore */
-    }
-    await new Promise((r) => setTimeout(r, 400));
-    try {
-      await tryLogin();
-    } catch (retryErr) {
-      console.warn(
-        "[onesignal] login retry failed — clear site data for this origin and allow notifications again",
-        retryErr?.message || retryErr,
-      );
-      throw retryErr;
+    const message = String(err?.message || err || "");
+    // user-2 / alias claimed: login() should still bind to the existing user; don't logout-retry.
+    console.warn("[onesignal] login warning", message || err);
+    if (!/user-2|Aliases claimed|claimed by another/i.test(message)) {
+      // Soft retry once without logout
+      try {
+        await new Promise((r) => setTimeout(r, 400));
+        await OneSignal.login(externalId);
+      } catch (retryErr) {
+        console.warn("[onesignal] login retry failed", retryErr?.message || retryErr);
+      }
     }
   }
 
   await ensurePushOptedInQuietly();
 
-  // Give the SDK a moment to persist aliases, then log what we see.
   await new Promise((r) => setTimeout(r, 500));
   const linked = getOneSignalExternalId();
   if (linked !== externalId) {

@@ -50,12 +50,11 @@ export default function OneSignalProvider({ userId = null, username = null }) {
           return;
         }
 
-        // Always force-link so External ID becomes <username>_<id> without a banner click.
-        await loginOneSignalUser(id, username, { force: true });
+        // login() only — do not logout first (causes user-2 alias conflicts for admin_1).
+        await loginOneSignalUser(id, username, { force: false });
         if (cancelled) return;
         refreshPermission();
 
-        // OneSignal sometimes updates aliases a moment later — retry once if still mismatched.
         await new Promise((r) => setTimeout(r, 800));
         if (cancelled) return;
         const linked = getOneSignalExternalId();
@@ -115,7 +114,7 @@ export default function OneSignalProvider({ userId = null, username = null }) {
 
       if ((result?.permission === "granted" || permissionResult === "granted") && Number(userId) > 0 && username) {
         try {
-          await loginOneSignalUser(userId, username, { force: true });
+          await loginOneSignalUser(userId, username, { force: false });
         } catch (err) {
           console.warn("[onesignal] post-permission login failed", err?.message || err);
         }
