@@ -70,15 +70,19 @@ export default function OneSignalProvider({ userId = null, username = null }) {
 
       if (result.permission === "denied") {
         window.alert(
-          "Notifications blocked on this phone. Chrome menu → Settings → Site settings → Notifications → Allow, then reload.",
+          "Notifications blocked. Site settings → Notifications → Allow, then reload.",
         );
       } else if (result.permission === "unsupported") {
         window.alert(
           "Use Chrome on Android. On iPhone: Share → Add to Home Screen, open from that icon, then tap Enable.",
         );
+      } else if (result.permission === "granted") {
+        // This browser is done — phone still needs its own Enable (not synced)
+        setDeviceReady(true);
+        setDismissed(true);
       } else if (!result.ready) {
         window.alert(
-          "Permission is on, but this phone is not subscribed yet. Keep Chrome open, tap Enable again, or clear site data for the dialer and retry.",
+          "Could not subscribe this browser yet. Tap Enable again, or reload and retry.",
         );
       }
     } finally {
@@ -104,10 +108,10 @@ export default function OneSignalProvider({ userId = null, username = null }) {
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
         <p className="min-w-0 flex-1">
           {permission === "denied"
-            ? "Notifications are blocked on this device."
+            ? "Notifications are blocked in this browser."
             : syncedButNotSubscribed
-              ? "This phone still needs to subscribe for alerts (desktop Allow does not cover the phone)."
-              : "Enable notifications on this device for message alerts."}
+              ? "Notifications look allowed, but this browser is not subscribed yet. Tap Enable once."
+              : "Enable notifications on this browser for message alerts."}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -116,7 +120,7 @@ export default function OneSignalProvider({ userId = null, username = null }) {
             onClick={() => void onEnable()}
             className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-60 dark:bg-sky-600 dark:hover:bg-sky-500"
           >
-            {busy ? "…" : permission === "denied" ? "How to enable" : "Enable on this phone"}
+            {busy ? "…" : permission === "denied" ? "How to enable" : "Enable notifications"}
           </button>
           <button
             type="button"

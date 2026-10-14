@@ -59,8 +59,8 @@ export function getLocalPushState() {
       permission,
       id,
       optedIn,
-      // Ready only when THIS device has a real subscription id
-      ready: permission === "granted" && optedIn && Boolean(id),
+      // Hide banner once this browser opted in (subscription id can lag a second)
+      ready: permission === "granted" && optedIn,
     };
   } catch {
     return { permission, id: null, optedIn: false, ready: false };
