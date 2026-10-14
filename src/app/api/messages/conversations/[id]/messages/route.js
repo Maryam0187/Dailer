@@ -90,7 +90,6 @@ export async function POST(req, { params }) {
       title: push.title,
       body: push.body,
       conversationId: access.conversation.id,
-      notifyAnyway: Boolean(body?.notifyAnyway),
     });
   }
 

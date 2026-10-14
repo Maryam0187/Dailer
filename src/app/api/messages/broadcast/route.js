@@ -55,7 +55,6 @@ export async function POST(req) {
       title: push.title,
       body: push.body,
       conversationId: item.conversationId,
-      notifyAnyway: Boolean(payload?.notifyAnyway),
     });
   }
 

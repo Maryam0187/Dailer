@@ -13,7 +13,6 @@ import {
   removePushDevice,
   sendTestPush,
 } from "@/lib/oneSignalClient";
-import NotificationScheduleSection from "@/components/Profile/NotificationScheduleSection";
 
 function formatWhen(iso) {
   if (!iso) return "—";
@@ -183,8 +182,6 @@ export default function ProfileClient({ userId, username, role = null }) {
           ) : null}
         </dl>
       </section>
-
-      <NotificationScheduleSection />
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex flex-wrap items-start justify-between gap-3">

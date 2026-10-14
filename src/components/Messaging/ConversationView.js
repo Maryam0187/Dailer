@@ -258,8 +258,6 @@ export default function ConversationView({
   // WhatsApp-style: show a divider before this message id
   const [dividerBeforeId, setDividerBeforeId] = useState(null);
   const [nearBottom, setNearBottom] = useState(true);
-  const [peerInQuietHours, setPeerInQuietHours] = useState(false);
-  const [notifyAnyway, setNotifyAnyway] = useState(false);
   const bottomRef = useRef(null);
   const listRef = useRef(null);
   const dividerRef = useRef(null);
@@ -610,35 +608,6 @@ export default function ConversationView({
     [conversation?.peer?.username],
   );
 
-  const peerUserId = conversation?.peer?.id;
-
-  useEffect(() => {
-    setNotifyAnyway(false);
-    setPeerInQuietHours(false);
-    const id = Number(peerUserId);
-    if (!Number.isInteger(id) || id <= 0 || conversation?.isOversight) return undefined;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/push/schedule/status?userId=${id}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok) {
-          setPeerInQuietHours(Boolean(json.inQuietHours));
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [peerUserId, conversation?.isOversight, conversationId]);
-
   const newMessageCount = useMemo(() => {
     if (!dividerBeforeId) return 0;
     const idx = messages.findIndex((m) => Number(m.id) === Number(dividerBeforeId));
@@ -888,11 +857,7 @@ export default function ConversationView({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          body,
-          attachmentIds: readyAttachmentIds,
-          notifyAnyway: peerInQuietHours && notifyAnyway,
-        }),
+        body: JSON.stringify({ body, attachmentIds: readyAttachmentIds }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1236,22 +1201,6 @@ export default function ConversationView({
               className="block w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
             />
           </div>
-          {peerInQuietHours ? (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
-              <span>
-                {peerLabel} has notifications paused (quiet hours). Message still sends in chat.
-              </span>
-              <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold">
-                <input
-                  type="checkbox"
-                  checked={notifyAnyway}
-                  onChange={(e) => setNotifyAnyway(e.target.checked)}
-                  className="rounded border-amber-400"
-                />
-                Notify anyway
-              </label>
-            </div>
-          ) : null}
           <div className="mt-2 flex items-center justify-end gap-1.5">
             <button
               type="button"

@@ -40,7 +40,6 @@ const userAttendanceStatsModelFactory = require("./UserAttendanceStats");
 const attendancePointLogModelFactory = require("./AttendancePointLog");
 const userAttendanceBadgeModelFactory = require("./UserAttendanceBadge");
 const attendanceDailyRecordModelFactory = require("./AttendanceDailyRecord");
-const userNotificationSettingModelFactory = require("./UserNotificationSetting");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -127,7 +126,6 @@ db.UserAttendanceStats = userAttendanceStatsModelFactory(sequelize, Sequelize.Da
 db.AttendancePointLog = attendancePointLogModelFactory(sequelize, Sequelize.DataTypes);
 db.UserAttendanceBadge = userAttendanceBadgeModelFactory(sequelize, Sequelize.DataTypes);
 db.AttendanceDailyRecord = attendanceDailyRecordModelFactory(sequelize, Sequelize.DataTypes);
-db.UserNotificationSetting = userNotificationSettingModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];
