@@ -46,14 +46,9 @@ export default function OneSignalProvider({ userId = null }) {
 
         await loginOneSignalUser(id);
         if (cancelled) return;
+        // Do not auto-open OneSignal Slidedown — only the top banner asks,
+        // then the popup runs after the user clicks Enable.
         refreshPermission();
-
-        if (getBrowserNotificationPermission() === "default") {
-          await promptForPushPermission({ force: false });
-          if (!cancelled) refreshPermission();
-        } else if (getBrowserNotificationPermission() === "granted") {
-          await promptForPushPermission({ force: false });
-        }
       } catch (err) {
         console.warn("[onesignal] setup failed", err?.message || err);
         if (!cancelled) setConfigChecked(true);

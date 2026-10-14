@@ -133,6 +133,15 @@ export async function loginOneSignalUser(userId) {
   if (!sdk) return;
 
   await OneSignal.login(String(id));
+
+  // Already allowed in this browser — ensure subscription is active (no UI).
+  if (getBrowserNotificationPermission() === "granted") {
+    try {
+      await OneSignal.User.PushSubscription.optIn();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /**
@@ -160,10 +169,16 @@ export async function promptForPushPermission({ force = false } = {}) {
     return { ok: false, reason: "denied", permission: "denied" };
   }
 
+  // Banner already explained why — go straight to the native browser dialog
+  // (avoids OneSignal Slidedown + Chrome prompt both appearing).
   try {
-    await OneSignal.Slidedown.promptPush({ force: Boolean(force) });
+    if (force) {
+      await OneSignal.Notifications.requestPermission();
+    } else {
+      await OneSignal.Slidedown.promptPush({ force: false });
+    }
   } catch (err) {
-    console.warn("[onesignal] Slidedown.promptPush failed, trying native", err?.message || err);
+    console.warn("[onesignal] permission prompt failed", err?.message || err);
     try {
       await OneSignal.Notifications.requestPermission();
     } catch (nativeErr) {

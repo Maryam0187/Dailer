@@ -215,6 +215,39 @@ export function MessagingProvider({ children }) {
 
       if (!isSelf) {
         playIncomingMessageSound();
+
+        // Local browser notification when dialer tab is open but not visible.
+        // (OneSignal covers fully closed / offline browsers.)
+        try {
+          if (
+            typeof document !== "undefined" &&
+            document.visibilityState === "hidden" &&
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted"
+          ) {
+            const sender = message?.author?.username || "New message";
+            const bodyText =
+              typeof message?.body === "string" && message.body.trim()
+                ? message.body.trim()
+                : Array.isArray(message?.attachments) && message.attachments.length
+                  ? "Sent an attachment"
+                  : "You have a new message";
+            const n = new Notification(sender, {
+              body: bodyText.slice(0, 120),
+              tag: `dialer-msg-${conversationId}`,
+            });
+            n.onclick = () => {
+              try {
+                window.focus();
+              } catch {
+                /* ignore */
+              }
+              n.close();
+            };
+          }
+        } catch {
+          /* ignore notification failures */
+        }
       }
 
       setConversations((prev) => {
