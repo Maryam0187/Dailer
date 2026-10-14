@@ -96,12 +96,24 @@ export default function OneSignalProvider({ userId = null, username = null }) {
   }, [refreshPermission]);
 
   async function onEnableClick() {
+    // Request permission BEFORE any setState/await so Chrome keeps the user gesture.
+    let permissionResult = "default";
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        permissionResult = await Notification.requestPermission();
+      } else if (typeof Notification !== "undefined") {
+        permissionResult = Notification.permission;
+      }
+    } catch (err) {
+      console.warn("[onesignal] native permission failed", err?.message || err);
+    }
+
     setBusy(true);
     try {
       const result = await promptForPushPermission({ force: true });
       refreshPermission();
 
-      if (result?.permission === "granted" && Number(userId) > 0 && username) {
+      if ((result?.permission === "granted" || permissionResult === "granted") && Number(userId) > 0 && username) {
         try {
           await loginOneSignalUser(userId, username, { force: true });
         } catch (err) {
@@ -109,11 +121,12 @@ export default function OneSignalProvider({ userId = null, username = null }) {
         }
       }
 
-      if (result?.permission === "denied" || result?.reason === "denied") {
+      const finalPermission = result?.permission || permissionResult || getBrowserNotificationPermission();
+      if (finalPermission === "denied" || result?.reason === "denied") {
         window.alert(
           "Notifications are blocked for this site. Click the lock icon in the address bar → Notifications → Allow, then reload.",
         );
-      } else if (result?.reason === "prompt_failed") {
+      } else if (finalPermission === "default" || result?.reason === "prompt_failed") {
         window.alert(
           "Could not open the notification prompt. Check the lock icon → Site settings → Notifications is set to Ask, then try again.",
         );
