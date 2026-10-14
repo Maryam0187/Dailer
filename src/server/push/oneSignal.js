@@ -14,9 +14,7 @@ function getAppBaseUrl() {
     process.env.RAILWAY_PUBLIC_DOMAIN ||
     "";
   let base = String(raw).trim().replace(/\/$/, "").replace(/^["']|["']$/g, "");
-  if (base && !/^https?:\/\//i.test(base)) {
-    base = `https://${base}`;
-  }
+  if (base && !/^https?:\/\//i.test(base)) base = `https://${base}`;
   return base;
 }
 
@@ -43,10 +41,8 @@ async function resolveExternalId(userId, usernameHint = null) {
   return toOneSignalExternalId(id, username);
 }
 
-/** Subscribed web-push only (skip Unsubscribed / email / sms). */
 function isSubscribedWebPush(s) {
-  if (!s?.id) return false;
-  if (s.enabled === false) return false;
+  if (!s?.id || s.enabled === false) return false;
   const type = String(s.type || "");
   if (/email|sms|iospush|androidpush|huawei|adm/i.test(type)) return false;
   const nt = Number(s.notification_types);
@@ -60,12 +56,7 @@ async function getSubscribedIds(externalId) {
 
   const res = await fetch(
     `https://api.onesignal.com/apps/${encodeURIComponent(appId)}/users/by/external_id/${encodeURIComponent(externalId)}`,
-    {
-      headers: {
-        Authorization: `Key ${apiKey}`,
-        Accept: "application/json",
-      },
-    },
+    { headers: { Authorization: `Key ${apiKey}`, Accept: "application/json" } },
   );
   if (res.status === 404) return [];
   const json = await res.json().catch(() => ({}));
@@ -74,22 +65,12 @@ async function getSubscribedIds(externalId) {
     return [];
   }
   const all = Array.isArray(json?.subscriptions) ? json.subscriptions : [];
-  const subscribed = all.filter(isSubscribedWebPush);
-  console.info(
-    "[onesignal] devices for",
-    externalId,
-    subscribed.map((s) => ({
-      id: s.id,
-      type: s.type,
-      os: s.device_os || s.device_model || null,
-    })),
-  );
-  return subscribed.map((s) => s.id).filter(Boolean);
+  return all.filter(isSubscribedWebPush).map((s) => s.id).filter(Boolean);
 }
 
 /**
  * Send web push to every Subscribed device for this dialer user.
- * Uses subscription IDs (alias targeting often returns "No recipients").
+ * Uses include_subscription_ids (aliases often return "No recipients").
  */
 export async function sendPushToUser(userId, { title, body, url, username } = {}) {
   const id = Number(userId);
@@ -116,7 +97,7 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     subscriptionIds = await getSubscribedIds(externalId);
   } catch (err) {
     console.warn("[onesignal] subscription lookup error", err?.message || err);
-    return { ok: false, error: err?.message || String(err) };
+    return { ok: false, error: err?.message || String(err), externalId };
   }
 
   if (!subscriptionIds.length) {
@@ -136,7 +117,9 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
         app_id: appId,
         include_subscription_ids: subscriptionIds,
         headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
-        contents: { en: truncate(body || "You have a new message", 120) || "You have a new message" },
+        contents: {
+          en: truncate(body || "You have a new message", 120) || "You have a new message",
+        },
         isAnyWeb: true,
         ...(url ? { url: String(url) } : {}),
       }),
@@ -144,10 +127,9 @@ export async function sendPushToUser(userId, { title, body, url, username } = {}
     const json = await res.json().catch(() => ({}));
 
     if (res.status === 401) {
-      console.warn("[onesignal] 401 — REST key wrong (must be os_v2_app_…)", auth);
+      console.warn("[onesignal] 401 — REST key wrong", auth);
       return { ok: false, status: 401, reason: "invalid_api_key", auth, error: json };
     }
-
     if (!res.ok || !json?.id) {
       console.warn("[onesignal] send failed", { status: res.status, externalId, error: json });
       return { ok: false, status: res.status, error: json, externalId };
@@ -190,8 +172,6 @@ export function notifyOfflineMessage(userId, { title, body, conversationId } = {
 export function buildMessagePushCopy({ senderName, messageBody, hasAttachments = false } = {}) {
   const title = truncate(senderName || "New message", 50) || "New message";
   let body = truncate(messageBody, 120);
-  if (!body) {
-    body = hasAttachments ? "Sent an attachment" : "You have a new message";
-  }
+  if (!body) body = hasAttachments ? "Sent an attachment" : "You have a new message";
   return { title, body };
 }

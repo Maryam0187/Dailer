@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Public OneSignal web config for the browser.
- * App ID is not secret; REST API key is never returned.
+ * GET /api/push/config
+ * Public web config for the browser. Never returns the REST API key.
  */
 export async function GET() {
   const appId = getOneSignalAppId();
@@ -18,13 +18,10 @@ export async function GET() {
   const auth = describeOneSignalAuth();
 
   return NextResponse.json({
-    enabled: Boolean(appId),
     appId: appId || null,
     safariWebId: safariWebId || null,
-    // Safe diagnostics for admins debugging Railway env (no secret values).
-    serverPushReady: Boolean(auth.hasAppId && auth.hasRestApiKey && auth.restApiKeyLooksValid),
-    restApiKeyConfigured: auth.hasRestApiKey,
-    restApiKeyLooksValid: auth.restApiKeyLooksValid,
+    enabled: Boolean(appId),
+    serverPushReady: auth.serverPushReady,
     hint: auth.hint,
   });
 }

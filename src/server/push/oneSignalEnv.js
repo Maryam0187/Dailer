@@ -1,6 +1,8 @@
 /**
- * Normalize Railway/env values that often arrive wrapped in quotes or with newlines.
+ * Shared OneSignal env helpers (server only).
+ * Railway values often arrive quoted — strip quotes; never log the full REST key.
  */
+
 export function cleanEnv(value) {
   return String(value || "")
     .trim()
@@ -9,9 +11,7 @@ export function cleanEnv(value) {
 }
 
 export function getOneSignalAppId() {
-  return cleanEnv(
-    process.env.ONESIGNAL_APP_ID || process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "",
-  );
+  return cleanEnv(process.env.ONESIGNAL_APP_ID || process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || "");
 }
 
 export function getOneSignalRestApiKey() {
@@ -24,21 +24,30 @@ export function getOneSignalSafariWebId() {
   );
 }
 
-/**
- * Soft validation for logs — never prints the secret.
- */
+export function isServerPushReady() {
+  const appId = getOneSignalAppId();
+  const key = getOneSignalRestApiKey();
+  return Boolean(appId && key.startsWith("os_v2_app_"));
+}
+
+/** Safe diagnostics — never includes the secret. */
 export function describeOneSignalAuth() {
   const appId = getOneSignalAppId();
   const apiKey = getOneSignalRestApiKey();
+  const restApiKeyLooksValid = apiKey.startsWith("os_v2_app_");
+  let hint = null;
+  if (!apiKey) {
+    hint = "Set ONESIGNAL_REST_API_KEY (App API key starting with os_v2_app_, no quotes).";
+  } else if (!restApiKeyLooksValid) {
+    hint = "ONESIGNAL_REST_API_KEY must start with os_v2_app_ (not App ID / Key ID / org key).";
+  } else if (!appId) {
+    hint = "Set ONESIGNAL_APP_ID.";
+  }
   return {
     hasAppId: Boolean(appId),
     hasRestApiKey: Boolean(apiKey),
-    restApiKeyLooksValid: apiKey.startsWith("os_v2_app_"),
-    restApiKeyPrefix: apiKey ? `${apiKey.slice(0, 10)}…` : null,
-    hint: !apiKey
-      ? "Set ONESIGNAL_REST_API_KEY on Railway (App API key from Settings → Keys & IDs). Value starts with os_v2_app_ — not the Key ID."
-      : !apiKey.startsWith("os_v2_app_")
-        ? "ONESIGNAL_REST_API_KEY does not look like an App API key (should start with os_v2_app_). Do not use App ID, Key ID, or Organization key."
-        : null,
+    restApiKeyLooksValid,
+    serverPushReady: Boolean(appId && restApiKeyLooksValid),
+    hint,
   };
 }
