@@ -218,48 +218,71 @@ export async function loginOneSignalUser(userId, username, { force = false } = {
   return externalId;
 }
 
+function withTimeout(promise, ms, label = "operation") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Ask for push when browser permission is still "default".
- * Prefer Slidedown (user clicks Allow) so Chrome does not silently block it.
+ * On button click (force), use the native Notification API — OneSignal's
+ * requestPermission() often never resolves / shows no dialog in Chrome.
  */
 export async function promptForPushPermission({ force = false } = {}) {
-  const sdk = await ensureOneSignalInitialized();
-  if (!sdk) return { ok: false, reason: "not_configured" };
-
-  if (!OneSignal.Notifications?.isPushSupported?.()) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") {
     return { ok: false, reason: "unsupported" };
   }
 
-  const permission = getBrowserNotificationPermission();
+  const sdk = await ensureOneSignalInitialized();
+  if (!sdk) return { ok: false, reason: "not_configured" };
+
+  let permission = getBrowserNotificationPermission();
   if (permission === "granted") {
-    try {
-      await OneSignal.User.PushSubscription.optIn();
-    } catch {
-      /* already opted in */
-    }
+    await ensurePushOptedInQuietly();
     return { ok: true, permission: "granted" };
   }
   if (permission === "denied") {
     return { ok: false, reason: "denied", permission: "denied" };
   }
 
-  // Banner already explained why — go straight to the native browser dialog
-  // (avoids OneSignal Slidedown + Chrome prompt both appearing).
   try {
     if (force) {
-      await OneSignal.Notifications.requestPermission();
+      // Must run synchronously from the click handler's call stack when possible.
+      const result = await withTimeout(
+        Promise.resolve(Notification.requestPermission()),
+        20000,
+        "Notification.requestPermission",
+      );
+      permission = result || getBrowserNotificationPermission();
+    } else if (OneSignal.Slidedown?.promptPush) {
+      await withTimeout(OneSignal.Slidedown.promptPush({ force: false }), 15000, "Slidedown");
+      permission = getBrowserNotificationPermission();
     } else {
-      await OneSignal.Slidedown.promptPush({ force: false });
+      const result = await withTimeout(
+        Promise.resolve(Notification.requestPermission()),
+        20000,
+        "Notification.requestPermission",
+      );
+      permission = result || getBrowserNotificationPermission();
     }
   } catch (err) {
     console.warn("[onesignal] permission prompt failed", err?.message || err);
-    try {
-      await OneSignal.Notifications.requestPermission();
-    } catch (nativeErr) {
-      console.warn("[onesignal] requestPermission failed", nativeErr?.message || nativeErr);
-      return { ok: false, reason: "prompt_failed" };
+    permission = getBrowserNotificationPermission();
+    if (permission === "default") {
+      return { ok: false, reason: "prompt_failed", permission };
     }
   }
 
-  return { ok: true, permission: getBrowserNotificationPermission() };
+  if (permission === "granted") {
+    await ensurePushOptedInQuietly();
+  }
+
+  return {
+    ok: permission === "granted",
+    permission,
+    reason: permission === "denied" ? "denied" : permission === "granted" ? undefined : "dismissed",
+  };
 }

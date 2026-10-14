@@ -99,15 +99,28 @@ export default function OneSignalProvider({ userId = null, username = null }) {
     setBusy(true);
     try {
       const result = await promptForPushPermission({ force: true });
-      if (Number(userId) > 0 && username) {
-        await loginOneSignalUser(userId, username, { force: true });
-      }
       refreshPermission();
+
+      if (result?.permission === "granted" && Number(userId) > 0 && username) {
+        try {
+          await loginOneSignalUser(userId, username, { force: true });
+        } catch (err) {
+          console.warn("[onesignal] post-permission login failed", err?.message || err);
+        }
+      }
+
       if (result?.permission === "denied" || result?.reason === "denied") {
         window.alert(
           "Notifications are blocked for this site. Click the lock icon in the address bar → Notifications → Allow, then reload.",
         );
+      } else if (result?.reason === "prompt_failed") {
+        window.alert(
+          "Could not open the notification prompt. Check the lock icon → Site settings → Notifications is set to Ask, then try again.",
+        );
       }
+    } catch (err) {
+      console.warn("[onesignal] enable click failed", err?.message || err);
+      refreshPermission();
     } finally {
       setBusy(false);
     }
