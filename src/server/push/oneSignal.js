@@ -1,4 +1,6 @@
+import db from "@/server/db";
 import { isUserOnline } from "@/server/socketHub";
+import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 
 function getAppId() {
   return String(
@@ -30,11 +32,28 @@ function truncate(text, max = 120) {
   return `${value.slice(0, max - 1)}…`;
 }
 
+async function resolveExternalId(userId, usernameHint = null) {
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+
+  let username = usernameHint;
+  if (username == null || String(username).trim() === "") {
+    try {
+      const row = await db.User.findByPk(id, { attributes: ["username"] });
+      username = row?.username || null;
+    } catch (err) {
+      console.warn("[onesignal] username lookup failed", err?.message || err);
+      return null;
+    }
+  }
+  return toOneSignalExternalId(id, username);
+}
+
 /**
  * Send a web push to every subscription linked to this dialer userId (external_id).
  * Fire-and-forget safe: never throws to callers.
  */
-export async function sendPushToUser(userId, { title, body, url } = {}) {
+export async function sendPushToUser(userId, { title, body, url, username } = {}) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) {
     return { ok: false, skipped: true, reason: "invalid_user" };
@@ -46,10 +65,15 @@ export async function sendPushToUser(userId, { title, body, url } = {}) {
     return { ok: false, skipped: true, reason: "not_configured" };
   }
 
+  const externalId = await resolveExternalId(id, username);
+  if (!externalId) {
+    return { ok: false, skipped: true, reason: "invalid_user" };
+  }
+
   const payload = {
     app_id: appId,
     target_channel: "push",
-    include_aliases: { external_id: [String(id)] },
+    include_aliases: { external_id: [externalId] },
     headings: { en: truncate(title || "Dialer", 50) || "Dialer" },
     contents: { en: truncate(body || "You have a new message", 120) || "You have a new message" },
   };

@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getBrowserNotificationPermission,
+  getOneSignalExternalId,
   loadOneSignalConfig,
   loginOneSignalUser,
   promptForPushPermission,
 } from "@/lib/oneSignalClient";
+import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 
 /**
  * Links the logged-in dialer user to OneSignal and prompts for web push when
- * browser permission is still "default". Keeps the subscription after dialer logout.
+ * browser permission is still "default". Account linking is automatic (no "Link account" click).
  */
-export default function OneSignalProvider({ userId = null }) {
+export default function OneSignalProvider({ userId = null, username = null }) {
   const [permission, setPermission] = useState(() =>
     typeof window !== "undefined" ? getBrowserNotificationPermission() : "default",
   );
@@ -20,6 +22,7 @@ export default function OneSignalProvider({ userId = null }) {
   const [dismissed, setDismissed] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [configChecked, setConfigChecked] = useState(false);
+  const relinkAttemptRef = useRef(0);
 
   const refreshPermission = useCallback(() => {
     setPermission(getBrowserNotificationPermission());
@@ -28,8 +31,11 @@ export default function OneSignalProvider({ userId = null }) {
   useEffect(() => {
     const id = Number(userId);
     if (!Number.isInteger(id) || id <= 0) return undefined;
+    if (!username) return undefined;
 
     let cancelled = false;
+    relinkAttemptRef.current = 0;
+
     void (async () => {
       try {
         const config = await loadOneSignalConfig();
@@ -44,21 +50,36 @@ export default function OneSignalProvider({ userId = null }) {
           return;
         }
 
-        await loginOneSignalUser(id);
+        // Always force-link so External ID becomes <username>_<id> without a banner click.
+        await loginOneSignalUser(id, username, { force: true });
         if (cancelled) return;
-        // Do not auto-open OneSignal Slidedown — only the top banner asks,
-        // then the popup runs after the user clicks Enable.
         refreshPermission();
+
+        // OneSignal sometimes updates aliases a moment later — retry once if still mismatched.
+        await new Promise((r) => setTimeout(r, 800));
+        if (cancelled) return;
+        const linked = getOneSignalExternalId();
+        const expected = toOneSignalExternalId(id, username);
+        if (expected && linked !== expected && relinkAttemptRef.current < 2) {
+          relinkAttemptRef.current += 1;
+          await loginOneSignalUser(id, username, { force: true });
+          if (!cancelled) refreshPermission();
+        }
       } catch (err) {
-        console.warn("[onesignal] setup failed", err?.message || err);
-        if (!cancelled) setConfigChecked(true);
+        const message = err?.message || (typeof err === "string" ? err : null) || String(err || "unknown");
+        console.warn("[onesignal] setup failed", message, err);
+        if (!cancelled) {
+          setConfigured(true);
+          setConfigChecked(true);
+          refreshPermission();
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [userId, refreshPermission]);
+  }, [userId, username, refreshPermission]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.Notification) return undefined;
@@ -78,6 +99,9 @@ export default function OneSignalProvider({ userId = null }) {
     setBusy(true);
     try {
       const result = await promptForPushPermission({ force: true });
+      if (Number(userId) > 0 && username) {
+        await loginOneSignalUser(userId, username, { force: true });
+      }
       refreshPermission();
       if (result?.permission === "denied" || result?.reason === "denied") {
         window.alert(
@@ -89,11 +113,13 @@ export default function OneSignalProvider({ userId = null }) {
     }
   }
 
+  // Banner only for permission — linking happens automatically above.
   const showBanner =
     configChecked &&
     configured &&
     !dismissed &&
     Number(userId) > 0 &&
+    Boolean(username) &&
     (permission === "default" || permission === "denied");
 
   if (!showBanner) return null;

@@ -26,6 +26,7 @@ export default async function MainLayout({ children }) {
   return (
     <MainAppShell
       currentUserId={authedUser.id}
+      currentUsername={authedUser.username}
       userRole={authedUser.role}
       isOutside={Boolean(authedUser.isOutside)}
       canUseDialer2={Boolean(authedUser.canUseDialer2)}

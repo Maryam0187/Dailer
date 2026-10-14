@@ -1,4 +1,5 @@
 import OneSignal from "react-onesignal";
+import { toOneSignalExternalId } from "@/lib/oneSignalExternalId";
 
 let initPromise = null;
 let configPromise = null;
@@ -125,23 +126,96 @@ export async function ensureOneSignalInitialized() {
   return initPromise;
 }
 
-export async function loginOneSignalUser(userId) {
-  const id = Number(userId);
-  if (!Number.isInteger(id) || id <= 0) return;
+async function ensurePushOptedInQuietly() {
+  if (getBrowserNotificationPermission() !== "granted") return;
+  try {
+    await OneSignal.User.PushSubscription.optIn();
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getOneSignalExternalId() {
+  try {
+    return String(OneSignal.User?.externalId || "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Link this browser subscription to dialer userId (OneSignal external_id).
+ * Uses <username>_<id> (avoids OneSignal rejecting bare "1" for admin).
+ * @param {{ force?: boolean }} [options] force=true always logout+login to repair orphan subscriptions
+ */
+export async function loginOneSignalUser(userId, username, { force = false } = {}) {
+  const externalId = toOneSignalExternalId(userId, username);
+  if (!externalId) return null;
 
   const sdk = await ensureOneSignalInitialized();
-  if (!sdk) return;
+  if (!sdk) return null;
 
-  await OneSignal.login(String(id));
+  const currentExternalId = String(OneSignal.User?.externalId || "");
 
-  // Already allowed in this browser — ensure subscription is active (no UI).
-  if (getBrowserNotificationPermission() === "granted") {
+  if (!force && currentExternalId === externalId) {
+    await ensurePushOptedInQuietly();
+    return externalId;
+  }
+
+  // Reset when forcing, or when switching away from a bad/old id (e.g. raw "1").
+  if (force || (currentExternalId && currentExternalId !== externalId)) {
     try {
-      await OneSignal.User.PushSubscription.optIn();
+      await OneSignal.logout();
     } catch {
       /* ignore */
     }
+    await new Promise((r) => setTimeout(r, 300));
   }
+
+  async function tryLogin() {
+    await OneSignal.login(externalId);
+  }
+
+  try {
+    await tryLogin();
+  } catch (err) {
+    console.warn(
+      "[onesignal] login failed, resetting local identity and retrying",
+      err?.message || err,
+    );
+    try {
+      await OneSignal.logout();
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    try {
+      await tryLogin();
+    } catch (retryErr) {
+      console.warn(
+        "[onesignal] login retry failed — clear site data for this origin and allow notifications again",
+        retryErr?.message || retryErr,
+      );
+      throw retryErr;
+    }
+  }
+
+  await ensurePushOptedInQuietly();
+
+  // Give the SDK a moment to persist aliases, then log what we see.
+  await new Promise((r) => setTimeout(r, 500));
+  const linked = getOneSignalExternalId();
+  if (linked !== externalId) {
+    console.warn(
+      "[onesignal] External ID not visible yet after login; expected",
+      externalId,
+      "got",
+      linked,
+    );
+  } else {
+    console.info("[onesignal] linked External ID", linked);
+  }
+  return externalId;
 }
 
 /**

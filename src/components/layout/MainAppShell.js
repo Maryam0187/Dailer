@@ -19,6 +19,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 export default function MainAppShell({
   children,
   currentUserId = null,
+  currentUsername = null,
   userRole = null,
   isOutside = false,
   canUseDialer2 = false,
@@ -33,7 +34,7 @@ export default function MainAppShell({
             <TwilioVoiceLine2Provider>
               <MessagingProvider>
                 <ThemeProvider>
-                  <OneSignalProvider userId={currentUserId} />
+                  <OneSignalProvider userId={currentUserId} username={currentUsername} />
                   {outsideManager ? null : <ActivityTracker />}
                   {outsideManager ? null : <ShiftLogoutGuard />}
                   {outsideManager ? null : <VoiceLockBanner />}
