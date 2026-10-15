@@ -10,6 +10,8 @@ function maxRingTargets() {
 
 /**
  * Active admins with an open browser session (socket presence).
+ * IVR / local inbound Dial <Client> must never include agents or other roles —
+ * only `role: "admin"` identities are returned.
  * Offline browsers are skipped so the wait-loop can play hold music until
  * someone comes online, then Dial with ringTone.
  * @returns {Promise<Array<{ userId: number, username: string, identity: string }>>}
@@ -17,7 +19,7 @@ function maxRingTargets() {
 export async function selectIvrTargets() {
   const admins = await db.User.findAll({
     where: { role: "admin", isActive: true },
-    attributes: ["id", "username"],
+    attributes: ["id", "username", "role"],
     order: [["id", "ASC"]],
   });
 
@@ -25,6 +27,8 @@ export async function selectIvrTargets() {
   const targets = [];
 
   for (const admin of admins) {
+    // Defense in depth — never dial a non-admin Client identity.
+    if (String(admin.role || "").trim() !== "admin") continue;
     if (targets.length >= cap) break;
     if (!isUserOnline(admin.id)) continue;
     try {

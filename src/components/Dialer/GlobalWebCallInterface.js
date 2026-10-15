@@ -767,7 +767,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent, pr
   );
 }
 
-export default function GlobalWebCallInterface() {
+export default function GlobalWebCallInterface({ userRole = null }) {
   const { session, endCall, patchSession } = useActiveCall();
   const {
     incomingInvite,
@@ -780,6 +780,7 @@ export default function GlobalWebCallInterface() {
     dismissInviteNotification,
     dismissAgentJoinedNotification,
   } = useTwilioVoice();
+  const isAdmin = userRole === "admin";
   const isDev = process.env.NODE_ENV === "development";
   const [inviteActionMsg, setInviteActionMsg] = useState(null);
   const [joiningInvite, setJoiningInvite] = useState(false);
@@ -907,7 +908,11 @@ export default function GlobalWebCallInterface() {
   const shouldShowInviteToast =
     !hasResolvedNumericCallId(session) || !session.callOwnedByMe;
   const isIvrIncoming = incomingInvite?.source === "ivr";
-  const inviteToast = shouldShowInviteToast && (incomingInvite || inviteNotification) ? (
+  // IVR Answer/Decline is admin-only (server dials admins; UI hardened as a second gate).
+  const showIncomingToast =
+    shouldShowInviteToast &&
+    (inviteNotification || (incomingInvite && (!isIvrIncoming || isAdmin)));
+  const inviteToast = showIncomingToast ? (
     <div className="fixed bottom-4 right-4 z-[10000] w-full max-w-md rounded-xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-800 dark:bg-zinc-900">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         {isIvrIncoming ? "Incoming IVR Call" : "Incoming Agent Invite"}
@@ -991,9 +996,9 @@ export default function GlobalWebCallInterface() {
     );
   }
 
-  if (!isDev && !incomingInvite && !inviteNotification) return null;
-
   if (inviteToast) return inviteToast;
+  // Non-admins must never see IVR Answer/Decline; ignore a stray IVR invite state.
+  if (!isDev) return null;
 
   const devPreviewSession = {
     callId: "dev-preview-call",

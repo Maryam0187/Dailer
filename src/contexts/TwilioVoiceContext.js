@@ -44,9 +44,12 @@ function keepaliveEndCall(callId) {
   }
 }
 
-export function TwilioVoiceProvider({ children }) {
+export function TwilioVoiceProvider({ children, userRole = null }) {
   const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
+  const isAdmin = userRole === "admin";
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [sdkError, setSdkError] = useState(null);
@@ -540,7 +543,15 @@ export function TwilioVoiceProvider({ children }) {
                   acceptAndBind();
                   return;
                 }
-                // Not a conference invite (e.g. IVR Dial <Client>) — show accept UI instead of rejecting.
+                // IVR Dial <Client> only targets admins — never show that UI to other roles.
+                if (!isAdminRef.current) {
+                  try {
+                    call.reject();
+                  } catch {
+                    /* ignore */
+                  }
+                  return;
+                }
                 incomingCallRef.current = call;
                 setIncomingInvite({
                   source: "ivr",
@@ -552,6 +563,14 @@ export function TwilioVoiceProvider({ children }) {
                   participants: [],
                 });
               } catch {
+                if (!isAdminRef.current) {
+                  try {
+                    call.reject();
+                  } catch {
+                    /* ignore */
+                  }
+                  return;
+                }
                 incomingCallRef.current = call;
                 setIncomingInvite({
                   source: "ivr",
@@ -575,15 +594,27 @@ export function TwilioVoiceProvider({ children }) {
           return;
         }
 
-        incomingCallRef.current = call;
         const from = String(call?.parameters?.From || "").trim();
         const looksLikePhone = /^\+?\d{7,}$/.test(from.replace(/[\s()-]/g, ""));
+        // Only admins may see / answer IVR Client rings. Agents keep conference-invite flow.
+        const treatAsIvr = looksLikePhone && isAdminRef.current;
+        if (looksLikePhone && !isAdminRef.current) {
+          // Unexpected inbound to a non-admin Client — ignore (server only dials admins for IVR).
+          try {
+            call.reject();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
+        incomingCallRef.current = call;
         const baseInvite = {
-          source: looksLikePhone ? "ivr" : "invite",
-          from: from || (looksLikePhone ? "IVR caller" : "Conference invite"),
+          source: treatAsIvr ? "ivr" : "invite",
+          from: from || (treatAsIvr ? "IVR caller" : "Conference invite"),
           callSid: getIncomingCallSid(call) || null,
           customerName: String(call?.customParameters?.get?.("customerName") || "").trim() ||
-            (looksLikePhone ? "IVR caller" : "Customer"),
+            (treatAsIvr ? "IVR caller" : "Customer"),
           callId: null,
           conferenceName: null,
           participants: [],
@@ -601,7 +632,16 @@ export function TwilioVoiceProvider({ children }) {
                 if (!prev || prev.callSid !== sidForContext) return prev;
                 const resolvedId = Number(json?.callId);
                 if (!Number.isInteger(resolvedId) || resolvedId <= 0) {
-                  // No conference mapping — treat as IVR / direct inbound Client dial.
+                  // No conference mapping — IVR UI is admin-only.
+                  if (!isAdminRef.current) {
+                    try {
+                      incomingCallRef.current?.reject?.();
+                    } catch {
+                      /* ignore */
+                    }
+                    incomingCallRef.current = null;
+                    return null;
+                  }
                   return { ...prev, source: "ivr", customerName: prev.customerName || "IVR caller" };
                 }
                 return {
@@ -1025,6 +1065,19 @@ export function TwilioVoiceProvider({ children }) {
     const inviteCallSid = String(snapshotInvite?.callSid || getIncomingCallSid(call) || "").trim() || null;
     const isIvr = snapshotInvite?.source === "ivr";
     const fromParam = String(call?.parameters?.From || snapshotInvite?.from || "").trim();
+
+    if (isIvr && !isAdminRef.current) {
+      setSdkError("Only admins can answer IVR calls");
+      try {
+        call.reject();
+      } catch {
+        /* ignore */
+      }
+      incomingCallRef.current = null;
+      setIncomingInvite(null);
+      stopInviteTone();
+      return false;
+    }
 
     if (!Number.isInteger(callId) || callId <= 0) {
       if (!isIvr && inviteCallSid) {

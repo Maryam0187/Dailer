@@ -29,7 +29,7 @@ export default function MainAppShell({
   return (
     <DialerCapabilitiesProvider canUseDialer2={canUseDialer2}>
       <ActiveCallProvider>
-        <TwilioVoiceProvider>
+        <TwilioVoiceProvider userRole={userRole}>
           <Line2CallProvider>
             <TwilioVoiceLine2Provider>
               <MessagingProvider>
@@ -41,7 +41,7 @@ export default function MainAppShell({
                   {children}
                   <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
                   {outsideManager ? null : <IvrStaffAlert userRole={userRole} />}
-                  <GlobalWebCallInterface />
+                  <GlobalWebCallInterface userRole={userRole} />
                   <Line2CallInterface />
                 </ThemeProvider>
               </MessagingProvider>
