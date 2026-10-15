@@ -142,7 +142,25 @@ export function TwilioVoiceProvider({ children }) {
     setCallQuality({ level, mos });
   }, []);
 
+  /** Mute + release browser mic input so the tab indicator turns off after hangup. */
+  const releaseMicrophone = useCallback((call) => {
+    try {
+      call?.mute?.(true);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const audio = deviceRef.current?.audio;
+      if (audio && typeof audio.unsetInputDevice === "function") {
+        void Promise.resolve(audio.unsetInputDevice()).catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const destroyDevice = useCallback(() => {
+    releaseMicrophone(callRef.current);
     deviceRef.current?.destroy();
     deviceRef.current = null;
     deviceInitPromiseRef.current = null;
@@ -153,7 +171,7 @@ export function TwilioVoiceProvider({ children }) {
     setVoiceConnected(false);
     setMuted(false);
     clearCallQuality();
-  }, [clearCallQuality]);
+  }, [clearCallQuality, releaseMicrophone]);
 
   const stopInviteTone = useCallback(() => {
     if (inviteToneIntervalRef.current) {
@@ -261,6 +279,7 @@ export function TwilioVoiceProvider({ children }) {
         publishCallQuality();
       });
       call.on("disconnect", () => {
+        releaseMicrophone(call);
         callRef.current = null;
         setVoiceConnected(false);
         setMuted(false);
@@ -278,7 +297,15 @@ export function TwilioVoiceProvider({ children }) {
         endCall();
       });
     },
-    [clearCallQuality, clearLocalSession, endCall, markInProgress, publishCallQuality, sessionSyncRef],
+    [
+      clearCallQuality,
+      clearLocalSession,
+      endCall,
+      markInProgress,
+      publishCallQuality,
+      releaseMicrophone,
+      sessionSyncRef,
+    ],
   );
 
   // Cleanup when the provider unmounts.
@@ -1118,6 +1145,7 @@ export function TwilioVoiceProvider({ children }) {
       await endCall();
       if (callRef.current) {
         leaveWithoutEndingRef.current = false;
+        releaseMicrophone(callRef.current);
         try {
           callRef.current.disconnect();
         } catch {
@@ -1132,6 +1160,7 @@ export function TwilioVoiceProvider({ children }) {
     // `/api/twilio/conference-status` ends PSTN/parent when no Voice (`client:`) agents remain — same model as owner leave.
     if (isInvitee) {
       if (active) {
+        releaseMicrophone(active);
         try {
           active.disconnect();
         } catch {
@@ -1147,6 +1176,7 @@ export function TwilioVoiceProvider({ children }) {
       leaveWithoutEndingRef.current = true;
       leftConferenceWithoutEndingRef.current = true;
       ownerCallIdRef.current = null;
+      releaseMicrophone(active);
       try {
         active.disconnect();
       } catch {
@@ -1156,7 +1186,7 @@ export function TwilioVoiceProvider({ children }) {
     } else {
       clearLocalSession();
     }
-  }, [clearLocalSession, endCall]);
+  }, [clearLocalSession, endCall, releaseMicrophone]);
 
   return (
     <TwilioVoiceContext.Provider

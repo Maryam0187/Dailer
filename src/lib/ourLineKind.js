@@ -39,3 +39,15 @@ export function calledUsAtLabel(rawTo) {
   if (!to) return "Called us at —";
   return `Called us at ${to} · ${ourLineKindLabel(to)}`;
 }
+
+/** Tailwind classes for a bold Local / Toll-free badge. */
+export function ourLineKindBadgeClass(rawTo) {
+  const kind = ourLineKind(rawTo);
+  if (kind === "local") {
+    return "bg-amber-100 text-amber-950 ring-amber-300 dark:bg-amber-950/50 dark:text-amber-100 dark:ring-amber-700";
+  }
+  if (kind === "toll_free") {
+    return "bg-sky-100 text-sky-950 ring-sky-300 dark:bg-sky-950/50 dark:text-sky-100 dark:ring-sky-700";
+  }
+  return "bg-zinc-100 text-zinc-800 ring-zinc-300 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-600";
+}

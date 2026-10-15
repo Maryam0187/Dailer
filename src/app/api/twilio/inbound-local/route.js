@@ -68,15 +68,6 @@ export async function POST(req) {
     return twimlResponse(busySayTwiml());
   }
 
-  if (ctx.isFirstPass) {
-    void notifyAdmins({
-      type: "incoming",
-      from: ctx.from,
-      to: ctx.to,
-      callSid: ctx.callSid,
-    }).catch((err) => console.warn("[inbound-local] notify", err?.message || err));
-  }
-
   if (!baseUrl) {
     return twimlResponse(busySayTwiml());
   }
@@ -91,6 +82,20 @@ export async function POST(req) {
 
   const targets = await selectIvrTargets();
 
+  // Single sequential notify per first pass (avoid parallel upsert race → duplicate rows).
+  if (ctx.isFirstPass) {
+    try {
+      await notifyAdmins({
+        type: targets.length ? "ringing" : "incoming",
+        from: ctx.from,
+        to: ctx.to,
+        callSid: ctx.callSid,
+      });
+    } catch (err) {
+      console.warn("[inbound-local] notify", err?.message || err);
+    }
+  }
+
   if (!targets.length) {
     const chunk = Math.min(holdChunkSec(), Math.max(3, remainingSec));
     return twimlResponse(
@@ -101,15 +106,6 @@ export async function POST(req) {
         includeGreeting: ctx.isFirstPass,
       }),
     );
-  }
-
-  if (ctx.isFirstPass) {
-    void notifyAdmins({
-      type: "ringing",
-      from: ctx.from,
-      to: ctx.to,
-      callSid: ctx.callSid,
-    }).catch((err) => console.warn("[inbound-local] ringing notify", err?.message || err));
   }
 
   const attemptTimeout = Math.max(5, Math.min(dialAttemptSec(), remainingSec));

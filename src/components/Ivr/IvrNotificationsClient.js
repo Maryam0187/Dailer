@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
-import { calledUsAtLabel } from "@/lib/ourLineKind";
+import { ourLineKindBadgeClass, ourLineKindLabel } from "@/lib/ourLineKind";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 const PAGE_SIZE = 15;
@@ -186,6 +186,13 @@ export default function IvrNotificationsClient() {
                       <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                         {row.fromNumber || "Unknown caller"}
                       </span>
+                      {row.toNumber ? (
+                        <span
+                          className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ring-1 ring-inset ${ourLineKindBadgeClass(row.toNumber)}`}
+                        >
+                          {ourLineKindLabel(row.toNumber)}
+                        </span>
+                      ) : null}
                       <span className="text-xs text-zinc-500">{eventLabel(row.lastEventType)}</span>
                     </div>
                     {(() => {
@@ -210,8 +217,20 @@ export default function IvrNotificationsClient() {
                       Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      {calledUsAtLabel(row.toNumber)} · Updated{" "}
-                      {formatWhen(row.updatedAt || row.createdAt)}
+                      Called us at{" "}
+                      <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                        {row.toNumber || "—"}
+                      </span>
+                      {row.toNumber ? (
+                        <>
+                          {" "}
+                          ·{" "}
+                          <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                            {ourLineKindLabel(row.toNumber)}
+                          </span>
+                        </>
+                      ) : null}{" "}
+                      · Updated {formatWhen(row.updatedAt || row.createdAt)}
                       {row.callSid ? ` · ${row.callSid}` : ""}
                     </p>
                   </div>

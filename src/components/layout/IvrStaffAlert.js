@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
-import { calledUsAtLabel, ourLineKind } from "@/lib/ourLineKind";
+import {
+  ourLineKind,
+  ourLineKindBadgeClass,
+  ourLineKindLabel,
+} from "@/lib/ourLineKind";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
@@ -112,7 +116,16 @@ export default function IvrStaffAlert({ userRole = null }) {
     <div className="fixed right-4 top-4 z-[10002] w-full max-w-sm rounded-xl border border-sky-200 bg-white p-3 shadow-xl dark:border-sky-900 dark:bg-zinc-900">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</p>
+            {alert.to ? (
+              <span
+                className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ring-1 ring-inset ${ourLineKindBadgeClass(alert.to)}`}
+              >
+                {ourLineKindLabel(alert.to)}
+              </span>
+            ) : null}
+          </div>
           {(() => {
             const matches =
               Array.isArray(alert.customers) && alert.customers.length
@@ -139,7 +152,14 @@ export default function IvrStaffAlert({ userRole = null }) {
             ));
           })()}
           {alert.to ? (
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">{calledUsAtLabel(alert.to)}</p>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+              Called us at{" "}
+              <span className="font-semibold text-zinc-800 dark:text-zinc-200">{alert.to}</span>
+              {" · "}
+              <span className="font-bold text-zinc-900 dark:text-zinc-100">
+                {ourLineKindLabel(alert.to)}
+              </span>
+            </p>
           ) : null}
           {choiceText ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">Choice: {choiceText}</p>
