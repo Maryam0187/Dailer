@@ -8,6 +8,8 @@ import {
   dateRangeWhere,
   invitedConferenceCallIds,
 } from "@/server/calls/aggregateMetrics";
+import { normalizeToE164 } from "@/server/calls/normalizePhone";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -20,6 +22,31 @@ function parseDateOnly(value) {
   const v = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   return v;
+}
+
+/** Admin phone search on fromNumber / toNumber (national digits + E.164). */
+function buildCallNumberSearchWhere(q) {
+  const check = validateListSearchQuery("phone", q);
+  if (!check.isValid) return { error: check.message };
+  if (!check.normalized) return null;
+
+  const phoneDigits = check.normalized;
+  const or = [
+    { fromNumber: { [Op.like]: `%${phoneDigits}%` } },
+    { toNumber: { [Op.like]: `%${phoneDigits}%` } },
+  ];
+  const normalized = normalizeToE164(phoneDigits);
+  if (normalized) {
+    or.push({ fromNumber: normalized });
+    or.push({ toNumber: normalized });
+  }
+  return { [Op.or]: or };
+}
+
+function andWhere(base, extra) {
+  if (!extra) return base;
+  if (!base || Object.keys(base).length === 0) return extra;
+  return { [Op.and]: [base, extra] };
 }
 
 export async function GET(req) {
@@ -42,6 +69,19 @@ export async function GET(req) {
   /** Admin-only: `view=all` returns every user's call logs on the home page. */
   const view = String(searchParams.get("view") || "mine").trim().toLowerCase();
   const viewAll = view === "all" && authedUser.role === "admin";
+  /** Admin-only: search by phone number (fromNumber / toNumber). */
+  const qRaw = String(searchParams.get("q") || "").trim();
+  let numberSearchWhere = null;
+  if (qRaw) {
+    if (authedUser.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const built = buildCallNumberSearchWhere(qRaw);
+    if (built?.error) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    numberSearchWhere = built;
+  }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
@@ -50,7 +90,9 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  const dateOpts = fromDate && toDate ? { fromDate, toDate } : {};
+  // Number search skips the date window (same idea as leads list search).
+  const useDateRange = Boolean(fromDate && toDate && !numberSearchWhere);
+  const dateOpts = useDateRange ? { fromDate, toDate } : {};
 
   // Home page lists only the signed-in user's own calls unless admin passes view=all.
   // For conference scope, also include calls where this user was invited as an agent.
@@ -106,7 +148,7 @@ export async function GET(req) {
   } else {
     where = { userId: authedUser.id };
   }
-  if (fromDate && toDate) {
+  if (useDateRange) {
     Object.assign(where, dateRangeWhere(fromDate, toDate));
   }
   if (hasRecording) {
@@ -115,6 +157,7 @@ export async function GET(req) {
 
   where = applyCallKindToWhere(where, callKindFilter);
   where = applyDialerIndexToWhere(where, dialerIndexFilter);
+  where = andWhere(where, numberSearchWhere);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,

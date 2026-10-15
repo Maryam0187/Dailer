@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { formatDuration } from "@/lib/formatDuration";
+import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { formatLandline } from "@/lib/phoneFormat";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 
@@ -174,10 +176,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   /** `all` = every call; `conference` = calls with InviteDialLeg rows (owner + invited agent(s)). */
   const [listScope, setListScope] = useState(() => normalizeListScope(initialScope));
-  /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. */
-  const [logAudience, setLogAudience] = useState("mine");
+  /** Admin-only: `mine` = signed-in user; `all` = every user's call logs. Admins default to all. */
+  const [logAudience, setLogAudience] = useState(() => (userRole === "admin" ? "all" : "mine"));
   /** `all` | `1` | `2` — Line 1 / Line 2 outbound. Default all so current list is unchanged. */
   const [lineFilter, setLineFilter] = useState("all");
+  /** Admin-only phone search (applied `q` is 10 national digits). */
+  const [searchInput, setSearchInput] = useState("");
+  const [q, setQ] = useState("");
+  const [searchError, setSearchError] = useState(null);
 
   useEffect(() => {
     if (!canUseDialer2 && lineFilter === "2") {
@@ -196,6 +202,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       scope: scopeOverride,
       audience: audienceOverride,
       line: lineOverride,
+      numberQuery: numberQueryOverride,
     } = {}) => {
     const resolvedPage = targetPage ?? page;
     const resolvedFromDate = fromDate ?? appliedFrom;
@@ -203,6 +210,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     const resolvedScope = scopeOverride ?? listScope;
     const resolvedAudience = audienceOverride ?? logAudience;
     const resolvedLine = lineOverride ?? lineFilter;
+    const resolvedQ = numberQueryOverride !== undefined ? numberQueryOverride : q;
     if (silent) {
       setRefreshing(true);
     } else {
@@ -214,7 +222,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         page: String(resolvedPage),
         pageSize: "20",
       });
-      if (resolvedFromDate && resolvedToDate) {
+      // Date range is skipped while a number search is active.
+      if (!resolvedQ && resolvedFromDate && resolvedToDate) {
         qs.set("fromDate", resolvedFromDate);
         qs.set("toDate", resolvedToDate);
       }
@@ -229,6 +238,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
       if (resolvedLine === "1" || resolvedLine === "2") {
         qs.set("dialerIndex", resolvedLine);
+      }
+      if (isAdmin && resolvedQ) {
+        qs.set("q", resolvedQ);
       }
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
@@ -254,7 +266,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, isAdmin],
+    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, q, isAdmin],
   );
 
   async function redial(call) {
@@ -343,7 +355,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       window.removeEventListener("call-ended", onCallEnded);
       controller.abort();
     };
-  }, [loadCalls, page, appliedFrom, appliedTo]);
+  }, [loadCalls, page, appliedFrom, appliedTo, q]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -353,6 +365,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     setRangeTo(next.to);
     setAppliedFrom(next.from);
     setAppliedTo(next.to);
+    setSearchError(null);
+    setQ("");
+    setSearchInput("");
     setPage(1);
   }
 
@@ -367,8 +382,33 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       return;
     }
     setError(null);
+    setSearchError(null);
+    setQ("");
+    setSearchInput("");
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
+    setPage(1);
+  }
+
+  function onApplyNumberSearch(e) {
+    e?.preventDefault?.();
+    if (!isAdmin) return;
+    const check = validateListSearchQuery("phone", searchInput);
+    if (!check.isValid) {
+      setSearchError(check.message);
+      return;
+    }
+    setSearchError(null);
+    setError(null);
+    setQ(check.normalized);
+    setSearchInput(check.normalized ? formatLandline(check.normalized) : "");
+    setPage(1);
+  }
+
+  function onClearNumberSearch() {
+    setSearchError(null);
+    setSearchInput("");
+    setQ("");
     setPage(1);
   }
 
@@ -543,6 +583,58 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               </FilterSelect>
             ) : null}
           </div>
+          {isAdmin ? (
+            <form
+              onSubmit={onApplyNumberSearch}
+              className="mb-3 flex flex-wrap items-end gap-2.5 border-b border-zinc-200 pb-3 dark:border-zinc-700"
+            >
+              <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+                <label htmlFor="calls-number-search" className={labelClass}>
+                  Search by number
+                </label>
+                <input
+                  id="calls-number-search"
+                  value={searchInput}
+                  onChange={(e) => {
+                    setSearchInput(formatLandline(e.target.value));
+                    if (searchError) setSearchError(null);
+                  }}
+                  className={inputClass}
+                  placeholder="Phone number"
+                  inputMode="numeric"
+                  maxLength={12}
+                  aria-invalid={Boolean(searchError)}
+                />
+                {searchError ? (
+                  <p className="pointer-events-none absolute left-0 top-full z-10 mt-1 text-xs font-medium text-red-600">
+                    {searchError}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="submit"
+                disabled={loading || refreshing}
+                className="h-10 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+              >
+                Search
+              </button>
+              {q ? (
+                <button
+                  type="button"
+                  onClick={onClearNumberSearch}
+                  disabled={loading || refreshing}
+                  className="h-10 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  Clear
+                </button>
+              ) : null}
+              {q ? (
+                <p className="w-full text-xs text-zinc-500 dark:text-zinc-400">
+                  Showing matches for {formatLandline(q)} (date range ignored while searching).
+                </p>
+              ) : null}
+            </form>
+          ) : null}
           <div className="mb-3">
             <label className={labelClass}>Range presets</label>
             <div className="flex flex-wrap items-end gap-2">
@@ -618,19 +710,21 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
           <p className="text-base font-medium text-red-600">{error}</p>
         ) : calls.length === 0 ? (
           <p className="text-base text-zinc-600 dark:text-zinc-300">
-            {listScope === "recording"
-              ? "No calls with a recording in this range."
-              : listScope === "conference"
-                ? logAudience === "all"
-                  ? "No conference calls in this range."
-                  : "No conference calls in this range (no agent invites on record)."
-                : lineFilter === "2"
-                  ? "No Line 2 calls in this range."
-                  : lineFilter === "1"
-                    ? "No Line 1 calls in this range."
-                    : logAudience === "all"
-                      ? "No calls in this range."
-                      : "No calls yet."}
+            {q
+              ? "No calls matching that number."
+              : listScope === "recording"
+                ? "No calls with a recording in this range."
+                : listScope === "conference"
+                  ? logAudience === "all"
+                    ? "No conference calls in this range."
+                    : "No conference calls in this range (no agent invites on record)."
+                  : lineFilter === "2"
+                    ? "No Line 2 calls in this range."
+                    : lineFilter === "1"
+                      ? "No Line 1 calls in this range."
+                      : logAudience === "all"
+                        ? "No calls in this range."
+                        : "No calls yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
