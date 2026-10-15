@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { calledUsAtLabel } from "@/lib/ourLineKind";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 const PAGE_SIZE = 15;
@@ -209,7 +210,8 @@ export default function IvrNotificationsClient() {
                       Choice: {ivrChoiceLabel(row.choice, { empty: "—", prefix: false })}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      To {row.toNumber || "—"} · Updated {formatWhen(row.updatedAt || row.createdAt)}
+                      {calledUsAtLabel(row.toNumber)} · Updated{" "}
+                      {formatWhen(row.updatedAt || row.createdAt)}
                       {row.callSid ? ` · ${row.callSid}` : ""}
                     </p>
                   </div>

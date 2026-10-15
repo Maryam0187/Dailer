@@ -1,4 +1,5 @@
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { calledUsAtLabel, ourLineKind } from "@/lib/ourLineKind";
 import { normalizeEmailList } from "@/lib/sendResendEmail";
 
 /** Prefer IVR_ALERT_EMAIL; supports comma/semicolon-separated lists. */
@@ -32,17 +33,24 @@ export function buildIvrAlert(payload) {
   const choice = payload?.choice != null ? String(payload.choice) : "";
   const when = payload?.at || new Date().toLocaleString();
 
-  let subject = "Dialer IVR: incoming call";
+  const isLocal = ourLineKind(callTo) === "local";
+  let subject = isLocal ? "Dialer: incoming local call" : "Dialer IVR: incoming call";
   if (type === "gather" && step === "choice") subject = "Dialer IVR: caller choice";
   else if (type === "gather") subject = "Dialer IVR: gather update";
-  else if (type === "ringing") subject = "Dialer IVR: ringing admin";
+  else if (type === "ringing") {
+    subject = isLocal ? "Dialer: local line ringing admin" : "Dialer IVR: ringing admin";
+  }
 
   const lines = [
-    type === "incoming" ? "An inbound IVR call started." : "IVR gather / status update.",
+    type === "incoming"
+      ? isLocal
+        ? "An inbound call started on a local company number."
+        : "An inbound IVR call started."
+      : "IVR gather / status update.",
     "",
     `Time: ${when}`,
     `From: ${from}`,
-    `To: ${callTo}`,
+    calledUsAtLabel(callTo),
     `CallSid: ${callSid}`,
   ];
 
@@ -63,7 +71,12 @@ export function buildIvrAlert(payload) {
   }
 
   if (type === "incoming") {
-    lines.push("", "Open the dialer if you can take the call after IVR.");
+    lines.push(
+      "",
+      isLocal
+        ? "Open the dialer — the caller may ring your softphone shortly."
+        : "Open the dialer if you can take the call after IVR.",
+    );
   }
 
   const replyTo = normalizeEmailList(process.env.ADMIN_ALERT_EMAIL)[0] || to[0];

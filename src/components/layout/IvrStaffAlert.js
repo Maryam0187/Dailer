@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
+import { calledUsAtLabel, ourLineKind } from "@/lib/ourLineKind";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
@@ -89,12 +90,18 @@ export default function IvrStaffAlert({ userRole = null }) {
 
   if (userRole !== "admin" || !alert) return null;
 
+  const lineKind = ourLineKind(alert.to);
+  const isLocalLine = lineKind === "local";
   const title =
     alert.type === "ringing"
-      ? "IVR — ringing you"
+      ? isLocalLine
+        ? "Local line — ringing you"
+        : "IVR — ringing you"
       : alert.type === "gather"
         ? "IVR — gather update"
-        : "Incoming IVR call";
+        : isLocalLine
+          ? "Incoming local call"
+          : "Incoming IVR call";
 
   const choiceText =
     alert.choice != null && String(alert.choice).trim()
@@ -131,12 +138,17 @@ export default function IvrStaffAlert({ userRole = null }) {
               />
             ));
           })()}
+          {alert.to ? (
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">{calledUsAtLabel(alert.to)}</p>
+          ) : null}
           {choiceText ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">Choice: {choiceText}</p>
           ) : null}
           {alert.type === "incoming" ? (
             <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-              Caller is in IVR — stay ready to answer when it rings.
+              {isLocalLine
+                ? "Caller is holding / connecting — stay ready to answer."
+                : "Caller is in IVR — stay ready to answer when it rings."}
             </p>
           ) : null}
           {alert.type === "ringing" ? (
