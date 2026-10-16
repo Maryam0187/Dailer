@@ -267,10 +267,16 @@ export default function MessageAttachmentsAdminClient() {
                       {formatSize(row.sizeBytes)}
                     </td>
                     <td className="px-4 py-3 text-zinc-800 dark:text-zinc-200">
-                      {row.uploader?.username || "—"}
+                      {row.uploader?.name ||
+                        row.uploader?.displayName ||
+                        row.uploader?.username ||
+                        "—"}
                     </td>
                     <td className="px-4 py-3 text-zinc-800 dark:text-zinc-200">
-                      {row.receiver?.username || "—"}
+                      {row.receiver?.name ||
+                        row.receiver?.displayName ||
+                        row.receiver?.username ||
+                        "—"}
                     </td>
                     <td className="px-4 py-3">
                       {row.receiverDownloadedAt ? (

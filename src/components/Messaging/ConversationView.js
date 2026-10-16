@@ -604,8 +604,16 @@ export default function ConversationView({
   }, [conversationId, isAdmin]);
 
   const peerLabel = useMemo(
-    () => conversation?.peer?.username || "Conversation",
-    [conversation?.peer?.username],
+    () =>
+      conversation?.peer?.name ||
+      conversation?.peer?.displayName ||
+      conversation?.peer?.username ||
+      "Conversation",
+    [
+      conversation?.peer?.name,
+      conversation?.peer?.displayName,
+      conversation?.peer?.username,
+    ],
   );
 
   const newMessageCount = useMemo(() => {
@@ -1038,11 +1046,16 @@ export default function ConversationView({
                           : "rounded-bl-md border border-zinc-200/80 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                       }`}
                     >
-                      {conversation.isOversight && message.author?.username ? (
+                      {conversation.isOversight &&
+                      (message.author?.name || message.author?.username) ? (
                         <p className="mb-1 text-xs">
                           <ColoredName
-                            name={message.author.username}
-                            colorClass={oversightNameColors[message.author.username]}
+                            name={message.author.name || message.author.username}
+                            colorClass={
+                              oversightNameColors[
+                                message.author.name || message.author.username
+                              ]
+                            }
                           />
                         </p>
                       ) : null}

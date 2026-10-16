@@ -12,6 +12,7 @@ import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
+  "displayName",
   "role",
   "managerId",
   "supervisorId",
@@ -68,6 +69,7 @@ function serializeUserRow(
   return {
     id: row.id,
     username: row.username,
+    displayName: row.displayName ? String(row.displayName) : null,
     role: row.role,
     managerId: row.managerId,
     supervisorId: row.supervisorId,

@@ -47,7 +47,7 @@ export async function DELETE(_req, { params }) {
           {
             model: db.User,
             as: "author",
-            attributes: ["id", "username", "role"],
+            attributes: ["id", "username", "displayName", "role"],
             required: false,
           },
           {

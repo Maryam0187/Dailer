@@ -37,7 +37,10 @@ export async function POST(req) {
   }
 
   const push = buildMessagePushCopy({
-    senderName: authedUser.username,
+    senderName:
+      authedUser.displayName && authedUser.username
+        ? `${authedUser.displayName} @${authedUser.username}`
+        : authedUser.displayName || authedUser.username,
     messageBody: payload?.body,
   });
 

@@ -83,7 +83,12 @@ export default function ComposeView({
     if (!q) return contacts;
     return contacts.filter(
       (c) =>
-        c.username.toLowerCase().includes(q) ||
+        String(c.name || c.displayName || c.username || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(c.username || "")
+          .toLowerCase()
+          .includes(q) ||
         String(c.role || "")
           .toLowerCase()
           .includes(q),
@@ -190,10 +195,14 @@ export default function ComposeView({
                   onClick={() => void openWith(contact.id)}
                   className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-white hover:shadow-sm disabled:opacity-60 dark:hover:bg-zinc-900"
                 >
-                  <UserAvatar name={contact.username} presence={contact.presence} size="md" />
+                  <UserAvatar
+                    name={contact.name || contact.displayName || contact.username}
+                    presence={contact.presence}
+                    size="md"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                      {contact.username}
+                      {contact.name || contact.displayName || contact.username}
                     </p>
                     <p className="text-xs capitalize text-zinc-500 dark:text-zinc-400">
                       {roleLabel(contact.role)}

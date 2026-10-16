@@ -251,6 +251,37 @@ export function stripMessageModerationFlags(message) {
   return { ...message, canEdit: false, canDelete: false };
 }
 
+/** Prefer display name in chat UI; username remains the login id. */
+export function userDisplayName(user) {
+  if (!user) return "Unknown";
+  const display = user.displayName != null ? String(user.displayName).trim() : "";
+  if (display) return display;
+  const username = user.username != null ? String(user.username).trim() : "";
+  return username || "Unknown";
+}
+
+/** Chat label: "Display Name @username" when display name is set; otherwise username. */
+export function userChatLabel(user) {
+  if (!user) return "Unknown";
+  const username = user.username != null ? String(user.username).trim() : "";
+  const display = user.displayName != null ? String(user.displayName).trim() : "";
+  if (display && username) return `${display} @${username}`;
+  if (display) return display;
+  return username || "Unknown";
+}
+
+function serializeUserRef(user) {
+  if (!user) return null;
+  const displayName = user.displayName ? String(user.displayName).trim() : null;
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: displayName || null,
+    name: userChatLabel(user),
+    role: user.role,
+  };
+}
+
 export function serializeMessage(message, viewer = null) {
   const plain = typeof message.toJSON === "function" ? message.toJSON() : message;
   const author = plain.author || null;
@@ -268,9 +299,7 @@ export function serializeMessage(message, viewer = null) {
     createdAt: plain.createdAt,
     editedAt: plain.editedAt || null,
     attachments,
-    author: author
-      ? { id: author.id, username: author.username, role: author.role }
-      : null,
+    author: author ? serializeUserRef(author) : null,
     canEdit: canModerate,
     canDelete: canModerate,
   };
@@ -285,9 +314,12 @@ export function serializeContact(user, now = Date.now()) {
     },
     now,
   );
+  const displayName = user.displayName ? String(user.displayName).trim() : null;
   return {
     id: user.id,
     username: user.username,
+    displayName: displayName || null,
+    name: userChatLabel(user),
     role: user.role,
     shiftKey: user.shiftKey === "night" ? "night" : "day",
     isOutside: Boolean(user.isOutside),
@@ -300,6 +332,8 @@ function unknownContact(id) {
   return {
     id: id ?? null,
     username: "Unknown",
+    displayName: null,
+    name: "Unknown",
     role: null,
     shiftKey: "day",
     isOutside: false,
@@ -374,6 +408,7 @@ export async function listContacts(viewer) {
     attributes: [
       "id",
       "username",
+      "displayName",
       "role",
       "shiftKey",
       "isOutside",
@@ -393,6 +428,7 @@ async function loadPeerUsers(peerIds) {
     attributes: [
       "id",
       "username",
+      "displayName",
       "role",
       "shiftKey",
       "isOutside",
@@ -431,7 +467,7 @@ async function loadLastMessages(conversationIds) {
       {
         model: db.User,
         as: "author",
-        attributes: ["id", "username", "role"],
+        attributes: ["id", "username", "displayName", "role"],
         required: false,
       },
       {
@@ -473,7 +509,7 @@ function serializeInboxItem({
 }) {
   if (isOversight && peers) {
     const [a, b] = peers;
-    const label = `${a?.username || "Unknown"} ↔ ${b?.username || "Unknown"}`;
+    const label = `${userChatLabel(a)} ↔ ${userChatLabel(b)}`;
     return {
       id: conversation.id,
       lastMessageAt: conversation.lastMessageAt,
@@ -686,7 +722,7 @@ export async function listMessages(
       {
         model: db.User,
         as: "author",
-        attributes: ["id", "username", "role"],
+        attributes: ["id", "username", "displayName", "role"],
         required: false,
       },
       {
@@ -777,7 +813,7 @@ export async function createMessage(conversation, authorUser, body, { attachment
         {
           model: db.User,
           as: "author",
-          attributes: ["id", "username", "role"],
+          attributes: ["id", "username", "displayName", "role"],
           required: false,
         },
         {
@@ -800,7 +836,7 @@ const messageInclude = [
   {
     model: db.User,
     as: "author",
-    attributes: ["id", "username", "role"],
+    attributes: ["id", "username", "displayName", "role"],
     required: false,
   },
   {
@@ -866,7 +902,7 @@ export async function updateMessage(messageId, user, body) {
       {
         model: db.User,
         as: "author",
-        attributes: ["id", "username", "role"],
+        attributes: ["id", "username", "displayName", "role"],
         required: false,
       },
       {

@@ -35,9 +35,16 @@ export function serializeAttachment(attachment) {
 function serializeUserBrief(user) {
   if (!user) return null;
   const plain = typeof user.toJSON === "function" ? user.toJSON() : user;
+  const display = plain.displayName != null ? String(plain.displayName).trim() : "";
+  const username = plain.username != null ? String(plain.username).trim() : "";
+  let name = username || "Unknown";
+  if (display && username) name = `${display} @${username}`;
+  else if (display) name = display;
   return {
     id: plain.id,
-    username: plain.username || "Unknown",
+    username: username || "Unknown",
+    displayName: display || null,
+    name,
   };
 }
 
@@ -80,7 +87,7 @@ export async function listAttachmentsForAdmin(adminUser, { page = 1, pageSize = 
       {
         model: db.User,
         as: "uploader",
-        attributes: ["id", "username"],
+        attributes: ["id", "username", "displayName"],
         required: false,
       },
       {
@@ -92,13 +99,13 @@ export async function listAttachmentsForAdmin(adminUser, { page = 1, pageSize = 
           {
             model: db.User,
             as: "dmUserLow",
-            attributes: ["id", "username"],
+            attributes: ["id", "username", "displayName"],
             required: false,
           },
           {
             model: db.User,
             as: "dmUserHigh",
-            attributes: ["id", "username"],
+            attributes: ["id", "username", "displayName"],
             required: false,
           },
         ],

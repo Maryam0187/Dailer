@@ -65,6 +65,9 @@ export default function MessageBroadcastClient() {
     if (!q) return list;
     return list.filter(
       (c) =>
+        String(c.name || c.displayName || c.username || "")
+          .toLowerCase()
+          .includes(q) ||
         String(c.username || "")
           .toLowerCase()
           .includes(q) ||
@@ -155,7 +158,7 @@ export default function MessageBroadcastClient() {
 
   const usernameById = useMemo(() => {
     const map = new Map();
-    for (const c of contacts) map.set(c.id, c.username);
+    for (const c of contacts) map.set(c.id, c.name || c.displayName || c.username);
     return map;
   }, [contacts]);
 
@@ -263,7 +266,9 @@ export default function MessageBroadcastClient() {
                         onChange={(e) => toggleUser(user.id, e.target.checked)}
                         className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
                       />
-                      <span className="min-w-0 flex-1 truncate font-medium">{user.username}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {user.name || user.displayName || user.username}
+                      </span>
                       <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                         {user.isOutside ? (
                           <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
@@ -292,7 +297,7 @@ export default function MessageBroadcastClient() {
                 className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:hover:bg-indigo-950"
                 title="Remove"
               >
-                {user.username}
+                {user.name || user.displayName || user.username}
                 <span aria-hidden>×</span>
               </button>
             ))}

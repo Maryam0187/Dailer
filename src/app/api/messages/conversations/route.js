@@ -7,9 +7,9 @@ import {
   isOutsideManagerUser,
   isOutsideSupervisor,
   listConversationsForUser,
+  serializeContact,
 } from "@/server/messages/messageAccess";
 import db from "@/server/db";
-import { derivePresence } from "@/server/auth/presence";
 
 export const runtime = "nodejs";
 
@@ -63,15 +63,17 @@ export async function POST(req) {
   }
 
   const peer = await db.User.findByPk(recipientUserId, {
-    attributes: ["id", "username", "role", "activeSessionId", "activeSessionLastSeenAt"],
+    attributes: [
+      "id",
+      "username",
+      "displayName",
+      "role",
+      "shiftKey",
+      "isOutside",
+      "activeSessionId",
+      "activeSessionLastSeenAt",
+    ],
   });
-  const presence = peer
-    ? derivePresence({
-        id: peer.id,
-        activeSessionId: peer.activeSessionId,
-        activeSessionLastSeenAt: peer.activeSessionLastSeenAt,
-      })
-    : { status: "offline", lastActiveAt: null };
 
   return NextResponse.json({
     conversation: {
@@ -81,16 +83,12 @@ export async function POST(req) {
       isOversight: false,
       canSend: true,
       peer: peer
-        ? {
-            id: peer.id,
-            username: peer.username,
-            role: peer.role,
-            presence: presence.status,
-            lastActiveAt: presence.lastActiveAt,
-          }
+        ? serializeContact(peer)
         : {
             id: recipientUserId,
             username: "Unknown",
+            displayName: null,
+            name: "Unknown",
             role: null,
             presence: "offline",
             lastActiveAt: null,

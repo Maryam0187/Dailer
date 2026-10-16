@@ -31,6 +31,7 @@ export async function GET(_req, { params }) {
     attributes: [
       "id",
       "username",
+      "displayName",
       "role",
       "managerId",
       "supervisorId",
@@ -83,6 +84,7 @@ export async function GET(_req, { params }) {
     user: {
       id: target.id,
       username: target.username,
+      displayName: target.displayName ? String(target.displayName) : null,
       role: target.role,
       managerId: target.managerId,
       supervisorId: target.supervisorId,
@@ -155,6 +157,24 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "username must be at least 3 characters" }, { status: 400 });
     }
     updates.username = body.username.trim();
+  }
+
+  if (body.displayName !== undefined) {
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (body.displayName != null && typeof body.displayName !== "string") {
+      return NextResponse.json({ error: "displayName must be a string" }, { status: 400 });
+    }
+    const trimmed =
+      body.displayName == null ? "" : String(body.displayName).trim().replace(/\s+/g, " ");
+    if (trimmed.length > 128) {
+      return NextResponse.json(
+        { error: "displayName must be at most 128 characters" },
+        { status: 400 },
+      );
+    }
+    updates.displayName = trimmed || null;
   }
 
   if (body.password !== undefined && body.password !== "") {
@@ -471,6 +491,7 @@ export async function PATCH(req, { params }) {
     attributes: [
       "id",
       "username",
+      "displayName",
       "role",
       "managerId",
       "supervisorId",

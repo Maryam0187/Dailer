@@ -93,12 +93,15 @@ export default function MessageOversightClient({ currentUserId }) {
             };
           });
           if (!changed) return c;
-          const names = participants.map((p) => p?.username || "Unknown");
+          const names = participants.map(
+            (p) => p?.name || p?.displayName || p?.username || "Unknown",
+          );
+          const label = `${names[0] || "Unknown"} ↔ ${names[1] || "Unknown"}`;
           return {
             ...c,
             participants,
             peer: c.peer
-              ? { ...c.peer, username: `${names[0] || "Unknown"} ↔ ${names[1] || "Unknown"}` }
+              ? { ...c.peer, username: label, name: label, displayName: label }
               : c.peer,
           };
         }),
@@ -113,8 +116,10 @@ export default function MessageOversightClient({ currentUserId }) {
     return conversations.filter((c) => {
       if (!conversationMatchesFilters(c, shiftFilter, locationFilter)) return false;
       if (!q) return true;
-      const label = c.peer?.username || "";
-      const names = (c.participants || []).map((p) => p.username).join(" ");
+      const label = c.peer?.name || c.peer?.displayName || c.peer?.username || "";
+      const names = (c.participants || [])
+        .map((p) => p.name || p.displayName || p.username)
+        .join(" ");
       const preview = messagePreviewText(c) || "";
       return `${label} ${names} ${preview}`.toLowerCase().includes(q);
     });
@@ -280,14 +285,22 @@ export default function MessageOversightClient({ currentUserId }) {
                       <div className="relative mt-0.5 flex shrink-0">
                         {participants[0] ? (
                           <UserAvatar
-                            name={participants[0].username}
+                            name={
+                              participants[0].name ||
+                              participants[0].displayName ||
+                              participants[0].username
+                            }
                             presence={participants[0].presence}
                             size="sm"
                           />
                         ) : null}
                         {participants[1] ? (
                           <UserAvatar
-                            name={participants[1].username}
+                            name={
+                              participants[1].name ||
+                              participants[1].displayName ||
+                              participants[1].username
+                            }
                             presence={participants[1].presence}
                             size="sm"
                             className="-ml-3"
@@ -297,7 +310,10 @@ export default function MessageOversightClient({ currentUserId }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                            {conversation.peer?.username || "Unknown"}
+                            {conversation.peer?.name ||
+                              conversation.peer?.displayName ||
+                              conversation.peer?.username ||
+                              "Unknown"}
                           </span>
                           <span className="shrink-0 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
                             {formatMessageTime(

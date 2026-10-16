@@ -116,7 +116,11 @@ export default function ConversationList({
                 : Number(conversation.unreadCount) || 0;
               const hasUnread = badgeCount > 0;
               const preview = messagePreviewText(conversation.lastMessage) || "No messages yet";
-              const name = conversation.peer?.username || "Unknown";
+              const name =
+                conversation.peer?.name ||
+                conversation.peer?.displayName ||
+                conversation.peer?.username ||
+                "Unknown";
               return (
                 <li key={conversation.id}>
                   <button

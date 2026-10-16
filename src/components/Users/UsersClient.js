@@ -1285,7 +1285,9 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 id="user-detail-title"
                 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
               >
-                {user.username}
+                {user.displayName
+                  ? `${user.displayName} @${user.username}`
+                  : user.username}
                 {isSelf ? (
                   <span className="ml-2 text-xs font-normal text-zinc-500">(you)</span>
                 ) : null}
@@ -1958,6 +1960,7 @@ function EditUserModal({
   const isAdmin = viewerRole === "admin";
   const isManager = viewerRole === "manager";
   const [username, setUsername] = useState(user.username);
+  const [displayName, setDisplayName] = useState(user.displayName || "");
   const [password, setPassword] = useState("");
   const [editRole, setEditRole] = useState(user.role);
   const [managerId, setManagerId] = useState(user.managerId ?? "");
@@ -1990,6 +1993,7 @@ function EditUserModal({
 
   useEffect(() => {
     setUsername(user.username);
+    setDisplayName(user.displayName || "");
     setPassword("");
     setEditRole(user.role);
     setManagerId(user.managerId ?? "");
@@ -2066,6 +2070,11 @@ function EditUserModal({
       if (password.trim()) payload.password = password.trim();
 
       if (isAdmin) {
+        const nextDisplay = displayName.trim().replace(/\s+/g, " ");
+        const prevDisplay = (user.displayName || "").trim();
+        if (nextDisplay !== prevDisplay) {
+          payload.displayName = nextDisplay;
+        }
         const rolesWithManager = ["agent", "supervisor", "processor", "lead_supervisor"];
         if (editRole !== user.role) {
           payload.role = editRole;
@@ -2226,7 +2235,9 @@ function EditUserModal({
         <h2 id="edit-user-title" className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
           Edit user
         </h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{user.username}</p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          {user.displayName ? `${user.displayName} @${user.username}` : user.username}
+        </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
           {isAdmin && user.role !== "admin" && user.isActive !== false ? (
@@ -2307,6 +2318,26 @@ function EditUserModal({
               autoComplete="off"
             />
           </div>
+
+          {isAdmin ? (
+            <div>
+              <label htmlFor="edit-display-name" className={labelClass}>
+                Display name
+              </label>
+              <input
+                id="edit-display-name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                maxLength={128}
+                className={inputClass}
+                placeholder="How this name appears in chat"
+                autoComplete="off"
+              />
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Shown in messages as Display name @username. Leave blank to use username only.
+              </p>
+            </div>
+          ) : null}
 
           <div>
             <label htmlFor="edit-password" className={labelClass}>
@@ -2743,11 +2774,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     let sortedUsers = sortUsersForDisplay(users);
     const nameQuery = listNameSearch.trim().toLowerCase();
     if (nameQuery) {
-      sortedUsers = sortedUsers.filter((u) =>
-        String(u.username || "")
-          .toLowerCase()
-          .includes(nameQuery),
-      );
+      sortedUsers = sortedUsers.filter((u) => {
+        const username = String(u.username || "").toLowerCase();
+        const display = String(u.displayName || "").toLowerCase();
+        return username.includes(nameQuery) || display.includes(nameQuery);
+      });
     }
 
     if (listActiveFilter === "active") {
@@ -3440,8 +3471,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                 className={compactFilterInputClass}
                 value={listNameSearch}
                 onChange={(e) => setListNameSearch(e.target.value)}
-                placeholder="Username…"
-                aria-label="Search by username"
+                placeholder="Display name or username…"
+                aria-label="Search by display name or username"
                 autoComplete="off"
               />
             </div>
@@ -3634,7 +3665,16 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             className="text-left font-medium text-emerald-700 hover:underline focus:underline focus:outline-none dark:text-emerald-300"
                             title="View status and call logs"
                           >
-                            {u.username}
+                            {u.displayName ? (
+                              <>
+                                <span>{u.displayName}</span>
+                                <span className="ml-1.5 font-normal text-zinc-500 dark:text-zinc-400">
+                                  @{u.username}
+                                </span>
+                              </>
+                            ) : (
+                              u.username
+                            )}
                           </button>
                         </td>
                         <td className="px-3 py-2.5">

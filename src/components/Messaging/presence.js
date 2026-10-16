@@ -67,7 +67,13 @@ export function buildParticipantNameColors(participantsOrNames) {
     const name =
       typeof item === "string"
         ? item
-        : item?.username || item?.author?.username || null;
+        : item?.name ||
+          item?.displayName ||
+          item?.username ||
+          item?.author?.name ||
+          item?.author?.displayName ||
+          item?.author?.username ||
+          null;
     if (!name) continue;
     if (!names.includes(name)) names.push(name);
   }

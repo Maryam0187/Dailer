@@ -82,7 +82,14 @@ export async function POST(req, { params }) {
       ? result.message.attachments.length > 0
       : false;
     const push = buildMessagePushCopy({
-      senderName: authedUser.username || result.message?.author?.username,
+      senderName:
+        result.message?.author?.name ||
+        (authedUser.displayName && authedUser.username
+          ? `${authedUser.displayName} @${authedUser.username}`
+          : null) ||
+        authedUser.displayName ||
+        authedUser.username ||
+        result.message?.author?.username,
       messageBody: result.message?.body,
       hasAttachments,
     });
