@@ -177,6 +177,7 @@ async function resolveAuthedUser() {
     user: {
       id: user.id,
       username: user.username,
+      displayName: user.displayName ? String(user.displayName) : null,
       role: user.role,
       managerId: user.managerId,
       supervisorId: user.supervisorId,

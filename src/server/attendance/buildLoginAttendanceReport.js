@@ -157,11 +157,15 @@ function summarizeDays(days) {
 
   const anchorDay = days.length > 0 ? days[days.length - 1] : null;
 
+  const daysPresent =
+    daysFullPoints + daysTier90 + daysPartialPoints + daysZeroPoints;
+
   return {
     daysFullPoints,
     daysTier90,
     daysPartialPoints,
     daysZeroPoints,
+    daysPresent,
     daysAbsent,
     daysOnLeave,
     daysExempt,

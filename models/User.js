@@ -14,6 +14,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
+      /** Optional friendly name shown in the UI; username remains the login id. */
+      displayName: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
       passwordHash: {
         type: DataTypes.STRING(255),
         allowNull: true,

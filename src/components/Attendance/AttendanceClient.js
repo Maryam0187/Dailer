@@ -2,6 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { getPresetRange } from "@/components/DateRangeFilter";
+import AttendancePeriodStats, {
+  presentAbsentFromDays,
+  presentAbsentFromSummary,
+} from "@/components/Attendance/AttendancePeriodStats";
 
 const RANGE_PRESET_OPTIONS = [
   { id: "today", label: "Today" },
@@ -385,10 +389,18 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
+  const [weekStats, setWeekStats] = useState({ present: 0, absent: 0 });
+  const [monthStats, setMonthStats] = useState({ present: 0, absent: 0 });
+  const [periodStatsLoading, setPeriodStatsLoading] = useState(false);
   const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
     "totalOnlineMs",
     "desc",
   );
+
+  function countsFromPayload(json) {
+    if (json?.summary) return presentAbsentFromSummary(json.summary);
+    return presentAbsentFromDays(json?.days);
+  }
 
   const sortedSummaryRows = useMemo(
     () =>
@@ -483,13 +495,56 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
     ],
   );
 
+  const loadPeriodStats = useCallback(async () => {
+    if (!isAdmin || adminTab !== "detail" || !selectedUserId) return;
+    setPeriodStatsLoading(true);
+    try {
+      const weekRange = getPresetRange("week");
+      const monthRange = getPresetRange("month");
+      const [weekRes, monthRes] = await Promise.all([
+        fetch(
+          `/api/attendance?${new URLSearchParams({
+            fromDate: weekRange.from,
+            toDate: weekRange.to,
+            userId: String(selectedUserId),
+          })}`,
+          { credentials: "include" },
+        ),
+        fetch(
+          `/api/attendance?${new URLSearchParams({
+            fromDate: monthRange.from,
+            toDate: monthRange.to,
+            userId: String(selectedUserId),
+          })}`,
+          { credentials: "include" },
+        ),
+      ]);
+      const weekJson = await weekRes.json().catch(() => ({}));
+      const monthJson = await monthRes.json().catch(() => ({}));
+      if (weekRes.ok) setWeekStats(countsFromPayload(weekJson));
+      if (monthRes.ok) setMonthStats(countsFromPayload(monthJson));
+    } catch {
+      /* non-fatal; detail table still loads */
+    } finally {
+      setPeriodStatsLoading(false);
+    }
+  }, [isAdmin, adminTab, selectedUserId]);
+
   async function reloadDetail() {
-    await loadAttendance({ silent: true });
+    await Promise.all([loadAttendance({ silent: true }), loadPeriodStats()]);
+  }
+
+  async function refreshAll({ silent = true } = {}) {
+    await Promise.all([loadAttendance({ silent }), loadPeriodStats()]);
   }
 
   useEffect(() => {
     void loadAttendance();
   }, [loadAttendance]);
+
+  useEffect(() => {
+    void loadPeriodStats();
+  }, [loadPeriodStats]);
 
   function applyPreset(nextPreset) {
     setPreset(nextPreset);
@@ -639,7 +694,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
           </div>
           <button
             type="button"
-            onClick={() => void loadAttendance({ silent: true })}
+            onClick={() => void refreshAll({ silent: true })}
             disabled={loading || refreshing || !appliedFrom || !appliedTo}
             className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
@@ -650,7 +705,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => void loadAttendance({ silent: true })}
+            onClick={() => void refreshAll({ silent: true })}
             disabled={loading || refreshing || !appliedFrom || !appliedTo}
             className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
@@ -734,19 +789,26 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
       ) : null}
 
       {isAdmin && adminTab === "detail" ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">User</label>
-          <select
-            value={selectedUserId ?? ""}
-            onChange={(e) => setSelectedUserId(Number(e.target.value))}
-            className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-          >
-            {filteredUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.username} ({locationLabel(u.isOutside)} · {shiftLabel(u.shiftKey)})
-              </option>
-            ))}
-          </select>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">User</label>
+            <select
+              value={selectedUserId ?? ""}
+              onChange={(e) => setSelectedUserId(Number(e.target.value))}
+              className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            >
+              {filteredUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({locationLabel(u.isOutside)} · {shiftLabel(u.shiftKey)})
+                </option>
+              ))}
+            </select>
+          </div>
+          <AttendancePeriodStats
+            week={weekStats}
+            month={monthStats}
+            loading={periodStatsLoading}
+          />
         </div>
       ) : null}
 
