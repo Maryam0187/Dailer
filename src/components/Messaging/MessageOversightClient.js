@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ConversationView from "@/components/Messaging/ConversationView";
 import { UserAvatar, formatMessageTime } from "@/components/Messaging/presence";
 import { messagePreviewText } from "@/lib/messageAttachments";
+import UserNameLabel, { avatarNameFromUser } from "@/components/UserNameLabel";
 
 const SHIFT_FILTER_OPTIONS = [
   { id: "all", label: "All shifts" },
@@ -285,22 +286,14 @@ export default function MessageOversightClient({ currentUserId }) {
                       <div className="relative mt-0.5 flex shrink-0">
                         {participants[0] ? (
                           <UserAvatar
-                            name={
-                              participants[0].name ||
-                              participants[0].displayName ||
-                              participants[0].username
-                            }
+                            name={avatarNameFromUser(participants[0])}
                             presence={participants[0].presence}
                             size="sm"
                           />
                         ) : null}
                         {participants[1] ? (
                           <UserAvatar
-                            name={
-                              participants[1].name ||
-                              participants[1].displayName ||
-                              participants[1].username
-                            }
+                            name={avatarNameFromUser(participants[1])}
                             presence={participants[1].presence}
                             size="sm"
                             className="-ml-3"
@@ -309,11 +302,14 @@ export default function MessageOversightClient({ currentUserId }) {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                            {conversation.peer?.name ||
-                              conversation.peer?.displayName ||
-                              conversation.peer?.username ||
-                              "Unknown"}
+                          <span className="min-w-0 truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                            <UserNameLabel
+                              name={conversation.peer?.name}
+                              displayName={conversation.peer?.displayName}
+                              username={conversation.peer?.username}
+                              displayClassName="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+                              usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                            />
                           </span>
                           <span className="shrink-0 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
                             {formatMessageTime(

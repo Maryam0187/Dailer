@@ -8,6 +8,7 @@ import { stripHtml } from "@/lib/richText";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
+import UserNameLabel from "@/components/UserNameLabel";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -1285,9 +1286,13 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                 id="user-detail-title"
                 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50"
               >
-                {user.displayName
-                  ? `${user.displayName} @${user.username}`
-                  : user.username}
+                <UserNameLabel
+                  displayName={user.displayName}
+                  username={user.username}
+                  displayClassName="text-lg font-semibold leading-tight text-zinc-950 dark:text-zinc-50"
+                  usernameClassName="text-sm font-normal text-zinc-400 dark:text-zinc-500"
+                  truncate={false}
+                />
                 {isSelf ? (
                   <span className="ml-2 text-xs font-normal text-zinc-500">(you)</span>
                 ) : null}
@@ -2235,8 +2240,14 @@ function EditUserModal({
         <h2 id="edit-user-title" className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
           Edit user
         </h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {user.displayName ? `${user.displayName} @${user.username}` : user.username}
+        <p className="mt-1">
+          <UserNameLabel
+            displayName={user.displayName}
+            username={user.username}
+            displayClassName="text-sm font-semibold text-zinc-800 dark:text-zinc-200"
+            usernameClassName="text-xs font-normal text-zinc-400 dark:text-zinc-500"
+            truncate={false}
+          />
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
@@ -2330,11 +2341,24 @@ function EditUserModal({
                 onChange={(e) => setDisplayName(e.target.value)}
                 maxLength={128}
                 className={inputClass}
-                placeholder="How this name appears in chat"
+                placeholder={user.displayName || "How this name appears in chat"}
                 autoComplete="off"
               />
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                Shown in messages as Display name @username. Leave blank to use username only.
+              <p className="mt-1.5 flex flex-wrap items-baseline gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                {displayName.trim() || user.displayName ? (
+                  <>
+                    <span>Shown in messages as</span>
+                    <UserNameLabel
+                      displayName={displayName.trim() || user.displayName}
+                      username={username.trim() || user.username}
+                      displayClassName="text-sm font-semibold text-zinc-800 dark:text-zinc-200"
+                      usernameClassName="text-xs font-normal text-zinc-400 dark:text-zinc-500"
+                      truncate={false}
+                    />
+                  </>
+                ) : (
+                  <span>Leave blank to use username only.</span>
+                )}
               </p>
             </div>
           ) : null}
@@ -2720,6 +2744,7 @@ function EditUserModal({
 function normalizeUsersList(list) {
   return (list || []).map((u) => ({
     ...u,
+    displayName: u.displayName ? String(u.displayName) : null,
     isActive: u.isActive !== false && u.isActive !== 0,
     isOutside: Boolean(u.isOutside),
     canUseDialer2: Boolean(u.canUseDialer2),
@@ -3665,16 +3690,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                             className="text-left font-medium text-emerald-700 hover:underline focus:underline focus:outline-none dark:text-emerald-300"
                             title="View status and call logs"
                           >
-                            {u.displayName ? (
-                              <>
-                                <span>{u.displayName}</span>
-                                <span className="ml-1.5 font-normal text-zinc-500 dark:text-zinc-400">
-                                  @{u.username}
-                                </span>
-                              </>
-                            ) : (
-                              u.username
-                            )}
+                            <UserNameLabel
+                              displayName={u.displayName}
+                              username={u.username}
+                              displayClassName="text-base font-semibold text-emerald-700 dark:text-emerald-300"
+                              usernameClassName="text-xs font-normal text-zinc-400 dark:text-zinc-500"
+                            />
                           </button>
                         </td>
                         <td className="px-3 py-2.5">

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { roleLabel } from "./presence";
+import UserNameLabel from "@/components/UserNameLabel";
 
 const MAX_BODY = 5000;
 const MAX_RECIPIENTS = 100;
@@ -267,7 +268,13 @@ export default function MessageBroadcastClient() {
                         className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600"
                       />
                       <span className="min-w-0 flex-1 truncate font-medium">
-                        {user.name || user.displayName || user.username}
+                        <UserNameLabel
+                          displayName={user.displayName}
+                          username={user.username}
+                          name={user.name}
+                          displayClassName="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+                          usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                        />
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                         {user.isOutside ? (
@@ -297,7 +304,14 @@ export default function MessageBroadcastClient() {
                 className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:hover:bg-indigo-950"
                 title="Remove"
               >
-                {user.name || user.displayName || user.username}
+                <UserNameLabel
+                  displayName={user.displayName}
+                  username={user.username}
+                  name={user.name}
+                  displayClassName="text-xs font-semibold text-indigo-800 dark:text-indigo-200"
+                  usernameClassName="text-[10px] font-normal text-indigo-500/80 dark:text-indigo-300/70"
+                  truncate={false}
+                />
                 <span aria-hidden>×</span>
               </button>
             ))}

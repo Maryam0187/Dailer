@@ -22,6 +22,7 @@ export default async function UsersPage() {
   const listAttributes = [
     "id",
     "username",
+    "displayName",
     "role",
     "managerId",
     "supervisorId",
@@ -96,6 +97,7 @@ export default async function UsersPage() {
     return {
       id: r.id,
       username: r.username,
+      displayName: r.displayName ? String(r.displayName) : null,
       role: r.role,
       managerId: r.managerId,
       supervisorId: r.supervisorId,

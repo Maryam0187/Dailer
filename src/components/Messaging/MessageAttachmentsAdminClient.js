@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatBytes } from "@/lib/messageAttachments";
+import UserNameLabel from "@/components/UserNameLabel";
 
 const PAGE_SIZE = 25;
 
@@ -267,16 +268,30 @@ export default function MessageAttachmentsAdminClient() {
                       {formatSize(row.sizeBytes)}
                     </td>
                     <td className="px-4 py-3 text-zinc-800 dark:text-zinc-200">
-                      {row.uploader?.name ||
-                        row.uploader?.displayName ||
-                        row.uploader?.username ||
-                        "—"}
+                      {row.uploader ? (
+                        <UserNameLabel
+                          displayName={row.uploader.displayName}
+                          username={row.uploader.username}
+                          name={row.uploader.name}
+                          displayClassName="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                          usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                        />
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-4 py-3 text-zinc-800 dark:text-zinc-200">
-                      {row.receiver?.name ||
-                        row.receiver?.displayName ||
-                        row.receiver?.username ||
-                        "—"}
+                      {row.receiver ? (
+                        <UserNameLabel
+                          displayName={row.receiver.displayName}
+                          username={row.receiver.username}
+                          name={row.receiver.name}
+                          displayClassName="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                          usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                        />
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {row.receiverDownloadedAt ? (

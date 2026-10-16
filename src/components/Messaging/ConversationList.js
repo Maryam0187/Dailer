@@ -2,6 +2,7 @@
 
 import { UserAvatar, formatMessageTime, roleLabel } from "./presence";
 import { messagePreviewText } from "@/lib/messageAttachments";
+import UserNameLabel, { avatarNameFromUser } from "@/components/UserNameLabel";
 
 function EmptyInbox({ onCompose }) {
   return (
@@ -116,11 +117,7 @@ export default function ConversationList({
                 : Number(conversation.unreadCount) || 0;
               const hasUnread = badgeCount > 0;
               const preview = messagePreviewText(conversation.lastMessage) || "No messages yet";
-              const name =
-                conversation.peer?.name ||
-                conversation.peer?.displayName ||
-                conversation.peer?.username ||
-                "Unknown";
+              const avatarName = avatarNameFromUser(conversation.peer);
               return (
                 <li key={conversation.id}>
                   <button
@@ -134,19 +131,21 @@ export default function ConversationList({
                           : "hover:bg-white/80 dark:hover:bg-zinc-900/70"
                     }`}
                   >
-                    <UserAvatar name={name} presence={conversation.peer?.presence} size="md" />
+                    <UserAvatar name={avatarName} presence={conversation.peer?.presence} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5">
-                          <span
-                            className={`truncate text-sm ${
+                          <UserNameLabel
+                            displayName={conversation.peer?.displayName}
+                            username={conversation.peer?.username}
+                            name={conversation.peer?.name}
+                            displayClassName={
                               hasUnread
-                                ? "font-bold text-sky-800 dark:text-sky-300"
-                                : "font-medium text-zinc-800 dark:text-zinc-100"
-                            }`}
-                          >
-                            {name}
-                          </span>
+                                ? "text-base font-bold text-sky-800 dark:text-sky-300"
+                                : "text-base font-semibold text-zinc-800 dark:text-zinc-100"
+                            }
+                            usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                          />
                           {hasUnread ? (
                             <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-sky-600 px-1.5 text-[10px] font-bold text-white">
                               {badgeCount > 99 ? "99+" : badgeCount}

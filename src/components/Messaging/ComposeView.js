@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { UserAvatar, roleLabel } from "./presence";
+import UserNameLabel, { avatarNameFromUser } from "@/components/UserNameLabel";
 
 export default function ComposeView({
   initialRecipientId = null,
@@ -196,13 +197,19 @@ export default function ComposeView({
                   className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-white hover:shadow-sm disabled:opacity-60 dark:hover:bg-zinc-900"
                 >
                   <UserAvatar
-                    name={contact.name || contact.displayName || contact.username}
+                    name={avatarNameFromUser(contact)}
                     presence={contact.presence}
                     size="md"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                      {contact.name || contact.displayName || contact.username}
+                    <p className="truncate text-base font-medium text-zinc-900 dark:text-zinc-50">
+                      <UserNameLabel
+                        displayName={contact.displayName}
+                        username={contact.username}
+                        name={contact.name}
+                        displayClassName="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+                        usernameClassName="text-[11px] font-normal text-zinc-400 dark:text-zinc-500"
+                      />
                     </p>
                     <p className="text-xs capitalize text-zinc-500 dark:text-zinc-400">
                       {roleLabel(contact.role)}

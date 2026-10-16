@@ -19,6 +19,7 @@ import {
   MessageAttachmentList,
   PendingAttachmentList,
 } from "@/components/Messaging/MessageAttachmentParts";
+import UserNameLabel, { avatarNameFromUser } from "@/components/UserNameLabel";
 
 const COMPOSER_MIN_HEIGHT = 80;
 const COMPOSER_MAX_HEIGHT = 224;
@@ -903,6 +904,7 @@ export default function ConversationView({
   }
 
   const canSend = conversation.canSend !== false && !conversation.isOversight;
+  const peerAvatarName = avatarNameFromUser(conversation.peer);
 
   const pendingDeleteMessage = useMemo(() => {
     if (pendingDeleteMessageId == null) return null;
@@ -946,12 +948,18 @@ export default function ConversationView({
           </button>
         ) : null}
         {!conversation.isOversight ? (
-          <UserAvatar name={peerLabel} presence={conversation.peer?.presence} size="md" />
+          <UserAvatar name={peerAvatarName} presence={conversation.peer?.presence} size="md" />
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-              {peerLabel}
+            <h2 className="min-w-0 truncate text-base font-semibold text-zinc-900 dark:text-zinc-50">
+              <UserNameLabel
+                displayName={conversation.peer?.displayName}
+                username={conversation.peer?.username}
+                name={conversation.peer?.name}
+                displayClassName="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+                usernameClassName="text-xs font-normal text-zinc-400 dark:text-zinc-500"
+              />
             </h2>
             {conversation.isOversight ? (
               <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
@@ -1047,16 +1055,26 @@ export default function ConversationView({
                       }`}
                     >
                       {conversation.isOversight &&
-                      (message.author?.name || message.author?.username) ? (
-                        <p className="mb-1 text-xs">
+                      (message.author?.name ||
+                        message.author?.displayName ||
+                        message.author?.username) ? (
+                        <p className="mb-1 flex min-w-0 flex-wrap items-baseline gap-1.5 text-xs">
                           <ColoredName
-                            name={message.author.name || message.author.username}
+                            name={avatarNameFromUser(message.author)}
                             colorClass={
                               oversightNameColors[
-                                message.author.name || message.author.username
+                                message.author.name ||
+                                  message.author.displayName ||
+                                  message.author.username
                               ]
                             }
+                            className="text-sm font-bold"
                           />
+                          {message.author.username ? (
+                            <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
+                              @{message.author.username}
+                            </span>
+                          ) : null}
                         </p>
                       ) : null}
                       {message.body && !isEditing ? (
