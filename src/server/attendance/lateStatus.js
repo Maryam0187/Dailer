@@ -3,7 +3,6 @@ import {
   getSessionCalendarDate,
   isLeaveDay,
   isOutsideManager,
-  isShiftWindowEnforced,
   resolveShiftKey,
 } from "@/server/auth/loginWindow";
 import { getShiftSettings } from "@/server/auth/shiftSettings";
@@ -83,8 +82,9 @@ export function buildTierDeadlines(user) {
 
 export function isAttendanceExempt(user, date = new Date()) {
   if (!user) return true;
+  // Admins / outside managers stay fully exempt from attendance scoring.
+  // Login-window exempt (sign in anytime) only skips scoring on leave days.
   if (user.role === "admin" || isOutsideManager(user)) return true;
-  if (!isShiftWindowEnforced(user)) return true;
   if (isLeaveDay(date, user)) return true;
   return false;
 }

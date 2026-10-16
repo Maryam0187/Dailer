@@ -23,6 +23,13 @@ app.prepare().then(async () => {
     console.error("[shift] failed to load settings on boot:", err?.message || err);
   }
 
+  try {
+    const { ensureCompanyLeaveDatesLoaded } = require("./src/server/leave/companyLeaveDates.boot.cjs");
+    await ensureCompanyLeaveDatesLoaded();
+  } catch (err) {
+    console.error("[company-leave] failed to load dates on boot:", err?.message || err);
+  }
+
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);

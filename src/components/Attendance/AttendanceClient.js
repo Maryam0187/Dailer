@@ -4,7 +4,6 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { getPresetRange } from "@/components/DateRangeFilter";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
-  presentAbsentFromSummary,
 } from "@/components/Attendance/AttendancePeriodStats";
 
 const RANGE_PRESET_OPTIONS = [
@@ -389,18 +388,15 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
-  const [weekStats, setWeekStats] = useState({ present: 0, absent: 0 });
-  const [monthStats, setMonthStats] = useState({ present: 0, absent: 0 });
-  const [periodStatsLoading, setPeriodStatsLoading] = useState(false);
   const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
     "totalOnlineMs",
     "desc",
   );
 
-  function countsFromPayload(json) {
-    if (json?.summary) return presentAbsentFromSummary(json.summary);
-    return presentAbsentFromDays(json?.days);
-  }
+  const detailRangeStats = useMemo(
+    () => presentAbsentFromDays(detail?.days || []),
+    [detail?.days],
+  );
 
   const sortedSummaryRows = useMemo(
     () =>
@@ -495,56 +491,17 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
     ],
   );
 
-  const loadPeriodStats = useCallback(async () => {
-    if (!isAdmin || adminTab !== "detail" || !selectedUserId) return;
-    setPeriodStatsLoading(true);
-    try {
-      const weekRange = getPresetRange("week");
-      const monthRange = getPresetRange("month");
-      const [weekRes, monthRes] = await Promise.all([
-        fetch(
-          `/api/attendance?${new URLSearchParams({
-            fromDate: weekRange.from,
-            toDate: weekRange.to,
-            userId: String(selectedUserId),
-          })}`,
-          { credentials: "include" },
-        ),
-        fetch(
-          `/api/attendance?${new URLSearchParams({
-            fromDate: monthRange.from,
-            toDate: monthRange.to,
-            userId: String(selectedUserId),
-          })}`,
-          { credentials: "include" },
-        ),
-      ]);
-      const weekJson = await weekRes.json().catch(() => ({}));
-      const monthJson = await monthRes.json().catch(() => ({}));
-      if (weekRes.ok) setWeekStats(countsFromPayload(weekJson));
-      if (monthRes.ok) setMonthStats(countsFromPayload(monthJson));
-    } catch {
-      /* non-fatal; detail table still loads */
-    } finally {
-      setPeriodStatsLoading(false);
-    }
-  }, [isAdmin, adminTab, selectedUserId]);
-
   async function reloadDetail() {
-    await Promise.all([loadAttendance({ silent: true }), loadPeriodStats()]);
+    await loadAttendance({ silent: true });
   }
 
   async function refreshAll({ silent = true } = {}) {
-    await Promise.all([loadAttendance({ silent }), loadPeriodStats()]);
+    await loadAttendance({ silent });
   }
 
   useEffect(() => {
     void loadAttendance();
   }, [loadAttendance]);
-
-  useEffect(() => {
-    void loadPeriodStats();
-  }, [loadPeriodStats]);
 
   function applyPreset(nextPreset) {
     setPreset(nextPreset);
@@ -805,21 +762,35 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
             </select>
           </div>
           <AttendancePeriodStats
-            week={weekStats}
-            month={monthStats}
-            loading={periodStatsLoading}
+            present={detailRangeStats.present}
+            absent={detailRangeStats.absent}
+            leave={detailRangeStats.leave}
+            fromDate={appliedFrom}
+            toDate={appliedTo}
+            loading={loading && !detail}
           />
         </div>
       ) : null}
 
       {((isAdmin && adminTab === "detail" && !loading && detail) ||
         (!isAdmin && !loading && detail)) && (
-        <DailyTable
-          days={detail.days || []}
-          userId={detail.userId}
-          isAdmin={isAdmin && adminTab === "detail"}
-          onSaved={reloadDetail}
-        />
+        <>
+          {!isAdmin ? (
+            <AttendancePeriodStats
+              present={detailRangeStats.present}
+              absent={detailRangeStats.absent}
+              leave={detailRangeStats.leave}
+              fromDate={appliedFrom}
+              toDate={appliedTo}
+            />
+          ) : null}
+          <DailyTable
+            days={detail.days || []}
+            userId={detail.userId}
+            isAdmin={isAdmin && adminTab === "detail"}
+            onSaved={reloadDetail}
+          />
+        </>
       )}
     </div>
   );

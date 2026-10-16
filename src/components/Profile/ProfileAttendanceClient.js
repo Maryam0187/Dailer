@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getPresetRange } from "@/components/DateRangeFilter";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
-  presentAbsentFromSummary,
 } from "@/components/Attendance/AttendancePeriodStats";
 
 const RANGE_PRESET_OPTIONS = [
@@ -43,9 +42,40 @@ function formatOnlineMs(value) {
   return `${hours}h ${minutes}m`;
 }
 
-function countsFromPayload(json) {
-  if (json?.summary) return presentAbsentFromSummary(json.summary);
-  return presentAbsentFromDays(json?.days);
+function statusBadge(day) {
+  if (day.isCompanyLeave || day.companyLeaveLabel) {
+    return (
+      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        {day.companyLeaveLabel || "Company leave"}
+      </span>
+    );
+  }
+  if (day.status === "on_leave") {
+    return (
+      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        On leave
+      </span>
+    );
+  }
+  if (day.status === "absent") {
+    return (
+      <span className="inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-900 dark:bg-rose-950/50 dark:text-rose-200">
+        Absent
+      </span>
+    );
+  }
+  if (day.status === "exempt") {
+    return (
+      <span className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+        Exempt
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+      Present
+    </span>
+  );
 }
 
 async function fetchSelfAttendance(fromDate, toDate) {
@@ -64,30 +94,12 @@ export default function ProfileAttendanceClient() {
   const [appliedFrom, setAppliedFrom] = useState(initialRange.from);
   const [appliedTo, setAppliedTo] = useState(initialRange.to);
   const [days, setDays] = useState([]);
-  const [weekStats, setWeekStats] = useState({ present: 0, absent: 0 });
-  const [monthStats, setMonthStats] = useState({ present: 0, absent: 0 });
+  const [companyLeaveDates, setCompanyLeaveDates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
-  const loadPeriodStats = useCallback(async () => {
-    setStatsLoading(true);
-    try {
-      const weekRange = getPresetRange("week");
-      const monthRange = getPresetRange("month");
-      const [weekJson, monthJson] = await Promise.all([
-        fetchSelfAttendance(weekRange.from, weekRange.to),
-        fetchSelfAttendance(monthRange.from, monthRange.to),
-      ]);
-      setWeekStats(countsFromPayload(weekJson));
-      setMonthStats(countsFromPayload(monthJson));
-    } catch (err) {
-      setError(err.message || "Failed to load present / absent");
-    } finally {
-      setStatsLoading(false);
-    }
-  }, []);
+  const rangeStats = useMemo(() => presentAbsentFromDays(days), [days]);
 
   const loadTable = useCallback(
     async ({ silent = false } = {}) => {
@@ -99,9 +111,13 @@ export default function ProfileAttendanceClient() {
         const list = Array.isArray(json.days) ? [...json.days] : [];
         list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
         setDays(list);
+        setCompanyLeaveDates(
+          Array.isArray(json.companyLeaveDates) ? json.companyLeaveDates : [],
+        );
       } catch (err) {
         setError(err.message || "Failed to load attendance");
         setDays([]);
+        setCompanyLeaveDates([]);
       } finally {
         if (silent) setRefreshing(false);
         else setLoading(false);
@@ -109,10 +125,6 @@ export default function ProfileAttendanceClient() {
     },
     [appliedFrom, appliedTo],
   );
-
-  useEffect(() => {
-    void loadPeriodStats();
-  }, [loadPeriodStats]);
 
   useEffect(() => {
     void loadTable();
@@ -144,13 +156,37 @@ export default function ProfileAttendanceClient() {
     setAppliedTo(to);
   }
 
-  async function onRefresh() {
-    await Promise.all([loadPeriodStats(), loadTable({ silent: true })]);
-  }
-
   return (
     <div className="space-y-4">
-      <AttendancePeriodStats week={weekStats} month={monthStats} loading={statsLoading} />
+      <AttendancePeriodStats
+        present={rangeStats.present}
+        absent={rangeStats.absent}
+        leave={rangeStats.leave}
+        fromDate={appliedFrom}
+        toDate={appliedTo}
+        loading={loading && days.length === 0}
+      />
+
+      {companyLeaveDates.length > 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            Company leave in this range
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {companyLeaveDates.map((row) => (
+              <li
+                key={row.calendarDate}
+                className="flex flex-wrap items-baseline gap-x-2 text-sm text-amber-950 dark:text-amber-100"
+              >
+                <span className="font-semibold tabular-nums">{row.calendarDate}</span>
+                <span className="text-amber-800/90 dark:text-amber-200/90">
+                  {row.label || "Company leave"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -200,8 +236,8 @@ export default function ProfileAttendanceClient() {
           </div>
           <button
             type="button"
-            onClick={() => void onRefresh()}
-            disabled={loading || refreshing || statsLoading}
+            onClick={() => void loadTable({ silent: true })}
+            disabled={loading || refreshing || !appliedFrom || !appliedTo}
             className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             {refreshing ? "Refreshing…" : "Refresh"}
@@ -223,6 +259,7 @@ export default function ProfileAttendanceClient() {
             <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
               <tr>
                 <th className={`${thClass} px-4`}>Date</th>
+                <th className={`${thClass} px-4`}>Status</th>
                 <th className={`${thClass} px-4`}>First login</th>
                 <th className={`${thClass} px-4 text-right`}>Online time</th>
               </tr>
@@ -230,7 +267,7 @@ export default function ProfileAttendanceClient() {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {days.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className={`${tdClass} px-4 py-6 text-center text-zinc-500`}>
+                  <td colSpan={4} className={`${tdClass} px-4 py-6 text-center text-zinc-500`}>
                     No attendance records for this range.
                   </td>
                 </tr>
@@ -238,9 +275,14 @@ export default function ProfileAttendanceClient() {
                 days.map((day) => (
                   <tr
                     key={day.date}
-                    className="transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40"
+                    className={`transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40 ${
+                      day.isCompanyLeave
+                        ? "bg-amber-50/50 dark:bg-amber-950/20"
+                        : ""
+                    }`}
                   >
                     <td className={`${tdClass} px-4`}>{day.date}</td>
+                    <td className={`${tdClass} px-4`}>{statusBadge(day)}</td>
                     <td className={`${tdClass} px-4 tabular-nums`}>{formatTime(day.firstLoginAt)}</td>
                     <td className={`${tdClass} px-4 text-right tabular-nums`}>
                       {formatOnlineMs(day.onlineMs)}

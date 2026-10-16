@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import ShiftSettingsClient from "@/components/Shift/ShiftSettingsClient";
+import CompanyLeaveDatesAdmin from "@/components/Shift/CompanyLeaveDatesAdmin";
 import LeaveApplicationsAdmin from "@/components/Shift/LeaveApplicationsAdmin";
 
 export default async function ShiftPage() {
@@ -21,6 +22,9 @@ export default async function ShiftPage() {
         </p>
       </div>
       <ShiftSettingsClient />
+      <div className="mt-8">
+        <CompanyLeaveDatesAdmin />
+      </div>
       <div className="mt-8">
         <LeaveApplicationsAdmin />
       </div>

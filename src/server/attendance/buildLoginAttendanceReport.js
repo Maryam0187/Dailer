@@ -9,7 +9,6 @@ import {
 import {
   getSessionCalendarDate,
   isOutsideManager,
-  isShiftWindowEnforced,
   resolveShiftKey,
 } from "@/server/auth/loginWindow";
 import { getShiftSettings } from "@/server/auth/shiftSettings";
@@ -19,6 +18,10 @@ import {
   getWeekdayInTimezone,
   normalizeLeaveDays,
 } from "@/server/auth/shiftSettingsStore.cjs";
+import {
+  ensureCompanyLeaveDatesLoaded,
+  listCompanyLeaveDatesInRange,
+} from "@/server/leave/companyLeaveDates";
 
 const LOGIN_ACTIONS = ["login_success", "leave_application_login"];
 const MAX_RANGE_DAYS = 62;
@@ -62,8 +65,9 @@ function assertRangeLimit(from, to) {
 }
 
 function buildUserAttendanceContext(user, dates) {
-  const alwaysExempt =
-    user.role === "admin" || isOutsideManager(user) || !isShiftWindowEnforced(user);
+  // Login-window exempt (can sign in anytime) is NOT always attendance-exempt.
+  // Those users are only exempt on shift leave days (e.g. weekends).
+  const alwaysExempt = user.role === "admin" || isOutsideManager(user);
   const settings = getShiftSettings(resolveShiftKey(user));
   const timeZone = settings.timezone || "Asia/Karachi";
   const leaveWeekdays = normalizeLeaveDays(settings.leaveDays);
@@ -77,12 +81,26 @@ function buildUserAttendanceContext(user, dates) {
       const weekday = getWeekdayInTimezone(probe, timeZone);
       if (leaveWeekdays.includes(weekday)) exemptDates.add(dateStr);
     }
+    // Admin-marked company leave / public holidays in this range.
+    if (dates.length > 0) {
+      for (const d of listCompanyLeaveDatesInRange(dates[0], dates[dates.length - 1])) {
+        exemptDates.add(d.calendarDate);
+      }
+    }
+  }
+
+  const companyLeaveByDate = new Map();
+  if (dates.length > 0) {
+    for (const d of listCompanyLeaveDatesInRange(dates[0], dates[dates.length - 1])) {
+      companyLeaveByDate.set(d.calendarDate, d.label);
+    }
   }
 
   const tierLegend = buildTierDeadlines(user);
 
   return {
     exemptDates,
+    companyLeaveByDate,
     shiftStartLabel: tierLegend.shiftStartLabel,
     tierDeadlines: tierLegend.tierDeadlines,
   };
@@ -140,25 +158,38 @@ function summarizeDays(days) {
   let daysAbsent = 0;
   let daysOnLeave = 0;
   let daysExempt = 0;
+  let daysPresent = 0;
   let totalLogins = 0;
   let totalOnlineMs = 0;
 
   for (const day of days) {
-    totalLogins += day.loginCount ?? 0;
+    const loginCount = day.loginCount ?? 0;
+    totalLogins += loginCount;
     totalOnlineMs += Number(day.onlineMs) || 0;
-    if (day.status === "on_leave") daysOnLeave += 1;
-    else if (day.status === "exempt") daysExempt += 1;
+    const hasLogin = loginCount > 0 || Boolean(day.firstLoginAt);
+
+    // Leave / holiday / exempt days are not Present even if the user logged in.
+    const isLeaveRow =
+      Boolean(day.isCompanyLeave) ||
+      Boolean(day.companyLeaveLabel) ||
+      day.status === "on_leave" ||
+      day.status === "exempt";
+    if (isLeaveRow) {
+      /* counted in leave buckets below */
+    } else if (hasLogin) daysPresent += 1;
     else if (day.status === "absent") daysAbsent += 1;
-    else if (day.tierKey === "full") daysFullPoints += 1;
+
+    if (day.status === "on_leave") daysOnLeave += 1;
+    else if (day.status === "exempt" || day.isCompanyLeave) daysExempt += 1;
+    else if (day.status === "absent") {
+      /* already counted above when no login */
+    } else if (day.tierKey === "full") daysFullPoints += 1;
     else if (day.tierKey === "tier_90") daysTier90 += 1;
     else if (day.tierKey === "none" || day.pointPercent === 0) daysZeroPoints += 1;
     else daysPartialPoints += 1;
   }
 
   const anchorDay = days.length > 0 ? days[days.length - 1] : null;
-
-  const daysPresent =
-    daysFullPoints + daysTier90 + daysPartialPoints + daysZeroPoints;
 
   return {
     daysFullPoints,
@@ -179,6 +210,14 @@ function summarizeDays(days) {
 
 function officeFingerprintField(record) {
   return { officeFingerprintAt: record?.officeFingerprintAt ?? null };
+}
+
+function companyLeaveFields(ctx, dateStr) {
+  const label = ctx.companyLeaveByDate?.get(dateStr) || null;
+  return {
+    isCompanyLeave: Boolean(label),
+    companyLeaveLabel: label,
+  };
 }
 
 function buildDayRow(
@@ -203,6 +242,7 @@ function buildDayRow(
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
+      ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
     if (!includeDays) return row;
@@ -226,6 +266,7 @@ function buildDayRow(
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
+      ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
     if (!includeDays) return row;
@@ -238,9 +279,17 @@ function buildDayRow(
   }
 
   if (record) {
+    // Reclassify stale "exempt" rows when the day is no longer attendance-exempt
+    // (e.g. login-window unchecked used to mark every day exempt).
+    let status = record.status;
+    if (status === "exempt") {
+      const hasLogin =
+        (Number(record.loginCount) || 0) > 0 || Boolean(record.firstLoginAt);
+      status = hasLogin ? "present" : "absent";
+    }
     const row = {
       date: dateStr,
-      status: record.status,
+      status,
       tierKey: record.tierKey,
       pointPercent: record.pointPercent,
       pointsEarned: record.pointsEarned,
@@ -253,6 +302,7 @@ function buildDayRow(
       firstLoginDeviceLabel: deviceLabelForType(record.firstLoginDevice),
       lastLoginDevice: record.lastLoginDevice ?? null,
       lastLoginDeviceLabel: deviceLabelForType(record.lastLoginDevice),
+      ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
     if (!includeDays) return row;
@@ -276,6 +326,7 @@ function buildDayRow(
     lastLoginAt: null,
     minutesAfterStart: null,
     officeFingerprintAt: null,
+    ...companyLeaveFields(ctx, dateStr),
   };
   if (!includeDays) return absent;
   return {
@@ -431,6 +482,12 @@ export async function buildLoginAttendanceReport(userIds, fromDate, toDate, opti
   const to = parseDateOnly(toDate);
   if (!from || !to || from > to) {
     throw new Error("Invalid date range");
+  }
+
+  try {
+    await ensureCompanyLeaveDatesLoaded();
+  } catch {
+    /* non-fatal — weekday leave days still apply */
   }
 
   const dates = assertRangeLimit(from, to);

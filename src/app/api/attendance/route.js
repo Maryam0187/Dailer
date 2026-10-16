@@ -6,6 +6,10 @@ import {
 } from "@/server/attendance/buildLoginAttendanceReport";
 import { buildTierDeadlines } from "@/server/attendance/lateStatus";
 import { getGamificationSnapshot } from "@/server/attendance/processLoginGamification";
+import {
+  ensureCompanyLeaveDatesLoaded,
+  listCompanyLeaveDatesInRange,
+} from "@/server/leave/companyLeaveDates";
 
 export async function GET(req) {
   const authedUser = await getAuthedUser();
@@ -61,6 +65,13 @@ export async function GET(req) {
       isOutside: userReport.isOutside,
     });
 
+    try {
+      await ensureCompanyLeaveDatesLoaded();
+    } catch {
+      /* non-fatal */
+    }
+    const companyLeaveDates = listCompanyLeaveDatesInRange(fromDate, toDate);
+
     return NextResponse.json({
       fromDate,
       toDate,
@@ -68,6 +79,7 @@ export async function GET(req) {
       username: userReport.username,
       days: userReport.days ?? [],
       summary: userReport.summary ?? null,
+      companyLeaveDates,
       gamification,
       tierLegend,
     });

@@ -80,9 +80,21 @@ function isManuallyActive(userOrKey) {
 
 function isLeaveDay(date = new Date(), userOrKey) {
   const settings = settingsFor(userOrKey);
+  const timeZone = settings.timezone || "Asia/Karachi";
+
+  // Company-wide leave / public holiday dates set by admin.
+  try {
+    const { isCompanyLeaveDate } = require("../leave/companyLeaveDates.boot.cjs");
+    const dateStr =
+      date instanceof Date ? getSessionCalendarDate(date, userOrKey) : date;
+    if (isCompanyLeaveDate(dateStr, timeZone)) return true;
+  } catch {
+    /* cache may not be loaded yet — fall through to weekday leave */
+  }
+
   const leaveDays = normalizeLeaveDays(settings.leaveDays, DEFAULT_LEAVE_DAYS);
   if (leaveDays.length === 0) return false;
-  const weekday = getWeekdayInTimezone(date, settings.timezone || "Asia/Karachi");
+  const weekday = getWeekdayInTimezone(date, timeZone);
   return leaveDays.includes(weekday);
 }
 
