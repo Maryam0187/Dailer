@@ -38,6 +38,11 @@ export default async function UsersPage() {
     "afterShiftGrantDurationMinutes",
     "activeSessionId",
     "activeSessionLastSeenAt",
+    "totpEnabled",
+    "totpEnabledAt",
+    "canUseDialer2",
+    "canTrainAddressBot",
+    "canReceiveSharedLeads",
   ];
 
   const listInclude = [
@@ -114,6 +119,11 @@ export default async function UsersPage() {
             afterShiftLimitedFileId: r.afterShiftLimitedFileId ?? null,
             afterShiftAccessExpiresAt: r.afterShiftAccessExpiresAt ?? null,
             afterShiftGrantDurationMinutes: r.afterShiftGrantDurationMinutes ?? null,
+            totpEnabled: r.totpEnabled === true,
+            totpEnabledAt: r.totpEnabledAt ?? null,
+            canUseDialer2: Boolean(r.canUseDialer2),
+            canTrainAddressBot: Boolean(r.canTrainAddressBot),
+            canReceiveSharedLeads: Boolean(r.canReceiveSharedLeads),
             lastIpAddress: lastIpByUserId?.get(r.id) ?? null,
           }
         : {}),

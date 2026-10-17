@@ -4,9 +4,8 @@
  */
 
 /**
- * Temporary edge test (Twilio troubleshooting): use ashburn instead of singapore.
- * If Voice stays Ready / dials work on ashburn but not singapore → Singapore path issue.
- * Switch back to ["singapore"] (or ["singapore","ashburn"]) after the test.
+ * Confirmed 2026-10-17: singapore edge failed for agents (53000 / WS 1005 loops);
+ * ashburn stays registered and calls work. Prefer ashburn; do not put singapore first.
  */
 export const TWILIO_VOICE_EDGE_FALLBACK = ["ashburn"];
 

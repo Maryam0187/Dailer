@@ -1,5 +1,5 @@
 /**
- * Temporary kill switch for Line 2 (second dialer + Voice Device).
- * Set to `true` to re-enable Line 2 everywhere.
+ * Line 2 (second dialer + Voice Device).
+ * Re-enabled after ashburn edge fixed Voice registration (singapore path was failing).
  */
-export const LINE2_DIALER_ENABLED = false;
+export const LINE2_DIALER_ENABLED = true;
