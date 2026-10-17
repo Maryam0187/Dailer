@@ -47,7 +47,8 @@ function keepaliveEndCall(callId) {
 
 export function TwilioVoiceLine2Provider({ children }) {
   const { canUseDialer2 } = useDialerCapabilities();
-  const { isPrimaryTab } = useTwilioVoice();
+  // Wait for Line 1 to finish registering so we do not open 2–4 /signal sockets at once.
+  const { isPrimaryTab, registered: line1Registered } = useTwilioVoice();
   const { session, sessionSyncRef, endCall, markInProgress } = useLine2Call();
   const [muted, setMuted] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
@@ -406,6 +407,8 @@ export function TwilioVoiceLine2Provider({ children }) {
       attemptedWarmRegistrationRef.current = true;
       return;
     }
+    // Stagger: Line 2 registers only after Line 1 is ready (or user dials Line 2 later).
+    if (!line1Registered) return;
     if (manualRetryRequiredRef.current) return;
     if (attemptedWarmRegistrationRef.current) return;
     if (registerBackoffUntilRef.current > Date.now()) return;
@@ -413,7 +416,14 @@ export function TwilioVoiceLine2Provider({ children }) {
     void ensureRegistered().then((ok) => {
       if (!ok) manualRetryRequiredRef.current = true;
     });
-  }, [canUseDialer2, isPrimaryTab, destroyDevice, ensureRegistered, registered]);
+  }, [
+    canUseDialer2,
+    isPrimaryTab,
+    destroyDevice,
+    ensureRegistered,
+    registered,
+    line1Registered,
+  ]);
 
   const retryVoiceRegistration = useCallback(async () => {
     manualRetryRequiredRef.current = false;

@@ -1090,28 +1090,32 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     return Boolean(callRef.current || sessionSyncRef.current);
   }, [sessionSyncRef]);
 
-  // Tab: when visible again, refresh registration unless agent is on an active call (avoid tearing Twilio).
+  // Tab: only re-register when coming back visible *and* Device is gone.
+  // Avoids a second /signal socket on every focus while already registered.
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     function onVisible() {
       if (document.visibilityState !== "visible") return;
       if (isOnActiveCall()) return;
-      ensureRegistered().catch(() => {});
+      if (manualRetryRequiredRef.current) return;
+      if (deviceRef.current && registered) return;
+      void ensureRegistered();
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [ensureRegistered, isOnActiveCall]);
+  }, [ensureRegistered, isOnActiveCall, registered]);
 
-  // Page lifecycle: refresh like visibility; never destroy during bfcache restore while on a call.
+  // bfcache restore only — normal first load is handled by the warm-register effect.
+  // Calling ensureRegistered on every pageshow duplicated Line 1 /signal sockets.
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     function onPageShow(ev) {
+      if (!ev.persisted) return;
       const live = isOnActiveCall();
-      if (ev.persisted && !live) {
-        destroyDevice();
-      }
+      if (!live) destroyDevice();
       if (live) return;
-      ensureRegistered().catch(() => {});
+      if (manualRetryRequiredRef.current) return;
+      void ensureRegistered({ force: true });
     }
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);

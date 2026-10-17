@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { LINE2_DIALER_ENABLED } from "@/lib/line2DialerFlag";
 import {
   createVoiceAccessTokenForUser,
   getAgentClientIdentityLine2,
@@ -13,6 +14,9 @@ export async function GET() {
   const authedUser = await getAuthedUser();
   if (!authedUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!LINE2_DIALER_ENABLED) {
+    return NextResponse.json({ error: "Line 2 dialer is temporarily disabled" }, { status: 403 });
   }
   if (!authedUser.canUseDialer2) {
     return NextResponse.json({ error: "Second dialer is not enabled for this account" }, { status: 403 });

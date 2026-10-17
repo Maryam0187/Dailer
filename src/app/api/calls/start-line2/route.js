@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { LINE2_DIALER_ENABLED } from "@/lib/line2DialerFlag";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { getRequestBaseUrl } from "@/server/calls/requestBaseUrl";
@@ -21,6 +22,9 @@ function buildBridgeVoiceUrl(baseUrl, callId) {
 export async function POST(req) {
   const authedUser = await getAuthedUser();
   if (!authedUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!LINE2_DIALER_ENABLED) {
+    return NextResponse.json({ error: "Line 2 dialer is temporarily disabled" }, { status: 403 });
+  }
   if (!authedUser.canUseDialer2) {
     return NextResponse.json({ error: "Second dialer is not enabled for this account" }, { status: 403 });
   }
