@@ -3,8 +3,12 @@
  * Destroy Device only on hard auth/signaling failures — not on normal reconnects.
  */
 
-/** Prefer a single nearby edge to avoid multi-edge connect churn. */
-export const TWILIO_VOICE_EDGE_FALLBACK = ["singapore"];
+/**
+ * Temporary edge test (Twilio troubleshooting): use ashburn instead of singapore.
+ * If Voice stays Ready / dials work on ashburn but not singapore → Singapore path issue.
+ * Switch back to ["singapore"] (or ["singapore","ashburn"]) after the test.
+ */
+export const TWILIO_VOICE_EDGE_FALLBACK = ["ashburn"];
 
 export const TWILIO_VOICE_DEVICE_OPTIONS = {
   edge: TWILIO_VOICE_EDGE_FALLBACK,
