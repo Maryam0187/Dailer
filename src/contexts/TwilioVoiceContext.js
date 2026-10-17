@@ -354,8 +354,60 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     // user start outgoing calls from either tab simultaneously.
     if (isPrimaryTabRef.current === false) return false;
 
-    if (deviceRef.current && registered) return true;
     if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
+
+    // Reuse a live Device. React `registered` can be false briefly during a
+    // signaling reconnect while the Device is still fine — do NOT destroy it
+    // (that caused ready → new listen → Retry Voice loops).
+    const existing = deviceRef.current;
+    if (existing && !force) {
+      const state = String(existing.state || "");
+      if (state === "registered") {
+        setRegistered(true);
+        setVoiceDisplaced(false);
+        return true;
+      }
+      if (state === "registering") {
+        setSdkInitializing(true);
+        try {
+          await new Promise((resolve, reject) => {
+            const t = window.setTimeout(() => {
+              reject(new Error("Twilio Device registration timed out"));
+            }, 8000);
+            const onRegistered = () => {
+              window.clearTimeout(t);
+              existing.off?.("registered", onRegistered);
+              existing.off?.("error", onError);
+              resolve(true);
+            };
+            const onError = (err) => {
+              window.clearTimeout(t);
+              existing.off?.("registered", onRegistered);
+              existing.off?.("error", onError);
+              reject(err || new Error("Twilio Device error"));
+            };
+            existing.once?.("registered", onRegistered);
+            existing.once?.("error", onError);
+            if (String(existing.state || "") === "registered") onRegistered();
+          });
+          setRegistered(true);
+          setVoiceDisplaced(false);
+          return true;
+        } catch (err) {
+          noteRegisterFailure(err);
+          destroyTwilioVoiceDevice(existing);
+          if (deviceRef.current === existing) {
+            deviceRef.current = null;
+            deviceIdentityRef.current = null;
+          }
+          setRegistered(false);
+          return false;
+        } finally {
+          setSdkInitializing(false);
+        }
+      }
+      // state === unregistered / destroyed → fall through and rebuild below
+    }
 
     if (!force && manualRetryRequiredRef.current) {
       setSdkError((prev) => prev || "Voice signaling unavailable. Click “Retry Voice” to try again.");
@@ -371,17 +423,15 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
 
     setSdkInitializing(true);
     setSdkError(null);
-    setRegistered(false);
 
     deviceInitPromiseRef.current = (async () => {
-      // Tear down any half-alive Device so WSTransport cannot keep reconnecting.
+      // Only destroy when forcing a rebuild or replacing a dead Device.
       // Do not call destroyDevice() here — it would clear deviceInitPromiseRef mid-init.
       if (deviceRef.current) {
         releaseMicrophone(callRef.current);
         destroyTwilioVoiceDevice(deviceRef.current);
         deviceRef.current = null;
         deviceIdentityRef.current = null;
-        setRegistered(false);
       }
 
       const res = await fetch("/api/twilio/token", { credentials: "include", cache: "no-store" });
@@ -433,16 +483,18 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         setRegistered(true);
         setVoiceDisplaced(false);
         setSdkError(null);
+        setSdkInitializing(false);
       });
 
       // Twilio fires "unregistered" when a newer Device with the same identity
-      // (another tab in this browser) registers and supersedes us. The current
-      // active call is unaffected — only future incoming calls route to the new
-      // tab. The UI uses this to surface "another tab is the active dialer" with
-      // a one-click "Use this tab" takeover.
+      // (another tab) registers, or after an intentional unregister. Do not treat
+      // transient signaling reconnects as "build a new Device".
       device.on("unregistered", () => {
         setRegistered(false);
-        setVoiceDisplaced(true);
+        // Only mark displaced if this Device is still around (superseded), not destroyed.
+        if (deviceRef.current === device && String(device.state || "") === "unregistered") {
+          setVoiceDisplaced(true);
+        }
       });
 
       device.on("error", (err) => {
@@ -779,7 +831,6 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       setSdkInitializing(false);
     }
   }, [
-    registered,
     sessionSyncRef,
     beginSession,
     bindActiveCallEvents,
@@ -1070,20 +1121,20 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     return Boolean(callRef.current || sessionSyncRef.current);
   }, [sessionSyncRef]);
 
-  // Tab: only re-register when coming back visible *and* Device is gone.
-  // Avoids a second /signal socket on every focus while already registered.
+  // Tab: only re-register when Device was destroyed. Never recreate while a
+  // Device instance still exists (even if React `registered` flipped false).
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     function onVisible() {
       if (document.visibilityState !== "visible") return;
       if (isOnActiveCall()) return;
       if (manualRetryRequiredRef.current) return;
-      if (deviceRef.current && registered) return;
+      if (deviceRef.current) return;
       void ensureRegistered();
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [ensureRegistered, isOnActiveCall, registered]);
+  }, [ensureRegistered, isOnActiveCall]);
 
   // bfcache restore only — normal first load is handled by the warm-register effect.
   // Calling ensureRegistered on every pageshow duplicated Line 1 /signal sockets.
