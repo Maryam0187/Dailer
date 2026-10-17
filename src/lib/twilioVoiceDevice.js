@@ -5,9 +5,10 @@
 
 /**
  * Confirmed 2026-10-17: singapore edge failed for agents (53000 / WS 1005 loops);
- * ashburn stays registered and calls work. Prefer ashburn; do not put singapore first.
+ * ashburn works. Prefer ashburn; fall back to roaming if ashburn is unreachable.
+ * Do not put singapore first.
  */
-export const TWILIO_VOICE_EDGE_FALLBACK = ["ashburn"];
+export const TWILIO_VOICE_EDGE_FALLBACK = ["ashburn", "roaming"];
 
 export const TWILIO_VOICE_DEVICE_OPTIONS = {
   edge: TWILIO_VOICE_EDGE_FALLBACK,
