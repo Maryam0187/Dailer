@@ -14,8 +14,10 @@ export default function QuickDialPanel() {
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
+    retryVoiceRegistration,
     registered,
     sdkInitializing,
+    sdkError,
     voiceDisplaced,
     isPrimaryTab,
     expectOutgoingIncomingLeg,
@@ -156,15 +158,41 @@ export default function QuickDialPanel() {
             </p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white">Dialer</h2>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/60 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-            <span
-              className={`h-2 w-2 animate-pulse rounded-full ${
-                registered ? "bg-emerald-400" : "bg-amber-400"
-              }`}
-            />
-            {registered ? "Voice Ready" : "Voice Not Ready"}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/60 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  registered
+                    ? "animate-pulse bg-emerald-400"
+                    : sdkInitializing
+                      ? "animate-pulse bg-sky-400"
+                      : "bg-amber-400"
+                }`}
+              />
+              {registered
+                ? "Voice Ready"
+                : sdkInitializing
+                  ? "Connecting Voice…"
+                  : "Voice Not Ready"}
+            </div>
+            {!registered && !sdkInitializing && isPrimaryTab !== false ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void retryVoiceRegistration();
+                }}
+                className="rounded-full border border-amber-300/80 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+              >
+                Retry Voice
+              </button>
+            ) : null}
           </div>
         </div>
+        {sdkError && !registered ? (
+          <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            {sdkError}
+          </p>
+        ) : null}
 
         <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
           <div>

@@ -5,6 +5,13 @@ import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQuality";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
+import {
+  TWILIO_VOICE_DEVICE_OPTIONS,
+  destroyTwilioVoiceDevice,
+  formatTwilioVoiceDeviceError,
+  isFatalTwilioVoiceDeviceError,
+  twilioVoiceRegisterBackoffMs,
+} from "@/lib/twilioVoiceDevice";
 
 const TwilioVoiceContext = createContext(undefined);
 
@@ -100,6 +107,10 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
   const tabIdRef = useRef(null);
   /** Closure-stable mirror of {@link isPrimaryTab} for use inside refs/callbacks. */
   const isPrimaryTabRef = useRef(false);
+  /** Consecutive signaling/register failures — drives recreate backoff. */
+  const registerFailureCountRef = useRef(0);
+  /** Earliest time (ms) another Device register attempt is allowed. */
+  const registerBackoffUntilRef = useRef(0);
 
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
@@ -164,7 +175,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
 
   const destroyDevice = useCallback(() => {
     releaseMicrophone(callRef.current);
-    deviceRef.current?.destroy();
+    destroyTwilioVoiceDevice(deviceRef.current);
     deviceRef.current = null;
     deviceInitPromiseRef.current = null;
     deviceIdentityRef.current = null;
@@ -226,16 +237,21 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     }
   }, []);
 
-  const isFatalDeviceError = useCallback((err) => {
-    const code = Number(err?.code);
-    if (Number.isFinite(code) && (code === 20101 || code === 31005 || code === 31205)) return true;
-    const message = String(err?.message || "").toLowerCase();
-    return (
-      message.includes("jwt token expired") ||
-      message.includes("access token expired") ||
-      message.includes("authentication failed") ||
-      message.includes("token is invalid")
-    );
+  const isFatalDeviceError = useCallback((err) => isFatalTwilioVoiceDeviceError(err), []);
+
+  const noteRegisterFailure = useCallback((err) => {
+    registerFailureCountRef.current += 1;
+    const waitMs = twilioVoiceRegisterBackoffMs(registerFailureCountRef.current);
+    registerBackoffUntilRef.current = Date.now() + waitMs;
+    const msg = formatTwilioVoiceDeviceError(err);
+    setSdkError(`${msg} Retry in ${Math.ceil(waitMs / 1000)}s.`);
+    setRegistered(false);
+    return waitMs;
+  }, []);
+
+  const clearRegisterBackoff = useCallback(() => {
+    registerFailureCountRef.current = 0;
+    registerBackoffUntilRef.current = 0;
   }, []);
 
   const bindActiveCallEvents = useCallback(
@@ -322,7 +338,8 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     };
   }, [destroyDevice, endOwnedCallOnUnload, stopInviteTone]);
 
-  const ensureRegistered = useCallback(async () => {
+  const ensureRegistered = useCallback(async (options = {}) => {
+    const force = Boolean(options?.force);
     // Single-active-tab guard: secondary tabs in this browser must NOT register
     // a Twilio Device. Without this, two tabs would each request a token, both
     // would register, and Twilio's "last register wins" would still let the
@@ -332,11 +349,29 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     if (deviceRef.current && registered) return true;
     if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
 
+    const now = Date.now();
+    if (!force && registerBackoffUntilRef.current > now) {
+      const waitSec = Math.ceil((registerBackoffUntilRef.current - now) / 1000);
+      setSdkError(`Voice signaling unavailable. Retry in ${waitSec}s.`);
+      return false;
+    }
+    if (force) clearRegisterBackoff();
+
     setSdkInitializing(true);
     setSdkError(null);
     setRegistered(false);
 
     deviceInitPromiseRef.current = (async () => {
+      // Tear down any half-alive Device so WSTransport cannot keep reconnecting.
+      // Do not call destroyDevice() here — it would clear deviceInitPromiseRef mid-init.
+      if (deviceRef.current) {
+        releaseMicrophone(callRef.current);
+        destroyTwilioVoiceDevice(deviceRef.current);
+        deviceRef.current = null;
+        deviceIdentityRef.current = null;
+        setRegistered(false);
+      }
+
       const res = await fetch("/api/twilio/token", { credentials: "include", cache: "no-store" });
       if (res.status === 503) {
         throw new Error("Twilio browser agent is not configured");
@@ -350,8 +385,10 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       const identity = data?.identity || null;
       if (!token) throw new Error("Missing Twilio voice token");
       if (deviceIdentityRef.current && identity && deviceIdentityRef.current !== identity) {
-        // Auth context changed (account switch): reset and rebuild with new identity.
-        destroyDevice();
+        // Auth context changed (account switch): reset without clearing this init promise.
+        destroyTwilioVoiceDevice(deviceRef.current);
+        deviceRef.current = null;
+        deviceIdentityRef.current = null;
       }
 
       await patchTwilioVoiceSoundsForAutoplayPolicy();
@@ -365,12 +402,15 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         // `sounds.incoming` URL, so you may see "[AudioHelper] .incoming undefined" at
         // debug log level — harmless; use our in-app invite tone after user gesture.
         disableAudioContextSounds: true,
+        ...TWILIO_VOICE_DEVICE_OPTIONS,
       });
       deviceIdentityRef.current = identity;
 
       device.on("registered", () => {
+        clearRegisterBackoff();
         setRegistered(true);
         setVoiceDisplaced(false);
+        setSdkError(null);
       });
 
       // Twilio fires "unregistered" when a newer Device with the same identity
@@ -384,10 +424,18 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       });
 
       device.on("error", (err) => {
-        setSdkError(err?.message || "Twilio Device error");
-        if (isFatalDeviceError(err)) {
-          destroyDevice();
+        if (!isFatalDeviceError(err)) {
+          setSdkError(formatTwilioVoiceDeviceError(err));
+          return;
         }
+        // Destroy immediately so WSTransport cannot spam wss://…/signal forever.
+        noteRegisterFailure(err);
+        destroyTwilioVoiceDevice(device);
+        if (deviceRef.current === device) {
+          deviceRef.current = null;
+          deviceIdentityRef.current = null;
+        }
+        setRegistered(false);
       });
 
       device.on("incoming", (call) => {
@@ -669,38 +717,61 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       });
 
       // Await registration (so Twilio doesn't dial an unregistered identity).
-      await new Promise((resolve, reject) => {
-        const timeoutMs = 10000;
-        const t = window.setTimeout(() => {
-          reject(new Error("Twilio Device registration timed out"));
-        }, timeoutMs);
+      try {
+        await new Promise((resolve, reject) => {
+          const timeoutMs = 15000;
+          const t = window.setTimeout(() => {
+            reject(new Error("Twilio Device registration timed out"));
+          }, timeoutMs);
 
-        const onRegistered = () => {
-          window.clearTimeout(t);
-          resolve(true);
-        };
+          const onRegistered = () => {
+            window.clearTimeout(t);
+            resolve(true);
+          };
 
-        const onError = (err) => {
-          window.clearTimeout(t);
-          reject(err || new Error("Twilio Device error"));
-        };
+          const onError = (err) => {
+            window.clearTimeout(t);
+            reject(err || new Error("Twilio Device error"));
+          };
 
-        device.once("registered", onRegistered);
-        device.once("error", onError);
-        device.register().catch(onError);
-      });
+          device.once("registered", onRegistered);
+          device.once("error", onError);
+          device.register().catch(onError);
+        });
+      } catch (err) {
+        // Critical: destroy the half-registered Device or WSTransport keeps reconnecting.
+        destroyTwilioVoiceDevice(device);
+        noteRegisterFailure(err);
+        throw err;
+      }
       deviceRef.current = device;
+      clearRegisterBackoff();
       return true;
     })();
 
     try {
       const ok = await deviceInitPromiseRef.current;
       return ok;
+    } catch (err) {
+      if (!registerBackoffUntilRef.current) {
+        noteRegisterFailure(err);
+      }
+      return false;
     } finally {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
     }
-  }, [registered, sessionSyncRef, beginSession, bindActiveCallEvents, destroyDevice, isFatalDeviceError]);
+  }, [
+    registered,
+    sessionSyncRef,
+    beginSession,
+    bindActiveCallEvents,
+    destroyDevice,
+    isFatalDeviceError,
+    noteRegisterFailure,
+    clearRegisterBackoff,
+    releaseMicrophone,
+  ]);
 
   // Single-active-tab lock (localStorage-backed).
   //
@@ -838,10 +909,26 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       attemptedWarmRegistrationRef.current = false;
       return;
     }
-    if (attemptedWarmRegistrationRef.current && registered) return;
+    if (registered) {
+      attemptedWarmRegistrationRef.current = true;
+      return;
+    }
+    if (attemptedWarmRegistrationRef.current) return;
+    if (registerBackoffUntilRef.current > Date.now()) return;
     attemptedWarmRegistrationRef.current = true;
-    ensureRegistered().catch(() => {});
+    ensureRegistered().catch(() => {
+      // sdkError already set by ensureRegistered / noteRegisterFailure.
+      // Allow a later manual retry or backoff timer to try again.
+      attemptedWarmRegistrationRef.current = false;
+    });
   }, [isPrimaryTab, ensureRegistered, destroyDevice, registered]);
+
+  /** Manual retry after signaling failure (clears backoff). */
+  const retryVoiceRegistration = useCallback(async () => {
+    attemptedWarmRegistrationRef.current = false;
+    destroyDevice();
+    return ensureRegistered({ force: true });
+  }, [destroyDevice, ensureRegistered]);
 
   // Explicit takeover: a secondary tab can grab the lock and become primary.
   // Wired to the "Use this tab" button in VoiceLockBanner / call buttons.
@@ -1257,6 +1344,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         setCallMuted,
         sendDtmf,
         ensureRegistered,
+        retryVoiceRegistration,
         leaveConference,
         incomingInvite,
         inviteNotification,

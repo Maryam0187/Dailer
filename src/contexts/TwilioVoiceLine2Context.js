@@ -6,6 +6,13 @@ import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQuality";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
+import {
+  TWILIO_VOICE_DEVICE_OPTIONS,
+  destroyTwilioVoiceDevice,
+  formatTwilioVoiceDeviceError,
+  isFatalTwilioVoiceDeviceError,
+  twilioVoiceRegisterBackoffMs,
+} from "@/lib/twilioVoiceDevice";
 
 const TwilioVoiceLine2Context = createContext(undefined);
 
@@ -57,6 +64,8 @@ export function TwilioVoiceLine2Provider({ children }) {
   const deviceIdentityRef = useRef(null);
   const isPrimaryTabRef = useRef(false);
   const ownerCallIdRef = useRef(null);
+  const registerFailureCountRef = useRef(0);
+  const registerBackoffUntilRef = useRef(0);
 
   useEffect(() => {
     isPrimaryTabRef.current = isPrimaryTab === true;
@@ -88,7 +97,7 @@ export function TwilioVoiceLine2Provider({ children }) {
   }, []);
 
   const destroyDevice = useCallback(() => {
-    deviceRef.current?.destroy();
+    destroyTwilioVoiceDevice(deviceRef.current);
     deviceRef.current = null;
     deviceInitPromiseRef.current = null;
     deviceIdentityRef.current = null;
@@ -98,16 +107,20 @@ export function TwilioVoiceLine2Provider({ children }) {
     clearCallQuality();
   }, [clearCallQuality]);
 
-  const isFatalDeviceError = useCallback((err) => {
-    const code = Number(err?.code);
-    if (Number.isFinite(code) && (code === 20101 || code === 31005 || code === 31205)) return true;
-    const message = String(err?.message || "").toLowerCase();
-    return (
-      message.includes("jwt token expired") ||
-      message.includes("access token expired") ||
-      message.includes("authentication failed") ||
-      message.includes("token is invalid")
-    );
+  const isFatalDeviceError = useCallback((err) => isFatalTwilioVoiceDeviceError(err), []);
+
+  const noteRegisterFailure = useCallback((err) => {
+    registerFailureCountRef.current += 1;
+    const waitMs = twilioVoiceRegisterBackoffMs(registerFailureCountRef.current);
+    registerBackoffUntilRef.current = Date.now() + waitMs;
+    setSdkError(`${formatTwilioVoiceDeviceError(err)} Retry in ${Math.ceil(waitMs / 1000)}s.`);
+    setRegistered(false);
+    return waitMs;
+  }, []);
+
+  const clearRegisterBackoff = useCallback(() => {
+    registerFailureCountRef.current = 0;
+    registerBackoffUntilRef.current = 0;
   }, []);
 
   const bindActiveCallEvents = useCallback(
@@ -167,17 +180,33 @@ export function TwilioVoiceLine2Provider({ children }) {
     };
   }, [destroyDevice, endOwnedCallOnUnload]);
 
-  const ensureRegistered = useCallback(async () => {
+  const ensureRegistered = useCallback(async (options = {}) => {
+    const force = Boolean(options?.force);
     if (!canUseDialer2) return false;
     if (isPrimaryTabRef.current === false) return false;
     if (deviceRef.current && registered) return true;
     if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
+
+    const now = Date.now();
+    if (!force && registerBackoffUntilRef.current > now) {
+      const waitSec = Math.ceil((registerBackoffUntilRef.current - now) / 1000);
+      setSdkError(`Line 2 voice signaling unavailable. Retry in ${waitSec}s.`);
+      return false;
+    }
+    if (force) clearRegisterBackoff();
 
     setSdkInitializing(true);
     setSdkError(null);
     setRegistered(false);
 
     deviceInitPromiseRef.current = (async () => {
+      if (deviceRef.current) {
+        destroyTwilioVoiceDevice(deviceRef.current);
+        deviceRef.current = null;
+        deviceIdentityRef.current = null;
+        setRegistered(false);
+      }
+
       const res = await fetch("/api/twilio/token-line2", { credentials: "include", cache: "no-store" });
       if (res.status === 403) {
         throw new Error("Second dialer is not enabled for this account");
@@ -193,7 +222,9 @@ export function TwilioVoiceLine2Provider({ children }) {
       const identity = data?.identity || null;
       if (!token) throw new Error("Missing Line 2 voice token");
       if (deviceIdentityRef.current && identity && deviceIdentityRef.current !== identity) {
-        destroyDevice();
+        destroyTwilioVoiceDevice(deviceRef.current);
+        deviceRef.current = null;
+        deviceIdentityRef.current = null;
       }
 
       await patchTwilioVoiceSoundsForAutoplayPolicy();
@@ -201,14 +232,28 @@ export function TwilioVoiceLine2Provider({ children }) {
       const device = new Device(token, {
         logLevel: process.env.NODE_ENV === "development" ? "warn" : "error",
         disableAudioContextSounds: true,
+        ...TWILIO_VOICE_DEVICE_OPTIONS,
       });
       deviceIdentityRef.current = identity;
 
-      device.on("registered", () => setRegistered(true));
+      device.on("registered", () => {
+        clearRegisterBackoff();
+        setRegistered(true);
+        setSdkError(null);
+      });
       device.on("unregistered", () => setRegistered(false));
       device.on("error", (err) => {
-        setSdkError(err?.message || "Twilio Line 2 Device error");
-        if (isFatalDeviceError(err)) destroyDevice();
+        if (!isFatalDeviceError(err)) {
+          setSdkError(formatTwilioVoiceDeviceError(err));
+          return;
+        }
+        noteRegisterFailure(err);
+        destroyTwilioVoiceDevice(device);
+        if (deviceRef.current === device) {
+          deviceRef.current = null;
+          deviceIdentityRef.current = null;
+        }
+        setRegistered(false);
       });
 
       device.on("incoming", (call) => {
@@ -266,29 +311,41 @@ export function TwilioVoiceLine2Provider({ children }) {
         window.setTimeout(tick, 0);
       });
 
-      await new Promise((resolve, reject) => {
-        const timeoutMs = 10000;
-        const t = window.setTimeout(() => {
-          reject(new Error("Line 2 Twilio Device registration timed out"));
-        }, timeoutMs);
-        const onRegistered = () => {
-          window.clearTimeout(t);
-          resolve(true);
-        };
-        const onError = (err) => {
-          window.clearTimeout(t);
-          reject(err || new Error("Line 2 Twilio Device error"));
-        };
-        device.once("registered", onRegistered);
-        device.once("error", onError);
-        device.register().catch(onError);
-      });
+      try {
+        await new Promise((resolve, reject) => {
+          const timeoutMs = 15000;
+          const t = window.setTimeout(() => {
+            reject(new Error("Line 2 Twilio Device registration timed out"));
+          }, timeoutMs);
+          const onRegistered = () => {
+            window.clearTimeout(t);
+            resolve(true);
+          };
+          const onError = (err) => {
+            window.clearTimeout(t);
+            reject(err || new Error("Line 2 Twilio Device error"));
+          };
+          device.once("registered", onRegistered);
+          device.once("error", onError);
+          device.register().catch(onError);
+        });
+      } catch (err) {
+        destroyTwilioVoiceDevice(device);
+        noteRegisterFailure(err);
+        throw err;
+      }
       deviceRef.current = device;
+      clearRegisterBackoff();
       return true;
     })();
 
     try {
       return await deviceInitPromiseRef.current;
+    } catch (err) {
+      if (!registerBackoffUntilRef.current) {
+        noteRegisterFailure(err);
+      }
+      return false;
     } finally {
       deviceInitPromiseRef.current = null;
       setSdkInitializing(false);
@@ -300,6 +357,8 @@ export function TwilioVoiceLine2Provider({ children }) {
     bindActiveCallEvents,
     destroyDevice,
     isFatalDeviceError,
+    noteRegisterFailure,
+    clearRegisterBackoff,
   ]);
 
   useEffect(() => {
@@ -314,13 +373,23 @@ export function TwilioVoiceLine2Provider({ children }) {
       attemptedWarmRegistrationRef.current = false;
       return;
     }
+    if (registered) {
+      attemptedWarmRegistrationRef.current = true;
+      return;
+    }
     if (attemptedWarmRegistrationRef.current) return;
+    if (registerBackoffUntilRef.current > Date.now()) return;
     attemptedWarmRegistrationRef.current = true;
-    void ensureRegistered().catch((err) => {
+    void ensureRegistered().catch(() => {
       attemptedWarmRegistrationRef.current = false;
-      setSdkError(err?.message || "Unable to register Line 2");
     });
-  }, [canUseDialer2, isPrimaryTab, destroyDevice, ensureRegistered]);
+  }, [canUseDialer2, isPrimaryTab, destroyDevice, ensureRegistered, registered]);
+
+  const retryVoiceRegistration = useCallback(async () => {
+    attemptedWarmRegistrationRef.current = false;
+    destroyDevice();
+    return ensureRegistered({ force: true });
+  }, [destroyDevice, ensureRegistered]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;
@@ -372,6 +441,7 @@ export function TwilioVoiceLine2Provider({ children }) {
         toggleMute,
         sendDtmf,
         ensureRegistered,
+        retryVoiceRegistration,
         expectOutgoingIncomingLeg,
         hangup,
         enabled: canUseDialer2,
