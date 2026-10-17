@@ -8,7 +8,6 @@ import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQ
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 import {
   TWILIO_VOICE_DEVICE_OPTIONS,
-  TWILIO_VOICE_MAX_SIGNAL_FLAPS,
   destroyTwilioVoiceDevice,
   formatTwilioVoiceDeviceError,
   isFatalTwilioVoiceDeviceError,
@@ -246,9 +245,6 @@ export function TwilioVoiceLine2Provider({ children }) {
       });
       deviceIdentityRef.current = identity;
 
-      let hasReachedRegistered = false;
-      let signalFlaps = 0;
-
       const killDeviceForSignaling = (err) => {
         noteRegisterFailure(err);
         destroyTwilioVoiceDevice(device);
@@ -259,20 +255,7 @@ export function TwilioVoiceLine2Provider({ children }) {
         setRegistered(false);
       };
 
-      device.on("registering", () => {
-        if (!hasReachedRegistered) return;
-        if (callRef.current) return;
-        signalFlaps += 1;
-        if (signalFlaps >= TWILIO_VOICE_MAX_SIGNAL_FLAPS) {
-          killDeviceForSignaling(
-            new Error("Line 2 voice signaling keep disconnecting (websocket close)."),
-          );
-        }
-      });
-
       device.on("registered", () => {
-        hasReachedRegistered = true;
-        signalFlaps = 0;
         clearRegisterBackoff();
         setRegistered(true);
         setSdkError(null);

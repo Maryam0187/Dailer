@@ -1,33 +1,24 @@
 /**
  * Shared Twilio Voice JS Device helpers.
- * Stops infinite WSTransport reconnect storms by treating signaling failures
- * as fatal, destroying the Device, and applying register backoff.
+ * Destroy Device only on hard auth/signaling failures — not on normal reconnects.
  */
 
-/** Edge fallback order — Asia-first, then US, then roaming. */
-export const TWILIO_VOICE_EDGE_FALLBACK = ["singapore", "tokyo", "ashburn", "roaming"];
+/** Prefer a single nearby edge to avoid multi-edge connect churn. */
+export const TWILIO_VOICE_EDGE_FALLBACK = ["singapore"];
 
 export const TWILIO_VOICE_DEVICE_OPTIONS = {
-  // Prefer concrete edges so the SDK can fall over on unreachable endpoints.
   edge: TWILIO_VOICE_EDGE_FALLBACK,
-  // Keep mid-call signaling reconnect short. Long values let WSTransport
-  // spam wss://…/signal when the path is unstable (close 1005 loops).
-  maxCallSignalingTimeoutMs: 3000,
-  // Cap edge-fallback backoff so a dead path fails fast instead of forever.
-  backoffMaxMs: 5000,
+  // Twilio-recommended: allow up to 30s to rejoin the same edge mid-call / after a blip.
+  // A 3s value caused ready → brief reconnect → our flap killer → Retry Voice loops.
+  maxCallSignalingTimeoutMs: 30000,
 };
-
-/** After this many post-ready "registering" flaps, destroy Device (stop WS storm). */
-export const TWILIO_VOICE_MAX_SIGNAL_FLAPS = 2;
 
 const SIGNALING_ERROR_CODES = new Set([
   20101, // invalid access token
   31005, // websocket closed unexpectedly
   31009, // no transport
-  31201, // unable to get user media (treat as hard fail for softphone)
   31204, // Twilio Client version not supported
   31205, // JWT expired
-  31208, // user media permission denied
   53000, // signaling connection error
 ]);
 
@@ -45,10 +36,7 @@ export function isFatalTwilioVoiceDeviceError(err) {
     message.includes("access token expired") ||
     message.includes("authentication failed") ||
     message.includes("token is invalid") ||
-    message.includes("signaling connection") ||
-    message.includes("connectionerror") ||
-    message.includes("registration timed out") ||
-    message.includes("websocket")
+    message.includes("registration timed out")
   );
 }
 
@@ -63,7 +51,7 @@ export function formatTwilioVoiceDeviceError(err) {
   if (code === 53000 || /signaling connection/i.test(raw)) {
     return "Voice signaling disconnected (53000). Check network, then retry.";
   }
-  if (code === 31005 || /websocket/i.test(raw)) {
+  if (code === 31005) {
     return "Voice websocket closed unexpectedly. Check network, then retry.";
   }
   if (/registration timed out/i.test(raw)) {
@@ -86,7 +74,7 @@ export function twilioVoiceRegisterBackoffMs(failureCount) {
 
 /**
  * Safely destroy a Device that failed mid-register so WSTransport cannot
- * keep opening wss://voice-js.roaming.twilio.com/signal forever.
+ * keep opening signaling sockets forever.
  * @param {import("@twilio/voice-sdk").Device | null | undefined} device
  */
 export function destroyTwilioVoiceDevice(device) {

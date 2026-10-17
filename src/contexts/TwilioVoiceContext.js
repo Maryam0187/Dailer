@@ -7,7 +7,6 @@ import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQ
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 import {
   TWILIO_VOICE_DEVICE_OPTIONS,
-  TWILIO_VOICE_MAX_SIGNAL_FLAPS,
   destroyTwilioVoiceDevice,
   formatTwilioVoiceDeviceError,
   isFatalTwilioVoiceDeviceError,
@@ -419,11 +418,6 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       });
       deviceIdentityRef.current = identity;
 
-      // SDK reconnects after close 1005 by emitting "registering" again.
-      // Count post-ready flaps and destroy so WSTransport cannot loop forever.
-      let hasReachedRegistered = false;
-      let signalFlaps = 0;
-
       const killDeviceForSignaling = (err) => {
         noteRegisterFailure(err);
         destroyTwilioVoiceDevice(device);
@@ -434,21 +428,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         setRegistered(false);
       };
 
-      device.on("registering", () => {
-        if (!hasReachedRegistered) return;
-        // Ignore flaps while a live call is up — mid-call reconnect is expected.
-        if (callRef.current) return;
-        signalFlaps += 1;
-        if (signalFlaps >= TWILIO_VOICE_MAX_SIGNAL_FLAPS) {
-          killDeviceForSignaling(
-            new Error("Voice signaling keep disconnecting (websocket close)."),
-          );
-        }
-      });
-
       device.on("registered", () => {
-        hasReachedRegistered = true;
-        signalFlaps = 0;
         clearRegisterBackoff();
         setRegistered(true);
         setVoiceDisplaced(false);
@@ -470,7 +450,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
           setSdkError(formatTwilioVoiceDeviceError(err));
           return;
         }
-        // Destroy immediately so WSTransport cannot spam wss://…/signal forever.
+        // Only hard failures (token / 53000 / 31005). Do not kill on normal reconnects.
         killDeviceForSignaling(err);
       });
 
