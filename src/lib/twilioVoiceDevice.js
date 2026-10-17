@@ -10,9 +10,15 @@ export const TWILIO_VOICE_EDGE_FALLBACK = ["singapore", "tokyo", "ashburn", "roa
 export const TWILIO_VOICE_DEVICE_OPTIONS = {
   // Prefer concrete edges so the SDK can fall over on unreachable endpoints.
   edge: TWILIO_VOICE_EDGE_FALLBACK,
-  // Allow mid-call signaling reconnect for up to 30s on the preferred edge.
-  maxCallSignalingTimeoutMs: 30000,
+  // Keep mid-call signaling reconnect short. Long values let WSTransport
+  // spam wss://…/signal when the path is unstable (close 1005 loops).
+  maxCallSignalingTimeoutMs: 3000,
+  // Cap edge-fallback backoff so a dead path fails fast instead of forever.
+  backoffMaxMs: 5000,
 };
+
+/** After this many post-ready "registering" flaps, destroy Device (stop WS storm). */
+export const TWILIO_VOICE_MAX_SIGNAL_FLAPS = 2;
 
 const SIGNALING_ERROR_CODES = new Set([
   20101, // invalid access token

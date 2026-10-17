@@ -7,6 +7,7 @@ import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQ
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 import {
   TWILIO_VOICE_DEVICE_OPTIONS,
+  TWILIO_VOICE_MAX_SIGNAL_FLAPS,
   destroyTwilioVoiceDevice,
   formatTwilioVoiceDeviceError,
   isFatalTwilioVoiceDeviceError,
@@ -111,6 +112,11 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
   const registerFailureCountRef = useRef(0);
   /** Earliest time (ms) another Device register attempt is allowed. */
   const registerBackoffUntilRef = useRef(0);
+  /**
+   * After a signaling failure, do not warm-register again until the user clicks
+   * Retry Voice. Stops the SDK/app from self-retrying forever.
+   */
+  const manualRetryRequiredRef = useRef(false);
 
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
@@ -241,10 +247,12 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
 
   const noteRegisterFailure = useCallback((err) => {
     registerFailureCountRef.current += 1;
+    manualRetryRequiredRef.current = true;
+    attemptedWarmRegistrationRef.current = true;
     const waitMs = twilioVoiceRegisterBackoffMs(registerFailureCountRef.current);
     registerBackoffUntilRef.current = Date.now() + waitMs;
     const msg = formatTwilioVoiceDeviceError(err);
-    setSdkError(`${msg} Retry in ${Math.ceil(waitMs / 1000)}s.`);
+    setSdkError(`${msg} Click “Retry Voice” to try again.`);
     setRegistered(false);
     return waitMs;
   }, []);
@@ -252,6 +260,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
   const clearRegisterBackoff = useCallback(() => {
     registerFailureCountRef.current = 0;
     registerBackoffUntilRef.current = 0;
+    manualRetryRequiredRef.current = false;
   }, []);
 
   const bindActiveCallEvents = useCallback(
@@ -349,6 +358,10 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     if (deviceRef.current && registered) return true;
     if (deviceInitPromiseRef.current) return deviceInitPromiseRef.current;
 
+    if (!force && manualRetryRequiredRef.current) {
+      setSdkError((prev) => prev || "Voice signaling unavailable. Click “Retry Voice” to try again.");
+      return false;
+    }
     const now = Date.now();
     if (!force && registerBackoffUntilRef.current > now) {
       const waitSec = Math.ceil((registerBackoffUntilRef.current - now) / 1000);
@@ -406,7 +419,36 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       });
       deviceIdentityRef.current = identity;
 
+      // SDK reconnects after close 1005 by emitting "registering" again.
+      // Count post-ready flaps and destroy so WSTransport cannot loop forever.
+      let hasReachedRegistered = false;
+      let signalFlaps = 0;
+
+      const killDeviceForSignaling = (err) => {
+        noteRegisterFailure(err);
+        destroyTwilioVoiceDevice(device);
+        if (deviceRef.current === device) {
+          deviceRef.current = null;
+          deviceIdentityRef.current = null;
+        }
+        setRegistered(false);
+      };
+
+      device.on("registering", () => {
+        if (!hasReachedRegistered) return;
+        // Ignore flaps while a live call is up — mid-call reconnect is expected.
+        if (callRef.current) return;
+        signalFlaps += 1;
+        if (signalFlaps >= TWILIO_VOICE_MAX_SIGNAL_FLAPS) {
+          killDeviceForSignaling(
+            new Error("Voice signaling keep disconnecting (websocket close)."),
+          );
+        }
+      });
+
       device.on("registered", () => {
+        hasReachedRegistered = true;
+        signalFlaps = 0;
         clearRegisterBackoff();
         setRegistered(true);
         setVoiceDisplaced(false);
@@ -429,13 +471,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
           return;
         }
         // Destroy immediately so WSTransport cannot spam wss://…/signal forever.
-        noteRegisterFailure(err);
-        destroyTwilioVoiceDevice(device);
-        if (deviceRef.current === device) {
-          deviceRef.current = null;
-          deviceIdentityRef.current = null;
-        }
-        setRegistered(false);
+        killDeviceForSignaling(err);
       });
 
       device.on("incoming", (call) => {
@@ -719,7 +755,8 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       // Await registration (so Twilio doesn't dial an unregistered identity).
       try {
         await new Promise((resolve, reject) => {
-          const timeoutMs = 15000;
+          // Fail fast: while Device is alive, WSTransport may open many /signal sockets.
+          const timeoutMs = 8000;
           const t = window.setTimeout(() => {
             reject(new Error("Twilio Device registration timed out"));
           }, timeoutMs);
@@ -913,18 +950,19 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
       attemptedWarmRegistrationRef.current = true;
       return;
     }
+    // Never auto-retry after a signaling failure — user must click Retry Voice.
+    if (manualRetryRequiredRef.current) return;
     if (attemptedWarmRegistrationRef.current) return;
     if (registerBackoffUntilRef.current > Date.now()) return;
     attemptedWarmRegistrationRef.current = true;
-    ensureRegistered().catch(() => {
-      // sdkError already set by ensureRegistered / noteRegisterFailure.
-      // Allow a later manual retry or backoff timer to try again.
-      attemptedWarmRegistrationRef.current = false;
+    void ensureRegistered().then((ok) => {
+      if (!ok) manualRetryRequiredRef.current = true;
     });
   }, [isPrimaryTab, ensureRegistered, destroyDevice, registered]);
 
   /** Manual retry after signaling failure (clears backoff). */
   const retryVoiceRegistration = useCallback(async () => {
+    manualRetryRequiredRef.current = false;
     attemptedWarmRegistrationRef.current = false;
     destroyDevice();
     return ensureRegistered({ force: true });
