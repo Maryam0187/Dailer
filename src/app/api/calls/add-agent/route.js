@@ -201,6 +201,15 @@ export async function POST(req) {
       invitedUserId: targetAgent.id,
     });
 
+    try {
+      const { refreshCallDailyMetricsForCall } = await import(
+        "@/server/calls/callDailyMetrics"
+      );
+      await refreshCallDailyMetricsForCall(callLog);
+    } catch {
+      /* best-effort rollup */
+    }
+
     emitToUser(targetAgent.id, "call:invite", {
       callId,
       conferenceName,

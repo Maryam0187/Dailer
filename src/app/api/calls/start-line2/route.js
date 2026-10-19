@@ -108,6 +108,15 @@ export async function POST(req) {
     durationSeconds: null,
   });
 
+  if (lead?.id) {
+    try {
+      const { bumpLeadCallLogsCount } = await import("@/server/leads/bumpLeadCallLogsCount");
+      await bumpLeadCallLogsCount(lead.id, 1);
+    } catch {
+      /* count is best-effort */
+    }
+  }
+
   let agentLeg = null;
   try {
     const client = ctx.client;

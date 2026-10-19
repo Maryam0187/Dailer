@@ -291,6 +291,7 @@ export default function LeadDetailPanel({
   const isPage = variant === "page";
   const [updates, setUpdates] = useState([]);
   const [calls, setCalls] = useState([]);
+  const [callsTotal, setCallsTotal] = useState(0);
   const [loadingUpdates, setLoadingUpdates] = useState(true);
   const [loadingCalls, setLoadingCalls] = useState(true);
   const [downloadingId, setDownloadingId] = useState(null);
@@ -350,9 +351,15 @@ export default function LeadDetailPanel({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load call logs");
       setCalls(json.calls || []);
+      setCallsTotal(
+        Number.isFinite(Number(json?.pagination?.total))
+          ? Math.max(0, Math.floor(Number(json.pagination.total)))
+          : (json.calls || []).length,
+      );
     } catch (e) {
       setError(e.message || "Failed to load call logs");
       setCalls([]);
+      setCallsTotal(0);
     } finally {
       setLoadingCalls(false);
     }
@@ -366,6 +373,7 @@ export default function LeadDetailPanel({
     if (viewOnlyShare) {
       setUpdates([]);
       setCalls([]);
+      setCallsTotal(0);
       setLoadingUpdates(false);
       setLoadingCalls(false);
       return;
@@ -1245,9 +1253,9 @@ export default function LeadDetailPanel({
                 }`}
               >
                 Call logs
-                {calls.length > 0 ? (
+                {Math.max(Number(lead?.callLogsCount) || 0, callsTotal) > 0 ? (
                   <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-800 dark:bg-sky-950/60 dark:text-sky-200">
-                    {calls.length}
+                    {Math.max(Number(lead?.callLogsCount) || 0, callsTotal)}
                   </span>
                 ) : null}
               </button>

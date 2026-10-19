@@ -1,6 +1,7 @@
 import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
 import { calendarDateRangeBounds } from "@/lib/calendarDayBounds";
+import { pickMetricColumns } from "@/server/calls/callDailyMetrics";
 
 /**
  * Distinct CallLog ids that have invite legs.
@@ -132,7 +133,8 @@ function sumMetricTotals(metrics) {
   );
 }
 
-export async function aggregateCallMetrics(where) {
+/** Live CallLogs aggregate (fallback when daily table empty / no date range). */
+export async function aggregateCallMetricsFromLogs(where) {
   const { fn, col, literal } = db.sequelize;
   const statusSum = (status) =>
     fn("SUM", literal(`CASE WHEN LOWER(status) = '${status}' THEN 1 ELSE 0 END`));
@@ -157,6 +159,49 @@ export async function aggregateCallMetrics(where) {
   return mapMetricsRow(row);
 }
 
+export async function aggregateCallMetrics(where) {
+  return aggregateCallMetricsFromLogs(where);
+}
+
+/** Sum CallDailyMetrics for one user over inclusive calendar dates. */
+export async function aggregateCallMetricsFromDaily({
+  userId,
+  fromDate,
+  toDate,
+  conferenceOnly = false,
+}) {
+  const { fn, col } = db.sequelize;
+  const prefix = conferenceOnly ? "conf" : "";
+  const colName = (base) => {
+    if (!prefix) return base;
+    if (base === "total") return "confTotal";
+    if (base === "completed") return "confCompleted";
+    if (base === "noAnswer") return "confNoAnswer";
+    if (base === "failedOrCanceled") return "confFailedOrCanceled";
+    if (base === "busy") return "confBusy";
+    if (base === "durationSeconds") return "confDurationSeconds";
+    return base;
+  };
+
+  const row = await db.CallDailyMetric.findOne({
+    attributes: [
+      [fn("SUM", col(colName("total"))), "total"],
+      [fn("SUM", col(colName("completed"))), "completed"],
+      [fn("SUM", col(colName("noAnswer"))), "noAnswer"],
+      [fn("SUM", col(colName("failedOrCanceled"))), "failedOrCanceled"],
+      [fn("SUM", col(colName("busy"))), "busy"],
+      [fn("SUM", col(colName("durationSeconds"))), "durationSeconds"],
+    ],
+    where: {
+      userId,
+      calendarDate: { [Op.gte]: fromDate, [Op.lte]: toDate },
+    },
+    raw: true,
+  });
+
+  return mapMetricsRow(row);
+}
+
 export async function aggregateMetricsByUser({
   fromDate,
   toDate,
@@ -166,49 +211,28 @@ export async function aggregateMetricsByUser({
   locationFilter = "all",
   shiftKey = null,
 }) {
-  const where = {
-    ...dateRangeWhere(fromDate, toDate),
-  };
   const usersWhere = userListWhere({ excludeAdmin, locationFilter, shiftKey });
 
-  if (conferenceOnly) {
-    const ids = await conferenceCallIds({ fromDate, toDate });
-    if (ids.length === 0) {
-      if (!includeAllUsers) {
-        return { metrics: [], totals: emptyTotals() };
-      }
-      const allUsers = await db.User.findAll({
-        attributes: USER_METRIC_ATTRIBUTES,
-        where: usersWhere,
-        order: [["username", "ASC"]],
-        raw: true,
-      });
-      let metrics = allUsers.map((u) => serializeUserMetrics(u, emptyTotals()));
-      if (excludeAdmin) metrics = filterOutAdminMetrics(metrics);
-      return { metrics, totals: emptyTotals() };
-    }
-    where.id = { [Op.in]: ids };
-  }
-
-  const { fn, col, literal } = db.sequelize;
-  const statusSum = (status) =>
-    fn("SUM", literal(`CASE WHEN LOWER(status) = '${status}' THEN 1 ELSE 0 END`));
-  const statusSumIn = (statuses) => {
-    const list = statuses.map((s) => `'${s}'`).join(", ");
-    return fn("SUM", literal(`CASE WHEN LOWER(status) IN (${list}) THEN 1 ELSE 0 END`));
-  };
-
-  const aggregated = await db.CallLog.findAll({
+  const { fn, col } = db.sequelize;
+  const aggregated = await db.CallDailyMetric.findAll({
     attributes: [
       "userId",
-      [fn("COUNT", col("id")), "total"],
-      [statusSum("completed"), "completed"],
-      [statusSum("no-answer"), "noAnswer"],
-      [statusSumIn(["failed", "canceled", "cancelled"]), "failedOrCanceled"],
-      [statusSum("busy"), "busy"],
+      [fn("SUM", col("total")), "total"],
+      [fn("SUM", col("completed")), "completed"],
+      [fn("SUM", col("noAnswer")), "noAnswer"],
+      [fn("SUM", col("failedOrCanceled")), "failedOrCanceled"],
+      [fn("SUM", col("busy")), "busy"],
       [fn("SUM", col("durationSeconds")), "durationSeconds"],
+      [fn("SUM", col("confTotal")), "confTotal"],
+      [fn("SUM", col("confCompleted")), "confCompleted"],
+      [fn("SUM", col("confNoAnswer")), "confNoAnswer"],
+      [fn("SUM", col("confFailedOrCanceled")), "confFailedOrCanceled"],
+      [fn("SUM", col("confBusy")), "confBusy"],
+      [fn("SUM", col("confDurationSeconds")), "confDurationSeconds"],
     ],
-    where,
+    where: {
+      calendarDate: { [Op.gte]: fromDate, [Op.lte]: toDate },
+    },
     group: ["userId"],
     raw: true,
   });
@@ -230,7 +254,10 @@ export async function aggregateMetricsByUser({
         const u = userById.get(row.userId);
         if (!u) return null;
         if (excludeAdmin && isAdminRole(u.role)) return null;
-        return [row.userId, serializeUserMetrics(u, mapMetricsRow(row))];
+        return [
+          row.userId,
+          serializeUserMetrics(u, pickMetricColumns(row, conferenceOnly)),
+        ];
       })
       .filter(Boolean),
   );

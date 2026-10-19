@@ -375,7 +375,7 @@ export default function LeadsClient({
   const showBulkRevokeShare = isAdmin && onSharedWithMeTab;
   const showShareSelection = showBulkShareView || showBulkRevokeShare;
   const colSpan =
-    (showAgentColumn ? 7 : 6) + (showShareSelection ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
+    (showAgentColumn ? 8 : 7) + (showShareSelection ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
   const selectedShareCount = selectedShareLeadIds.size;
   const pageLeadIds = useMemo(() => leads.map((lead) => lead.id), [leads]);
   const allPageShareSelected =
@@ -2095,6 +2095,7 @@ export default function LeadsClient({
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
+              <th className={`${tableHeadClass} w-16 max-w-[72px] text-right`}>Calls</th>
               {showAgentColumn ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
               {showSharedViewerColumn ? (
                 <th className={`${tableHeadClass} max-w-[88px]`}>Shared</th>
@@ -2193,6 +2194,12 @@ export default function LeadsClient({
                     title={locationLabel !== "—" ? locationLabel : undefined}
                   >
                     {locationLabel}
+                  </td>
+                  <td
+                    className={`${tableCellClass} w-16 max-w-[72px] text-right tabular-nums text-zinc-700 dark:text-zinc-300`}
+                    title={`${Number(lead.callLogsCount) || 0} call log${(Number(lead.callLogsCount) || 0) === 1 ? "" : "s"}`}
+                  >
+                    {Number(lead.callLogsCount) || 0}
                   </td>
                   {showAgentColumn ? (
                     <td

@@ -99,7 +99,16 @@ export async function applyCallLegUpdate(call, patch) {
   if (Object.keys(update).length === 0) return call;
 
   await call.update(update);
-  return call.reload();
+  const refreshed = await call.reload();
+  try {
+    const { refreshCallDailyMetricsForCall } = await import(
+      "@/server/calls/callDailyMetrics"
+    );
+    await refreshCallDailyMetricsForCall(refreshed);
+  } catch {
+    /* rollup is best-effort; raw CallLog is source until backfill */
+  }
+  return refreshed;
 }
 
 /**

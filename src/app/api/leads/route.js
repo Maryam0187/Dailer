@@ -16,6 +16,7 @@ import {
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import { bumpLeadCallLogsCount } from "@/server/leads/bumpLeadCallLogsCount";
 import {
   LEAD_CONTACT_TAG_VALUES,
   LEAD_PROGRESS_MISSING_FILTERS,
@@ -496,12 +497,14 @@ export async function POST(req) {
 
   await syncLeadCustomer(lead);
 
-  const withUser = await db.Lead.findByPk(lead.id, {
-    include: leadListIncludes,
-  });
-
   if (createdFromCallLogId) {
-    await db.CallLog.update({ leadId: lead.id }, { where: { id: createdFromCallLogId } });
+    const [linked] = await db.CallLog.update(
+      { leadId: lead.id },
+      { where: { id: createdFromCallLogId, leadId: null } },
+    );
+    if (linked) {
+      await bumpLeadCallLogsCount(lead.id, 1);
+    }
   }
 
   await createLeadUpdate({
@@ -520,6 +523,10 @@ export async function POST(req) {
       leadName: fullName,
       phone,
     },
+  });
+
+  const withUser = await db.Lead.findByPk(lead.id, {
+    include: leadListIncludes,
   });
 
   return NextResponse.json({ ok: true, lead: serializeLead(withUser, null, authedUser.role, authedUser.id) }, { status: 201 });

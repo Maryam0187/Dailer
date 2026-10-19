@@ -63,12 +63,24 @@ export const leadListIncludes = [
   leadSharedViewerInclude,
 ];
 
-export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewerId = null) {
+export function serializeLead(
+  lead,
+  lastCallAt = null,
+  viewerRole = null,
+  viewerId = null,
+  extras = {},
+) {
   const phonesRedacted = shouldRedactLeadPhones(viewerRole);
   const notesHidden = shouldHideLeadNotes(viewerRole, lead, viewerId);
   const paymentChargeVisible = canViewLeadPaymentChargeInfo(viewerRole);
   const viewOnlyShare = isViewOnlySharedViewer(lead, viewerRole, viewerId);
   const isAdmin = viewerRole === "admin";
+  const callLogsCountRaw =
+    extras?.callLogsCount != null ? extras.callLogsCount : lead.callLogsCount;
+  const callLogsCount =
+    callLogsCountRaw != null && Number.isFinite(Number(callLogsCountRaw))
+      ? Math.max(0, Math.floor(Number(callLogsCountRaw)))
+      : 0;
   return {
     id: lead.id,
     phone: phonesRedacted ? maskPhoneLastFour(lead.phone) : lead.phone,
@@ -137,5 +149,6 @@ export function serializeLead(lead, lastCallAt = null, viewerRole = null, viewer
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
     lastCallAt,
+    callLogsCount,
   };
 }

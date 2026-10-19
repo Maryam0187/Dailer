@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
-import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import {
-  aggregateCallMetrics,
-  conferenceCallIds,
-  dateRangeWhere,
-} from "@/server/calls/aggregateMetrics";
+import { aggregateCallMetricsFromDaily } from "@/server/calls/aggregateMetrics";
 
 function parseDateOnly(value) {
   if (!value || typeof value !== "string") return null;
@@ -43,31 +38,12 @@ export async function GET(req, { params }) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
-  const where = {
+  const metrics = await aggregateCallMetricsFromDaily({
     userId: target.id,
-    ...dateRangeWhere(fromDate, toDate),
-  };
-
-  if (conferenceOnly) {
-    const ids = await conferenceCallIds({ fromDate, toDate });
-    if (ids.length === 0) {
-      return NextResponse.json({
-        metrics: {
-          userId: target.id,
-          username: target.username,
-          total: 0,
-          completed: 0,
-          noAnswer: 0,
-          failedOrCanceled: 0,
-          busy: 0,
-          durationSeconds: 0,
-        },
-      });
-    }
-    where.id = { [Op.in]: ids };
-  }
-
-  const metrics = await aggregateCallMetrics(where);
+    fromDate,
+    toDate,
+    conferenceOnly,
+  });
   return NextResponse.json({
     metrics: {
       userId: target.id,

@@ -217,6 +217,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      /**
+       * Lifetime call-log count for this lead. Incremented when a CallLog is linked;
+       * not decremented when CallLogs are purged (reports/history survive retention).
+       */
+      callLogsCount: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
     },
     {
       tableName: "Leads",

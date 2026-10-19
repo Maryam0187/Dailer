@@ -125,8 +125,14 @@ function buildAdminDropdownItems(pathname) {
       label: "SQL health",
       active: pathname === "/sql-health",
     },
+    {
+      href: "/data-retention",
+      label: "Data retention",
+      active: pathname === "/data-retention",
+    },
   ];
 }
+
 
 function buildNavItems(role, pathname, accessMode = "full", isOutside = false, canTrainAddressBot = false) {
   const items = [
