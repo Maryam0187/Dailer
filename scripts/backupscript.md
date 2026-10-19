@@ -44,6 +44,17 @@ OK: wrote .../sql/prod-backup.sql (... ) — previous backup replaced.
 
 Output file: [`sql/prod-backup.sql`](../sql/prod-backup.sql)
 
+## Retention archive (CallLogs + UserActivities before a date)
+
+Download only — does **not** delete. Use the same `.env.db-dump` credentials. Purge later in the **Data retention** UI with the same before date.
+
+```bash
+BEFORE_DATE=2026-01-01 ./scripts/dump-retention-archive.sh
+```
+
+- `BEFORE_DATE` = `YYYY-MM-DD` (rows with `createdAt` before start of that day in Asia/Karachi)
+- Writes dated files under `sql/`, e.g. `CallLogs-before-2026-01-01-....sql` and `UserActivities-before-...sql`
+
 ## Restore into local Docker MySQL (optional)
 
 Local DB from `docker-compose.yml`: `127.0.0.1:3307`, user `root`, password `password`, database `dialer_db`.

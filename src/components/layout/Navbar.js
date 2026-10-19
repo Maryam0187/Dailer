@@ -51,6 +51,11 @@ function linkClass(active, palette, extra = "") {
 function buildAdminDropdownItems(pathname) {
   return [
     {
+      href: "/live-status",
+      label: "Live status",
+      active: pathname === "/live-status",
+    },
+    {
       href: "/customers",
       label: "Customers",
       active: pathname === "/customers" || pathname?.startsWith("/customers/"),
@@ -203,6 +208,12 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
   }
 
   if (accessMode !== "limited" && role === "manager" && !isOutside) {
+    items.push({
+      href: "/live-status",
+      label: "Live status",
+      active: pathname === "/live-status",
+      palette: "dialer",
+    });
     items.push({
       href: "/message-broadcast",
       label: "Broadcast",

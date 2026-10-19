@@ -19,6 +19,16 @@ export function isUsersPageObserver(userOrRole) {
   return canAccessUsersPage(userOrRole);
 }
 
+/**
+ * Admin, or in-house manager (not outside) viewing their own team on /live-status.
+ */
+export function canAccessLiveStatus(user) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.role === "manager" && !Boolean(user.isOutside)) return true;
+  return false;
+}
+
 const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];
 
 function normalizeUserShiftKey(value) {
