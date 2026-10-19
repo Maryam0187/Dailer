@@ -150,6 +150,14 @@ function serializeLogins(rows) {
   });
 }
 
+function onlineMsFields(record) {
+  return {
+    onlineMs: Number(record?.onlineMs) || 0,
+    desktopOnlineMs: Number(record?.desktopOnlineMs) || 0,
+    mobileOnlineMs: Number(record?.mobileOnlineMs) || 0,
+  };
+}
+
 function summarizeDays(days) {
   let daysFullPoints = 0;
   let daysTier90 = 0;
@@ -161,11 +169,15 @@ function summarizeDays(days) {
   let daysPresent = 0;
   let totalLogins = 0;
   let totalOnlineMs = 0;
+  let totalDesktopOnlineMs = 0;
+  let totalMobileOnlineMs = 0;
 
   for (const day of days) {
     const loginCount = day.loginCount ?? 0;
     totalLogins += loginCount;
     totalOnlineMs += Number(day.onlineMs) || 0;
+    totalDesktopOnlineMs += Number(day.desktopOnlineMs) || 0;
+    totalMobileOnlineMs += Number(day.mobileOnlineMs) || 0;
     const hasLogin = loginCount > 0 || Boolean(day.firstLoginAt);
 
     // Leave / holiday / exempt days are not Present even if the user logged in.
@@ -202,6 +214,8 @@ function summarizeDays(days) {
     daysExempt,
     totalLogins,
     totalOnlineMs,
+    totalDesktopOnlineMs,
+    totalMobileOnlineMs,
     daysOnTime: daysFullPoints + daysTier90,
     firstLoginAt: anchorDay?.firstLoginAt ?? null,
     firstLoginDeviceLabel: anchorDay?.firstLoginDeviceLabel ?? null,
@@ -238,7 +252,7 @@ function buildDayRow(
       pointPercent: null,
       pointsEarned: 0,
       loginCount: record?.loginCount ?? 0,
-      onlineMs: Number(record?.onlineMs) || 0,
+      ...onlineMsFields(record),
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
@@ -262,7 +276,7 @@ function buildDayRow(
       pointPercent: null,
       pointsEarned: 0,
       loginCount: record?.loginCount ?? 0,
-      onlineMs: Number(record?.onlineMs) || 0,
+      ...onlineMsFields(record),
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
@@ -294,7 +308,7 @@ function buildDayRow(
       pointPercent: record.pointPercent,
       pointsEarned: record.pointsEarned,
       loginCount: record.loginCount,
-      onlineMs: Number(record.onlineMs) || 0,
+      ...onlineMsFields(record),
       firstLoginAt: record.firstLoginAt,
       lastLoginAt: record.lastLoginAt,
       minutesAfterStart: record.minutesAfterStart,
@@ -322,6 +336,8 @@ function buildDayRow(
     pointsEarned: 0,
     loginCount: 0,
     onlineMs: 0,
+    desktopOnlineMs: 0,
+    mobileOnlineMs: 0,
     firstLoginAt: null,
     lastLoginAt: null,
     minutesAfterStart: null,

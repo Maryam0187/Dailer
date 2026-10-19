@@ -44,7 +44,9 @@ export async function GET(req) {
       .filter((row) => !shiftKey || row.shiftKey === shiftKey)
       .sort(
         (a, b) =>
-          (Number(b.totalOnlineMs) || 0) - (Number(a.totalOnlineMs) || 0) ||
+          (Number(b.totalDesktopOnlineMs) || Number(b.totalOnlineMs) || 0) -
+            (Number(a.totalDesktopOnlineMs) || Number(a.totalOnlineMs) || 0) ||
+          (Number(b.totalMobileOnlineMs) || 0) - (Number(a.totalMobileOnlineMs) || 0) ||
           (b.daysAbsent ?? 0) - (a.daysAbsent ?? 0),
       );
 

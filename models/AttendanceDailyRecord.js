@@ -71,6 +71,18 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
+      /** Socket.IO online time on desktop (ms). Sum with mobileOnlineMs ≈ onlineMs going forward. */
+      desktopOnlineMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      /** Socket.IO online time on mobile/tablet (ms). */
+      mobileOnlineMs: {
+        type: DataTypes.BIGINT,
+        allowNull: false,
+        defaultValue: 0,
+      },
     },
     {
       tableName: "AttendanceDailyRecords",

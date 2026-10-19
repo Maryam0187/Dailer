@@ -178,6 +178,21 @@ function formatOnlineMs(value) {
   return `${hours}h ${minutes}m`;
 }
 
+/** Prefer split fields; fall back to combined onlineMs as desktop for pre-split history. */
+function displayDesktopOnlineMs(row) {
+  const desktop = Number(row.desktopOnlineMs ?? row.totalDesktopOnlineMs) || 0;
+  const mobile = Number(row.mobileOnlineMs ?? row.totalMobileOnlineMs) || 0;
+  if (desktop + mobile > 0) return desktop;
+  return Number(row.onlineMs ?? row.totalOnlineMs) || 0;
+}
+
+function displayMobileOnlineMs(row) {
+  const desktop = Number(row.desktopOnlineMs ?? row.totalDesktopOnlineMs) || 0;
+  const mobile = Number(row.mobileOnlineMs ?? row.totalMobileOnlineMs) || 0;
+  if (desktop + mobile > 0) return mobile;
+  return 0;
+}
+
 function statusBadge(day) {
   if (day.status === "on_leave") {
     return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">On leave</span>;
@@ -279,7 +294,16 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
   const { sortKey, sortDir, onSort } = useTableSort("date", "desc");
 
   const sortedDays = useMemo(
-    () => sortAttendanceRows(days, sortKey, sortDir),
+    () =>
+      sortAttendanceRows(
+        days.map((day) => ({
+          ...day,
+          desktopOnlineMs: displayDesktopOnlineMs(day),
+          mobileOnlineMs: displayMobileOnlineMs(day),
+        })),
+        sortKey,
+        sortDir,
+      ),
     [days, sortKey, sortDir],
   );
 
@@ -318,7 +342,8 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
             <SortableHeader label="Device" columnKey="firstLoginDeviceLabel" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <StaticHeader label="Office fingerprint" className="min-w-[11rem]" />
             <SortableHeader label="Status" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortableHeader label="Online time" columnKey="onlineMs" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Desktop" columnKey="desktopOnlineMs" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+            <SortableHeader label="Mobile" columnKey="mobileOnlineMs" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
             <SortableHeader label="Logins" columnKey="loginCount" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
           </tr>
         </thead>
@@ -341,12 +366,13 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
                   />
                 </td>
                 <td className={tdClass}>{statusBadge(day)}</td>
-                <td className={tdClassRight}>{formatOnlineMs(day.onlineMs)}</td>
+                <td className={tdClassRight}>{formatOnlineMs(displayDesktopOnlineMs(day))}</td>
+                <td className={tdClassRight}>{formatOnlineMs(displayMobileOnlineMs(day))}</td>
                 <td className={tdClassRight}>{day.loginCount}</td>
               </tr>
               {expanded === day.date ? (
                 <tr>
-                  <td colSpan={7} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
+                  <td colSpan={8} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
                     {loginLoading === day.date ? (
                       <p>Loading logins…</p>
                     ) : (loginCache[day.date]?.length ?? day.logins?.length ?? 0) === 0 ? (
@@ -389,7 +415,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
   const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
-    "totalOnlineMs",
+    "totalDesktopOnlineMs",
     "desc",
   );
 
@@ -404,6 +430,8 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
         summaryRows.map((row) => ({
           ...row,
           locationLabel: locationLabel(row.isOutside),
+          totalDesktopOnlineMs: displayDesktopOnlineMs(row),
+          totalMobileOnlineMs: displayMobileOnlineMs(row),
         })),
         summarySortKey,
         summarySortDir,
@@ -717,7 +745,8 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
                   <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
                   <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
                   <SortableHeader label="Logins" columnKey="totalLogins" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                  <SortableHeader label="Online time" columnKey="totalOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                  <SortableHeader label="Desktop" columnKey="totalDesktopOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                  <SortableHeader label="Mobile" columnKey="totalMobileOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -736,7 +765,8 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
                     <td className={`${tdClass} tabular-nums`}>{formatTime(row.firstLoginAt)}</td>
                     <td className={tdClassRight}>{row.daysAbsent}</td>
                     <td className={tdClassRight}>{row.totalLogins}</td>
-                    <td className={tdClassRight}>{formatOnlineMs(row.totalOnlineMs)}</td>
+                    <td className={tdClassRight}>{formatOnlineMs(displayDesktopOnlineMs(row))}</td>
+                    <td className={tdClassRight}>{formatOnlineMs(displayMobileOnlineMs(row))}</td>
                   </tr>
                 ))}
               </tbody>

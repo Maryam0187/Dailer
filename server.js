@@ -141,7 +141,16 @@ app.prepare().then(async () => {
     markUserOffline,
     startOnlineTimeFlushTimer,
   } = require("./src/server/attendance/onlineTime.boot.cjs");
+  const {
+    resolveOnlineTimeDeviceBucketFromUserAgent,
+  } = require("./src/server/activity/resolveDeviceType.core.cjs");
   startOnlineTimeFlushTimer();
+
+  /** Socket counts per user+device for online-time split (desktop | mobile). */
+  const devicePresence = new Map();
+  function devicePresenceKey(userId, deviceBucket) {
+    return `${userId}:${deviceBucket === "mobile" ? "mobile" : "desktop"}`;
+  }
 
   const AWAY_GRACE_MS = 5 * 60 * 1000;
 
@@ -236,12 +245,24 @@ app.prepare().then(async () => {
     const userId = Number(socket.data.userId);
     if (!Number.isInteger(userId) || userId <= 0) return;
 
+    const ua =
+      socket.handshake.headers?.["user-agent"] ??
+      socket.handshake.headers?.["User-Agent"] ??
+      "";
+    const deviceBucket = resolveOnlineTimeDeviceBucketFromUserAgent(ua);
+    socket.data.deviceBucket = deviceBucket;
+
     socket.join(`user:${userId}`);
     void tryJoinPresenceObserver(socket);
 
     const next = (presence.get(userId) || 0) + 1;
     presence.set(userId, next);
-    if (next === 1) markUserOnline(userId);
+
+    const dKey = devicePresenceKey(userId, deviceBucket);
+    const deviceNext = (devicePresence.get(dKey) || 0) + 1;
+    devicePresence.set(dKey, deviceNext);
+    if (deviceNext === 1) markUserOnline(userId, deviceBucket);
+
     void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
 
     socket.on("disconnect", () => {
@@ -249,10 +270,20 @@ app.prepare().then(async () => {
       const after = Math.max(0, current - 1);
       if (after === 0) {
         presence.delete(userId);
-        void markUserOffline(userId);
         void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
       } else {
         presence.set(userId, after);
+      }
+
+      const bucket = socket.data.deviceBucket || "desktop";
+      const key = devicePresenceKey(userId, bucket);
+      const deviceCurrent = devicePresence.get(key) || 0;
+      const deviceAfter = Math.max(0, deviceCurrent - 1);
+      if (deviceAfter === 0) {
+        devicePresence.delete(key);
+        void markUserOffline(userId, bucket);
+      } else {
+        devicePresence.set(key, deviceAfter);
       }
     });
   });

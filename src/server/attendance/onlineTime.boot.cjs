@@ -1,23 +1,38 @@
 "use strict";
 
 /**
- * Accumulate Socket.IO online time into AttendanceDailyRecords.onlineMs.
- * Tracks per-user open intervals in memory; flushes on disconnect and on a timer
- * so crashes only lose up to one flush window.
+ * Accumulate Socket.IO online time into AttendanceDailyRecords.
+ * Tracks per-user + device-bucket (desktop | mobile) open intervals in memory;
+ * flushes on disconnect and on a timer so crashes only lose up to one flush window.
+ *
+ * `onlineMs` stays the combined total (agent profile). Desktop/mobile columns are admin-facing.
  */
 
 const db = require("../../../models");
 const { getSessionCalendarDate } = require("../auth/loginWindow.core.cjs");
+const {
+  onlineTimeDeviceBucket,
+} = require("../activity/resolveDeviceType.core.cjs");
 
 const FLUSH_INTERVAL_MS = 60 * 1000;
 const MAX_SEGMENT_MS = 6 * 60 * 60 * 1000;
 
-/** @type {Map<number, number>} userId -> ms when they went 0→1 online */
-const onlineSinceByUser = new Map();
-/** @type {Map<number, number>} userId -> ms last credited to DB while still online */
-const lastCreditedByUser = new Map();
+/** @type {Map<string, number>} "userId:device" -> ms when they went 0→1 online for that bucket */
+const onlineSinceByKey = new Map();
+/** @type {Map<string, number>} "userId:device" -> ms last credited to DB while still online */
+const lastCreditedByKey = new Map();
 
 let flushTimer = null;
+
+function presenceKey(userId, deviceBucket) {
+  const bucket = onlineTimeDeviceBucket(deviceBucket);
+  return `${Number(userId)}:${bucket}`;
+}
+
+function parsePresenceKey(key) {
+  const [idPart, bucket] = String(key).split(":");
+  return { userId: Number(idPart), deviceBucket: bucket === "mobile" ? "mobile" : "desktop" };
+}
 
 function clampDelta(deltaMs) {
   const n = Number(deltaMs);
@@ -32,12 +47,16 @@ async function loadUserForCalendar(userId) {
 }
 
 /**
- * Add deltaMs to the daily aggregate for the calendar day of `at`.
+ * Add deltaMs to the daily aggregate for the calendar day of `at`, split by device.
+ * @param {"desktop"|"mobile"|string} deviceBucket
  */
-async function addOnlineMs(userId, deltaMs, at = new Date()) {
+async function addOnlineMs(userId, deltaMs, at = new Date(), deviceBucket = "desktop") {
   const id = Number(userId);
   const delta = clampDelta(deltaMs);
   if (!Number.isInteger(id) || id <= 0 || delta <= 0) return;
+
+  const bucket = onlineTimeDeviceBucket(deviceBucket);
+  const deviceField = bucket === "mobile" ? "mobileOnlineMs" : "desktopOnlineMs";
 
   let user;
   try {
@@ -62,60 +81,72 @@ async function addOnlineMs(userId, deltaMs, at = new Date()) {
         pointsEarned: 0,
         loginCount: 0,
         onlineMs: 0,
+        desktopOnlineMs: 0,
+        mobileOnlineMs: 0,
       },
     });
-    await record.increment("onlineMs", { by: delta });
+    await record.increment({
+      onlineMs: delta,
+      [deviceField]: delta,
+    });
   } catch (err) {
     console.error("[onlineTime] increment failed:", err?.message || err);
   }
 }
 
-async function creditOpenSegment(userId, nowMs = Date.now()) {
-  const id = Number(userId);
-  if (!Number.isInteger(id) || id <= 0) return;
-  if (!onlineSinceByUser.has(id)) return;
+async function creditOpenSegment(key, nowMs = Date.now()) {
+  if (!onlineSinceByKey.has(key)) return;
 
-  const last = lastCreditedByUser.get(id) ?? onlineSinceByUser.get(id);
+  const { userId, deviceBucket } = parsePresenceKey(key);
+  if (!Number.isInteger(userId) || userId <= 0) return;
+
+  const last = lastCreditedByKey.get(key) ?? onlineSinceByKey.get(key);
   const delta = nowMs - last;
   if (delta > 0) {
-    await addOnlineMs(id, delta, new Date(last));
+    await addOnlineMs(userId, delta, new Date(last), deviceBucket);
   }
-  lastCreditedByUser.set(id, nowMs);
+  lastCreditedByKey.set(key, nowMs);
 }
 
 /**
- * Call when socket count goes 0 → 1.
+ * Call when socket count for this user+device goes 0 → 1.
+ * @param {number} userId
+ * @param {"desktop"|"mobile"|string} [deviceBucket]
  */
-function markUserOnline(userId) {
+function markUserOnline(userId, deviceBucket = "desktop") {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return;
-  if (onlineSinceByUser.has(id)) return;
+  const key = presenceKey(id, deviceBucket);
+  if (onlineSinceByKey.has(key)) return;
   const now = Date.now();
-  onlineSinceByUser.set(id, now);
-  lastCreditedByUser.set(id, now);
+  onlineSinceByKey.set(key, now);
+  lastCreditedByKey.set(key, now);
 }
 
 /**
- * Call when socket count goes → 0. Credits remaining open time.
+ * Call when socket count for this user+device goes → 0. Credits remaining open time.
+ * @param {number} userId
+ * @param {"desktop"|"mobile"|string} [deviceBucket]
  */
-async function markUserOffline(userId) {
+async function markUserOffline(userId, deviceBucket = "desktop") {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return;
-  if (!onlineSinceByUser.has(id)) return;
+  const key = presenceKey(id, deviceBucket);
+  if (!onlineSinceByKey.has(key)) return;
   try {
-    await creditOpenSegment(id, Date.now());
+    await creditOpenSegment(key, Date.now());
   } finally {
-    onlineSinceByUser.delete(id);
-    lastCreditedByUser.delete(id);
+    onlineSinceByKey.delete(key);
+    lastCreditedByKey.delete(key);
   }
 }
 
 async function flushAllOpenSegments() {
   const now = Date.now();
-  const ids = Array.from(onlineSinceByUser.keys());
-  for (const id of ids) {
+  const keys = Array.from(onlineSinceByKey.keys());
+  for (const key of keys) {
     try {
-      await creditOpenSegment(id, now);
+      await creditOpenSegment(key, now);
     } catch (err) {
       console.error("[onlineTime] flush failed:", err?.message || err);
     }

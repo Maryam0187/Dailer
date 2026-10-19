@@ -30,7 +30,7 @@ export default async function AttendancePage() {
           Attendance
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Daily login activity and online time while the dialer stays connected.
+          Daily login activity and desktop vs mobile online time while the dialer stays connected.
         </p>
       </div>
       <AttendanceClient isAdmin users={users} />
