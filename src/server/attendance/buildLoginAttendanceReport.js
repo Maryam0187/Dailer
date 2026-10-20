@@ -41,6 +41,21 @@ function applyHalfLeaveStatus(status, onlineMs, hasLogin) {
   return "half_leave";
 }
 
+const STATUS_OVERRIDE_SET = new Set(["absent", "on_leave", "half_leave"]);
+
+function statusOverrideField(record) {
+  const raw = record?.statusOverride ?? null;
+  const statusOverride =
+    raw && STATUS_OVERRIDE_SET.has(String(raw)) ? String(raw) : null;
+  return { statusOverride };
+}
+
+/** Admin/manager override wins over computed present / half_leave / absent. */
+function applyStatusOverride(status, override) {
+  if (override && STATUS_OVERRIDE_SET.has(override)) return override;
+  return status;
+}
+
 const LOGIN_ACTIVITY_ATTRIBUTES = [
   "id",
   "userId",
@@ -265,9 +280,10 @@ function buildDayRow(
   dayLogins,
 ) {
   if (onLeave) {
+    const overrideFields = statusOverrideField(record);
     const row = {
       date: dateStr,
-      status: "on_leave",
+      status: applyStatusOverride("on_leave", overrideFields.statusOverride),
       tierKey: null,
       pointPercent: null,
       pointsEarned: 0,
@@ -276,6 +292,7 @@ function buildDayRow(
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
+      ...overrideFields,
       ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
@@ -289,9 +306,10 @@ function buildDayRow(
   }
 
   if (exempt) {
+    const overrideFields = statusOverrideField(record);
     const row = {
       date: dateStr,
-      status: "exempt",
+      status: applyStatusOverride("exempt", overrideFields.statusOverride),
       tierKey: null,
       pointPercent: null,
       pointsEarned: 0,
@@ -300,6 +318,7 @@ function buildDayRow(
       firstLoginAt: record?.firstLoginAt ?? null,
       lastLoginAt: record?.lastLoginAt ?? null,
       minutesAfterStart: null,
+      ...overrideFields,
       ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
@@ -316,6 +335,7 @@ function buildDayRow(
     // Reclassify stale "exempt" rows when the day is no longer attendance-exempt
     // (e.g. login-window unchecked used to mark every day exempt).
     const hasLogin = dayHasLogin(record);
+    const overrideFields = statusOverrideField(record);
     let status = record.status;
     if (status === "exempt") {
       status = hasLogin ? "present" : "absent";
@@ -323,6 +343,7 @@ function buildDayRow(
     if (status === "present" || status === "half_leave") {
       status = applyHalfLeaveStatus("present", record.onlineMs, hasLogin);
     }
+    status = applyStatusOverride(status, overrideFields.statusOverride);
     const row = {
       date: dateStr,
       status,
@@ -338,6 +359,7 @@ function buildDayRow(
       firstLoginDeviceLabel: deviceLabelForType(record.firstLoginDevice),
       lastLoginDevice: record.lastLoginDevice ?? null,
       lastLoginDeviceLabel: deviceLabelForType(record.lastLoginDevice),
+      ...overrideFields,
       ...companyLeaveFields(ctx, dateStr),
       ...officeFingerprintField(record),
     };
@@ -364,6 +386,7 @@ function buildDayRow(
     lastLoginAt: null,
     minutesAfterStart: null,
     officeFingerprintAt: null,
+    statusOverride: null,
     ...companyLeaveFields(ctx, dateStr),
   };
   if (!includeDays) return absent;

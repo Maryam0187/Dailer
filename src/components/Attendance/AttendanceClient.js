@@ -195,6 +195,72 @@ function statusBadge(day) {
   return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">Present</span>;
 }
 
+const STATUS_OVERRIDE_OPTIONS = [
+  { value: "", label: "Auto" },
+  { value: "half_leave", label: "Half leave" },
+  { value: "on_leave", label: "Leave" },
+  { value: "absent", label: "Absent" },
+];
+
+function StatusOverrideCell({ day, userId, canEditStatus, onSaved }) {
+  const [value, setValue] = useState(() => day.statusOverride || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(day.statusOverride || "");
+  }, [day.statusOverride, day.date]);
+
+  if (!canEditStatus) {
+    return statusBadge(day);
+  }
+
+  async function save(next) {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/attendance/status-override", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          calendarDate: day.date,
+          statusOverride: next || null,
+        }),
+      });
+      if (res.ok) {
+        setValue(next);
+        onSaved?.();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="min-w-[9rem] space-y-1" onClick={(e) => e.stopPropagation()}>
+      {statusBadge(day)}
+      <select
+        value={value}
+        disabled={saving}
+        onChange={(e) => void save(e.target.value)}
+        className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+        aria-label={`Set attendance status for ${day.date}`}
+      >
+        {STATUS_OVERRIDE_OPTIONS.map((opt) => (
+          <option key={opt.value || "auto"} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {value ? (
+        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Manual override</p>
+      ) : (
+        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Auto from online time</p>
+      )}
+    </div>
+  );
+}
+
 function formatDevice(label) {
   if (!label || label === "Unknown") return "—";
   return label;
@@ -276,7 +342,7 @@ function OfficeFingerprintCell({ day, userId, isAdmin, onSaved }) {
   );
 }
 
-function DailyTable({ days, userId, isAdmin, onSaved }) {
+function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
   const [expanded, setExpanded] = useState(null);
   const [loginCache, setLoginCache] = useState({});
   const [loginLoading, setLoginLoading] = useState(null);
@@ -292,7 +358,7 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
     setLoginLoading(date);
     try {
       const params = new URLSearchParams({ date });
-      if (isAdmin && userId) params.set("userId", String(userId));
+      if ((isAdmin || canEditStatus) && userId) params.set("userId", String(userId));
       const res = await fetch(`/api/attendance/logins?${params}`, { credentials: "include" });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -346,7 +412,14 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
                     onSaved={onSaved}
                   />
                 </td>
-                <td className={tdClass}>{statusBadge(day)}</td>
+                <td className={tdClass}>
+                  <StatusOverrideCell
+                    day={day}
+                    userId={userId}
+                    canEditStatus={canEditStatus}
+                    onSaved={onSaved}
+                  />
+                </td>
                 <td className={tdClassRight}>{formatOnlineMs(Number(day.desktopOnlineMs) || 0)}</td>
                 <td className={tdClassRight}>{formatOnlineMs(Number(day.mobileOnlineMs) || 0)}</td>
                 <td className={tdClassRight}>{formatOnlineMs(Number(day.onlineMs) || 0)}</td>
@@ -380,7 +453,8 @@ function DailyTable({ days, userId, isAdmin, onSaved }) {
   );
 }
 
-export default function AttendanceClient({ isAdmin, users = [] }) {
+export default function AttendanceClient({ isAdmin, canEditStatus = false, users = [] }) {
+  const canManage = isAdmin || canEditStatus;
   const initialRange = getPresetRange("today");
   const [preset, setPreset] = useState("today");
   const [from, setFrom] = useState(initialRange.from);
@@ -437,13 +511,13 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
   const filteredUsers = usersForFilters(users, shiftFilter, locationFilter);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canManage) return;
     const list = usersForFilters(users, shiftFilter, locationFilter);
     if (list.length === 0) return;
     if (!selectedUserId || !list.some((u) => u.id === selectedUserId)) {
       setSelectedUserId(list[0].id);
     }
-  }, [isAdmin, users, shiftFilter, locationFilter, selectedUserId]);
+  }, [canManage, users, shiftFilter, locationFilter, selectedUserId]);
 
   const loadAttendance = useCallback(
     async ({ silent = false } = {}) => {
@@ -451,19 +525,19 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
       else setLoading(true);
       setError(null);
       try {
-        if (isAdmin && adminTab === "summary") {
+        if (canManage && adminTab === "summary") {
           const params = new URLSearchParams({ fromDate: appliedFrom, toDate: appliedTo });
           if (shiftFilter === "day" || shiftFilter === "night") {
             params.set("shiftKey", shiftFilter);
           }
-          if (locationFilter === "in_house" || locationFilter === "outside") {
+          if (isAdmin && (locationFilter === "in_house" || locationFilter === "outside")) {
             params.set("location", locationFilter);
           }
           const res = await fetch(`/api/attendance/summary?${params}`, { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error || "Failed to load summary");
           setSummaryRows(json.users || []);
-        } else if (isAdmin) {
+        } else if (canManage) {
           if (!selectedUserId) return;
           const params = new URLSearchParams({
             fromDate: appliedFrom,
@@ -489,6 +563,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
       }
     },
     [
+      canManage,
       isAdmin,
       adminTab,
       selectedUserId,
@@ -631,7 +706,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
         </div>
       </div>
 
-      {isAdmin ? (
+      {canManage ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2">
             <button
@@ -687,7 +762,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
 
       {loading ? <p className="text-sm text-zinc-500">Loading…</p> : null}
 
-      {isAdmin && adminTab === "summary" && !loading ? (
+      {canManage && adminTab === "summary" && !loading ? (
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -757,7 +832,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
         </div>
       ) : null}
 
-      {isAdmin && adminTab === "detail" ? (
+      {canManage && adminTab === "detail" ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">User</label>
@@ -784,10 +859,10 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
         </div>
       ) : null}
 
-      {((isAdmin && adminTab === "detail" && !loading && detail) ||
-        (!isAdmin && !loading && detail)) && (
+      {((canManage && adminTab === "detail" && !loading && detail) ||
+        (!canManage && !loading && detail)) && (
         <>
-          {!isAdmin ? (
+          {!canManage ? (
             <AttendancePeriodStats
               present={detailRangeStats.present}
               absent={detailRangeStats.absent}
@@ -800,6 +875,7 @@ export default function AttendanceClient({ isAdmin, users = [] }) {
             days={detail.days || []}
             userId={detail.userId}
             isAdmin={isAdmin && adminTab === "detail"}
+            canEditStatus={canEditStatus && adminTab === "detail"}
             onSaved={reloadDetail}
           />
         </>

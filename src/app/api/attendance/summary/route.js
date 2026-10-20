@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/server/auth/requireAdmin";
+import { Op } from "sequelize";
+import db from "@/server/db";
+import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { canAccessAttendance } from "@/server/auth/userAccess";
 import {
   buildLoginAttendanceReport,
   parseAttendanceDateOnly,
 } from "@/server/attendance/buildLoginAttendanceReport";
 
+const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];
+
 export async function GET(req) {
-  const { errorResponse } = await requireAdmin();
-  if (errorResponse) return errorResponse;
+  const authedUser = await getAuthedUser();
+  if (!authedUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!canAccessAttendance(authedUser)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const fromDate = parseAttendanceDateOnly(searchParams.get("fromDate"));
@@ -26,10 +36,37 @@ export async function GET(req) {
   }
 
   try {
-    const report = await buildLoginAttendanceReport([], fromDate, toDate, {
+    const isAdmin = authedUser.role === "admin";
+    let userIds = [];
+    let allActiveUsers = false;
+
+    if (isAdmin) {
+      allActiveUsers = true;
+    } else {
+      const team = await db.User.findAll({
+        where: {
+          isActive: { [Op.ne]: false },
+          managerId: authedUser.id,
+          role: { [Op.in]: MANAGER_TEAM_ROLES },
+        },
+        attributes: ["id"],
+      });
+      userIds = team.map((u) => u.id);
+      if (userIds.length === 0) {
+        return NextResponse.json({
+          fromDate,
+          toDate,
+          shiftKey,
+          location: locationFilter,
+          users: [],
+        });
+      }
+    }
+
+    const report = await buildLoginAttendanceReport(userIds, fromDate, toDate, {
       includeDays: false,
-      allActiveUsers: true,
-      locationFilter,
+      allActiveUsers,
+      locationFilter: isAdmin ? locationFilter : "all",
     });
 
     const rows = report.users

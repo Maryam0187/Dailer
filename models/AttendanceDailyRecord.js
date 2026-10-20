@@ -23,6 +23,15 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "present",
       },
+      /**
+       * Admin/manager override: absent | on_leave | half_leave.
+       * Null = use computed status (login + online-time half leave).
+       */
+      statusOverride: {
+        type: DataTypes.STRING(16),
+        allowNull: true,
+        defaultValue: null,
+      },
       tierKey: {
         type: DataTypes.STRING(32),
         allowNull: true,

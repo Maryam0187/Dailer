@@ -29,6 +29,13 @@ export function canAccessLiveStatus(user) {
   return false;
 }
 
+/**
+ * Admin, or in-house manager viewing / editing team attendance.
+ */
+export function canAccessAttendance(user) {
+  return canAccessLiveStatus(user);
+}
+
 const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];
 
 function normalizeUserShiftKey(value) {

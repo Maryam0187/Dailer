@@ -184,7 +184,7 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
     });
   }
 
-  if (accessMode !== "limited" && role === "admin") {
+  if (accessMode !== "limited" && (role === "admin" || (role === "manager" && !isOutside))) {
     items.push({
       href: "/attendance",
       label: "Attendance",

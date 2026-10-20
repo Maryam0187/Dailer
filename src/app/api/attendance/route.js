@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
+import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import {
+  assertCanManageTarget,
+  canAccessAttendance,
+} from "@/server/auth/userAccess";
 import {
   buildLoginAttendanceReport,
   parseAttendanceDateOnly,
@@ -36,12 +41,24 @@ export async function GET(req) {
     targetUserId = authedUser.id;
   } else if (!Number.isInteger(requestedUserId) || requestedUserId < 1) {
     return NextResponse.json({ error: "userId is invalid" }, { status: 400 });
-  } else if (isAdmin) {
-    targetUserId = requestedUserId;
   } else if (requestedUserId === authedUser.id) {
     targetUserId = authedUser.id;
+  } else if (isAdmin) {
+    targetUserId = requestedUserId;
   } else {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!canAccessAttendance(authedUser)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const target = await db.User.findByPk(requestedUserId, {
+      attributes: ["id", "role", "managerId", "supervisorId", "isOutside", "shiftKey", "isActive"],
+    });
+    if (!target || target.isActive === false) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    if (!assertCanManageTarget(authedUser, target)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    targetUserId = requestedUserId;
   }
 
   try {
