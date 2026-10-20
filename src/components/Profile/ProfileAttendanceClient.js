@@ -71,6 +71,13 @@ function statusBadge(day) {
       </span>
     );
   }
+  if (day.status === "half_leave") {
+    return (
+      <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-900 dark:bg-orange-950/50 dark:text-orange-200">
+        Half leave
+      </span>
+    );
+  }
   return (
     <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
       Present

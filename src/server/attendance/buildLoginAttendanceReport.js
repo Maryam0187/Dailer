@@ -25,6 +25,21 @@ import {
 
 const LOGIN_ACTIONS = ["login_success", "leave_application_login"];
 const MAX_RANGE_DAYS = 62;
+/** Present with less than 3h 15m online → half leave (report-time only). */
+const HALF_LEAVE_ONLINE_MS = 3 * 60 * 60 * 1000 + 15 * 60 * 1000;
+
+function dayHasLogin(recordOrDay) {
+  return (
+    (Number(recordOrDay?.loginCount) || 0) > 0 || Boolean(recordOrDay?.firstLoginAt)
+  );
+}
+
+/** Downgrade present → half_leave when online time is below the threshold. */
+function applyHalfLeaveStatus(status, onlineMs, hasLogin) {
+  if (status !== "present" || !hasLogin) return status;
+  if ((Number(onlineMs) || 0) >= HALF_LEAVE_ONLINE_MS) return status;
+  return "half_leave";
+}
 
 const LOGIN_ACTIVITY_ATTRIBUTES = [
   "id",
@@ -167,6 +182,7 @@ function summarizeDays(days) {
   let daysOnLeave = 0;
   let daysExempt = 0;
   let daysPresent = 0;
+  let daysHalfLeave = 0;
   let totalLogins = 0;
   let totalOnlineMs = 0;
   let totalDesktopOnlineMs = 0;
@@ -188,12 +204,15 @@ function summarizeDays(days) {
       day.status === "exempt";
     if (isLeaveRow) {
       /* counted in leave buckets below */
-    } else if (hasLogin) daysPresent += 1;
+    } else if (day.status === "half_leave") daysHalfLeave += 1;
+    else if (hasLogin) daysPresent += 1;
     else if (day.status === "absent") daysAbsent += 1;
 
     if (day.status === "on_leave") daysOnLeave += 1;
     else if (day.status === "exempt" || day.isCompanyLeave) daysExempt += 1;
-    else if (day.status === "absent") {
+    else if (day.status === "half_leave") {
+      /* already counted in daysHalfLeave */
+    } else if (day.status === "absent") {
       /* already counted above when no login */
     } else if (day.tierKey === "full") daysFullPoints += 1;
     else if (day.tierKey === "tier_90") daysTier90 += 1;
@@ -209,6 +228,7 @@ function summarizeDays(days) {
     daysPartialPoints,
     daysZeroPoints,
     daysPresent,
+    daysHalfLeave,
     daysAbsent,
     daysOnLeave,
     daysExempt,
@@ -295,11 +315,13 @@ function buildDayRow(
   if (record) {
     // Reclassify stale "exempt" rows when the day is no longer attendance-exempt
     // (e.g. login-window unchecked used to mark every day exempt).
+    const hasLogin = dayHasLogin(record);
     let status = record.status;
     if (status === "exempt") {
-      const hasLogin =
-        (Number(record.loginCount) || 0) > 0 || Boolean(record.firstLoginAt);
       status = hasLogin ? "present" : "absent";
+    }
+    if (status === "present" || status === "half_leave") {
+      status = applyHalfLeaveStatus("present", record.onlineMs, hasLogin);
     }
     const row = {
       date: dateStr,

@@ -27,7 +27,8 @@ export function presentAbsentFromDays(days = []) {
       if (dayHasLogin(day)) leaveLogin += 1;
       continue;
     }
-    if (dayHasLogin(day)) {
+    if (dayHasLogin(day) || day.status === "half_leave") {
+      // Half leave still counts as present for period cards (they logged in).
       present += 1;
       continue;
     }
