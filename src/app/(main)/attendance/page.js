@@ -42,7 +42,7 @@ export default async function AttendancePage() {
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           Daily login activity and desktop vs mobile online time while the dialer stays connected.
           {isAdmin || authedUser.role === "manager"
-            ? " Admins and managers can set Absent, Leave, or Half leave for a day."
+            ? " Admins and managers can set Present, Half leave, Leave, or Absent for a day."
             : ""}
         </p>
       </div>

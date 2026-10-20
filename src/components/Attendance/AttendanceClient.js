@@ -5,6 +5,7 @@ import { getPresetRange } from "@/components/DateRangeFilter";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
 } from "@/components/Attendance/AttendancePeriodStats";
+import AttendanceStatusBadge from "@/components/Attendance/AttendanceStatusBadge";
 
 const RANGE_PRESET_OPTIONS = [
   { id: "today", label: "Today" },
@@ -180,23 +181,12 @@ function formatOnlineMs(value) {
 }
 
 function statusBadge(day) {
-  if (day.status === "on_leave") {
-    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">On leave</span>;
-  }
-  if (day.status === "absent") {
-    return <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Absent</span>;
-  }
-  if (day.status === "exempt") {
-    return <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">Exempt</span>;
-  }
-  if (day.status === "half_leave") {
-    return <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-900 dark:bg-orange-950/50 dark:text-orange-200">Half leave</span>;
-  }
-  return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">Present</span>;
+  return <AttendanceStatusBadge day={day} />;
 }
 
 const STATUS_OVERRIDE_OPTIONS = [
   { value: "", label: "Auto" },
+  { value: "present", label: "Present" },
   { value: "half_leave", label: "Half leave" },
   { value: "on_leave", label: "Leave" },
   { value: "absent", label: "Absent" },

@@ -2,7 +2,7 @@ import db from "@/server/db";
 import { parseAttendanceDateOnly } from "@/server/attendance/buildLoginAttendanceReport";
 
 /** Values admins/managers may set as attendance day status override. */
-export const ATTENDANCE_STATUS_OVERRIDE_VALUES = ["absent", "on_leave", "half_leave"];
+export const ATTENDANCE_STATUS_OVERRIDE_VALUES = ["present", "absent", "on_leave", "half_leave"];
 
 export function normalizeStatusOverride(value) {
   if (value == null || value === "" || value === "auto" || value === "clear") {

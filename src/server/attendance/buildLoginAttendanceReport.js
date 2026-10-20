@@ -41,7 +41,7 @@ function applyHalfLeaveStatus(status, onlineMs, hasLogin) {
   return "half_leave";
 }
 
-const STATUS_OVERRIDE_SET = new Set(["absent", "on_leave", "half_leave"]);
+const STATUS_OVERRIDE_SET = new Set(["present", "absent", "on_leave", "half_leave"]);
 
 function statusOverrideField(record) {
   const raw = record?.statusOverride ?? null;
