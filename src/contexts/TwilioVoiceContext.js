@@ -8,9 +8,12 @@ import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundP
 import {
   TWILIO_VOICE_DEVICE_OPTIONS,
   destroyTwilioVoiceDevice,
+  fetchTwilioVoiceAccessToken,
   formatTwilioVoiceDeviceError,
   isFatalTwilioVoiceDeviceError,
+  isTwilioVoiceAccessTokenExpiredError,
   twilioVoiceRegisterBackoffMs,
+  updateTwilioVoiceDeviceToken,
 } from "@/lib/twilioVoiceDevice";
 
 const TwilioVoiceContext = createContext(undefined);
@@ -116,6 +119,8 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
    * Retry Voice. Stops the SDK/app from self-retrying forever.
    */
   const manualRetryRequiredRef = useRef(false);
+  /** Dedupes concurrent tokenWillExpire / JWT-expired refresh attempts. */
+  const tokenRefreshPromiseRef = useRef(null);
 
   useEffect(() => {
     inviteNotificationRef.current = inviteNotification;
@@ -244,17 +249,49 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
 
   const isFatalDeviceError = useCallback((err) => isFatalTwilioVoiceDeviceError(err), []);
 
+  const formatSdkError = useCallback((err) => {
+    return formatTwilioVoiceDeviceError(err, { isAdmin: isAdminRef.current });
+  }, []);
+
+  /**
+   * Refresh Voice JWT on the existing Device (no destroy). Used by tokenWillExpire
+   * and JWT-expired recovery while idle or mid-call.
+   * @param {import("@twilio/voice-sdk").Device} device
+   * @returns {Promise<boolean>}
+   */
+  const refreshDeviceAccessToken = useCallback(async (device) => {
+    if (!device) return false;
+    if (tokenRefreshPromiseRef.current) return tokenRefreshPromiseRef.current;
+    tokenRefreshPromiseRef.current = (async () => {
+      try {
+        const { token } = await fetchTwilioVoiceAccessToken("/api/twilio/token");
+        updateTwilioVoiceDeviceToken(device, token);
+        setSdkError(null);
+        return true;
+      } catch (err) {
+        // Proactive refresh failure: admins see detail; agents stay quiet until hard fail.
+        if (isAdminRef.current) {
+          setSdkError(formatTwilioVoiceDeviceError(err, { isAdmin: true }));
+        }
+        return false;
+      } finally {
+        tokenRefreshPromiseRef.current = null;
+      }
+    })();
+    return tokenRefreshPromiseRef.current;
+  }, []);
+
   const noteRegisterFailure = useCallback((err) => {
     registerFailureCountRef.current += 1;
     manualRetryRequiredRef.current = true;
     attemptedWarmRegistrationRef.current = true;
     const waitMs = twilioVoiceRegisterBackoffMs(registerFailureCountRef.current);
     registerBackoffUntilRef.current = Date.now() + waitMs;
-    const msg = formatTwilioVoiceDeviceError(err);
+    const msg = formatSdkError(err);
     setSdkError(`${msg} Click “Retry Voice” to try again.`);
     setRegistered(false);
     return waitMs;
-  }, []);
+  }, [formatSdkError]);
 
   const clearRegisterBackoff = useCallback(() => {
     registerFailureCountRef.current = 0;
@@ -434,18 +471,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         deviceIdentityRef.current = null;
       }
 
-      const res = await fetch("/api/twilio/token", { credentials: "include", cache: "no-store" });
-      if (res.status === 503) {
-        throw new Error("Twilio browser agent is not configured");
-      }
-      if (!res.ok) {
-        throw new Error(`Failed to create Twilio voice token (${res.status})`);
-      }
-
-      const data = await res.json().catch(() => ({}));
-      const token = data?.token;
-      const identity = data?.identity || null;
-      if (!token) throw new Error("Missing Twilio voice token");
+      const { token, identity } = await fetchTwilioVoiceAccessToken("/api/twilio/token");
       if (deviceIdentityRef.current && identity && deviceIdentityRef.current !== identity) {
         // Auth context changed (account switch): reset without clearing this init promise.
         destroyTwilioVoiceDevice(deviceRef.current);
@@ -497,12 +523,31 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         }
       });
 
+      // Refresh JWT before expiry — keeps Device alive (idle or mid-call) without destroy.
+      device.on("tokenWillExpire", () => {
+        void refreshDeviceAccessToken(device);
+      });
+
       device.on("error", (err) => {
-        if (!isFatalDeviceError(err)) {
-          setSdkError(formatTwilioVoiceDeviceError(err));
+        if (isTwilioVoiceAccessTokenExpiredError(err)) {
+          void refreshDeviceAccessToken(device).then((ok) => {
+            if (ok) return;
+            const onCall = Boolean(callRef.current);
+            const msg = formatSdkError(err);
+            if (onCall) {
+              // Never destroy mid-call; media may still work briefly after signaling auth fails.
+              setSdkError(`${msg} Click “Retry Voice” after the call if needed.`);
+              return;
+            }
+            killDeviceForSignaling(err);
+          });
           return;
         }
-        // Only hard failures (token / 53000 / 31005). Do not kill on normal reconnects.
+        if (!isFatalDeviceError(err)) {
+          setSdkError(formatSdkError(err));
+          return;
+        }
+        // Only hard failures (invalid token / 53000 / 31005). Do not kill on normal reconnects.
         killDeviceForSignaling(err);
       });
 
@@ -839,6 +884,8 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     noteRegisterFailure,
     clearRegisterBackoff,
     releaseMicrophone,
+    refreshDeviceAccessToken,
+    formatSdkError,
   ]);
 
   // Single-active-tab lock (localStorage-backed).
@@ -1412,6 +1459,7 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
         callQuality,
         voiceDisplaced,
         isPrimaryTab,
+        isAdmin,
         takeOverDialer,
         toggleMute,
         setCallMuted,

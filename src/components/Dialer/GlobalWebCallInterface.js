@@ -32,6 +32,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent, pr
     sdkError,
     leaveConference,
     callQuality: sdkCallQuality,
+    isAdmin: voiceIsAdmin = false,
   } = useTwilioVoice();
   const isCallOwner = Boolean(session.callOwnedByMe);
   const isDirectCall =
@@ -462,7 +463,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent, pr
                 className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
                 role="status"
               >
-                Voice SDK: {sdkError}
+                {voiceIsAdmin ? `Voice SDK: ${sdkError}` : sdkError}
               </p>
             ) : null}
 
