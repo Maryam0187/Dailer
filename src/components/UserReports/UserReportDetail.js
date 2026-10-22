@@ -1,12 +1,16 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import UserNameLabel from "@/components/UserNameLabel";
 import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
+import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import { formatDuration } from "@/lib/formatDuration";
 import {
+  ATTENDANCE_REPORT_TIMEZONE,
+  ATTENDANCE_TZ_ET,
+  ATTENDANCE_TZ_PKT,
   REPORT_EASTERN_TODAY_NOTICE,
+  calendarDateInTimezone,
   formatAttendanceTimeEt,
   formatAttendanceTimePkt,
   formatReportWhenDual,
@@ -97,6 +101,143 @@ function userOptionLabel(u) {
   const shift = u.role === "admin" ? "—" : u.shiftKey === "night" ? "Night" : "Day";
   const loc = u.isOutside ? "Outside" : "In-house";
   return `${name} · ${shift} · ${loc}`;
+}
+
+const LEADS_PAGE_SIZE = 25;
+const LEADS_FETCH_SIZE = 100;
+const TIMELINE_PAGE_SIZE = 25;
+const TIMELINE_FETCH_SIZE = 100;
+
+function formatGapLabel(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n < 1000) return "<1s";
+  const sec = Math.floor(n / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hours = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (hours < 24) return remMin > 0 ? `${hours}h ${remMin}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remH = hours % 24;
+  return remH > 0 ? `${days}d ${remH}h` : `${days}d`;
+}
+
+/** Readable clock for timeline — time only or with weekday/date. */
+function formatTimelineClock(value, { timeOnly = false } = {}) {
+  if (!value) return { et: "—", pkt: "—" };
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return { et: "—", pkt: "—" };
+  try {
+    const timeOpts = {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    };
+    const etTime = new Intl.DateTimeFormat("en-US", {
+      ...timeOpts,
+      timeZone: ATTENDANCE_TZ_ET,
+    }).format(d);
+    const pktTime = new Intl.DateTimeFormat("en-US", {
+      ...timeOpts,
+      timeZone: ATTENDANCE_TZ_PKT,
+    }).format(d);
+    if (timeOnly) {
+      return { et: `${etTime} ET`, pkt: `${pktTime} PKT` };
+    }
+    const dateOpts = { weekday: "short", month: "short", day: "numeric" };
+    const etDate = new Intl.DateTimeFormat("en-US", {
+      ...dateOpts,
+      timeZone: ATTENDANCE_TZ_ET,
+    }).format(d);
+    return {
+      et: `${etTime} ET`,
+      pkt: `${pktTime} PKT`,
+      dateLabel: etDate,
+    };
+  } catch {
+    return { et: "—", pkt: "—" };
+  }
+}
+
+function formatTimelineDayHeading(dateKey) {
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return dateKey || "—";
+  const [y, m, day] = dateKey.split("-").map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, day, 12));
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(utc);
+  } catch {
+    return dateKey;
+  }
+}
+
+function TimelineWhen({ value, timeOnly }) {
+  const clock = formatTimelineClock(value, { timeOnly });
+  return (
+    <span className="flex shrink-0 flex-col items-end gap-0.5 text-right leading-tight">
+      <span className="text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
+        {clock.et}
+      </span>
+      <span className="text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
+        {clock.pkt}
+      </span>
+    </span>
+  );
+}
+
+function isInstantInDateRange(value, fromDate, toDate) {
+  if (!value || !fromDate || !toDate) return false;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  const key = calendarDateInTimezone(d, ATTENDANCE_REPORT_TIMEZONE);
+  return key >= fromDate && key <= toDate;
+}
+
+function annotateLeadForRange(lead, fromDate, toDate) {
+  const createdInRange = isInstantInDateRange(lead.createdAt, fromDate, toDate);
+  const updatedInRange = isInstantInDateRange(lead.updatedAt, fromDate, toDate);
+  return { ...lead, createdInRange, updatedInRange };
+}
+
+function mergeLeadsById(createdRows, updatedRows, fromDate, toDate) {
+  const map = new Map();
+  for (const row of [...createdRows, ...updatedRows]) {
+    if (!row?.id) continue;
+    if (!map.has(row.id)) map.set(row.id, row);
+  }
+  return [...map.values()]
+    .map((lead) => annotateLeadForRange(lead, fromDate, toDate))
+    .sort((a, b) => {
+      const at = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bt = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return (Number.isNaN(bt) ? 0 : bt) - (Number.isNaN(at) ? 0 : at);
+    });
+}
+
+async function fetchLeadsByDateField({ userId, fromDate, toDate, dateField, signal }) {
+  const qs = new URLSearchParams({
+    agentId: String(userId),
+    page: "1",
+    pageSize: String(LEADS_FETCH_SIZE),
+  });
+  if (fromDate && toDate) {
+    qs.set("fromDate", fromDate);
+    qs.set("toDate", toDate);
+    qs.set("dateField", dateField);
+  }
+  const res = await fetch(`/api/leads?${qs.toString()}`, {
+    credentials: "include",
+    signal,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error || "Failed to load leads");
+  return json.leads || [];
 }
 
 const RANGE_PRESET_OPTIONS = [
@@ -215,10 +356,11 @@ export default function UserReportDetail({
   const [appliedTo, setAppliedTo] = useState(initial.to);
   const [rangeError, setRangeError] = useState(null);
 
-  // Timeline
-  const [timelineEvents, setTimelineEvents] = useState([]);
+  // Timeline: login / logout / leads + calls (no phone), client-paginated
+  const [allTimelineEvents, setAllTimelineEvents] = useState([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState(null);
+  const [timelinePage, setTimelinePage] = useState(1);
 
   // Calls
   const [calls, setCalls] = useState([]);
@@ -250,19 +392,13 @@ export default function UserReportDetail({
   const [activityDetailLoadingId, setActivityDetailLoadingId] = useState(null);
   const [activityDetailError, setActivityDetailError] = useState(null);
 
-  // Leads
-  const [leads, setLeads] = useState([]);
+  // Leads (created ∪ updated in range, client-paginated)
+  const [allLeads, setAllLeads] = useState([]);
   const [leadsError, setLeadsError] = useState(null);
   const [leadsLoading, setLeadsLoading] = useState(false);
-  const [leadsPagination, setLeadsPagination] = useState({
-    page: 1,
-    pageSize: 25,
-    total: 0,
-    totalPages: 1,
-    hasNext: false,
-    hasPrev: false,
-  });
   const [leadsPage, setLeadsPage] = useState(1);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [loadingLeadId, setLoadingLeadId] = useState(null);
 
   // Attendance (per user, selected range)
   const [attendance, setAttendance] = useState(null);
@@ -315,10 +451,11 @@ export default function UserReportDetail({
     setRangeError(null);
     setPage(1);
     setLeadsPage(1);
+    setTimelinePage(1);
     setMetrics(null);
-    setTimelineEvents([]);
+    setAllTimelineEvents([]);
     setCalls([]);
-    setLeads([]);
+    setAllLeads([]);
     setAttendance(null);
     setAttendanceError(null);
     setExpandedAttendanceDate(null);
@@ -354,7 +491,7 @@ export default function UserReportDetail({
       try {
         const callQs = new URLSearchParams({
           page: "1",
-          pageSize: "100",
+          pageSize: String(TIMELINE_FETCH_SIZE),
         });
         if (fromDate && toDate) {
           callQs.set("fromDate", fromDate);
@@ -370,21 +507,22 @@ export default function UserReportDetail({
           return json.calls || [];
         });
 
-        const activitiesPromise = isAdmin
-          ? fetch(
-              `/api/users/${user.id}/activities?${new URLSearchParams({
-                page: "1",
-                pageSize: "100",
-                fromDate: fromDate || "",
-                toDate: toDate || "",
-              }).toString()}`,
-              { credentials: "include", signal },
-            ).then(async (res) => {
-              const json = await res.json().catch(() => ({}));
-              if (!res.ok) throw new Error(json?.error || "Failed to load activities");
-              return json.activities || [];
-            })
-          : Promise.resolve([]);
+        const activitiesPromise =
+          isAdmin && fromDate && toDate
+            ? fetch(
+                `/api/users/${user.id}/activities?${new URLSearchParams({
+                  page: "1",
+                  pageSize: String(TIMELINE_FETCH_SIZE),
+                  fromDate,
+                  toDate,
+                }).toString()}`,
+                { credentials: "include", signal },
+              ).then(async (res) => {
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(json?.error || "Failed to load activities");
+                return json.activities || [];
+              })
+            : Promise.resolve([]);
 
         const [callRows, activityRows] = await Promise.all([callsPromise, activitiesPromise]);
 
@@ -412,14 +550,16 @@ export default function UserReportDetail({
           if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
           if (Number.isNaN(at)) return 1;
           if (Number.isNaN(bt)) return -1;
+          // Oldest first (ascending)
           return at - bt;
         });
 
-        setTimelineEvents(events);
+        setAllTimelineEvents(events);
+        setTimelinePage(1);
       } catch (err) {
         if (err.name === "AbortError") return;
         setTimelineError(err.message || "Failed to load timeline");
-        setTimelineEvents([]);
+        setAllTimelineEvents([]);
       } finally {
         setTimelineLoading(false);
       }
@@ -506,37 +646,36 @@ export default function UserReportDetail({
   );
 
   const loadLeads = useCallback(
-    async (signal, nextPage = 1, fromDate = appliedFrom, toDate = appliedTo) => {
+    async (signal, fromDate = appliedFrom, toDate = appliedTo) => {
       if (!user?.id) return;
       setLeadsLoading(true);
       setLeadsError(null);
       try {
-        const qs = new URLSearchParams({
-          agentId: String(user.id),
-          page: String(nextPage),
-          pageSize: "25",
-        });
-        if (fromDate && toDate) {
-          qs.set("fromDate", fromDate);
-          qs.set("toDate", toDate);
-          qs.set("dateField", "created");
-        }
-        const res = await fetch(`/api/leads?${qs.toString()}`, {
-          credentials: "include",
-          signal,
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || "Failed to load leads");
-        setLeads(json.leads || []);
-        if (json.pagination) {
-          setLeadsPagination(json.pagination);
-          setLeadsPage(json.pagination.page || nextPage);
-          setOverviewLeadsTotal(json.pagination.total ?? 0);
-        }
+        const [createdRows, updatedRows] = await Promise.all([
+          fetchLeadsByDateField({
+            userId: user.id,
+            fromDate,
+            toDate,
+            dateField: "created",
+            signal,
+          }),
+          fetchLeadsByDateField({
+            userId: user.id,
+            fromDate,
+            toDate,
+            dateField: "updated",
+            signal,
+          }),
+        ]);
+        const merged = mergeLeadsById(createdRows, updatedRows, fromDate, toDate);
+        setAllLeads(merged);
+        setOverviewLeadsTotal(merged.length);
+        setLeadsPage(1);
       } catch (err) {
         if (err.name === "AbortError") return;
         setLeadsError(err.message || "Failed to load leads");
-        setLeads([]);
+        setAllLeads([]);
+        setOverviewLeadsTotal(0);
       } finally {
         setLeadsLoading(false);
       }
@@ -586,15 +725,6 @@ export default function UserReportDetail({
           toDate,
           userId: String(user.id),
         });
-        const leadsQs = new URLSearchParams({
-          agentId: String(user.id),
-          page: "1",
-          pageSize: "1",
-          fromDate,
-          toDate,
-          dateField: "created",
-        });
-
         const attendancePromise = fetch(`/api/attendance?${attQs}`, {
           credentials: "include",
           signal,
@@ -604,14 +734,24 @@ export default function UserReportDetail({
           return json;
         });
 
-        const leadsPromise = fetch(`/api/leads?${leadsQs}`, {
-          credentials: "include",
-          signal,
-        }).then(async (res) => {
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) return { total: null };
-          return { total: json.pagination?.total ?? 0 };
-        });
+        const leadsPromise = Promise.all([
+          fetchLeadsByDateField({
+            userId: user.id,
+            fromDate,
+            toDate,
+            dateField: "created",
+            signal,
+          }).catch(() => []),
+          fetchLeadsByDateField({
+            userId: user.id,
+            fromDate,
+            toDate,
+            dateField: "updated",
+            signal,
+          }).catch(() => []),
+        ]).then(([createdRows, updatedRows]) =>
+          mergeLeadsById(createdRows, updatedRows, fromDate, toDate),
+        );
 
         const metricsPromise = isAdmin
           ? fetch(
@@ -627,13 +767,13 @@ export default function UserReportDetail({
             })
           : Promise.resolve(null);
 
-        const [att, leadsInfo, metricsInfo] = await Promise.all([
+        const [att, mergedLeads, metricsInfo] = await Promise.all([
           attendancePromise,
           leadsPromise,
           metricsPromise,
         ]);
         setAttendance(att);
-        setOverviewLeadsTotal(leadsInfo.total);
+        setOverviewLeadsTotal(mergedLeads.length);
         if (isAdmin && metricsInfo) setMetrics(metricsInfo);
       } catch (err) {
         if (err.name === "AbortError") return;
@@ -655,7 +795,7 @@ export default function UserReportDetail({
   useEffect(() => {
     if (activeTab !== "timeline") return undefined;
     const controller = new AbortController();
-    loadTimeline(controller.signal);
+    loadTimeline(controller.signal, appliedFrom, appliedTo);
     return () => controller.abort();
   }, [activeTab, loadTimeline, user?.id, appliedFrom, appliedTo]);
 
@@ -676,9 +816,9 @@ export default function UserReportDetail({
   useEffect(() => {
     if (activeTab !== "leads") return undefined;
     const controller = new AbortController();
-    loadLeads(controller.signal, leadsPage, appliedFrom, appliedTo);
+    loadLeads(controller.signal, appliedFrom, appliedTo);
     return () => controller.abort();
-  }, [activeTab, user?.id, leadsPage, appliedFrom, appliedTo, loadLeads]);
+  }, [activeTab, user?.id, appliedFrom, appliedTo, loadLeads]);
 
   useEffect(() => {
     if (activeTab !== "attendance") return undefined;
@@ -698,6 +838,7 @@ export default function UserReportDetail({
     setAppliedTo(next.to);
     setPage(1);
     setLeadsPage(1);
+    setTimelinePage(1);
   }
 
   function onApplyRange() {
@@ -715,6 +856,7 @@ export default function UserReportDetail({
     setAppliedTo(rangeTo);
     setPage(1);
     setLeadsPage(1);
+    setTimelinePage(1);
   }
 
   async function onRefreshCalls() {
@@ -780,6 +922,27 @@ export default function UserReportDetail({
     }
   }
 
+  async function openLeadSidebar(leadId) {
+    const id = Number(leadId);
+    if (!Number.isInteger(id) || id < 1) return;
+    setLoadingLeadId(id);
+    setLeadsError(null);
+    try {
+      const res = await fetch(`/api/leads/${id}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load sale");
+      setSelectedLead(json.lead || null);
+    } catch (err) {
+      setLeadsError(err?.message || "Failed to load sale");
+      setSelectedLead(null);
+    } finally {
+      setLoadingLeadId(null);
+    }
+  }
+
   async function toggleAttendanceDay(date) {
     if (expandedAttendanceDate === date) {
       setExpandedAttendanceDate(null);
@@ -799,6 +962,80 @@ export default function UserReportDetail({
       setAttendanceLoginLoading(null);
     }
   }
+
+  const leadsPagination = useMemo(() => {
+    const total = allLeads.length;
+    const totalPages = Math.max(1, Math.ceil(total / LEADS_PAGE_SIZE) || 1);
+    const page = Math.min(Math.max(1, leadsPage), totalPages);
+    return {
+      page,
+      pageSize: LEADS_PAGE_SIZE,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    };
+  }, [allLeads, leadsPage]);
+
+  const leads = useMemo(() => {
+    const start = (leadsPagination.page - 1) * LEADS_PAGE_SIZE;
+    return allLeads.slice(start, start + LEADS_PAGE_SIZE);
+  }, [allLeads, leadsPagination.page]);
+
+  const timelinePagination = useMemo(() => {
+    const total = allTimelineEvents.length;
+    const totalPages = Math.max(1, Math.ceil(total / TIMELINE_PAGE_SIZE) || 1);
+    const page = Math.min(Math.max(1, timelinePage), totalPages);
+    return {
+      page,
+      pageSize: TIMELINE_PAGE_SIZE,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    };
+  }, [allTimelineEvents, timelinePage]);
+
+  const timelineEvents = useMemo(() => {
+    const start = (timelinePagination.page - 1) * TIMELINE_PAGE_SIZE;
+    return allTimelineEvents.slice(start, start + TIMELINE_PAGE_SIZE);
+  }, [allTimelineEvents, timelinePagination.page]);
+
+  const timelineTimeOnly = Boolean(appliedFrom && appliedTo && appliedFrom === appliedTo);
+  const timelineShowDaySeparators = Boolean(
+    appliedFrom && appliedTo && appliedFrom !== appliedTo,
+  );
+
+  const timelineDisplayRows = useMemo(() => {
+    const rows = [];
+    timelineEvents.forEach((event, index) => {
+      const dateKey = calendarDateInTimezone(
+        event.createdAt ? new Date(event.createdAt) : new Date(),
+        ATTENDANCE_REPORT_TIMEZONE,
+      );
+      if (timelineShowDaySeparators) {
+        const prev = timelineEvents[index - 1];
+        const prevKey = prev
+          ? calendarDateInTimezone(new Date(prev.createdAt), ATTENDANCE_REPORT_TIMEZONE)
+          : null;
+        if (dateKey !== prevKey) {
+          rows.push({ type: "date", key: `date-${dateKey}-${index}`, dateKey });
+        }
+      }
+      if (index > 0) {
+        const earlier = timelineEvents[index - 1];
+        const earlierMs = new Date(earlier.createdAt).getTime();
+        const thisMs = new Date(event.createdAt).getTime();
+        const gapMs =
+          Number.isFinite(earlierMs) && Number.isFinite(thisMs)
+            ? Math.max(0, thisMs - earlierMs)
+            : 0;
+        rows.push({ type: "gap", key: `gap-${event.id}`, gapMs });
+      }
+      rows.push({ type: "event", key: event.id, event });
+    });
+    return rows;
+  }, [timelineEvents, timelineShowDaySeparators]);
 
   const attendanceDays = attendance?.days || [];
   const attendanceRangeStats = presentAbsentFromDays(attendanceDays);
@@ -1077,7 +1314,10 @@ export default function UserReportDetail({
         </p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricStat label="Present days" value={attendanceRangeStats.present} />
-          <MetricStat label="Absent days" value={attendanceRangeStats.absent} />
+          <MetricStat
+            label="Absent / Leave"
+            value={`${attendanceRangeStats.absent}/${attendanceRangeStats.leaveDays ?? attendanceRangeStats.leave ?? 0}`}
+          />
           <MetricStat label="Online time" value={formatOnlineMs(totalOnlineMs)} />
           <MetricStat
             label="Desktop / Mobile"
@@ -1092,10 +1332,10 @@ export default function UserReportDetail({
               value={formatDuration(metrics?.durationSeconds)}
             />
           ) : null}
-          <MetricStat
-            label="Leads created"
-            value={overviewLeadsTotal == null ? (overviewLoading ? "…" : "—") : overviewLeadsTotal}
-          />
+            <MetricStat
+              label="Leads (created/updated)"
+              value={overviewLeadsTotal == null ? (overviewLoading ? "…" : "—") : overviewLeadsTotal}
+            />
         </div>
         {attendanceError ? (
           <p className="mt-2 text-xs text-red-600 dark:text-red-300">{attendanceError}</p>
@@ -1148,142 +1388,185 @@ export default function UserReportDetail({
       {/* Tab panels */}
       {activeTab === "timeline" ? (
         <div className="flex min-h-0 flex-col gap-2">
-          <div>
-            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Timeline</h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Everything in order for the selected range
-              {isAdmin
-                ? ": login, calls, lead work, leave, and other activity. Click an activity for full detail."
-                : " (calls)."}
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Timeline</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Login, logout, leads
+                {isAdmin ? ", and other activity" : ""}
+                , plus calls. Oldest first.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!timelinePagination.hasPrev || timelineLoading) return;
+                  setTimelinePage(Math.max(1, timelinePagination.page - 1));
+                }}
+                disabled={!timelinePagination.hasPrev || timelineLoading}
+                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Prev
+              </button>
+              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+                {timelinePagination.page}/{timelinePagination.totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!timelinePagination.hasNext || timelineLoading) return;
+                  setTimelinePage(timelinePagination.page + 1);
+                }}
+                disabled={!timelinePagination.hasNext || timelineLoading}
+                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Next
+              </button>
+            </div>
           </div>
           {timelineError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
               {timelineError}
             </p>
           ) : null}
-          {timelineLoading && timelineEvents.length === 0 ? (
+          {timelineLoading && allTimelineEvents.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading timeline…</p>
-          ) : timelineEvents.length === 0 ? (
+          ) : allTimelineEvents.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
               No events for this user in this date range.
             </p>
           ) : (
-            <ol className="relative space-y-0 border-l-2 border-zinc-200 pl-4 dark:border-zinc-700">
-              {timelineEvents.map((event) => {
-                if (event.kind === "activity") {
-                  const row = event.row;
-                  const kind = timelineActivityKind(row.action);
-                  const detailsFull = formatActivityDetails(
-                    row.metadata,
-                    row.entityType,
-                    row.entityId,
-                  );
-                  const open = expandedActivityId === row.id;
-                  const location = formatActivityLocation(row);
-                  return (
-                    <li key={event.id} className="relative pb-3">
-                      <span
-                        className="absolute -left-[1.35rem] top-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-sky-500 dark:border-zinc-950"
-                        aria-hidden
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void toggleActivityRow(row.id)}
-                        className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                          open
-                            ? "border-sky-300 bg-sky-50/80 dark:border-sky-700 dark:bg-sky-950/30"
-                            : "border-zinc-200 bg-zinc-50/50 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950/40 dark:hover:bg-zinc-900/60"
-                        }`}
-                        aria-expanded={open}
+            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-950">
+              <ul className="flex flex-col">
+                {timelineDisplayRows.map((row) => {
+                  if (row.type === "date") {
+                    return (
+                      <li
+                        key={row.key}
+                        className="sticky top-0 z-[1] border-y border-sky-200/80 bg-sky-50 px-3 py-2 dark:border-sky-900/50 dark:bg-sky-950/40"
                       >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <p className="text-sm tabular-nums text-zinc-700 dark:text-zinc-200">
-                            {formatReportWhenDual(row.createdAt) || "—"}
-                          </p>
+                        <p className="text-sm font-semibold tracking-tight text-sky-950 dark:text-sky-100">
+                          {formatTimelineDayHeading(row.dateKey)}
+                        </p>
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80 dark:text-sky-300/80">
+                          US Eastern day
+                        </p>
+                      </li>
+                    );
+                  }
+                  if (row.type === "gap") {
+                    return (
+                      <li
+                        key={row.key}
+                        className="flex items-center gap-2 bg-zinc-50/90 px-3 py-1 dark:bg-zinc-900/60"
+                        aria-label={`${formatGapLabel(row.gapMs)} between activities`}
+                      >
+                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                        <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                          {formatGapLabel(row.gapMs)} later
+                        </span>
+                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                      </li>
+                    );
+                  }
+
+                  const event = row.event;
+                  if (event.kind === "activity") {
+                    const activity = event.row;
+                    const kind = timelineActivityKind(activity.action);
+                    const detailsFull = formatActivityDetails(
+                      activity.metadata,
+                      activity.entityType,
+                      activity.entityId,
+                    );
+                    const open = expandedActivityId === activity.id;
+                    return (
+                      <li
+                        key={row.key}
+                        className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void toggleActivityRow(activity.id)}
+                          className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors ${
+                            open
+                              ? "bg-sky-50/90 dark:bg-sky-950/35"
+                              : "hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
+                          }`}
+                          aria-expanded={open}
+                        >
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${kind.className}`}
+                            className={`mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-wide ${kind.className}`}
                           >
                             <ActivityChevron open={open} />
                             {kind.label}
                           </span>
-                        </div>
-                        <p className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">
-                          {activityActionLabel(row.action, row.metadata)}
-                        </p>
-                        <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300">
-                          {truncateActivityText(detailsFull, 140)}
-                          {location && location !== "—" ? (
-                            <>
-                              <span className="mx-1.5 text-zinc-400">·</span>
-                              {location}
-                            </>
-                          ) : null}
-                        </p>
-                      </button>
-                      {open ? (
-                        <div className="mt-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/50">
-                          {activityDetailLoadingId === row.id ? (
-                            <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                              Loading record…
-                            </p>
-                          ) : activityDetailError && !activityDetailCache[row.id] ? (
-                            <p className="text-xs text-red-700 dark:text-red-300">
-                              {activityDetailError}
-                            </p>
-                          ) : activityDetailCache[row.id] ? (
-                            <ActivityRowDetail row={activityDetailCache[row.id]} />
-                          ) : (
-                            <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                              No record found.
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                              {activityActionLabel(activity.action, activity.metadata)}
+                            </span>
+                            {detailsFull && detailsFull !== "—" ? (
+                              <span className="mt-0.5 block text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+                                {truncateActivityText(detailsFull, 96)}
+                              </span>
+                            ) : null}
+                          </span>
+                          <TimelineWhen value={activity.createdAt} timeOnly={timelineTimeOnly} />
+                        </button>
+                        {open ? (
+                          <div className="border-t border-zinc-100 bg-zinc-50/90 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
+                            {activityDetailLoadingId === activity.id ? (
+                              <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                Loading record…
+                              </p>
+                            ) : activityDetailError && !activityDetailCache[activity.id] ? (
+                              <p className="text-xs text-red-700 dark:text-red-300">
+                                {activityDetailError}
+                              </p>
+                            ) : activityDetailCache[activity.id] ? (
+                              <ActivityRowDetail row={activityDetailCache[activity.id]} />
+                            ) : (
+                              <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                                No record found.
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  }
+
+                  const call = event.row;
+                  return (
+                    <li
+                      key={row.key}
+                      className="flex items-start gap-3 border-b border-zinc-100 px-3 py-2.5 last:border-b-0 dark:border-zinc-800"
+                    >
+                      <span className="mt-0.5 inline-flex shrink-0 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+                        Call
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                          {call.toNumber || "Unknown number"}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-zinc-600 dark:text-zinc-400">
+                          {call.status || "—"} · {formatDuration(call.durationSeconds)}
+                          {Number(call.dialerIndex) === 2 ? " · Line 2" : ""}
+                        </span>
+                      </span>
+                      <TimelineWhen value={call.createdAt} timeOnly={timelineTimeOnly} />
                     </li>
                   );
-                }
-                const call = event.row;
-                return (
-                  <li key={event.id} className="relative pb-3">
-                    <span
-                      className="absolute -left-[1.35rem] top-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-zinc-950"
-                      aria-hidden
-                    />
-                    <div className="rounded-lg border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-950/40">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm tabular-nums text-zinc-700 dark:text-zinc-200">
-                          {formatReportWhenDual(call.createdAt) || "—"}
-                        </p>
-                        <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
-                          Call
-                        </span>
-                      </div>
-                      <p className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">
-                        {call.toNumber || "—"}
-                      </p>
-                      <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300">
-                        {call.status || "—"}
-                        <span className="mx-1.5 text-zinc-400">·</span>
-                        {formatDuration(call.durationSeconds)}
-                        {Number(call.dialerIndex) === 2 ? (
-                          <>
-                            <span className="mx-1.5 text-zinc-400">·</span>
-                            Line 2
-                          </>
-                        ) : null}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+                })}
+              </ul>
+            </div>
           )}
-          {!timelineLoading && !timelineError && timelineEvents.length > 0 ? (
+          {!timelineLoading && !timelineError && allTimelineEvents.length > 0 ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {timelineEvents.length} event
-              {timelineEvents.length === 1 ? "" : "s"} in time order (up to 100 calls
-              {isAdmin ? " + 100 activities" : ""})
+              Showing {timelineEvents.length} of {timelinePagination.total} events
+              {timelineTimeOnly ? " · times only (single day)" : ""}
+              {timelineShowDaySeparators ? " · grouped by Eastern date" : ""}
             </p>
           ) : null}
         </div>
@@ -1303,7 +1586,8 @@ export default function UserReportDetail({
           <AttendancePeriodStats
             present={attendanceRangeStats.present}
             absent={attendanceRangeStats.absent}
-            leave={attendanceRangeStats.leave}
+            leave={attendanceRangeStats.leaveDays ?? attendanceRangeStats.leave}
+            leaveLogin={attendanceRangeStats.leaveLogin}
             fromDate={appliedFrom}
             toDate={appliedTo}
             loading={attendanceLoading && !attendance}
@@ -1681,7 +1965,7 @@ export default function UserReportDetail({
             <div className="min-w-0">
               <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Leads</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Leads created by this user.
+                Leads this user created or updated in the selected range (Eastern dates).
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -1689,7 +1973,7 @@ export default function UserReportDetail({
                 type="button"
                 onClick={() => {
                   if (!leadsPagination.hasPrev || leadsLoading) return;
-                  setLeadsPage(Math.max(1, leadsPage - 1));
+                  setLeadsPage(Math.max(1, leadsPagination.page - 1));
                 }}
                 disabled={!leadsPagination.hasPrev || leadsLoading}
                 className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -1703,7 +1987,7 @@ export default function UserReportDetail({
                 type="button"
                 onClick={() => {
                   if (!leadsPagination.hasNext || leadsLoading) return;
-                  setLeadsPage(leadsPage + 1);
+                  setLeadsPage(leadsPagination.page + 1);
                 }}
                 disabled={!leadsPagination.hasNext || leadsLoading}
                 className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -1719,20 +2003,22 @@ export default function UserReportDetail({
             </p>
           ) : null}
 
-          {leadsLoading && leads.length === 0 ? (
+          {leadsLoading && allLeads.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Loading leads…</p>
-          ) : leads.length === 0 ? (
+          ) : allLeads.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
-              No leads created by this user in this date range.
+              No leads created or updated by this user in this date range.
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-              <table className="w-full min-w-[36rem] text-left text-sm">
+              <table className="w-full min-w-[44rem] text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
                     <th className="px-2.5 py-2">Name</th>
                     <th className="px-2.5 py-2">Phone</th>
                     <th className="px-2.5 py-2">Phase</th>
+                    <th className="px-2.5 py-2">In range</th>
+                    <th className="whitespace-nowrap px-2.5 py-2">Created</th>
                     <th className="whitespace-nowrap px-2.5 py-2">Updated</th>
                   </tr>
                 </thead>
@@ -1740,12 +2026,17 @@ export default function UserReportDetail({
                   {leads.map((lead) => (
                     <tr key={lead.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
                       <td className="px-2.5 py-1.5 font-medium text-zinc-900 dark:text-zinc-100">
-                        <Link
-                          href={`/leads/${lead.id}`}
-                          className="text-sky-700 hover:underline dark:text-sky-300"
+                        <button
+                          type="button"
+                          onClick={() => void openLeadSidebar(lead.id)}
+                          disabled={loadingLeadId === lead.id}
+                          className="text-left font-medium text-sky-700 hover:underline focus:underline focus:outline-none disabled:opacity-60 dark:text-sky-300"
+                          title="View sale"
                         >
-                          {lead.fullName || `Lead #${lead.id}`}
-                        </Link>
+                          {loadingLeadId === lead.id
+                            ? "Loading…"
+                            : lead.fullName || `Lead #${lead.id}`}
+                        </button>
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                         {lead.phone || "—"}
@@ -1753,8 +2044,28 @@ export default function UserReportDetail({
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
                         {lead.leadPhase || "—"}
                       </td>
+                      <td className="px-2.5 py-1.5">
+                        <span className="flex flex-wrap gap-1">
+                          {lead.createdInRange ? (
+                            <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+                              Created
+                            </span>
+                          ) : null}
+                          {lead.updatedInRange ? (
+                            <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                              Updated
+                            </span>
+                          ) : null}
+                          {!lead.createdInRange && !lead.updatedInRange ? (
+                            <span className="text-zinc-400">—</span>
+                          ) : null}
+                        </span>
+                      </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
-                        {formatReportWhenDual(lead.updatedAt) || "—"}
+                        <EtTimeWithTooltip value={lead.createdAt} />
+                      </td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
+                        <EtTimeWithTooltip value={lead.updatedAt} />
                       </td>
                     </tr>
                   ))}
@@ -1763,14 +2074,39 @@ export default function UserReportDetail({
             </div>
           )}
 
-          {!leadsLoading && !leadsError && leads.length > 0 ? (
+          {!leadsLoading && !leadsError && allLeads.length > 0 ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {leads.length} of {leadsPagination.total} leads
+              Showing {leads.length} of {leadsPagination.total} leads (created or updated in range;
+              up to {LEADS_FETCH_SIZE} each). Click a name to open the sale sidebar.
             </p>
           ) : null}
         </div>
       ) : null}
         </>
+      ) : null}
+
+      {selectedLead ? (
+        <LeadDetailPanel
+          lead={selectedLead}
+          onClose={() => setSelectedLead(null)}
+          onLeadUpdated={(updated) => {
+            setSelectedLead((prev) =>
+              prev?.id === updated.id ? { ...prev, ...updated } : prev,
+            );
+            setAllLeads((prev) =>
+              prev.map((row) =>
+                row.id === updated.id
+                  ? annotateLeadForRange({ ...row, ...updated }, appliedFrom, appliedTo)
+                  : row,
+              ),
+            );
+          }}
+          showFullPageLink
+          canAssignLead={isAdmin}
+          canEditChargeAmount={isAdmin}
+          userRole={viewerRole}
+          currentUserId={currentUserId}
+        />
       ) : null}
     </div>
   );

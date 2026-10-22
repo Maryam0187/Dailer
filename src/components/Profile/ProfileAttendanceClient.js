@@ -126,7 +126,8 @@ export default function ProfileAttendanceClient() {
       <AttendancePeriodStats
         present={rangeStats.present}
         absent={rangeStats.absent}
-        leave={rangeStats.leave}
+        leave={rangeStats.leaveDays ?? rangeStats.leave}
+        leaveLogin={rangeStats.leaveLogin}
         fromDate={appliedFrom}
         toDate={appliedTo}
         loading={loading && days.length === 0}

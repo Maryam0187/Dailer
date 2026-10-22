@@ -16,14 +16,17 @@ function isLeaveDayRow(day) {
 /**
  * Present = login on a normal working day (not leave / holiday / exempt).
  * Absent = working day with no login.
- * Login on leave = leave / holiday / exempt days where the user still logged in.
+ * Leave = leave / holiday / exempt days (with or without login).
+ * Login on leave = leave days where the user still logged in.
  */
 export function presentAbsentFromDays(days = []) {
   let present = 0;
   let absent = 0;
+  let leaveDays = 0;
   let leaveLogin = 0;
   for (const day of days) {
     if (isLeaveDayRow(day)) {
+      leaveDays += 1;
       if (dayHasLogin(day)) leaveLogin += 1;
       continue;
     }
@@ -34,7 +37,7 @@ export function presentAbsentFromDays(days = []) {
     }
     if (day.status === "absent") absent += 1;
   }
-  return { present, absent, leave: leaveLogin, leaveLogin };
+  return { present, absent, leave: leaveDays, leaveDays, leaveLogin };
 }
 
 export function presentAbsentFromSummary(summary, days) {
@@ -44,7 +47,8 @@ export function presentAbsentFromSummary(summary, days) {
   return {
     present: Number(summary?.daysPresent) || 0,
     absent: Number(summary?.daysAbsent) || 0,
-    leave: 0,
+    leave: Number(summary?.daysOnLeave) || 0,
+    leaveDays: Number(summary?.daysOnLeave) || 0,
     leaveLogin: 0,
   };
 }
@@ -56,13 +60,14 @@ function formatRangeLabel(fromDate, toDate) {
 }
 
 /**
- * Present / absent / login-on-leave cards for the currently selected date range.
+ * Present / absent·leave / login-on-leave cards for the currently selected date range.
  */
 export default function AttendancePeriodStats({
   present = 0,
   absent = 0,
   leave = 0,
-  leaveLogin = leave,
+  leaveDays = leave,
+  leaveLogin = 0,
   fromDate = null,
   toDate = null,
   loading = false,
@@ -71,7 +76,8 @@ export default function AttendancePeriodStats({
     return <p className="text-sm text-zinc-500">Loading present / absent…</p>;
   }
 
-  const leaveLoginCount = leaveLogin ?? leave ?? 0;
+  const leaveCount = leaveDays ?? leave ?? 0;
+  const leaveLoginCount = leaveLogin ?? 0;
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -86,9 +92,13 @@ export default function AttendancePeriodStats({
           </p>
         </div>
         <div>
-          <p className="text-xs font-medium text-rose-700 dark:text-rose-300">Absent</p>
+          <p className="text-xs font-medium text-rose-700 dark:text-rose-300">Absent / Leave</p>
           <p className="mt-0.5 text-2xl font-bold tabular-nums text-rose-900 dark:text-rose-100">
-            {absent}
+            <span title="Absent">{absent}</span>
+            <span className="mx-0.5 font-semibold text-rose-400 dark:text-rose-500">/</span>
+            <span title="Leave" className="text-amber-800 dark:text-amber-200">
+              {leaveCount}
+            </span>
           </p>
         </div>
         <div>

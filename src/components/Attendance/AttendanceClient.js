@@ -860,7 +860,8 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
           <AttendancePeriodStats
             present={detailRangeStats.present}
             absent={detailRangeStats.absent}
-            leave={detailRangeStats.leave}
+            leave={detailRangeStats.leaveDays ?? detailRangeStats.leave}
+            leaveLogin={detailRangeStats.leaveLogin}
             fromDate={appliedFrom}
             toDate={appliedTo}
             loading={loading && !detail}
@@ -875,7 +876,8 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
             <AttendancePeriodStats
               present={detailRangeStats.present}
               absent={detailRangeStats.absent}
-              leave={detailRangeStats.leave}
+              leave={detailRangeStats.leaveDays ?? detailRangeStats.leave}
+              leaveLogin={detailRangeStats.leaveLogin}
               fromDate={appliedFrom}
               toDate={appliedTo}
             />
