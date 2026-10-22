@@ -9,6 +9,7 @@ import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 import UserNameLabel from "@/components/UserNameLabel";
+import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 import { getReportPresetRange } from "@/lib/attendanceTime";
 
 function roleLabel(role) {
@@ -567,7 +568,7 @@ function UserCallLogCard({ call, isAdmin, showConferenceColumn, onDownload, down
     <article className="rounded-lg border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-950/40">
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-zinc-700 dark:text-zinc-200">
-          {new Date(call.createdAt).toLocaleString()}
+          <EtTimeWithTooltip value={call.createdAt} />
         </p>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           <span
@@ -1850,7 +1851,7 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                   {calls.map((c) => (
                     <tr key={c.id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
                       <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
-                        {new Date(c.createdAt).toLocaleString()}
+                        <EtTimeWithTooltip value={c.createdAt} />
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5">
                         <span
