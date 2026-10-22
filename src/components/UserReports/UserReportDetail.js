@@ -123,6 +123,70 @@ function formatGapLabel(ms) {
   return remH > 0 ? `${days}d ${remH}h` : `${days}d`;
 }
 
+const pageNavBtnClass =
+  "shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
+
+function PageNav({ page, totalPages, hasPrev, hasNext, disabled = false, onPrev, onNext, className = "" }) {
+  return (
+    <div className={`flex shrink-0 flex-wrap items-center justify-end gap-1.5 ${className}`.trim()}>
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!hasPrev || disabled}
+        className={pageNavBtnClass}
+      >
+        Prev
+      </button>
+      <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+        {page}/{totalPages}
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!hasNext || disabled}
+        className={pageNavBtnClass}
+      >
+        Next
+      </button>
+    </div>
+  );
+}
+
+const GAP_MS_5M = 5 * 60 * 1000;
+const GAP_MS_30M = 30 * 60 * 1000;
+const GAP_MS_2H = 2 * 60 * 60 * 1000;
+
+/** Green <5m, yellow <30m, blue <2h, red ≥2h. */
+function gapBadgeClass(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n < GAP_MS_5M) {
+    return {
+      badge:
+        "border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-200",
+      line: "bg-emerald-200 dark:bg-emerald-800/70",
+    };
+  }
+  if (n < GAP_MS_30M) {
+    return {
+      badge:
+        "border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-200",
+      line: "bg-amber-200 dark:bg-amber-800/70",
+    };
+  }
+  if (n < GAP_MS_2H) {
+    return {
+      badge:
+        "border-sky-300 bg-sky-100 text-sky-950 dark:border-sky-700 dark:bg-sky-950/60 dark:text-sky-200",
+      line: "bg-sky-200 dark:bg-sky-800/70",
+    };
+  }
+  return {
+    badge:
+      "border-red-300 bg-red-100 text-red-950 dark:border-red-700 dark:bg-red-950/60 dark:text-red-200",
+    line: "bg-red-200 dark:bg-red-800/70",
+  };
+}
+
 /** Readable clock for timeline — time only or with weekday/date. */
 function formatTimelineClock(value, { timeOnly = false } = {}) {
   if (!value) return { et: "—", pkt: "—" };
@@ -1024,13 +1088,20 @@ export default function UserReportDetail({
       }
       if (index > 0) {
         const earlier = timelineEvents[index - 1];
-        const earlierMs = new Date(earlier.createdAt).getTime();
-        const thisMs = new Date(event.createdAt).getTime();
-        const gapMs =
-          Number.isFinite(earlierMs) && Number.isFinite(thisMs)
-            ? Math.max(0, thisMs - earlierMs)
-            : 0;
-        rows.push({ type: "gap", key: `gap-${event.id}`, gapMs });
+        const earlierDateKey = calendarDateInTimezone(
+          new Date(earlier.createdAt),
+          ATTENDANCE_REPORT_TIMEZONE,
+        );
+        // Skip overnight / cross-day gaps (e.g. "21h later") — day separators cover that.
+        if (earlierDateKey === dateKey) {
+          const earlierMs = new Date(earlier.createdAt).getTime();
+          const thisMs = new Date(event.createdAt).getTime();
+          const gapMs =
+            Number.isFinite(earlierMs) && Number.isFinite(thisMs)
+              ? Math.max(0, thisMs - earlierMs)
+              : 0;
+          rows.push({ type: "gap", key: `gap-${event.id}`, gapMs });
+        }
       }
       rows.push({ type: "event", key: event.id, event });
     });
@@ -1397,33 +1468,21 @@ export default function UserReportDetail({
                 , plus calls. Oldest first.
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!timelinePagination.hasPrev || timelineLoading) return;
-                  setTimelinePage(Math.max(1, timelinePagination.page - 1));
-                }}
-                disabled={!timelinePagination.hasPrev || timelineLoading}
-                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Prev
-              </button>
-              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-                {timelinePagination.page}/{timelinePagination.totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!timelinePagination.hasNext || timelineLoading) return;
-                  setTimelinePage(timelinePagination.page + 1);
-                }}
-                disabled={!timelinePagination.hasNext || timelineLoading}
-                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Next
-              </button>
-            </div>
+            <PageNav
+              page={timelinePagination.page}
+              totalPages={timelinePagination.totalPages}
+              hasPrev={timelinePagination.hasPrev}
+              hasNext={timelinePagination.hasNext}
+              disabled={timelineLoading}
+              onPrev={() => {
+                if (!timelinePagination.hasPrev || timelineLoading) return;
+                setTimelinePage(Math.max(1, timelinePagination.page - 1));
+              }}
+              onNext={() => {
+                if (!timelinePagination.hasNext || timelineLoading) return;
+                setTimelinePage(timelinePagination.page + 1);
+              }}
+            />
           </div>
           {timelineError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
@@ -1456,17 +1515,20 @@ export default function UserReportDetail({
                     );
                   }
                   if (row.type === "gap") {
+                    const gapTone = gapBadgeClass(row.gapMs);
                     return (
                       <li
                         key={row.key}
                         className="flex items-center gap-2 bg-zinc-50/90 px-3 py-1 dark:bg-zinc-900/60"
                         aria-label={`${formatGapLabel(row.gapMs)} between activities`}
                       >
-                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
-                        <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                        <span className={`h-px flex-1 ${gapTone.line}`} />
+                        <span
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${gapTone.badge}`}
+                        >
                           {formatGapLabel(row.gapMs)} later
                         </span>
-                        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                        <span className={`h-px flex-1 ${gapTone.line}`} />
                       </li>
                     );
                   }
@@ -1563,11 +1625,28 @@ export default function UserReportDetail({
             </div>
           )}
           {!timelineLoading && !timelineError && allTimelineEvents.length > 0 ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {timelineEvents.length} of {timelinePagination.total} events
-              {timelineTimeOnly ? " · times only (single day)" : ""}
-              {timelineShowDaySeparators ? " · grouped by Eastern date" : ""}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {timelineEvents.length} of {timelinePagination.total} events
+                {timelineTimeOnly ? " · times only (single day)" : ""}
+                {timelineShowDaySeparators ? " · grouped by Eastern date" : ""}
+              </p>
+              <PageNav
+                page={timelinePagination.page}
+                totalPages={timelinePagination.totalPages}
+                hasPrev={timelinePagination.hasPrev}
+                hasNext={timelinePagination.hasNext}
+                disabled={timelineLoading}
+                onPrev={() => {
+                  if (!timelinePagination.hasPrev || timelineLoading) return;
+                  setTimelinePage(Math.max(1, timelinePagination.page - 1));
+                }}
+                onNext={() => {
+                  if (!timelinePagination.hasNext || timelineLoading) return;
+                  setTimelinePage(timelinePagination.page + 1);
+                }}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -1784,31 +1863,21 @@ export default function UserReportDetail({
               </div>
 
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
+                <PageNav
+                  page={pagination.page}
+                  totalPages={pagination.totalPages}
+                  hasPrev={pagination.hasPrev}
+                  hasNext={pagination.hasNext}
+                  disabled={callsLoading || refreshing}
+                  onPrev={() => {
                     if (!pagination.hasPrev || callsLoading || refreshing) return;
                     setPage(Math.max(1, page - 1));
                   }}
-                  disabled={!pagination.hasPrev || callsLoading || refreshing}
-                  className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  Prev
-                </button>
-                <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-                  {pagination.page}/{pagination.totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
+                  onNext={() => {
                     if (!pagination.hasNext || callsLoading || refreshing) return;
                     setPage(page + 1);
                   }}
-                  disabled={!pagination.hasNext || callsLoading || refreshing}
-                  className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  Next
-                </button>
+                />
                 <button
                   type="button"
                   onClick={() => void onRefreshCalls()}
@@ -1950,11 +2019,28 @@ export default function UserReportDetail({
           )}
 
           {!callsLoading && !callsError && calls.length > 0 ? (
-            <p className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {calls.length} of {pagination.total}{" "}
-              {callsFilter === "conference" ? "conference calls" : "calls"}
-              {callsFilter === "recording" ? " with a recording" : ""}
-            </p>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {calls.length} of {pagination.total}{" "}
+                {callsFilter === "conference" ? "conference calls" : "calls"}
+                {callsFilter === "recording" ? " with a recording" : ""}
+              </p>
+              <PageNav
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                hasPrev={pagination.hasPrev}
+                hasNext={pagination.hasNext}
+                disabled={callsLoading || refreshing}
+                onPrev={() => {
+                  if (!pagination.hasPrev || callsLoading || refreshing) return;
+                  setPage(Math.max(1, page - 1));
+                }}
+                onNext={() => {
+                  if (!pagination.hasNext || callsLoading || refreshing) return;
+                  setPage(page + 1);
+                }}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -1968,33 +2054,21 @@ export default function UserReportDetail({
                 Leads this user created or updated in the selected range (Eastern dates).
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!leadsPagination.hasPrev || leadsLoading) return;
-                  setLeadsPage(Math.max(1, leadsPagination.page - 1));
-                }}
-                disabled={!leadsPagination.hasPrev || leadsLoading}
-                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Prev
-              </button>
-              <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-                {leadsPagination.page}/{leadsPagination.totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!leadsPagination.hasNext || leadsLoading) return;
-                  setLeadsPage(leadsPagination.page + 1);
-                }}
-                disabled={!leadsPagination.hasNext || leadsLoading}
-                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Next
-              </button>
-            </div>
+            <PageNav
+              page={leadsPagination.page}
+              totalPages={leadsPagination.totalPages}
+              hasPrev={leadsPagination.hasPrev}
+              hasNext={leadsPagination.hasNext}
+              disabled={leadsLoading}
+              onPrev={() => {
+                if (!leadsPagination.hasPrev || leadsLoading) return;
+                setLeadsPage(Math.max(1, leadsPagination.page - 1));
+              }}
+              onNext={() => {
+                if (!leadsPagination.hasNext || leadsLoading) return;
+                setLeadsPage(leadsPagination.page + 1);
+              }}
+            />
           </div>
 
           {leadsError ? (
@@ -2075,10 +2149,27 @@ export default function UserReportDetail({
           )}
 
           {!leadsLoading && !leadsError && allLeads.length > 0 ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Showing {leads.length} of {leadsPagination.total} leads (created or updated in range;
-              up to {LEADS_FETCH_SIZE} each). Click a name to open the sale sidebar.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {leads.length} of {leadsPagination.total} leads (created or updated in range;
+                up to {LEADS_FETCH_SIZE} each). Click a name to open the sale sidebar.
+              </p>
+              <PageNav
+                page={leadsPagination.page}
+                totalPages={leadsPagination.totalPages}
+                hasPrev={leadsPagination.hasPrev}
+                hasNext={leadsPagination.hasNext}
+                disabled={leadsLoading}
+                onPrev={() => {
+                  if (!leadsPagination.hasPrev || leadsLoading) return;
+                  setLeadsPage(Math.max(1, leadsPagination.page - 1));
+                }}
+                onNext={() => {
+                  if (!leadsPagination.hasNext || leadsLoading) return;
+                  setLeadsPage(leadsPagination.page + 1);
+                }}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
