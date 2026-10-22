@@ -64,7 +64,7 @@ export function normalizeTargets(raw) {
 }
 
 /**
- * Resolve cutoff: start of beforeDate in Asia/Karachi (UTC Date).
+ * Resolve cutoff: start of beforeDate in US Eastern (UTC Date).
  * Rejects future calendar dates in that timezone.
  */
 export function resolveCutoff(beforeDate) {

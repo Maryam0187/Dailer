@@ -311,7 +311,7 @@ export default function DataRetentionClient() {
         />
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Rows with <code className="text-xs">createdAt</code> before the start of this day
-          (Asia/Karachi) will be deleted. Default is 90 days ago.
+          (US Eastern) will be deleted. Default is 90 days ago.
         </p>
       </section>
 

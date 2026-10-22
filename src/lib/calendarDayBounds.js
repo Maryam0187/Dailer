@@ -1,5 +1,5 @@
-/** Matches app shift default (Asia/Karachi). Timestamps stay UTC; only day bounds use this zone. */
-export const REPORT_TIMEZONE = "Asia/Karachi";
+/** App-wide report day bounds (US Eastern). Timestamps stay UTC; only day bounds use this zone. */
+export const REPORT_TIMEZONE = "America/New_York";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -23,7 +23,7 @@ export function zonedDateTimeToUtc(dateOnly, time, timeZone = REPORT_TIMEZONE) {
   if (Number.isNaN(desiredAsUtc.getTime())) return null;
 
   // First guess: treat the wall time as UTC, then correct by the zone offset
-  // at that instant (handles DST and fixed offsets like Asia/Karachi).
+  // at that instant (handles DST and fixed offsets).
   const asUtc = new Date(desiredAsUtc.getTime());
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -66,7 +66,7 @@ export function zonedDayEndExclusive(dateOnly, timeZone = REPORT_TIMEZONE) {
 
 /**
  * UTC bounds for filtering timestamps that belong to local calendar days
- * `fromDate`..`toDate` (YYYY-MM-DD) in the app report timezone (default Asia/Karachi).
+ * `fromDate`..`toDate` (YYYY-MM-DD) in the app report timezone (US Eastern).
  * `after` is inclusive; `before` is exclusive (start of the day after `toDate`).
  */
 export function calendarDateRangeBounds(fromDate, toDate, timeZone = REPORT_TIMEZONE) {

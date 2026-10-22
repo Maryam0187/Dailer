@@ -9,6 +9,7 @@ import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 import UserNameLabel from "@/components/UserNameLabel";
+import { getReportPresetRange } from "@/lib/attendanceTime";
 
 function roleLabel(role) {
   if (role === "agent") return "Agent";
@@ -547,36 +548,8 @@ function PresenceBadge({ status, compact = false }) {
   );
 }
 
-function formatDateInput(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 function getPresetRange(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (preset === "today") {
-    const d = formatDateInput(today);
-    return { from: d, to: d };
-  }
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    const d = formatDateInput(y);
-    return { from: d, to: d };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  if (preset === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  return { from: "", to: "" };
+  return getReportPresetRange(preset);
 }
 
 const callsDateInputClass =

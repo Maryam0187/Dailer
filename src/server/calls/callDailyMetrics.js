@@ -7,7 +7,7 @@ function toInt(value) {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
-/** Calendar YYYY-MM-DD for a UTC instant in Asia/Karachi. */
+/** Calendar YYYY-MM-DD for a UTC instant in the app report timezone (US Eastern). */
 export function callCalendarDate(at = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: REPORT_TIMEZONE,
@@ -107,7 +107,7 @@ export async function refreshCallDailyMetricsForCall(call) {
 
 /**
  * Full backfill from CallLogs into CallDailyMetrics (replace all rows).
- * Uses Asia/Karachi day boundaries (UTC+5, no DST).
+ * Uses US Eastern day boundaries (REPORT_TIMEZONE).
  */
 export async function backfillAllCallDailyMetrics() {
   const transaction = await db.sequelize.transaction();

@@ -1,5 +1,7 @@
 "use client";
 
+import { REPORT_EASTERN_TODAY_NOTICE, getReportPresetRange } from "@/lib/attendanceTime";
+
 export const DATE_RANGE_PRESETS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -15,29 +17,9 @@ export function formatDateInput(date) {
   return `${y}-${m}-${d}`;
 }
 
+/** Today / week / month in US Eastern (matches server REPORT_TIMEZONE). */
 export function getPresetRange(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (preset === "today") {
-    const d = formatDateInput(today);
-    return { from: d, to: d };
-  }
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    const d = formatDateInput(y);
-    return { from: d, to: d };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  if (preset === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  return { from: "", to: "" };
+  return getReportPresetRange(preset);
 }
 
 const defaultSelectClass =
@@ -70,66 +52,77 @@ export default function DateRangeFilter({
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <div className="w-full sm:min-w-[180px] sm:w-44">
-        {showLabels ? (
-          <label htmlFor={`${idPrefix}-preset`} className={labelClassName}>
-            Date range
-          </label>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-full sm:min-w-[180px] sm:w-44">
+          {showLabels ? (
+            <label htmlFor={`${idPrefix}-preset`} className={labelClassName}>
+              Date range
+            </label>
+          ) : null}
+          <select
+            id={`${idPrefix}-preset`}
+            value={preset}
+            onChange={(e) => {
+              const nextPreset = e.target.value;
+              if (nextPreset === "custom") {
+                emit({ preset: "custom" });
+                return;
+              }
+              const range = getPresetRange(nextPreset);
+              emit({ preset: nextPreset, from: range.from, to: range.to });
+            }}
+            className={selectClassName}
+          >
+            {DATE_RANGE_PRESETS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {preset === "custom" ? (
+          <>
+            <div className="w-full sm:w-40">
+              {showLabels ? (
+                <label htmlFor={`${idPrefix}-from`} className={labelClassName}>
+                  From
+                </label>
+              ) : null}
+              <input
+                id={`${idPrefix}-from`}
+                type="date"
+                value={from || ""}
+                onChange={(e) => emit({ preset: "custom", from: e.target.value })}
+                className={inputClassName}
+              />
+            </div>
+            <div className="w-full sm:w-40">
+              {showLabels ? (
+                <label htmlFor={`${idPrefix}-to`} className={labelClassName}>
+                  To
+                </label>
+              ) : null}
+              <input
+                id={`${idPrefix}-to`}
+                type="date"
+                value={to || ""}
+                onChange={(e) => emit({ preset: "custom", to: e.target.value })}
+                className={inputClassName}
+              />
+            </div>
+          </>
         ) : null}
-        <select
-          id={`${idPrefix}-preset`}
-          value={preset}
-          onChange={(e) => {
-            const nextPreset = e.target.value;
-            if (nextPreset === "custom") {
-              emit({ preset: "custom" });
-              return;
-            }
-            const range = getPresetRange(nextPreset);
-            emit({ preset: nextPreset, from: range.from, to: range.to });
-          }}
-          className={selectClassName}
-        >
-          {DATE_RANGE_PRESETS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
       </div>
-      {preset === "custom" ? (
-        <>
-          <div className="w-full sm:w-40">
-            {showLabels ? (
-              <label htmlFor={`${idPrefix}-from`} className={labelClassName}>
-                From
-              </label>
-            ) : null}
-            <input
-              id={`${idPrefix}-from`}
-              type="date"
-              value={from || ""}
-              onChange={(e) => emit({ preset: "custom", from: e.target.value })}
-              className={inputClassName}
-            />
-          </div>
-          <div className="w-full sm:w-40">
-            {showLabels ? (
-              <label htmlFor={`${idPrefix}-to`} className={labelClassName}>
-                To
-              </label>
-            ) : null}
-            <input
-              id={`${idPrefix}-to`}
-              type="date"
-              value={to || ""}
-              onChange={(e) => emit({ preset: "custom", to: e.target.value })}
-              className={inputClassName}
-            />
-          </div>
-        </>
-      ) : null}
+      <p
+        role="status"
+        className="inline-flex max-w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+      >
+        <span className="shrink-0 font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+          Note
+        </span>
+        <span>{REPORT_EASTERN_TODAY_NOTICE}</span>
+      </p>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { trackCopyActivity } from "@/lib/clientActivity";
+import { getReportPresetRange } from "@/lib/attendanceTime";
 
 const PAGE_SIZE = 25;
 const TABLE_COL_SPAN = 9;
@@ -559,27 +560,7 @@ function formatDateInput(date) {
 }
 
 function getPresetRange(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (preset === "today") {
-    return { from: formatDateInput(today), to: formatDateInput(today) };
-  }
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    return { from: formatDateInput(y), to: formatDateInput(y) };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  if (preset === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  return { from: "", to: "" };
+  return getReportPresetRange(preset);
 }
 
 function getMonthRange(yearMonth) {

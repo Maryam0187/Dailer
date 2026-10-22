@@ -74,7 +74,7 @@ export function dateRangeWhere(fromDate, toDate) {
   return dateRangeWhereOn("createdAt", fromDate, toDate);
 }
 
-/** Filter a datetime field by inclusive calendar days in the app timezone (Asia/Karachi). */
+/** Filter a datetime field by inclusive calendar days in the app timezone (US Eastern). */
 export function dateRangeWhereOn(field, fromDate, toDate) {
   const bounds = calendarDateRangeBounds(fromDate, toDate);
   if (!bounds) return {};

@@ -1,11 +1,16 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { getPresetRange } from "@/components/DateRangeFilter";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
 } from "@/components/Attendance/AttendancePeriodStats";
 import AttendanceStatusBadge from "@/components/Attendance/AttendanceStatusBadge";
+import {
+  ATTENDANCE_EASTERN_TODAY_NOTICE,
+  formatAttendanceTimeEt,
+  formatAttendanceTimePkt,
+  getAttendancePresetRange,
+} from "@/lib/attendanceTime";
 
 const RANGE_PRESET_OPTIONS = [
   { id: "today", label: "Today" },
@@ -161,13 +166,14 @@ function locationLabel(isOutside) {
   return isOutside ? "Outside" : "In-house";
 }
 
-function formatTime(value) {
+function DualZoneTime({ value }) {
   if (!value) return "—";
-  return new Date(value).toLocaleString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return (
+    <span className="flex flex-col gap-0.5 leading-tight">
+      <span>{formatAttendanceTimePkt(value)}</span>
+      <span className="text-zinc-500 dark:text-zinc-400">{formatAttendanceTimeEt(value)}</span>
+    </span>
+  );
 }
 
 function formatOnlineMs(value) {
@@ -272,7 +278,7 @@ function OfficeFingerprintCell({ day, userId, isAdmin, onSaved }) {
   }, [day.officeFingerprintAt]);
 
   if (!isAdmin) {
-    return <span>{formatTime(day.officeFingerprintAt)}</span>;
+    return <DualZoneTime value={day.officeFingerprintAt} />;
   }
 
   async function save(clear = false) {
@@ -374,7 +380,8 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
         <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
           <tr>
             <SortableHeader label="Date" columnKey="date" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableHeader label="First login (PKT)" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <StaticHeader label="First login (ET)" />
             <SortableHeader label="Device" columnKey="firstLoginDeviceLabel" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <StaticHeader label="Office fingerprint" className="min-w-[11rem]" />
             <SortableHeader label="Status" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
@@ -392,7 +399,8 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
                 onClick={() => void toggleDay(day.date)}
               >
                 <td className={tdClass}>{day.date}</td>
-                <td className={`${tdClass} tabular-nums`}>{formatTime(day.firstLoginAt)}</td>
+                <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimePkt(day.firstLoginAt)}</td>
+                <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimeEt(day.firstLoginAt)}</td>
                 <td className={tdClass}>{formatDevice(day.firstLoginDeviceLabel)}</td>
                 <td className={`${tdClass} min-w-[11rem]`}>
                   <OfficeFingerprintCell
@@ -417,7 +425,7 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
               </tr>
               {expanded === day.date ? (
                 <tr>
-                  <td colSpan={9} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
+                  <td colSpan={10} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
                     {loginLoading === day.date ? (
                       <p>Loading logins…</p>
                     ) : (loginCache[day.date]?.length ?? day.logins?.length ?? 0) === 0 ? (
@@ -426,7 +434,7 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
                       <ul className="space-y-1">
                         {(loginCache[day.date] ?? day.logins ?? []).map((login) => (
                           <li key={login.id}>
-                            {formatTime(login.createdAt)} — {login.deviceLabel || "Unknown"} —{" "}
+                            <DualZoneTime value={login.createdAt} /> — {login.deviceLabel || "Unknown"} —{" "}
                             {login.location || "Unknown location"}
                           </li>
                         ))}
@@ -445,7 +453,7 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
 
 export default function AttendanceClient({ isAdmin, canEditStatus = false, users = [] }) {
   const canManage = isAdmin || canEditStatus;
-  const initialRange = getPresetRange("today");
+  const initialRange = getAttendancePresetRange("today");
   const [preset, setPreset] = useState("today");
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -580,7 +588,7 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
     setPreset(nextPreset);
     setError(null);
     if (nextPreset === "custom") return;
-    const next = getPresetRange(nextPreset);
+    const next = getAttendancePresetRange(nextPreset);
     setFrom(next.from);
     setTo(next.to);
     setAppliedFrom(next.from);
@@ -661,6 +669,15 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
               </>
             ) : null}
           </div>
+          <p
+            role="status"
+            className="mt-2 inline-flex max-w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <span className="shrink-0 font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+              Note
+            </span>
+            <span>{ATTENDANCE_EASTERN_TODAY_NOTICE}</span>
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-4">
           <label className="block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -787,7 +804,8 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
                   <SortableHeader label="User" columnKey="username" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
                   <SortableHeader label="Location" columnKey="locationLabel" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
                   <SortableHeader label="Shift" columnKey="shiftKey" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                  <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <SortableHeader label="First login (PKT)" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
+                  <StaticHeader label="First login (ET)" />
                   <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
                   <SortableHeader label="Logins" columnKey="totalLogins" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
                   <SortableHeader label="Desktop" columnKey="totalDesktopOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
@@ -808,7 +826,8 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
                     <td className={tdClass}>{row.username}</td>
                     <td className={tdClass}>{row.locationLabel}</td>
                     <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
-                    <td className={`${tdClass} tabular-nums`}>{formatTime(row.firstLoginAt)}</td>
+                    <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimePkt(row.firstLoginAt)}</td>
+                    <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimeEt(row.firstLoginAt)}</td>
                     <td className={tdClassRight}>{row.daysAbsent}</td>
                     <td className={tdClassRight}>{row.totalLogins}</td>
                     <td className={tdClassRight}>{formatOnlineMs(Number(row.totalDesktopOnlineMs) || 0)}</td>

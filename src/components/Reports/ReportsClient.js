@@ -3,41 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadCsv } from "@/lib/exportCsv";
 import { formatDuration } from "@/lib/formatDuration";
+import { getReportPresetRange } from "@/lib/attendanceTime";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
-function formatDateInput(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 function getPresetRange(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (preset === "today") {
-    return { from: formatDateInput(today), to: formatDateInput(today) };
-  }
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    return { from: formatDateInput(y), to: formatDateInput(y) };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  if (preset === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  return { from: "", to: "" };
+  return getReportPresetRange(preset);
 }
 
 const CSV_HEADERS = [

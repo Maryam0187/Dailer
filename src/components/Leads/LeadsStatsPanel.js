@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadCsvSections } from "@/lib/exportCsv";
+import { getReportPresetRange } from "@/lib/attendanceTime";
 import { LEAD_PHASES, LEAD_PROGRESS_TAGS } from "@/lib/leadWorkflow";
 import { buildWorkflowTagLookup, workflowTagDisplayLabel } from "@/lib/workflowTagLabels";
 
@@ -23,35 +24,8 @@ const TEXT_SORT_KEYS = new Set([
   "processorUsername",
 ]);
 
-function formatDateInput(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 function getPresetRange(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (preset === "today") {
-    return { from: formatDateInput(today), to: formatDateInput(today) };
-  }
-  if (preset === "yesterday") {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    return { from: formatDateInput(y), to: formatDateInput(y) };
-  }
-  if (preset === "week") {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  if (preset === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: formatDateInput(from), to: formatDateInput(today) };
-  }
-  return { from: "", to: "" };
+  return getReportPresetRange(preset);
 }
 
 function formatRole(role) {

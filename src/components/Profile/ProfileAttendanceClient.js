@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getPresetRange } from "@/components/DateRangeFilter";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
 } from "@/components/Attendance/AttendancePeriodStats";
 import AttendanceStatusBadge from "@/components/Attendance/AttendanceStatusBadge";
+import {
+  ATTENDANCE_EASTERN_TODAY_NOTICE,
+  formatAttendanceTimeEt,
+  formatAttendanceTimePkt,
+  getAttendancePresetRange,
+} from "@/lib/attendanceTime";
 
 const RANGE_PRESET_OPTIONS = [
   { id: "today", label: "Today" },
@@ -23,15 +28,6 @@ const tableClass = "min-w-full text-left text-sm";
 const thClass =
   "px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const tdClass = "px-3 py-2 align-middle text-zinc-800 dark:text-zinc-200";
-
-function formatTime(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
 
 function formatOnlineMs(value) {
   const ms = Number(value) || 0;
@@ -56,7 +52,7 @@ async function fetchSelfAttendance(fromDate, toDate) {
 }
 
 export default function ProfileAttendanceClient() {
-  const initialRange = getPresetRange("week");
+  const initialRange = getAttendancePresetRange("week");
   const [preset, setPreset] = useState("week");
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -103,7 +99,7 @@ export default function ProfileAttendanceClient() {
     setPreset(nextPreset);
     setError(null);
     if (nextPreset === "custom") return;
-    const next = getPresetRange(nextPreset);
+    const next = getAttendancePresetRange(nextPreset);
     setFrom(next.from);
     setTo(next.to);
     setAppliedFrom(next.from);
@@ -202,6 +198,15 @@ export default function ProfileAttendanceClient() {
                 </>
               ) : null}
             </div>
+            <p
+              role="status"
+              className="mt-2 inline-flex max-w-full items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              <span className="shrink-0 font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                Note
+              </span>
+              <span>{ATTENDANCE_EASTERN_TODAY_NOTICE}</span>
+            </p>
           </div>
           <button
             type="button"
@@ -229,14 +234,15 @@ export default function ProfileAttendanceClient() {
               <tr>
                 <th className={`${thClass} px-4`}>Date</th>
                 <th className={`${thClass} px-4`}>Status</th>
-                <th className={`${thClass} px-4`}>First login</th>
+                <th className={`${thClass} px-4`}>First login (PKT)</th>
+                <th className={`${thClass} px-4`}>First login (ET)</th>
                 <th className={`${thClass} px-4 text-right`}>Online time</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {days.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className={`${tdClass} px-4 py-6 text-center text-zinc-500`}>
+                  <td colSpan={5} className={`${tdClass} px-4 py-6 text-center text-zinc-500`}>
                     No attendance records for this range.
                   </td>
                 </tr>
@@ -252,7 +258,12 @@ export default function ProfileAttendanceClient() {
                   >
                     <td className={`${tdClass} px-4`}>{day.date}</td>
                     <td className={`${tdClass} px-4`}>{statusBadge(day)}</td>
-                    <td className={`${tdClass} px-4 tabular-nums`}>{formatTime(day.firstLoginAt)}</td>
+                    <td className={`${tdClass} px-4 tabular-nums`}>
+                      {formatAttendanceTimePkt(day.firstLoginAt)}
+                    </td>
+                    <td className={`${tdClass} px-4 tabular-nums`}>
+                      {formatAttendanceTimeEt(day.firstLoginAt)}
+                    </td>
                     <td className={`${tdClass} px-4 text-right tabular-nums`}>
                       {formatOnlineMs(day.onlineMs)}
                     </td>

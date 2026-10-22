@@ -23,6 +23,7 @@ import AssigneePicker from "@/components/Leads/AssigneePicker";
 import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
 import SharedLeadDetailPanel from "@/components/Leads/SharedLeadDetailPanel";
 import { shouldHideLeadPaymentSection } from "@/lib/leadRoles";
+import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -30,27 +31,6 @@ const inputClass =
 
 function formatLeadName(lead) {
   return lead?.fullName?.trim() || "—";
-}
-
-function formatWhen(iso) {
-  if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function WorkflowHeaderBadge({ lead, workflowTagLookup, preferShortLabels }) {
@@ -218,7 +198,7 @@ function ActivityItem({ update, workflowTagLookup, preferShortLabels }) {
       <div className="min-w-0 flex-1 rounded-xl border border-zinc-200/80 bg-zinc-50/80 px-3.5 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{activityTitle(update)}</p>
-          <time className="text-xs text-zinc-500 dark:text-zinc-400">{formatWhen(update.createdAt)}</time>
+          <EtTimeWithTooltip value={update.createdAt} short className="text-xs text-zinc-500 dark:text-zinc-400" />
         </div>
         <p className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
           {update.username || "Unknown user"}
@@ -252,7 +232,7 @@ function CommentItem({ update }) {
           <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
             {update.username || "Unknown user"}
           </p>
-          <time className="text-xs text-zinc-500 dark:text-zinc-400">{formatWhen(update.createdAt)}</time>
+          <EtTimeWithTooltip value={update.createdAt} short className="text-xs text-zinc-500 dark:text-zinc-400" />
         </div>
         {update.body ? (
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
@@ -829,16 +809,16 @@ export default function LeadDetailPanel({
                 {canManageShareView && lead.sharedViewerAt ? (
                   <p className="text-zinc-600 dark:text-zinc-400">
                     <span className="font-semibold text-zinc-700 dark:text-zinc-300">Shared at:</span>{" "}
-                    <time dateTime={lead.sharedViewerAt}>{formatDateTime(lead.sharedViewerAt)}</time>
+                    <EtTimeWithTooltip value={lead.sharedViewerAt} />
                   </p>
                 ) : null}
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
-                  <time dateTime={lead.createdAt}>{formatDateTime(lead.createdAt)}</time>
+                  <EtTimeWithTooltip value={lead.createdAt} />
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Last updated:</span>{" "}
-                  <time dateTime={lead.updatedAt}>{formatDateTime(lead.updatedAt)}</time>
+                  <EtTimeWithTooltip value={lead.updatedAt} />
                 </p>
               </div>
             </div>
@@ -1041,15 +1021,15 @@ export default function LeadDetailPanel({
                         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                           <div>
                             <dt className="inline font-semibold text-zinc-500">Created: </dt>
-                            <dd className="inline">{formatDateTime(row.createdAt)}</dd>
+                            <dd className="inline"><EtTimeWithTooltip value={row.createdAt} /></dd>
                           </div>
                           <div>
                             <dt className="inline font-semibold text-zinc-500">Updated: </dt>
-                            <dd className="inline">{formatDateTime(row.updatedAt)}</dd>
+                            <dd className="inline"><EtTimeWithTooltip value={row.updatedAt} /></dd>
                           </div>
                           <div>
                             <dt className="inline font-semibold text-zinc-500">Sale done: </dt>
-                            <dd className="inline">{formatDateTime(row.saleDoneAt)}</dd>
+                            <dd className="inline"><EtTimeWithTooltip value={row.saleDoneAt} /></dd>
                           </div>
                           {row.createdByUsername ? (
                             <div>
@@ -1317,7 +1297,9 @@ export default function LeadDetailPanel({
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {calls.map((call) => (
                         <tr key={call.id} className="text-zinc-700 dark:text-zinc-300">
-                          <td className="px-3 py-2.5 whitespace-nowrap">{formatWhen(call.createdAt)}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <EtTimeWithTooltip value={call.createdAt} short />
+                          </td>
                           <td className="px-3 py-2.5">{call.agentName}</td>
                           <td className="px-3 py-2.5 capitalize">{call.status}</td>
                           <td className="px-3 py-2.5 tabular-nums">{formatDuration(call.durationSeconds)}</td>

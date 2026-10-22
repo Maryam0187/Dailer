@@ -13,23 +13,13 @@ import {
   formatLeadWorkflowTooltipSummary,
   workflowTagTone,
 } from "@/lib/workflowTagLabels";
+import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 
 const labelClass =
   "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 
 function formatLeadName(lead) {
   return lead?.fullName?.trim() || "—";
-}
-
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function Field({ label, children }) {
@@ -149,8 +139,8 @@ export default function SharedLeadDetailPanel({
               <Field label="Service">
                 <span className="font-bold">{formatLeadService(lead)}</span>
               </Field>
-              <Field label="Sale created">{formatDateTime(lead.createdAt)}</Field>
-              <Field label="Last updated">{formatDateTime(lead.updatedAt)}</Field>
+              <Field label="Sale created"><EtTimeWithTooltip value={lead.createdAt} /></Field>
+              <Field label="Last updated"><EtTimeWithTooltip value={lead.updatedAt} /></Field>
             </dl>
             {isCancelled || lead.leadCancelReason ? (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/80 p-3 dark:border-red-900/50 dark:bg-red-950/30">
