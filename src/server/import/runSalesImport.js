@@ -149,18 +149,25 @@ function mapServiceType(raw) {
 /** Resolve assigned supervisor for an agent (same rule as lead create). */
 export async function resolveAssigneeForAgent(agentUserId) {
   const agent = await db.User.findByPk(agentUserId, {
-    attributes: ["id", "supervisorId", "role", "shiftKey", "isActive"],
+    attributes: ["id", "supervisorId", "role", "shiftKey", "isActive", "selectsLeadSupervisor"],
   });
   if (!agent || !agent.isActive) return null;
 
   let assignedUserId = agent.id;
-  const supervisorId = agent.supervisorId;
-  if (Number.isInteger(supervisorId) && supervisorId > 0) {
-    const supervisor = await db.User.findOne({
-      where: { id: supervisorId, role: { [Op.in]: ["supervisor", "lead_supervisor"] }, isActive: true },
-      attributes: ["id"],
-    });
-    if (supervisor) assignedUserId = supervisor.id;
+  // Agents who pick their own lead supervisor stay assigned to themselves on import.
+  if (!Boolean(agent.selectsLeadSupervisor) || agent.role !== "agent") {
+    const supervisorId = agent.supervisorId;
+    if (Number.isInteger(supervisorId) && supervisorId > 0) {
+      const supervisor = await db.User.findOne({
+        where: {
+          id: supervisorId,
+          role: { [Op.in]: ["supervisor", "lead_supervisor"] },
+          isActive: true,
+        },
+        attributes: ["id"],
+      });
+      if (supervisor) assignedUserId = supervisor.id;
+    }
   }
   return { agent, assignedUserId };
 }

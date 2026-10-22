@@ -1316,6 +1316,11 @@ function UserDetailModal({ user, currentUserId, viewerRole, onClose }) {
                     Shared view
                   </span>
                 ) : null}
+                {user.role === "agent" && user.selectsLeadSupervisor ? (
+                  <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
+                    Selects supervisor
+                  </span>
+                ) : null}
                 {user.role !== "admin" && user.loginWindowExempt ? (
                   <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
                     Window lifted
@@ -1978,6 +1983,9 @@ function EditUserModal({
   const [canReceiveSharedLeads, setCanReceiveSharedLeads] = useState(
     Boolean(user.canReceiveSharedLeads),
   );
+  const [selectsLeadSupervisor, setSelectsLeadSupervisor] = useState(
+    Boolean(user.selectsLeadSupervisor),
+  );
   const [loginWindowExempt, setLoginWindowExempt] = useState(Boolean(user.loginWindowExempt));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
@@ -2009,6 +2017,7 @@ function EditUserModal({
     setCanUseDialer2(Boolean(user.canUseDialer2));
     setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
     setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
+    setSelectsLeadSupervisor(Boolean(user.selectsLeadSupervisor));
     setLoginWindowExempt(Boolean(user.loginWindowExempt));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
@@ -2128,6 +2137,15 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
         payload.canReceiveSharedLeads = canReceiveSharedLeads;
+      }
+      if (
+        (isAdmin || isManager) &&
+        editRole === "agent" &&
+        Boolean(selectsLeadSupervisor) !== Boolean(user.selectsLeadSupervisor)
+      ) {
+        payload.selectsLeadSupervisor = selectsLeadSupervisor;
+      } else if ((isAdmin || isManager) && editRole !== "agent" && user.selectsLeadSupervisor) {
+        payload.selectsLeadSupervisor = false;
       }
       if (
         isAdmin &&
@@ -2609,6 +2627,27 @@ function EditUserModal({
             </div>
           ) : null}
 
+          {(isAdmin || isManager) && editRole === "agent" ? (
+            <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800 dark:bg-rose-950/30">
+              <input
+                id="edit-selects-lead-supervisor"
+                type="checkbox"
+                checked={selectsLeadSupervisor}
+                onChange={(e) => setSelectsLeadSupervisor(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-rose-600 focus:ring-rose-500"
+              />
+              <label
+                htmlFor="edit-selects-lead-supervisor"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Agent selects lead supervisor
+                <span className="ml-1 font-normal text-zinc-500">
+                  (do not auto-assign to linked supervisor; agent picks same-shift supervisor)
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           {isAdmin && user.role !== "admin" ? (
             <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
               <input
@@ -2750,6 +2789,7 @@ function normalizeUsersList(list) {
     canUseDialer2: Boolean(u.canUseDialer2),
     canTrainAddressBot: Boolean(u.canTrainAddressBot),
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
+    selectsLeadSupervisor: u.role === "agent" ? Boolean(u.selectsLeadSupervisor) : false,
     loginWindowExempt: Boolean(u.loginWindowExempt),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
@@ -2777,6 +2817,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [createShiftKey, setCreateShiftKey] = useState("day");
   const [createIsOutside, setCreateIsOutside] = useState(false);
   const [createCanReceiveSharedLeads, setCreateCanReceiveSharedLeads] = useState(false);
+  const [createSelectsLeadSupervisor, setCreateSelectsLeadSupervisor] = useState(false);
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
 
@@ -3029,10 +3070,16 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (role === "admin" && createCanReceiveSharedLeads) {
           payload.canReceiveSharedLeads = true;
         }
+        if (createRole === "agent" && createSelectsLeadSupervisor) {
+          payload.selectsLeadSupervisor = true;
+        }
       } else if (role === "manager") {
         payload.role = createRole;
         if (createRole === "agent" && supervisorId != null) {
           payload.supervisorId = supervisorId;
+        }
+        if (createRole === "agent" && createSelectsLeadSupervisor) {
+          payload.selectsLeadSupervisor = true;
         }
         payload.shiftKey = createShiftKey === "night" ? "night" : "day";
       }
@@ -3050,6 +3097,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       setPassword("");
       setCreateIsOutside(false);
       setCreateCanReceiveSharedLeads(false);
+      setCreateSelectsLeadSupervisor(false);
       await loadUsers();
     } catch (err) {
       setError(err.message || "Failed to create user");
@@ -3399,6 +3447,26 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       Shared view access
                       <span className="ml-1 font-normal text-zinc-500">
                         (can receive view-only shared sales and see Shared with me)
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
+                {(role === "admin" || role === "manager") && createRole === "agent" ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800 dark:bg-rose-950/30">
+                    <input
+                      id="new-user-selects-lead-supervisor"
+                      type="checkbox"
+                      checked={createSelectsLeadSupervisor}
+                      onChange={(e) => setCreateSelectsLeadSupervisor(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-300 text-rose-600 focus:ring-rose-500"
+                    />
+                    <label
+                      htmlFor="new-user-selects-lead-supervisor"
+                      className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+                    >
+                      Agent selects lead supervisor
+                      <span className="ml-1 font-normal text-zinc-500">
+                        (do not auto-assign to linked supervisor)
                       </span>
                     </label>
                   </div>

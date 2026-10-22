@@ -43,6 +43,7 @@ export default async function UsersPage() {
     "canUseDialer2",
     "canTrainAddressBot",
     "canReceiveSharedLeads",
+    "selectsLeadSupervisor",
   ];
 
   const listInclude = [
@@ -112,6 +113,7 @@ export default async function UsersPage() {
       isActive: !(r.isActive === false || r.isActive === 0),
       isOutside: Boolean(r.isOutside),
       shiftKey: r.shiftKey === "night" ? "night" : "day",
+      selectsLeadSupervisor: r.role === "agent" ? Boolean(r.selectsLeadSupervisor) : false,
       ...(authedUser.role === "admin"
         ? {
             loginWindowExempt: Boolean(r.loginWindowExempt),

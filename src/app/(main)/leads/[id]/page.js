@@ -26,7 +26,12 @@ export default async function LeadPage({ params }) {
           Full-page lead details, activity, and call logs.
         </p>
       </div>
-      <LeadPageClient leadId={leadId} userRole={authedUser.role} currentUserId={authedUser.id} />
+      <LeadPageClient
+        leadId={leadId}
+        userRole={authedUser.role}
+        currentUserId={authedUser.id}
+        selectsLeadSupervisor={Boolean(authedUser.selectsLeadSupervisor)}
+      />
     </>
   );
 }

@@ -468,6 +468,80 @@ export async function canAssignLeadToAgent(authedUser, agentUserId) {
   return agents.some((a) => a.id === agentUserId);
 }
 
+/** Whether this agent opts into picking a lead supervisor (role must stay agent). */
+export function agentSelectsLeadSupervisor(user) {
+  return Boolean(user && user.role === "agent" && user.selectsLeadSupervisor);
+}
+
+/** Active supervisors / lead supervisors on the same shift as the agent. */
+export async function getSameShiftSupervisorsForAgent(agentUser) {
+  if (!agentUser || agentUser.role !== "agent") return [];
+  const shiftKey = normalizeUserShiftKey(agentUser.shiftKey);
+  const rows = await db.User.findAll({
+    where: {
+      role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS },
+      isActive: true,
+      shiftKey,
+    },
+    attributes: ["id", "username", "role", "shiftKey"],
+    order: [["username", "ASC"]],
+  });
+  return rows.map((u) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    shiftKey: normalizeUserShiftKey(u.shiftKey),
+  }));
+}
+
+/**
+ * Validate optional supervisor pick for a selectsLeadSupervisor agent.
+ * Returns { ok: true, assignedUserId } or { ok: false, error, status }.
+ * When assignedUserId is omitted/empty, defaults to the agent (unassigned to supervisor).
+ */
+export async function resolveAgentSelectedSupervisorAssignee(agentUser, requestedAssignedUserId) {
+  if (!agentSelectsLeadSupervisor(agentUser)) {
+    return { ok: false, error: "Forbidden", status: 403 };
+  }
+  if (requestedAssignedUserId == null || requestedAssignedUserId === "") {
+    return { ok: true, assignedUserId: Number(agentUser.id) };
+  }
+  const nextId = Number(requestedAssignedUserId);
+  if (!Number.isInteger(nextId) || nextId <= 0) {
+    return { ok: false, error: "Invalid assigned supervisor", status: 400 };
+  }
+  const shiftKey = normalizeUserShiftKey(agentUser.shiftKey);
+  const supervisor = await db.User.findOne({
+    where: {
+      id: nextId,
+      role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS },
+      isActive: true,
+      shiftKey,
+    },
+    attributes: ["id"],
+  });
+  if (!supervisor) {
+    return {
+      ok: false,
+      error: "Assigned user must be an active same-shift supervisor or lead supervisor",
+      status: 400,
+    };
+  }
+  return { ok: true, assignedUserId: supervisor.id };
+}
+
+/** Leads the agent created that are still assigned to themselves (no supervisor picked). */
+export async function countUnassignedSupervisorLeadsForAgent(agentUserId) {
+  const id = Number(agentUserId);
+  if (!Number.isInteger(id) || id <= 0) return 0;
+  return db.Lead.count({
+    where: {
+      createdByUserId: id,
+      assignedUserId: id,
+    },
+  });
+}
+
 /** Admin may share view-only access only to active users with canReceiveSharedLeads. */
 export async function canAssignSharedViewer(authedUser, viewerUserId) {
   if (authedUser.role !== "admin") return false;

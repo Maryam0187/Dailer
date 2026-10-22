@@ -8,11 +8,13 @@ import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
 import { canAssignLeadsLikeLeadSupervisor, canHaveAssignedAgents, hasFullLeadAccess, ROLES_WITH_ASSIGNED_AGENTS } from "@/lib/leadRoles";
 import {
   andWhereClause,
+  agentSelectsLeadSupervisor,
   canAssignLeadToAgent,
   canFilterLeadsByCreator,
   canFilterLeadsBySupervisor,
   leadsCreatedByShiftWhere,
   leadsSharedViewerShiftWhere,
+  resolveAgentSelectedSupervisorAssignee,
   resolveLeadsListWhere,
 } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
@@ -244,6 +246,17 @@ export async function GET(req) {
     sharedAll,
   });
 
+  const unassignedSupervisor = searchParams.get("unassignedSupervisor") === "1";
+  if (unassignedSupervisor) {
+    if (!agentSelectsLeadSupervisor(authedUser)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    where = andWhereClause(where, {
+      createdByUserId: authedUser.id,
+      assignedUserId: authedUser.id,
+    });
+  }
+
   if (!where) {
     return NextResponse.json({ error: "Invalid agentId" }, { status: 403 });
   }
@@ -451,14 +464,24 @@ export async function POST(req) {
 
   let assignedUserId = authedUser.id;
   if (authedUser.role === "agent") {
-    const agent = await db.User.findByPk(authedUser.id, { attributes: ["id", "supervisorId"] });
-    const supervisorId = agent?.supervisorId;
-    if (Number.isInteger(supervisorId) && supervisorId > 0) {
-      const supervisor = await db.User.findOne({
-        where: { id: supervisorId, role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true },
-        attributes: ["id"],
-      });
-      if (supervisor) assignedUserId = supervisor.id;
+    const agent = await db.User.findByPk(authedUser.id, {
+      attributes: ["id", "role", "supervisorId", "shiftKey", "selectsLeadSupervisor"],
+    });
+    if (agentSelectsLeadSupervisor(agent)) {
+      const resolved = await resolveAgentSelectedSupervisorAssignee(agent, body?.assignedUserId);
+      if (!resolved.ok) {
+        return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+      }
+      assignedUserId = resolved.assignedUserId;
+    } else {
+      const supervisorId = agent?.supervisorId;
+      if (Number.isInteger(supervisorId) && supervisorId > 0) {
+        const supervisor = await db.User.findOne({
+          where: { id: supervisorId, role: { [Op.in]: ROLES_WITH_ASSIGNED_AGENTS }, isActive: true },
+          attributes: ["id"],
+        });
+        if (supervisor) assignedUserId = supervisor.id;
+      }
     }
   } else if (
     canAssignLeadsLikeLeadSupervisor(authedUser.role) ||

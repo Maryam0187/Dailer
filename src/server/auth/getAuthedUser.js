@@ -189,6 +189,8 @@ async function resolveAuthedUser() {
       canUseDialer2: Boolean(user.canUseDialer2),
       canTrainAddressBot: Boolean(user.canTrainAddressBot),
       canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
+      selectsLeadSupervisor:
+        user.role === "agent" ? Boolean(user.selectsLeadSupervisor) : false,
     },
     logoutReason: null,
   };

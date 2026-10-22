@@ -33,6 +33,7 @@ const LIST_ATTRIBUTES = [
   "canUseDialer2",
   "canTrainAddressBot",
   "canReceiveSharedLeads",
+  "selectsLeadSupervisor",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -79,6 +80,7 @@ function serializeUserRow(
     isActive: row.isActive !== false,
     isOutside: Boolean(row.isOutside),
     shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
+    selectsLeadSupervisor: row.role === "agent" ? Boolean(row.selectsLeadSupervisor) : false,
     ...(includeShiftAccess
       ? {
           loginWindowExempt: Boolean(row.loginWindowExempt),
@@ -259,6 +261,9 @@ export async function POST(req) {
       }
     }
 
+    const selectsLeadSupervisorToSet =
+      role === "agent" ? Boolean(body?.selectsLeadSupervisor) : false;
+
     try {
       const user = await db.User.create({
         username: username.trim(),
@@ -267,6 +272,7 @@ export async function POST(req) {
         managerId: authedUser.id,
         supervisorId: role === "agent" ? supervisorIdToSet : null,
         shiftKey: shiftKeyToSet,
+        selectsLeadSupervisor: selectsLeadSupervisorToSet,
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -279,6 +285,7 @@ export async function POST(req) {
             supervisorId: user.supervisorId,
             shiftKey: user.shiftKey,
             isActive: user.isActive,
+            selectsLeadSupervisor: Boolean(user.selectsLeadSupervisor),
           },
         },
         { status: 201 },
@@ -391,6 +398,8 @@ export async function POST(req) {
   const isOutsideToSet = role === "admin" ? false : Boolean(body?.isOutside);
   const canReceiveSharedLeadsToSet =
     authedUser.role === "admin" ? Boolean(body?.canReceiveSharedLeads) : false;
+  const selectsLeadSupervisorToSet =
+    role === "agent" ? Boolean(body?.selectsLeadSupervisor) : false;
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -401,6 +410,7 @@ export async function POST(req) {
       shiftKey: shiftKeyToSet,
       isOutside: isOutsideToSet,
       canReceiveSharedLeads: canReceiveSharedLeadsToSet,
+      selectsLeadSupervisor: selectsLeadSupervisorToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -415,6 +425,7 @@ export async function POST(req) {
           isActive: user.isActive,
           isOutside: Boolean(user.isOutside),
           canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
+          selectsLeadSupervisor: Boolean(user.selectsLeadSupervisor),
         },
       },
       { status: 201 },

@@ -140,6 +140,15 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /**
+       * Agent-only: skip auto-assign to linked supervisor; agent optionally picks
+       * a same-shift supervisor on create / existing leads.
+       */
+      selectsLeadSupervisor: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       /** Assigned Twilio From for Line 1 (E.164). */
       twilioFromNumber: {
         type: DataTypes.STRING(32),

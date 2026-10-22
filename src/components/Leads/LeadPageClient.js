@@ -20,7 +20,12 @@ function formatLeadName(lead) {
   return lead?.fullName?.trim() || "—";
 }
 
-export default function LeadPageClient({ leadId, userRole, currentUserId = null }) {
+export default function LeadPageClient({
+  leadId,
+  userRole,
+  currentUserId = null,
+  selectsLeadSupervisor = false,
+}) {
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
@@ -195,7 +200,10 @@ export default function LeadPageClient({ leadId, userRole, currentUserId = null 
         hasActiveLine2Call={Boolean(line2Session)}
         workflowTagLookup={workflowTagLookup}
         preferShortLabels={preferShortLabels}
-        canAssignLead={isAdmin || canAssignLeadsLikeLeadSupervisor(userRole)}
+        canAssignLead={
+          isAdmin || canAssignLeadsLikeLeadSupervisor(userRole) || selectsLeadSupervisor
+        }
+        selectsLeadSupervisor={selectsLeadSupervisor}
         canEditChargeAmount={isAdmin}
         canLegacyImportAssign={isAdmin}
         userRole={userRole}

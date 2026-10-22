@@ -52,6 +52,7 @@ export async function GET(_req, { params }) {
       "canUseDialer2",
       "canTrainAddressBot",
       "canReceiveSharedLeads",
+      "selectsLeadSupervisor",
     ],
     include: [
       {
@@ -115,6 +116,8 @@ export async function GET(_req, { params }) {
       canTrainAddressBot: authedUser.role === "admin" ? Boolean(target.canTrainAddressBot) : undefined,
       canReceiveSharedLeads:
         authedUser.role === "admin" ? Boolean(target.canReceiveSharedLeads) : undefined,
+      selectsLeadSupervisor:
+        target.role === "agent" ? Boolean(target.selectsLeadSupervisor) : false,
     },
   });
 }
@@ -199,6 +202,9 @@ export async function PATCH(req, { params }) {
     }
     if (body.role === "admin") {
       updates.shiftKey = "day";
+    }
+    if (body.role !== "agent") {
+      updates.selectsLeadSupervisor = false;
     }
   }
 
@@ -287,6 +293,15 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.canReceiveSharedLeads !== undefined) {
     updates.canReceiveSharedLeads = Boolean(body.canReceiveSharedLeads);
+  }
+
+  if (body.selectsLeadSupervisor !== undefined) {
+    if (!isAdmin && authedUser.role !== "manager") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const nextRole = updates.role ?? target.role;
+    updates.selectsLeadSupervisor =
+      nextRole === "agent" ? Boolean(body.selectsLeadSupervisor) : false;
   }
 
   if (isAdmin && body.loginWindowExempt !== undefined) {
@@ -509,6 +524,7 @@ export async function PATCH(req, { params }) {
       "canUseDialer2",
       "canTrainAddressBot",
       "canReceiveSharedLeads",
+      "selectsLeadSupervisor",
     ],
     include: [
       {
@@ -524,6 +540,8 @@ export async function PATCH(req, { params }) {
       ? {
           ...fresh.toJSON(),
           afterShiftLimitedFileName: fresh.afterShiftLimitedFile?.name ?? null,
+          selectsLeadSupervisor:
+            fresh.role === "agent" ? Boolean(fresh.selectsLeadSupervisor) : false,
         }
       : fresh,
   });

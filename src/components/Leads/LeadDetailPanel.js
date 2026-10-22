@@ -281,12 +281,14 @@ export default function LeadDetailPanel({
   workflowTagLookup = {},
   preferShortLabels = true,
   canAssignLead = false,
+  selectsLeadSupervisor = false,
   canEditChargeAmount = false,
   canLegacyImportAssign = false,
   userRole = null,
   currentUserId = null,
   variant = "drawer",
   showFullPageLink = true,
+  onSupervisorAssigned = null,
 }) {
   const isPage = variant === "page";
   const [updates, setUpdates] = useState([]);
@@ -320,6 +322,7 @@ export default function LeadDetailPanel({
 
   const viewOnlyShare = Boolean(lead?.viewOnlyShare);
   const canManageShareView = userRole === "admin";
+  const agentPicksSupervisor = Boolean(selectsLeadSupervisor) && userRole === "agent";
   const canLoadAssignableUsers = canAssignLead || canManageShareView;
 
   const isPendingLegacyImport =
@@ -440,10 +443,17 @@ export default function LeadDetailPanel({
     setLoadingAssignableUsers(true);
     (async () => {
       try {
-        const res = await fetch("/api/leads/assignable-users", { credentials: "include", cache: "no-store" });
+        const url = agentPicksSupervisor
+          ? "/api/leads/same-shift-supervisors"
+          : "/api/leads/assignable-users";
+        const res = await fetch(url, { credentials: "include", cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Failed to load users");
-        if (!cancelled) setAssignableUsers(json.users || []);
+        if (!cancelled) {
+          setAssignableUsers(
+            agentPicksSupervisor ? json.supervisors || [] : json.users || [],
+          );
+        }
       } catch (e) {
         if (!cancelled) {
           setAssignableUsers([]);
@@ -456,7 +466,7 @@ export default function LeadDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [canLoadAssignableUsers]);
+  }, [canLoadAssignableUsers, agentPicksSupervisor]);
 
   useEffect(() => {
     if (!isPendingLegacyImport) {
@@ -559,6 +569,7 @@ export default function LeadDetailPanel({
     try {
       await patchLead({ assignedUserId: Number(userId) });
       await loadUpdates();
+      if (typeof onSupervisorAssigned === "function") onSupervisorAssigned();
     } catch (e) {
       setError(e.message || "Failed to assign lead");
     } finally {
@@ -762,11 +773,28 @@ export default function LeadDetailPanel({
                 </p>
                 <p className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Assigned to:</span>{" "}
-                  <span>{savingAssignee ? "Saving…" : lead.assignedUsername || "—"}</span>
+                  <span>
+                    {savingAssignee
+                      ? "Saving…"
+                      : agentPicksSupervisor &&
+                          Number(lead.assignedUserId) === Number(currentUserId)
+                        ? "Unassigned"
+                        : lead.assignedUsername || "—"}
+                  </span>
                   {canAssignLead && !viewOnlyShare ? (
                     <AssigneePicker
-                      assignedUserId={lead.assignedUserId}
-                      assignedUsername={lead.assignedUsername}
+                      assignedUserId={
+                        agentPicksSupervisor &&
+                        Number(lead.assignedUserId) === Number(currentUserId)
+                          ? null
+                          : lead.assignedUserId
+                      }
+                      assignedUsername={
+                        agentPicksSupervisor &&
+                        Number(lead.assignedUserId) === Number(currentUserId)
+                          ? null
+                          : lead.assignedUsername
+                      }
                       users={assignableUsers}
                       loading={loadingAssignableUsers}
                       saving={savingAssignee}

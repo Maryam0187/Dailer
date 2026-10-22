@@ -4,7 +4,13 @@ import { getAuthedUserRequiringFullAccess } from "@/server/auth/afterShiftAccess
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { shouldRedactLeadPhones } from "@/lib/maskPhone";
 import { canAssignLeadsLikeLeadSupervisor, shouldHideLeadNotes, isViewOnlySharedViewer } from "@/lib/leadRoles";
-import { canAccessLead, canAssignLeadToAgent, canAssignSharedViewer } from "@/server/leads/leadAccess";
+import {
+  agentSelectsLeadSupervisor,
+  canAccessLead,
+  canAssignLeadToAgent,
+  canAssignSharedViewer,
+  resolveAgentSelectedSupervisorAssignee,
+} from "@/server/leads/leadAccess";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { buildLeadEditActivityBody } from "@/server/leads/buildLeadEditActivity";
 import { buildTextActivityDiff } from "@/server/leads/buildTextActivityDiff";
@@ -196,16 +202,24 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
     }
 
-    const canReassign =
+    const privilegedReassign =
       authedUser.role === "admin" ||
       canAssignLeadsLikeLeadSupervisor(authedUser.role) ||
       authedUser.role === "supervisor";
 
-    if (!canReassign) {
+    const agentMaySelectSupervisor = agentSelectsLeadSupervisor(authedUser);
+
+    if (!privilegedReassign && !agentMaySelectSupervisor) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (canReassign && !(await canAssignLeadToAgent(authedUser, nextAssignee))) {
+    if (privilegedReassign && !(await canAssignLeadToAgent(authedUser, nextAssignee))) {
       return NextResponse.json({ error: "Invalid assigned agent" }, { status: 400 });
+    }
+    if (agentMaySelectSupervisor && !privilegedReassign) {
+      const resolved = await resolveAgentSelectedSupervisorAssignee(authedUser, nextAssignee);
+      if (!resolved.ok) {
+        return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+      }
     }
     if (nextAssignee !== lead.assignedUserId) {
       update.assignedUserId = nextAssignee;

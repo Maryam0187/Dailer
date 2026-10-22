@@ -252,6 +252,7 @@ export default function LeadsClient({
   currentUserId = null,
   isOutside = false,
   canReceiveSharedLeads = false,
+  selectsLeadSupervisor = false,
 }) {
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
@@ -286,6 +287,10 @@ export default function LeadsClient({
   const [streamName, setStreamName] = useState("");
   const [breakdown, setBreakdown] = useState("");
   const [notes, setNotes] = useState("");
+  const [formSupervisorId, setFormSupervisorId] = useState("");
+  const [sameShiftSupervisors, setSameShiftSupervisors] = useState([]);
+  const [unassignedSupervisorCount, setUnassignedSupervisorCount] = useState(0);
+  const [unassignedSupervisorFilter, setUnassignedSupervisorFilter] = useState(false);
   const [supervisorFilter, setSupervisorFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [assignedScopeFilter, setAssignedScopeFilter] = useState("all");
@@ -512,6 +517,9 @@ export default function LeadsClient({
       if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all" && leadsListTab !== "shared_with_me") {
         params.set("serviceType", serviceTypeFilter);
       }
+      if (selectsLeadSupervisor && unassignedSupervisorFilter) {
+        params.set("unassignedSupervisor", "1");
+      }
       if (q.trim()) {
         params.set("q", q.trim());
         params.set("searchBy", searchBy);
@@ -578,11 +586,37 @@ export default function LeadsClient({
     sortDir,
     page,
     leadsListTab,
+    selectsLeadSupervisor,
+    unassignedSupervisorFilter,
   ]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  const refreshUnassignedSupervisorCount = useCallback(async () => {
+    if (!selectsLeadSupervisor) {
+      setSameShiftSupervisors([]);
+      setUnassignedSupervisorCount(0);
+      return;
+    }
+    try {
+      const res = await fetch("/api/leads/same-shift-supervisors", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load supervisors");
+      setSameShiftSupervisors(json.supervisors || []);
+      setUnassignedSupervisorCount(Number(json.unassignedCount) || 0);
+    } catch {
+      setSameShiftSupervisors([]);
+    }
+  }, [selectsLeadSupervisor]);
+
+  useEffect(() => {
+    void refreshUnassignedSupervisorCount();
+  }, [refreshUnassignedSupervisorCount]);
 
   const loadWorkflowTags = useCallback(async () => {
     try {
@@ -1011,6 +1045,7 @@ export default function LeadsClient({
     setStreamName("");
     setBreakdown("");
     setNotes("");
+    setFormSupervisorId("");
     setSaveError(null);
   }
 
@@ -1038,6 +1073,9 @@ export default function LeadsClient({
         notes: notes.trim() || undefined,
         source: "manual",
       };
+      if (selectsLeadSupervisor && formSupervisorId) {
+        payload.assignedUserId = Number(formSupervisorId);
+      }
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1050,6 +1088,7 @@ export default function LeadsClient({
       setShowForm(false);
       setPage(1);
       await loadLeads(1);
+      void refreshUnassignedSupervisorCount();
       if (json.lead?.id) setSelectedLeadId(json.lead.id);
     } catch (err) {
       setSaveError(err.message || "Failed to add lead");
@@ -1191,6 +1230,30 @@ export default function LeadsClient({
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Click a lead to update status, add notes, and view activity.
           </p>
+          {selectsLeadSupervisor && unassignedSupervisorCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setUnassignedSupervisorFilter((v) => !v);
+                setPage(1);
+              }}
+              className={`mt-2 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                unassignedSupervisorFilter
+                  ? "border-red-500 bg-red-100 text-red-900 dark:border-red-500 dark:bg-red-950/50 dark:text-red-100"
+                  : "border-red-300 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
+              }`}
+              title={
+                unassignedSupervisorFilter
+                  ? "Showing unassigned only — click to clear"
+                  : "Click to show leads without a supervisor"
+              }
+            >
+              <span aria-hidden className="text-sm leading-none">
+                ⚑
+              </span>
+              {unassignedSupervisorCount} unassigned
+            </button>
+          ) : null}
         </div>
         <button
           type="button"
@@ -1212,6 +1275,24 @@ export default function LeadsClient({
         >
           <h3 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">New lead</h3>
           <div className="grid gap-4">
+            {selectsLeadSupervisor ? (
+              <div>
+                <label className={labelClass}>Supervisor (optional)</label>
+                <select
+                  value={formSupervisorId}
+                  onChange={(e) => setFormSupervisorId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Unassigned — pick later</option>
+                  {sameShiftSupervisors.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.username}
+                      {s.role === "lead_supervisor" ? " (Lead supervisor)" : " (Supervisor)"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Service</label>
@@ -2312,7 +2393,14 @@ export default function LeadsClient({
           hasActiveLine2Call={Boolean(line2Session)}
           workflowTagLookup={workflowTagLookup}
           preferShortLabels={preferShortLabels}
-          canAssignLead={isAdmin || canAssignLeadsLikeLeadSupervisor(userRole)}
+          canAssignLead={
+            isAdmin || canAssignLeadsLikeLeadSupervisor(userRole) || selectsLeadSupervisor
+          }
+          selectsLeadSupervisor={selectsLeadSupervisor}
+          onSupervisorAssigned={() => {
+            void refreshUnassignedSupervisorCount();
+            void loadLeads(page, { silent: true });
+          }}
           canEditChargeAmount={isAdmin}
           userRole={userRole}
           currentUserId={currentUserId}
