@@ -36,6 +36,14 @@ export function canAccessAttendance(user) {
   return canAccessLiveStatus(user);
 }
 
+/**
+ * Admin, or in-house manager viewing User reports (own team / agents).
+ * Same gate as attendance for now.
+ */
+export function canAccessUserReports(user) {
+  return canAccessAttendance(user);
+}
+
 const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];
 
 function normalizeUserShiftKey(value) {

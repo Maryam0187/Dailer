@@ -81,11 +81,6 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/message-attachments",
     },
     {
-      href: "/reports",
-      label: "Reports",
-      active: pathname === "/reports",
-    },
-    {
       href: "/billing",
       label: "Billing",
       active: pathname === "/billing",
@@ -186,9 +181,9 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
 
   if (accessMode !== "limited" && (role === "admin" || (role === "manager" && !isOutside))) {
     items.push({
-      href: "/attendance",
-      label: "Attendance",
-      active: pathname === "/attendance",
+      href: "/user-reports",
+      label: "User reports",
+      active: pathname === "/user-reports" || pathname === "/attendance" || pathname === "/reports",
       palette: "amber",
     });
   }
