@@ -271,9 +271,8 @@ export default function QuickDialPanel() {
               <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
                 <p className="font-semibold">Zoom Phone</p>
                 <p className="mt-1 leading-snug">
-                  {zoomReady
-                    ? "Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in there, then refresh this page."
-                    : "Loading Zoom softphone… Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in there, then refresh this page."}
+                  Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in
+                  there, then refresh this page.
                 </p>
               </div>
             ) : null}

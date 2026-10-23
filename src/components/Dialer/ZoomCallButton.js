@@ -16,7 +16,8 @@ export default function ZoomCallButton({
   if (!enabled) return null;
 
   const number = digitsOnly(phone) || String(phone || "").trim();
-  const canDial = Boolean(number) && ready && !disabled;
+  // Softphone UI can work before our ready flag catches up — still allow dial attempts.
+  const canDial = Boolean(number) && !disabled;
 
   function onClick() {
     setStatus(null);
@@ -24,12 +25,12 @@ export default function ZoomCallButton({
       setStatus("Enter a phone number");
       return;
     }
-    if (!ready) {
-      setStatus("Zoom Phone is loading…");
-      return;
-    }
     const ok = makeCall(number, { autoDial: true });
-    setStatus(ok ? "Dialing via Zoom…" : "Zoom Phone not ready");
+    if (!ok && !ready) {
+      setStatus("Zoom Phone is loading… try again in a moment");
+    } else {
+      setStatus(ok ? "Dialing via Zoom…" : "Zoom Phone not ready — use the floating softphone");
+    }
     window.setTimeout(() => setStatus(null), 2000);
   }
 
