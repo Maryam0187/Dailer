@@ -11,13 +11,17 @@ import { buildZoomPhoneIframeUrl, ZOOM_PHONE_IFRAME_ID } from "@/lib/zoomSmartEm
  * not Zoom's default side dock.
  * Panel is shown on the Dialer home page; stays visible during an active Zoom call
  * if the user navigates away. Iframe stays mounted off-page so Soft Embed stays connected.
+ *
+ * Note: Soft Embed UI (incl. device picker) is cross-origin — we cannot restyle Zoom's
+ * picker. We show a compact red banner above the iframe to call out device selection.
  */
 export default function ZoomSmartEmbed() {
   const pathname = usePathname();
   const { enabled, ready, lastEvent, onIframeLoad } = useZoomSmartEmbed();
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   // Set src after mount — SSR/useMemo([]) cached "" and left the iframe blank on refresh.
   const [iframeSrc, setIframeSrc] = useState("");
+  const [deviceHintDismissed, setDeviceHintDismissed] = useState(false);
 
   useEffect(() => {
     setIframeSrc(buildZoomPhoneIframeUrl(window.location.origin));
@@ -32,21 +36,27 @@ export default function ZoomSmartEmbed() {
 
   const onDialerPage = pathname === "/";
   const showPanel = onDialerPage || inCall;
-  const collapseBody = isMinimized || !showPanel;
+  // Minimized by default; auto-expand while Soft Embed has an active/ringing call.
+  const collapsed = (isMinimized && !inCall) || !showPanel;
+  const showDeviceBanner = showPanel && !collapsed && !deviceHintDismissed;
 
   return (
     <div
-      className={`fixed bottom-4 right-4 z-[9998] transition-all duration-300 ${
-        showPanel ? (isMinimized ? "w-72" : "w-[350px]") : "pointer-events-none h-0 w-0 overflow-hidden opacity-0"
+      className={`fixed bottom-3 right-3 z-[9998] transition-all duration-300 ${
+        showPanel
+          ? collapsed
+            ? "w-64"
+            : "w-[320px]"
+          : "pointer-events-none h-0 w-0 overflow-hidden opacity-0"
       }`}
       aria-hidden={!showPanel}
     >
-      <div className="flex flex-col overflow-hidden rounded-2xl border-2 border-blue-200 bg-white shadow-2xl shadow-blue-500/15 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
+      <div className="flex flex-col overflow-hidden rounded-xl border border-blue-300 bg-white shadow-xl shadow-blue-500/10 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
         {showPanel ? (
-          <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 p-3 text-white">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 px-2.5 py-1.5 text-white">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <span
-                className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                className={`h-2 w-2 flex-shrink-0 rounded-full ${
                   inCall
                     ? "animate-pulse bg-emerald-300"
                     : ready
@@ -55,8 +65,8 @@ export default function ZoomSmartEmbed() {
                 }`}
               />
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">Zoom Phone</div>
-                <div className="truncate text-xs text-blue-100">
+                <div className="truncate text-xs font-semibold leading-tight">Zoom Phone</div>
+                <div className="truncate text-[10px] leading-tight text-blue-100">
                   {inCall ? "In call" : ready ? "Ready" : "Loading…"}
                 </div>
               </div>
@@ -64,15 +74,15 @@ export default function ZoomSmartEmbed() {
             <button
               type="button"
               onClick={() => setIsMinimized((v) => !v)}
-              className="ml-2 rounded p-1 transition-colors hover:bg-blue-700"
-              aria-label={isMinimized ? "Expand Zoom Phone" : "Minimize Zoom Phone"}
+              className="ml-1 rounded p-0.5 transition-colors hover:bg-blue-700"
+              aria-label={collapsed ? "Expand Zoom Phone" : "Minimize Zoom Phone"}
             >
-              {isMinimized ? (
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              {collapsed ? (
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                 </svg>
               ) : (
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               )}
@@ -80,15 +90,36 @@ export default function ZoomSmartEmbed() {
           </div>
         ) : null}
 
-        {/* Keep iframe mounted when hidden/minimized so Soft Embed stays connected.
-            Soft Embed content is taller than Zoom's 580px minimum — use 700px to avoid inner scroll. */}
+        {/* Soft Embed device picker cannot be moved/styled — highlight selection above iframe. */}
+        {showDeviceBanner ? (
+          <div
+            role="status"
+            className="flex flex-shrink-0 items-start gap-2 border-b border-red-700 bg-red-600 px-2.5 py-1.5 text-white"
+          >
+            <span className="mt-0.5 text-[10px] font-bold uppercase tracking-wide">Device</span>
+            <p className="min-w-0 flex-1 text-[11px] leading-snug font-medium">
+              Select <span className="font-bold underline">this computer</span> in Zoom’s device
+              picker below — not another device.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDeviceHintDismissed(true)}
+              className="shrink-0 rounded px-1 text-sm leading-none text-white/90 hover:bg-red-700"
+              aria-label="Dismiss device hint"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
+
+        {/* Keep iframe mounted when hidden/minimized so Soft Embed stays connected. */}
         <div
           className={
-            collapseBody
+            collapsed
               ? "h-0 overflow-hidden opacity-0"
               : "overflow-hidden opacity-100"
           }
-          aria-hidden={collapseBody}
+          aria-hidden={collapsed}
         >
           {iframeSrc ? (
             <iframe
@@ -98,7 +129,7 @@ export default function ZoomSmartEmbed() {
               allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
               onLoad={() => onIframeLoad?.()}
               scrolling="no"
-              className="block h-[700px] w-full border-0 bg-white dark:bg-zinc-950"
+              className="block h-[520px] w-full border-0 bg-white dark:bg-zinc-950"
               style={{ overflow: "hidden" }}
             />
           ) : null}

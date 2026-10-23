@@ -23,7 +23,7 @@ export default function VoiceLockBanner() {
     return (
       <div
         role="status"
-        className="fixed inset-x-0 top-0 z-[70] flex items-center justify-center gap-3 border-b border-amber-300 bg-amber-100/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-100"
+        className="fixed inset-x-0 top-14 z-[40] flex items-center justify-center gap-3 border-b border-amber-300 bg-amber-100/95 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm backdrop-blur sm:top-16 dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-100"
       >
         <span aria-hidden>⚠️</span>
         <span>Dialer is already active in another tab.</span>
@@ -42,7 +42,7 @@ export default function VoiceLockBanner() {
     return (
       <div
         role="status"
-        className="fixed inset-x-0 top-0 z-[70] flex items-center justify-center gap-2 border-b border-sky-300 bg-sky-50/95 px-4 py-2 text-sm font-medium text-sky-900 shadow-sm backdrop-blur dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-100"
+        className="fixed inset-x-0 top-14 z-[40] flex items-center justify-center gap-2 border-b border-sky-300 bg-sky-50/95 px-4 py-2 text-sm font-medium text-sky-900 shadow-sm backdrop-blur sm:top-16 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-100"
       >
         <span aria-hidden>ℹ️</span>
         <span>
