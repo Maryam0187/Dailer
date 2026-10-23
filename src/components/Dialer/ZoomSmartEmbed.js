@@ -28,10 +28,10 @@ export default function ZoomSmartEmbed() {
   return (
     <div
       className={`fixed bottom-4 right-4 z-[9998] transition-all duration-300 ${
-        isMinimized ? "w-72" : "w-[350px] max-h-[calc(100vh-2rem)]"
+        isMinimized ? "w-72" : "w-[350px]"
       }`}
     >
-      <div className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border-2 border-blue-200 bg-white shadow-2xl shadow-blue-500/15 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
+      <div className="flex flex-col overflow-hidden rounded-2xl border-2 border-blue-200 bg-white shadow-2xl shadow-blue-500/15 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
         <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 p-3 text-white">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span
@@ -68,12 +68,13 @@ export default function ZoomSmartEmbed() {
           </button>
         </div>
 
-        {/* Keep iframe mounted when minimized so Soft Embed stays connected. */}
+        {/* Keep iframe mounted when minimized so Soft Embed stays connected.
+            Soft Embed content is taller than Zoom's 580px minimum — use 700px to avoid inner scroll. */}
         <div
           className={
             isMinimized
               ? "h-0 overflow-hidden opacity-0"
-              : "block overflow-hidden opacity-100"
+              : "overflow-hidden opacity-100"
           }
           aria-hidden={isMinimized}
         >
@@ -83,7 +84,9 @@ export default function ZoomSmartEmbed() {
             src={iframeSrc}
             allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
             onLoad={() => onIframeLoad?.()}
-            className="h-[580px] w-full max-h-[calc(100vh-6rem)] border-0 bg-white dark:bg-zinc-950"
+            scrolling="no"
+            className="block h-[700px] w-full border-0 bg-white dark:bg-zinc-950"
+            style={{ overflow: "hidden" }}
           />
         </div>
       </div>

@@ -128,6 +128,7 @@ export async function GET(req, { params }) {
       "recordingStatus",
       "recordingDurationSeconds",
       "dialerIndex",
+      "voiceProvider",
       "createdAt",
     ],
   });
@@ -180,6 +181,7 @@ export async function GET(req, { params }) {
           : null,
         createdAt: call.createdAt,
         dialerIndex: Number(call.dialerIndex) === 2 ? 2 : 1,
+        voiceProvider: call.voiceProvider === "zoom" ? "zoom" : "twilio",
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),
