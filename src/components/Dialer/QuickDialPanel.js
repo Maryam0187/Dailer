@@ -31,8 +31,9 @@ export default function QuickDialPanel() {
   const [loading, setLoading] = useState(false);
   const [loadingLine2, setLoadingLine2] = useState(false);
   const [error, setError] = useState(null);
+  // Prefer Zoom when both providers are enabled.
   const [activeTab, setActiveTab] = useState(() =>
-    canUseTwilioDialer ? "twilio" : canUseZoomPhone ? "zoom" : "none",
+    canUseZoomPhone ? "zoom" : canUseTwilioDialer ? "twilio" : "none",
   );
 
   useEffect(() => {
@@ -45,13 +46,13 @@ export default function QuickDialPanel() {
       return;
     }
     if (activeTab === "none") {
-      if (canUseTwilioDialer) setActiveTab("twilio");
-      else if (canUseZoomPhone) setActiveTab("zoom");
+      if (canUseZoomPhone) setActiveTab("zoom");
+      else if (canUseTwilioDialer) setActiveTab("twilio");
     }
   }, [activeTab, canUseTwilioDialer, canUseZoomPhone]);
 
   const showTabs = canUseTwilioDialer && canUseZoomPhone;
-  const tab = showTabs ? activeTab : canUseTwilioDialer ? "twilio" : canUseZoomPhone ? "zoom" : "none";
+  const tab = showTabs ? activeTab : canUseZoomPhone ? "zoom" : canUseTwilioDialer ? "twilio" : "none";
 
   const hasActiveCall = Boolean(session);
   const hasActiveLine2Call = Boolean(line2Session);
