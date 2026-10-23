@@ -188,6 +188,8 @@ export async function GET(req) {
       "state",
       "zipCode",
       "dialerIndex",
+      "voiceProvider",
+      "externalCallId",
       "createdAt",
     ],
     include: [
@@ -266,6 +268,7 @@ export async function GET(req) {
         state: call.state || null,
         zipCode: call.zipCode || null,
         dialerIndex: Number(call.dialerIndex) === 2 ? 2 : 1,
+        voiceProvider: call.voiceProvider === "zoom" ? "zoom" : "twilio",
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),

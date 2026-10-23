@@ -73,8 +73,46 @@ export function ZoomSmartEmbedProvider({ children }) {
 
   useEffect(() => {
     if (!enabled) return undefined;
+
+    const postedEventIds = new Set();
+
+    async function persistZoomEvent(payload) {
+      const type = payload?.type;
+      if (
+        type !== "zp-call-ringing-event" &&
+        type !== "zp-call-connected-event" &&
+        type !== "zp-call-ended-event" &&
+        type !== "zp-call-log-completed-event"
+      ) {
+        return;
+      }
+      const dedupeKey = payload?.id != null ? String(payload.id) : `${type}:${payload?.data?.callId || ""}`;
+      if (dedupeKey && postedEventIds.has(dedupeKey)) return;
+      if (dedupeKey) postedEventIds.add(dedupeKey);
+      if (postedEventIds.size > 200) {
+        const first = postedEventIds.values().next().value;
+        postedEventIds.delete(first);
+      }
+
+      try {
+        await fetch("/api/calls/zoom/event", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: payload.id ?? null,
+            type,
+            data: payload.data || {},
+          }),
+        });
+      } catch {
+        /* best-effort history sync */
+      }
+    }
+
     return subscribeZoomSmartEmbedEvents((payload) => {
       setLastEvent(payload);
+      void persistZoomEvent(payload);
     });
   }, [enabled]);
 

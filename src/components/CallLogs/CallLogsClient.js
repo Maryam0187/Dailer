@@ -775,7 +775,19 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         {c.fromNumber || "—"}
                       </td>
                     ) : null}
-                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
+                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span>{c.toNumber}</span>
+                        {c.voiceProvider === "zoom" ? (
+                          <span
+                            className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
+                            title="Zoom Phone Soft Embed"
+                          >
+                            Zoom
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="py-2 pr-2">
                       {isAdmin ? (
                         <span
