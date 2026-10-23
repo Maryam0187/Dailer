@@ -268,9 +268,14 @@ export default function QuickDialPanel() {
             ) : null}
 
             {tab === "zoom" ? (
-              <p className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
-                Keep the Zoom desktop app open and signed in. Use the floating Zoom softphone or dial below.
-              </p>
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+                <p className="font-semibold">Zoom Phone</p>
+                <p className="mt-1 leading-snug">
+                  {zoomReady
+                    ? "Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in there, then refresh this page."
+                    : "Loading Zoom softphone… Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in there, then refresh this page."}
+                </p>
+              </div>
             ) : null}
 
             <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
