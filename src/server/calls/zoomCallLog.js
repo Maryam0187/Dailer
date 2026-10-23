@@ -1,4 +1,56 @@
+import { Op } from "sequelize";
+import db from "@/server/db";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
+
+/** Pending outbound window for matching Soft Embed events to the dialer who clicked Call. */
+export const ZOOM_PENDING_OUTBOUND_MS = 5 * 60 * 1000;
+
+export function phoneDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+export function phonesMatch(a, b) {
+  const da = phoneDigits(a);
+  const dbDigits = phoneDigits(b);
+  if (!da || !dbDigits) return false;
+  return da === dbDigits || da.endsWith(dbDigits) || dbDigits.endsWith(da);
+}
+
+/** One Zoom Soft Embed callId → one CallLog (any dialer user). */
+export async function findZoomCallByExternalId(externalCallId) {
+  if (!externalCallId) return null;
+  return db.CallLog.findOne({
+    where: {
+      voiceProvider: "zoom",
+      externalCallId: String(externalCallId),
+    },
+    order: [["id", "DESC"]],
+  });
+}
+
+/**
+ * Recent outbound Zoom row without (or with) externalCallId matching dialed number.
+ * Prefer the maker's pending "initiated" row from /api/calls/zoom/start.
+ */
+export async function findRecentZoomOutboundPending(toNumber, { withinMs = ZOOM_PENDING_OUTBOUND_MS } = {}) {
+  const digits = phoneDigits(toNumber);
+  if (!digits) return null;
+
+  const since = new Date(Date.now() - withinMs);
+  const rows = await db.CallLog.findAll({
+    where: {
+      voiceProvider: "zoom",
+      direction: "outbound",
+      status: { [Op.in]: ["initiated", "queued", "ringing", "in-progress"] },
+      createdAt: { [Op.gte]: since },
+      [Op.or]: [{ externalCallId: null }, { externalCallId: "" }],
+    },
+    order: [["id", "DESC"]],
+    limit: 25,
+  });
+
+  return rows.find((row) => phonesMatch(row.toNumber, toNumber)) || null;
+}
 
 function partyPhone(party) {
   if (!party || typeof party !== "object") return null;

@@ -19,13 +19,13 @@ export default function ZoomCallButton({
   // Softphone UI can work before our ready flag catches up — still allow dial attempts.
   const canDial = Boolean(number) && !disabled;
 
-  function onClick() {
+  async function onClick() {
     setStatus(null);
     if (!number) {
       setStatus("Enter a phone number");
       return;
     }
-    const ok = makeCall(number, { autoDial: true });
+    const ok = await makeCall(number, { autoDial: true });
     if (!ok && !ready) {
       setStatus("Zoom Phone is loading… try again in a moment");
     } else {

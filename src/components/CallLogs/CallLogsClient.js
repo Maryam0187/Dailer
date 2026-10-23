@@ -254,7 +254,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       setError(null);
       setCallingId(id);
       try {
-        const ok = zoomMakeCall(toNumber, { autoDial: true });
+        const ok = await zoomMakeCall(toNumber, { autoDial: true });
         if (!ok) throw new Error("Zoom Phone is not ready — open the Zoom softphone and try again");
       } catch (e) {
         setError(e.message || "Failed to place Zoom call");

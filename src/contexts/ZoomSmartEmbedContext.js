@@ -16,7 +16,7 @@ const ZoomSmartEmbedContext = createContext({
   enabled: false,
   ready: false,
   lastEvent: null,
-  makeCall: () => false,
+  makeCall: async () => false,
   inputSms: () => false,
   onIframeLoad: () => {},
 });
@@ -142,10 +142,30 @@ export function ZoomSmartEmbedProvider({ children }) {
   }, [enabled, markReady]);
 
   const makeCall = useCallback(
-    (number, opts) => {
+    async (number, opts) => {
       if (!enabled) return false;
       if (getZoomIframe()?.contentWindow) markReady();
-      return zoomMakeCall(number, opts);
+
+      const trimmed = String(number || "").trim();
+      if (!trimmed) return false;
+
+      // Reserve CallLog for this dialer user so other Soft Embed sessions attach events here.
+      try {
+        const res = await fetch("/api/calls/zoom/start", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toNumber: trimmed }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          console.warn("[zoom] start call log failed", json?.error || res.status);
+        }
+      } catch (err) {
+        console.warn("[zoom] start call log failed", err);
+      }
+
+      return zoomMakeCall(trimmed, opts);
     },
     [enabled, markReady],
   );

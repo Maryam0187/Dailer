@@ -7,6 +7,8 @@ import {
   durationSecondsBetween,
   extractZoomOurLine,
   extractZoomParties,
+  findRecentZoomOutboundPending,
+  findZoomCallByExternalId,
   mapZoomEndStatus,
   mapZoomLogResultStatus,
   parseZoomDurationSeconds,
@@ -20,18 +22,6 @@ const HANDLED = new Set([
   "zp-call-log-completed-event",
 ]);
 
-async function findZoomCall(userId, externalCallId) {
-  if (!externalCallId) return null;
-  return db.CallLog.findOne({
-    where: {
-      userId,
-      voiceProvider: "zoom",
-      externalCallId: String(externalCallId),
-    },
-    order: [["id", "DESC"]],
-  });
-}
-
 function mergeZoomLine(updates, line) {
   if (line.zoomExtensionNumber) updates.zoomExtensionNumber = line.zoomExtensionNumber;
   if (line.zoomPhoneNumber) updates.zoomPhoneNumber = line.zoomPhoneNumber;
@@ -44,6 +34,56 @@ async function refreshMetrics(call) {
   } catch {
     /* rollup is best-effort; CallLog remains source of truth until backfill */
   }
+}
+
+function buildEventUpdates(call, type, data, parties, ourLine, eventAt) {
+  const updates = {};
+  if (parties.fromNumber && !call.fromNumber) updates.fromNumber = parties.fromNumber;
+  if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
+  if (parties.contactName && !call.contactName) updates.contactName = parties.contactName;
+  if (parties.direction) updates.direction = parties.direction;
+  mergeZoomLine(updates, ourLine);
+
+  if (type === "zp-call-ringing-event") {
+    if (call.status === "queued" || call.status === "initiated") updates.status = "ringing";
+  }
+
+  if (type === "zp-call-connected-event") {
+    updates.status = "in-progress";
+    if (!call.zoomConnectedAt) updates.zoomConnectedAt = eventAt;
+  }
+
+  if (type === "zp-call-ended-event") {
+    updates.status = mapZoomEndStatus(data.result);
+    if (call.durationSeconds == null && call.zoomConnectedAt) {
+      const dur = durationSecondsBetween(call.zoomConnectedAt, eventAt);
+      if (dur != null) {
+        updates.durationSeconds = dur;
+        updates.customerDurationSeconds = dur;
+      }
+    }
+  }
+
+  if (type === "zp-call-log-completed-event") {
+    if (data.callLogId != null) updates.externalCallLogId = String(data.callLogId);
+    updates.status = mapZoomLogResultStatus(data.result);
+    const dur = parseZoomDurationSeconds(data.duration);
+    if (dur != null) {
+      updates.durationSeconds = dur;
+      updates.customerDurationSeconds = dur;
+    } else if (call.durationSeconds == null && call.zoomConnectedAt) {
+      const fallback = durationSecondsBetween(call.zoomConnectedAt, eventAt);
+      if (fallback != null) {
+        updates.durationSeconds = fallback;
+        updates.customerDurationSeconds = fallback;
+      }
+    }
+    if (parties.fromNumber) updates.fromNumber = parties.fromNumber;
+    if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
+    if (parties.contactName) updates.contactName = parties.contactName;
+  }
+
+  return updates;
 }
 
 export async function POST(req) {
@@ -71,10 +111,25 @@ export async function POST(req) {
   const parties = extractZoomParties(data);
   const ourLine = extractZoomOurLine(data);
   const eventAt = parseZoomEventDate(data.dateTime) || new Date();
-  let call = await findZoomCall(authedUser.id, externalCallId);
+
+  // 1) Same Zoom callId → one CallLog (do not create a second row for another open Soft Embed).
+  let call = await findZoomCallByExternalId(externalCallId);
   let changed = false;
+  let attachedPending = false;
+
+  // 2) Outbound: attach Soft Embed events to the maker's pending /api/calls/zoom/start row.
+  if (!call && parties.direction === "outbound" && parties.toNumber && parties.toNumber !== "unknown") {
+    const pending = await findRecentZoomOutboundPending(parties.toNumber);
+    if (pending) {
+      call = pending;
+      attachedPending = true;
+    }
+  }
 
   if (!call) {
+    // Outbound without a start reservation (e.g. dialed only inside Soft Embed UI):
+    // first event writer owns it; later Soft Embed sessions hit findZoomCallByExternalId.
+    // Inbound: still create for the session that received the event (claim comes later).
     const createPayload = {
       userId: authedUser.id,
       fromNumber: parties.fromNumber,
@@ -108,55 +163,20 @@ export async function POST(req) {
       }
     }
 
-    call = await db.CallLog.create(createPayload);
-    changed = true;
-  } else {
-    const updates = {};
-    if (parties.fromNumber && !call.fromNumber) updates.fromNumber = parties.fromNumber;
-    if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
-    if (parties.contactName && !call.contactName) updates.contactName = parties.contactName;
-    if (parties.direction) updates.direction = parties.direction;
-    mergeZoomLine(updates, ourLine);
-
-    if (type === "zp-call-ringing-event") {
-      if (call.status === "queued" || call.status === "initiated") updates.status = "ringing";
+    // Race: another session may have created the same externalCallId first.
+    call = await findZoomCallByExternalId(externalCallId);
+    if (!call) {
+      call = await db.CallLog.create(createPayload);
+      changed = true;
     }
+  }
 
-    if (type === "zp-call-connected-event") {
-      updates.status = "in-progress";
-      if (!call.zoomConnectedAt) updates.zoomConnectedAt = eventAt;
+  if (call) {
+    const updates = buildEventUpdates(call, type, data, parties, ourLine, eventAt);
+    if (attachedPending || !call.externalCallId) {
+      updates.externalCallId = externalCallId;
     }
-
-    if (type === "zp-call-ended-event") {
-      updates.status = mapZoomEndStatus(data.result);
-      if (call.durationSeconds == null && call.zoomConnectedAt) {
-        const dur = durationSecondsBetween(call.zoomConnectedAt, eventAt);
-        if (dur != null) {
-          updates.durationSeconds = dur;
-          updates.customerDurationSeconds = dur;
-        }
-      }
-    }
-
-    if (type === "zp-call-log-completed-event") {
-      if (data.callLogId != null) updates.externalCallLogId = String(data.callLogId);
-      updates.status = mapZoomLogResultStatus(data.result);
-      const dur = parseZoomDurationSeconds(data.duration);
-      if (dur != null) {
-        updates.durationSeconds = dur;
-        updates.customerDurationSeconds = dur;
-      } else if (call.durationSeconds == null && call.zoomConnectedAt) {
-        const fallback = durationSecondsBetween(call.zoomConnectedAt, eventAt);
-        if (fallback != null) {
-          updates.durationSeconds = fallback;
-          updates.customerDurationSeconds = fallback;
-        }
-      }
-      if (parties.fromNumber) updates.fromNumber = parties.fromNumber;
-      if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
-      if (parties.contactName) updates.contactName = parties.contactName;
-    }
-
+    // Never reassign ownership — maker (or first creator) keeps userId.
     if (Object.keys(updates).length) {
       await call.update(updates);
       changed = true;
@@ -171,6 +191,7 @@ export async function POST(req) {
   return NextResponse.json({
     ok: true,
     callId: call.id,
+    userId: call.userId,
     externalCallId,
     eventId,
     type,
