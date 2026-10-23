@@ -50,6 +50,8 @@ export async function GET(_req, { params }) {
       "totpEnabled",
       "totpEnabledAt",
       "canUseDialer2",
+      "canUseTwilioDialer",
+      "canUseZoomPhone",
       "canTrainAddressBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
@@ -113,6 +115,9 @@ export async function GET(_req, { params }) {
       totpEnabled: authedUser.role === "admin" ? target.totpEnabled === true : undefined,
       totpEnabledAt: authedUser.role === "admin" ? target.totpEnabledAt ?? null : undefined,
       canUseDialer2: authedUser.role === "admin" ? Boolean(target.canUseDialer2) : undefined,
+      canUseTwilioDialer:
+        authedUser.role === "admin" ? target.canUseTwilioDialer !== false : undefined,
+      canUseZoomPhone: authedUser.role === "admin" ? Boolean(target.canUseZoomPhone) : undefined,
       canTrainAddressBot: authedUser.role === "admin" ? Boolean(target.canTrainAddressBot) : undefined,
       canReceiveSharedLeads:
         authedUser.role === "admin" ? Boolean(target.canReceiveSharedLeads) : undefined,
@@ -285,6 +290,14 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.canUseDialer2 !== undefined) {
     updates.canUseDialer2 = Boolean(body.canUseDialer2);
+  }
+
+  if (isAdmin && body.canUseTwilioDialer !== undefined) {
+    updates.canUseTwilioDialer = Boolean(body.canUseTwilioDialer);
+  }
+
+  if (isAdmin && body.canUseZoomPhone !== undefined) {
+    updates.canUseZoomPhone = Boolean(body.canUseZoomPhone);
   }
 
   if (isAdmin && body.canTrainAddressBot !== undefined) {
@@ -522,6 +535,8 @@ export async function PATCH(req, { params }) {
       "totpEnabled",
       "totpEnabledAt",
       "canUseDialer2",
+      "canUseTwilioDialer",
+      "canUseZoomPhone",
       "canTrainAddressBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
@@ -542,6 +557,8 @@ export async function PATCH(req, { params }) {
           afterShiftLimitedFileName: fresh.afterShiftLimitedFile?.name ?? null,
           selectsLeadSupervisor:
             fresh.role === "agent" ? Boolean(fresh.selectsLeadSupervisor) : false,
+          canUseTwilioDialer: fresh.canUseTwilioDialer !== false,
+          canUseZoomPhone: Boolean(fresh.canUseZoomPhone),
         }
       : fresh,
   });

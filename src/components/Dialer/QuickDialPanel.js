@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
+import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
+import { useZoomSmartEmbed } from "@/contexts/ZoomSmartEmbedContext";
+import ZoomCallButton from "@/components/Dialer/ZoomCallButton";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
-
-const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
 
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
+  const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
+  const { ready: zoomReady } = useZoomSmartEmbed();
   const {
     ensureRegistered,
     retryVoiceRegistration,
@@ -28,15 +31,37 @@ export default function QuickDialPanel() {
   const [loading, setLoading] = useState(false);
   const [loadingLine2, setLoadingLine2] = useState(false);
   const [error, setError] = useState(null);
+  // Prefer Zoom when both providers are enabled.
+  const [activeTab, setActiveTab] = useState(() =>
+    canUseZoomPhone ? "zoom" : canUseTwilioDialer ? "twilio" : "none",
+  );
+
+  useEffect(() => {
+    if (activeTab === "twilio" && !canUseTwilioDialer) {
+      setActiveTab(canUseZoomPhone ? "zoom" : "none");
+      return;
+    }
+    if (activeTab === "zoom" && !canUseZoomPhone) {
+      setActiveTab(canUseTwilioDialer ? "twilio" : "none");
+      return;
+    }
+    if (activeTab === "none") {
+      if (canUseZoomPhone) setActiveTab("zoom");
+      else if (canUseTwilioDialer) setActiveTab("twilio");
+    }
+  }, [activeTab, canUseTwilioDialer, canUseZoomPhone]);
+
+  const showTabs = canUseTwilioDialer && canUseZoomPhone;
+  const tab = showTabs ? activeTab : canUseZoomPhone ? "zoom" : canUseTwilioDialer ? "twilio" : "none";
 
   const hasActiveCall = Boolean(session);
   const hasActiveLine2Call = Boolean(line2Session);
-  const phoneBusy = hasActiveCall && (!canUseDialer2 || hasActiveLine2Call);
-  // Only the primary tab in this browser may place calls. Secondary tabs are
-  // hard-disabled here; the takeover affordance lives in the banner.
+  const phoneBusy =
+    tab === "twilio" && hasActiveCall && (!canUseDialer2 || hasActiveLine2Call);
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
   const canPlaceCall =
+    tab === "twilio" &&
     Boolean(phone.trim()) &&
     validation.isValid &&
     !loading &&
@@ -44,6 +69,7 @@ export default function QuickDialPanel() {
     canStartCall;
 
   const canPlaceLine2Call =
+    tab === "twilio" &&
     Boolean(phone.trim()) &&
     validation.isValid &&
     !loadingLine2 &&
@@ -71,8 +97,7 @@ export default function QuickDialPanel() {
   function onPhoneKeyDown(e) {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    if (!canPlaceCall) return;
-    void onCall();
+    if (tab === "twilio" && canPlaceCall) void onCall();
   }
 
   async function onCallLine2() {
@@ -107,11 +132,7 @@ export default function QuickDialPanel() {
     setError(null);
     try {
       expectOutgoingIncomingLeg(45000);
-      // Ensure the browser agent is ready before starting the outbound call.
-      // Otherwise Twilio may dial a not-yet-registered <Client> identity.
-      if (!registered) {
-        await ensureRegistered();
-      } else if (sdkInitializing) {
+      if (!registered || sdkInitializing) {
         await ensureRegistered();
       }
 
@@ -140,6 +161,15 @@ export default function QuickDialPanel() {
   const phoneInputBase =
     "w-full rounded-xl border-2 px-5 py-4 font-mono text-xl text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-500 focus:ring-2 focus:ring-offset-0 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-offset-0";
 
+  const tabBtnClass = (id) =>
+    `rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+      tab === id
+        ? id === "zoom"
+          ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
+          : "bg-sky-600 text-white shadow-md shadow-sky-500/25"
+        : "bg-white/70 text-zinc-700 hover:bg-white dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:bg-zinc-800"
+    }`;
+
   return (
     <section className="relative overflow-hidden rounded-3xl border border-sky-200/90 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/45 shadow-2xl shadow-sky-500/15 ring-1 ring-sky-300/40 dark:border-sky-900/50 dark:from-zinc-900 dark:via-zinc-900 dark:to-sky-950/25 dark:shadow-sky-950/35 dark:ring-sky-500/20">
       <div
@@ -158,160 +188,232 @@ export default function QuickDialPanel() {
             </p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white">Dialer</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/60 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  registered
-                    ? "animate-pulse bg-emerald-400"
-                    : sdkInitializing
-                      ? "animate-pulse bg-sky-400"
-                      : "bg-amber-400"
-                }`}
-              />
-              {registered
-                ? "Voice Ready"
-                : sdkInitializing
-                  ? "Connecting Voice…"
-                  : "Voice Not Ready"}
-            </div>
-            {!registered && !sdkInitializing && isPrimaryTab !== false ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void retryVoiceRegistration();
-                }}
-                className="rounded-full border border-amber-300/80 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
-              >
-                Retry Voice
-              </button>
-            ) : null}
-          </div>
-        </div>
-        {sdkError && !registered ? (
-          <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-            {sdkError}
-          </p>
-        ) : null}
-
-        <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
-          <div>
-            <label htmlFor="dial-phone" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-              Phone number
-            </label>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-              <div className="min-w-0 flex-1 lg:max-w-xl">
-                <input
-                  id="dial-phone"
-                  type="tel"
-                  value={phone}
-                  onChange={onPhoneChange}
-                  onPaste={onPhonePaste}
-                  onKeyDown={onPhoneKeyDown}
-                  placeholder="123-456-7890"
-                  disabled={phoneBusy}
-                  maxLength={12}
-                  className={`${phoneInputBase} ${
-                    validation.isValid
-                      ? "border-sky-300 bg-white text-zinc-900 focus:border-sky-500 focus:ring-sky-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:focus:border-cyan-400 dark:focus:ring-cyan-500/30"
-                      : "border-red-500/90 bg-red-50 text-red-900 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/90 dark:bg-red-950/30 dark:text-red-100"
+          {tab === "twilio" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/60 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    registered
+                      ? "animate-pulse bg-emerald-400"
+                      : sdkInitializing
+                        ? "animate-pulse bg-sky-400"
+                        : "bg-amber-400"
                   }`}
                 />
+                {registered
+                  ? "Voice Ready"
+                  : sdkInitializing
+                    ? "Connecting Voice…"
+                    : "Voice Not Ready"}
               </div>
-              <button
-                type="button"
-                onClick={onCall}
-                disabled={!canPlaceCall}
-                className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
-              >
-                {loading ? (
-                  <span
-                    className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
-                    aria-hidden
-                  />
-                ) : (
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                    />
-                  </svg>
-                )}
-                {hasActiveCall
-                  ? "Line 1 in call"
-                  : isPrimaryTab === false
-                    ? "Active in other tab"
-                    : voiceDisplaced
-                      ? "Use this tab"
-                      : !canStartCall
-                        ? "Voice Not Ready"
-                        : loading
-                          ? "Dialing..."
-                          : "Start Call"}
-              </button>
-              {canUseDialer2 ? (
+              {!registered && !sdkInitializing && isPrimaryTab !== false ? (
                 <button
                   type="button"
-                  onClick={onCallLine2}
-                  disabled={!canPlaceLine2Call}
-                  className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-6 text-base font-semibold text-white shadow-lg shadow-violet-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-violet-600 hover:to-fuchsia-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
+                  onClick={() => {
+                    void retryVoiceRegistration();
+                  }}
+                  className="rounded-full border border-amber-300/80 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
                 >
-                  {loadingLine2 ? (
-                    <span
-                      className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
-                      aria-hidden
-                    />
-                  ) : null}
-                  {hasActiveLine2Call
-                    ? "Line 2 in call"
-                    : loadingLine2
-                      ? "Dialing Line 2..."
-                      : "Call Line 2"}
+                  Retry Voice
                 </button>
               ) : null}
             </div>
-            <div className="mt-2 min-h-[1.25rem]">
-              {validation.message ? (
-                <p
-                  className={`text-xs ${
-                    validation.isValid ? "text-zinc-500 dark:text-zinc-400" : "font-medium text-red-600 dark:text-red-300"
-                  }`}
+          ) : tab === "zoom" ? (
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-300/60 bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800 dark:border-blue-400/30 dark:bg-blue-500/10 dark:text-blue-300">
+              <span
+                className={`h-2 w-2 rounded-full ${zoomReady ? "animate-pulse bg-blue-500" : "bg-amber-400"}`}
+              />
+              {zoomReady ? "Zoom Ready" : "Zoom Loading…"}
+            </div>
+          ) : null}
+        </div>
+
+        {showTabs ? (
+          <div
+            className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-sky-200/70 bg-sky-50/60 p-1.5 dark:border-zinc-700 dark:bg-zinc-900/50"
+            role="tablist"
+            aria-label="Voice provider"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "twilio"}
+              className={tabBtnClass("twilio")}
+              onClick={() => setActiveTab("twilio")}
+            >
+              Twilio
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "zoom"}
+              className={tabBtnClass("zoom")}
+              onClick={() => setActiveTab("zoom")}
+            >
+              Zoom Phone
+            </button>
+          </div>
+        ) : null}
+
+        {tab === "none" ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            No voice provider is enabled for your account. Ask an admin to enable Twilio and/or Zoom Phone.
+          </p>
+        ) : (
+          <>
+            {tab === "twilio" && sdkError && !registered ? (
+              <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                {sdkError}
+              </p>
+            ) : null}
+
+            {tab === "zoom" ? (
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+                <p className="font-semibold">Zoom Phone</p>
+                <p className="mt-1 leading-snug">
+                  Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in
+                  there, then refresh this page.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
+              <div>
+                <label
+                  htmlFor="dial-phone"
+                  className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
                 >
-                  {validation.message}
+                  Phone number
+                </label>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <div className="min-w-0 flex-1 lg:max-w-xl">
+                    <input
+                      id="dial-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={onPhoneChange}
+                      onPaste={onPhonePaste}
+                      onKeyDown={onPhoneKeyDown}
+                      placeholder="123-456-7890"
+                      disabled={phoneBusy}
+                      maxLength={12}
+                      className={`${phoneInputBase} ${
+                        validation.isValid
+                          ? tab === "zoom"
+                            ? "border-blue-300 bg-white text-zinc-900 focus:border-blue-500 focus:ring-blue-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/30"
+                            : "border-sky-300 bg-white text-zinc-900 focus:border-sky-500 focus:ring-sky-500/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:focus:border-cyan-400 dark:focus:ring-cyan-500/30"
+                          : "border-red-500/90 bg-red-50 text-red-900 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/90 dark:bg-red-950/30 dark:text-red-100"
+                      }`}
+                    />
+                  </div>
+                  {tab === "twilio" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={onCall}
+                        disabled={!canPlaceCall}
+                        className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
+                      >
+                        {loading ? (
+                          <span
+                            className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                            aria-hidden
+                          />
+                        ) : (
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                            />
+                          </svg>
+                        )}
+                        {hasActiveCall
+                          ? "Line 1 in call"
+                          : isPrimaryTab === false
+                            ? "Active in other tab"
+                            : voiceDisplaced
+                              ? "Use this tab"
+                              : !canStartCall
+                                ? "Voice Not Ready"
+                                : loading
+                                  ? "Dialing..."
+                                  : "Start Call"}
+                      </button>
+                      {canUseDialer2 ? (
+                        <button
+                          type="button"
+                          onClick={onCallLine2}
+                          disabled={!canPlaceLine2Call}
+                          className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-6 text-base font-semibold text-white shadow-lg shadow-violet-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-violet-600 hover:to-fuchsia-600 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
+                        >
+                          {loadingLine2 ? (
+                            <span
+                              className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                              aria-hidden
+                            />
+                          ) : null}
+                          {hasActiveLine2Call
+                            ? "Line 2 in call"
+                            : loadingLine2
+                              ? "Dialing Line 2..."
+                              : "Call Line 2"}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <ZoomCallButton
+                      phone={phone}
+                      disabled={!validation.isValid || !phone.trim()}
+                      label="Call with Zoom"
+                    />
+                  )}
+                </div>
+                <div className="mt-2 min-h-[1.25rem]">
+                  {validation.message ? (
+                    <p
+                      className={`text-xs ${
+                        validation.isValid
+                          ? "text-zinc-500 dark:text-zinc-400"
+                          : "font-medium text-red-600 dark:text-red-300"
+                      }`}
+                    >
+                      {validation.message}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              {error ? (
+                <p
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+                  role="alert"
+                >
+                  {error}
                 </p>
               ) : null}
+
+              <div className="border-t border-zinc-200/80 pt-4 dark:border-zinc-800">
+                <label
+                  htmlFor="dial-name"
+                  className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
+                >
+                  Contact name (optional)
+                </label>
+                <input
+                  id="dial-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="John Doe"
+                  disabled={tab === "twilio" && hasActiveCall}
+                  className="max-w-md w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-cyan-400 dark:focus:ring-cyan-500/20"
+                />
+              </div>
             </div>
-          </div>
-
-          {error ? (
-            <p
-              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
-              role="alert"
-            >
-              {error}
-            </p>
-          ) : null}
-
-          <div className="border-t border-zinc-200/80 pt-4 dark:border-zinc-800">
-            <label
-              htmlFor="dial-name"
-              className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
-            >
-              Contact name (optional)
-            </label>
-            <input
-              id="dial-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="John Doe"
-              disabled={hasActiveCall}
-              className="max-w-md w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-cyan-400 dark:focus:ring-cyan-500/20"
-            />
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </section>
   );

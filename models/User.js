@@ -122,6 +122,18 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
+      /** Admin-gated: Twilio softphone (default on for existing users). */
+      canUseTwilioDialer: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      /** Admin-gated: Zoom Phone Smart Embed softphone. */
+      canUseZoomPhone: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       /** Admin-gated second outbound line (parallel calls). */
       canUseDialer2: {
         type: DataTypes.BOOLEAN,

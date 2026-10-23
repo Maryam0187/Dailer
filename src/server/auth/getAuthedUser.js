@@ -187,6 +187,8 @@ async function resolveAuthedUser() {
       shiftKey: user.shiftKey === "night" ? "night" : "day",
       sessionPurpose: "full",
       canUseDialer2: Boolean(user.canUseDialer2),
+      canUseTwilioDialer: user.canUseTwilioDialer !== false,
+      canUseZoomPhone: Boolean(user.canUseZoomPhone),
       canTrainAddressBot: Boolean(user.canTrainAddressBot),
       canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
       selectsLeadSupervisor:

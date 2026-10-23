@@ -1600,6 +1600,7 @@ export default function UserReportDetail({
                   }
 
                   const call = event.row;
+                  const isZoomCall = call.voiceProvider === "zoom";
                   return (
                     <li
                       key={row.key}
@@ -1609,8 +1610,20 @@ export default function UserReportDetail({
                         Call
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
-                          {call.toNumber || "Unknown number"}
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                            {call.toNumber || "Unknown number"}
+                          </span>
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              isZoomCall
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
+                                : "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"
+                            }`}
+                            title={isZoomCall ? "Zoom Phone Soft Embed" : "Twilio Voice"}
+                          >
+                            {isZoomCall ? "Zoom" : "Twilio"}
+                          </span>
                         </span>
                         <span className="mt-0.5 block text-xs text-zinc-600 dark:text-zinc-400">
                           {call.status || "—"} · {formatDuration(call.durationSeconds)}

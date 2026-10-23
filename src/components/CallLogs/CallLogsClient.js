@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { useZoomSmartEmbed } from "@/contexts/ZoomSmartEmbedContext";
 import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 import { REPORT_EASTERN_TODAY_NOTICE, getReportPresetRange } from "@/lib/attendanceTime";
 import { formatDuration } from "@/lib/formatDuration";
@@ -102,6 +104,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const isAdmin = userRole === "admin";
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
+  const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
+  const { makeCall: zoomMakeCall, ready: zoomReady } = useZoomSmartEmbed();
   const {
     ensureRegistered,
     registered,
@@ -110,10 +114,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     isPrimaryTab,
     expectOutgoingIncomingLeg,
   } = useTwilioVoice();
-  // Only the primary tab in this browser may place calls. Secondary tabs are
+  // Only the primary tab in this browser may place Twilio calls. Secondary tabs are
   // hard-disabled here; the takeover affordance lives in the banner.
-  const canStartCall =
-    isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
+  const canStartTwilioCall =
+    canUseTwilioDialer &&
+    isPrimaryTab !== false &&
+    (registered || voiceDisplaced) &&
+    !sdkInitializing;
+  const canStartZoomCall = canUseZoomPhone;
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -232,11 +240,34 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, q, isAdmin],
   );
 
+  function shouldRedialWithZoom(call) {
+    if (!canUseZoomPhone) return false;
+    if (!canUseTwilioDialer) return true;
+    return call?.voiceProvider === "zoom";
+  }
+
   async function redial(call) {
+    const useZoom = shouldRedialWithZoom(call);
+    if (useZoom) {
+      const id = call.id;
+      const toNumber = call.toNumber;
+      setError(null);
+      setCallingId(id);
+      try {
+        const ok = zoomMakeCall(toNumber, { autoDial: true });
+        if (!ok) throw new Error("Zoom Phone is not ready — open the Zoom softphone and try again");
+      } catch (e) {
+        setError(e.message || "Failed to place Zoom call");
+      } finally {
+        setCallingId(null);
+      }
+      return;
+    }
+
     const useLine2 = Number(call.dialerIndex) === 2;
     if (useLine2) {
       if (line2Session) return;
-      if (!canUseDialer2) {
+      if (!canUseDialer2 || !canUseTwilioDialer) {
         setError("Second dialer is not enabled for this account");
         return;
       }
@@ -263,6 +294,11 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       } finally {
         setCallingLine2Id(null);
       }
+      return;
+    }
+
+    if (!canUseTwilioDialer) {
+      setError("Twilio dialer is not enabled for this account");
       return;
     }
 
@@ -775,7 +811,33 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                         {c.fromNumber || "—"}
                       </td>
                     ) : null}
-                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">{c.toNumber}</td>
+                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">
+                      <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <span>{c.toNumber}</span>
+                          {c.voiceProvider === "zoom" ? (
+                            <span
+                              className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
+                              title="Zoom Phone Soft Embed"
+                            >
+                              Zoom
+                            </span>
+                          ) : null}
+                        </span>
+                        {c.voiceProvider === "zoom" &&
+                        (c.zoomExtensionNumber || c.zoomPhoneNumber || c.zoomDisplayName) ? (
+                          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {[
+                              c.zoomDisplayName,
+                              c.zoomExtensionNumber ? `ext ${c.zoomExtensionNumber}` : null,
+                              c.zoomPhoneNumber,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="py-2 pr-2">
                       {isAdmin ? (
                         <span
@@ -850,11 +912,33 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                           </button>
                         ) : null}
                         {(() => {
+                          const useZoom = shouldRedialWithZoom(c);
+                          if (!useZoom && !canUseTwilioDialer && !canUseZoomPhone) return null;
+
+                          if (useZoom) {
+                            const isCalling = callingId === c.id;
+                            const disabled = isCalling || !canStartZoomCall;
+                            let label = "Call Zoom";
+                            if (isCalling) label = "Calling...";
+                            else if (!zoomReady) label = "Call Zoom";
+                            return (
+                              <button
+                                type="button"
+                                title="Redial with Zoom Phone"
+                                onClick={() => redial(c)}
+                                disabled={disabled}
+                                className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-900 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                              >
+                                {label}
+                              </button>
+                            );
+                          }
+
                           const isLine2 = Number(c.dialerIndex) === 2;
                           if (isLine2 && !canUseDialer2) return null;
                           const isCalling = isLine2 ? callingLine2Id === c.id : callingId === c.id;
                           const lineBusy = isLine2 ? Boolean(line2Session) : Boolean(session);
-                          const voiceReady = isLine2 ? canStartLine2 : canStartCall;
+                          const voiceReady = isLine2 ? canStartLine2 : canStartTwilioCall;
                           const disabled =
                             isCalling || lineBusy || isPrimaryTab === false || !voiceReady;
                           let label = "Call";

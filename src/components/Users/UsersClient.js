@@ -569,6 +569,8 @@ function EditUserModal({
   const [isActive, setIsActive] = useState(user.isActive !== false);
   const [isOutside, setIsOutside] = useState(Boolean(user.isOutside));
   const [canUseDialer2, setCanUseDialer2] = useState(Boolean(user.canUseDialer2));
+  const [canUseTwilioDialer, setCanUseTwilioDialer] = useState(user.canUseTwilioDialer !== false);
+  const [canUseZoomPhone, setCanUseZoomPhone] = useState(Boolean(user.canUseZoomPhone));
   const [canTrainAddressBot, setCanTrainAddressBot] = useState(Boolean(user.canTrainAddressBot));
   const [canReceiveSharedLeads, setCanReceiveSharedLeads] = useState(
     Boolean(user.canReceiveSharedLeads),
@@ -605,6 +607,8 @@ function EditUserModal({
     setIsActive(user.isActive !== false);
     setIsOutside(Boolean(user.isOutside));
     setCanUseDialer2(Boolean(user.canUseDialer2));
+    setCanUseTwilioDialer(user.canUseTwilioDialer !== false);
+    setCanUseZoomPhone(Boolean(user.canUseZoomPhone));
     setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
     setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
     setSelectsLeadSupervisor(Boolean(user.selectsLeadSupervisor));
@@ -721,6 +725,12 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canUseDialer2) !== Boolean(user.canUseDialer2)) {
         payload.canUseDialer2 = canUseDialer2;
+      }
+      if (isAdmin && Boolean(canUseTwilioDialer) !== (user.canUseTwilioDialer !== false)) {
+        payload.canUseTwilioDialer = canUseTwilioDialer;
+      }
+      if (isAdmin && Boolean(canUseZoomPhone) !== Boolean(user.canUseZoomPhone)) {
+        payload.canUseZoomPhone = canUseZoomPhone;
       }
       if (isAdmin && Boolean(canTrainAddressBot) !== Boolean(user.canTrainAddressBot)) {
         payload.canTrainAddressBot = canTrainAddressBot;
@@ -1164,18 +1174,59 @@ function EditUserModal({
           ) : null}
 
           {isAdmin ? (
+            <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Voice providers
+                <span className="ml-1 font-normal text-zinc-500">
+                  (enable both, or only one)
+                </span>
+              </p>
+              <div className="flex items-center gap-3">
+                <input
+                  id="edit-twilio-dialer"
+                  type="checkbox"
+                  checked={canUseTwilioDialer}
+                  onChange={(e) => setCanUseTwilioDialer(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+                />
+                <label htmlFor="edit-twilio-dialer" className="text-sm text-zinc-800 dark:text-zinc-200">
+                  Allow Twilio dialer
+                </label>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  id="edit-zoom-phone"
+                  type="checkbox"
+                  checked={canUseZoomPhone}
+                  onChange={(e) => setCanUseZoomPhone(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+                />
+                <label htmlFor="edit-zoom-phone" className="text-sm text-zinc-800 dark:text-zinc-200">
+                  Allow Zoom Phone
+                </label>
+              </div>
+              {!canUseTwilioDialer && !canUseZoomPhone ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  No voice provider selected — user will not see a softphone.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isAdmin ? (
             <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-800 dark:bg-violet-950/30">
               <input
                 id="edit-dialer2"
                 type="checkbox"
                 checked={canUseDialer2}
                 onChange={(e) => setCanUseDialer2(e.target.checked)}
-                className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                disabled={!canUseTwilioDialer}
+                className="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
               />
               <label htmlFor="edit-dialer2" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                 Allow second dialer
                 <span className="ml-1 font-normal text-zinc-500">
-                  (parallel outbound Line 2)
+                  (Twilio parallel outbound Line 2)
                 </span>
               </label>
             </div>
@@ -1377,6 +1428,8 @@ function normalizeUsersList(list) {
     isActive: u.isActive !== false && u.isActive !== 0,
     isOutside: Boolean(u.isOutside),
     canUseDialer2: Boolean(u.canUseDialer2),
+    canUseTwilioDialer: u.canUseTwilioDialer !== false,
+    canUseZoomPhone: Boolean(u.canUseZoomPhone),
     canTrainAddressBot: Boolean(u.canTrainAddressBot),
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
     selectsLeadSupervisor: u.role === "agent" ? Boolean(u.selectsLeadSupervisor) : false,

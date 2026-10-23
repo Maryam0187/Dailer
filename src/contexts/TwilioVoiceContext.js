@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
+import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { deriveCallQualityLevel, normalizeQualityWarningName } from "@/lib/callQuality";
 import { patchTwilioVoiceSoundsForAutoplayPolicy } from "@/lib/twilioVoiceSoundPatch";
 import {
@@ -55,6 +56,7 @@ function keepaliveEndCall(callId) {
 }
 
 export function TwilioVoiceProvider({ children, userRole = null }) {
+  const { canUseTwilioDialer } = useDialerCapabilities();
   const { session, sessionSyncRef, beginSession, patchSession, endCall, clearLocalSession, markInProgress } =
     useActiveCall();
   const isAdmin = userRole === "admin";
@@ -383,8 +385,12 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     };
   }, [destroyDevice, endOwnedCallOnUnload, stopInviteTone]);
 
+  const canUseTwilioDialerRef = useRef(canUseTwilioDialer);
+  canUseTwilioDialerRef.current = canUseTwilioDialer;
+
   const ensureRegistered = useCallback(async (options = {}) => {
     const force = Boolean(options?.force);
+    if (!canUseTwilioDialerRef.current) return false;
     // Single-active-tab guard: secondary tabs in this browser must NOT register
     // a Twilio Device. Without this, two tabs would each request a token, both
     // would register, and Twilio's "last register wins" would still let the
@@ -1014,10 +1020,24 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     };
   }, []);
 
+  // When Twilio dialer is disabled for this user, tear down any Device and skip register.
+  useEffect(() => {
+    if (canUseTwilioDialer) return undefined;
+    if (deviceRef.current) destroyDevice();
+    attemptedWarmRegistrationRef.current = false;
+    manualRetryRequiredRef.current = false;
+    setSdkError(null);
+    setSdkInitializing(false);
+    setRegistered(false);
+    setVoiceDisplaced(false);
+    return undefined;
+  }, [canUseTwilioDialer, destroyDevice]);
+
   // Warm-register the Twilio Device once we're the primary tab. If this tab
   // later loses the lock (another tab took over), destroy the Device so it
   // can't receive or place calls.
   useEffect(() => {
+    if (!canUseTwilioDialer) return;
     if (isPrimaryTab === null) return; // lock state not yet read
     if (isPrimaryTab === false) {
       if (deviceRef.current) destroyDevice();
@@ -1036,15 +1056,16 @@ export function TwilioVoiceProvider({ children, userRole = null }) {
     void ensureRegistered().then((ok) => {
       if (!ok) manualRetryRequiredRef.current = true;
     });
-  }, [isPrimaryTab, ensureRegistered, destroyDevice, registered]);
+  }, [canUseTwilioDialer, isPrimaryTab, ensureRegistered, destroyDevice, registered]);
 
   /** Manual retry after signaling failure (clears backoff). */
   const retryVoiceRegistration = useCallback(async () => {
+    if (!canUseTwilioDialer) return false;
     manualRetryRequiredRef.current = false;
     attemptedWarmRegistrationRef.current = false;
     destroyDevice();
     return ensureRegistered({ force: true });
-  }, [destroyDevice, ensureRegistered]);
+  }, [canUseTwilioDialer, destroyDevice, ensureRegistered]);
 
   // Explicit takeover: a secondary tab can grab the lock and become primary.
   // Wired to the "Use this tab" button in VoiceLockBanner / call buttons.

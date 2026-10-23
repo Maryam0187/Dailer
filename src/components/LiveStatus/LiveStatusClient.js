@@ -84,6 +84,8 @@ function buildSummary(agents) {
     away: 0,
     offline: 0,
     onCall: 0,
+    onCallTwilio: 0,
+    onCallZoom: 0,
     available: 0,
     onLeave: 0,
   };
@@ -91,8 +93,11 @@ function buildSummary(agents) {
     if (a.presence === "online") summary.online += 1;
     else if (a.presence === "away") summary.away += 1;
     else summary.offline += 1;
-    if (a.onCall) summary.onCall += 1;
-    else if (a.presence === "online") summary.available += 1;
+    if (a.onCall) {
+      summary.onCall += 1;
+      if (a.activeCall?.voiceProvider === "zoom") summary.onCallZoom += 1;
+      else summary.onCallTwilio += 1;
+    } else if (a.presence === "online") summary.available += 1;
     if (a.isOnLeave) summary.onLeave += 1;
   }
   return summary;
@@ -187,13 +192,19 @@ function SummaryCard({ label, value, tone = "zinc", hint }) {
 
 function OnCallBadge({ call }) {
   if (!call) return null;
+  const provider = call.voiceProvider === "zoom" ? "Zoom" : "Twilio";
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-950/50 dark:text-rose-200"
+      title={provider === "Zoom" ? "Zoom Phone Soft Embed" : "Twilio Voice"}
+    >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500" />
       </span>
       {callStatusLabel(call.status)}
+      {" · "}
+      {provider}
       {call.invited ? " · invited" : ""}
     </span>
   );
@@ -262,8 +273,22 @@ function AgentRow({ agent }) {
           </p>
           {call ? (
             <div className="mt-0.5">
-              <p className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
-                {call.direction === "inbound" ? call.fromNumber : call.toNumber || "—"}
+              <p className="flex flex-wrap items-center gap-1.5 font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                <span>
+                  {call.direction === "inbound" ? call.fromNumber : call.toNumber || "—"}
+                </span>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                    call.voiceProvider === "zoom"
+                      ? "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
+                      : "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"
+                  }`}
+                  title={
+                    call.voiceProvider === "zoom" ? "Zoom Phone Soft Embed" : "Twilio Voice"
+                  }
+                >
+                  {call.voiceProvider === "zoom" ? "Zoom" : "Twilio"}
+                </span>
               </p>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 {formatDuration(call.durationSeconds)}
@@ -445,7 +470,12 @@ export default function LiveStatusClient({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         <SummaryCard label="Team" value={summary.total} tone="zinc" />
         <SummaryCard label="Online" value={summary.online} tone="emerald" hint="Connected now" />
-        <SummaryCard label="On call" value={summary.onCall} tone="rose" hint="Live phone legs" />
+        <SummaryCard
+          label="On call"
+          value={`${summary.onCallTwilio}/${summary.onCallZoom}`}
+          tone="rose"
+          hint="Twilio / Zoom"
+        />
         <SummaryCard
           label="Available"
           value={summary.available}

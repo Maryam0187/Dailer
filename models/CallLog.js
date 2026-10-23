@@ -127,6 +127,40 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 1,
       },
+      /** twilio (default) | zoom — Soft Embed calls from the in-app widget. */
+      voiceProvider: {
+        type: DataTypes.STRING(16),
+        allowNull: false,
+        defaultValue: "twilio",
+      },
+      /** Zoom Smart Embed callId (for upsert / dedupe). */
+      externalCallId: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      /** Zoom callLogId when zp-call-log-completed fires. */
+      externalCallLogId: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+      },
+      /** Shared Zoom line context (same account can be used by multiple dialer users). */
+      zoomExtensionNumber: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      zoomPhoneNumber: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      zoomDisplayName: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      /** Soft Embed connected timestamp — duration fallback if Zoom omits duration. */
+      zoomConnectedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "CallLogs",
@@ -140,6 +174,8 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["leadId"] },
         { fields: ["createdAt"] },
         { fields: ["userId", "createdAt"] },
+        { fields: ["voiceProvider"] },
+        { fields: ["userId", "externalCallId"] },
       ],
     },
   );
