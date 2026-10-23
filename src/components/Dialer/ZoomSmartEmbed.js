@@ -86,12 +86,13 @@ export default function ZoomSmartEmbed() {
         ) : null}
 
         {/* Keep iframe mounted when hidden/minimized so Soft Embed stays connected.
-            Clip Soft Embed to panel — Zoom min size is 350×580; cap to viewport. */}
+            Soft Embed needs ~700px so the device picker (often near the bottom) is reachable;
+            panel stays viewport-capped and this body scrolls if needed. */}
         <div
           className={
             collapsed
               ? "h-0 overflow-hidden opacity-0"
-              : "min-h-0 flex-1 overflow-hidden opacity-100"
+              : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden opacity-100"
           }
           aria-hidden={collapsed}
         >
@@ -102,9 +103,7 @@ export default function ZoomSmartEmbed() {
               src={iframeSrc}
               allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
               onLoad={() => onIframeLoad?.()}
-              scrolling="no"
-              className="block w-full max-h-[calc(100dvh-4.5rem)] border-0 bg-white dark:bg-zinc-950"
-              style={{ height: "min(580px, calc(100dvh - 4.5rem))", overflow: "hidden" }}
+              className="block h-[700px] min-h-[580px] w-full border-0 bg-white dark:bg-zinc-950"
             />
           ) : null}
         </div>

@@ -268,18 +268,26 @@ export default function QuickDialPanel() {
             ) : null}
 
             {tab === "zoom" ? (
-              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
-                <p className="font-semibold">Zoom Phone</p>
-                <p className="mt-1 leading-snug">
-                  Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in
-                  there, then refresh this page.
-                </p>
-                <p className="mt-2 leading-snug">
-                  In the Zoom softphone, open the <span className="font-semibold">device picker</span>{" "}
-                  and select <span className="font-semibold">this computer</span> — not another
-                  device — so calls ring and dial here.
-                </p>
-              </div>
+              <>
+                <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+                  <p className="font-semibold">Zoom Phone</p>
+                  <p className="mt-1 leading-snug">
+                    Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in
+                    there, then refresh this page.
+                  </p>
+                </div>
+                <div
+                  role="status"
+                  className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+                >
+                  <p className="font-semibold text-red-800 dark:text-red-200">Device</p>
+                  <p className="mt-1 leading-snug">
+                    Expand the Zoom softphone (bottom-right), then open the device picker and select{" "}
+                    <span className="font-semibold">your computer</span> — so calls ring and dial
+                    here. Scroll inside the softphone if the picker is not visible.
+                  </p>
+                </div>
+              </>
             ) : null}
 
             <div className="space-y-5 rounded-2xl border border-white/80 bg-white/80 p-5 shadow-[0_10px_30px_rgba(56,189,248,0.12)] backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
