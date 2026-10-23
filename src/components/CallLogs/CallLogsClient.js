@@ -776,14 +776,28 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                       </td>
                     ) : null}
                     <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100">
-                      <span className="inline-flex flex-wrap items-center gap-1.5">
-                        <span>{c.toNumber}</span>
-                        {c.voiceProvider === "zoom" ? (
-                          <span
-                            className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
-                            title="Zoom Phone Soft Embed"
-                          >
-                            Zoom
+                      <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <span>{c.toNumber}</span>
+                          {c.voiceProvider === "zoom" ? (
+                            <span
+                              className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
+                              title="Zoom Phone Soft Embed"
+                            >
+                              Zoom
+                            </span>
+                          ) : null}
+                        </span>
+                        {c.voiceProvider === "zoom" &&
+                        (c.zoomExtensionNumber || c.zoomPhoneNumber || c.zoomDisplayName) ? (
+                          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {[
+                              c.zoomDisplayName,
+                              c.zoomExtensionNumber ? `ext ${c.zoomExtensionNumber}` : null,
+                              c.zoomPhoneNumber,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         ) : null}
                       </span>

@@ -190,6 +190,9 @@ export async function GET(req) {
       "dialerIndex",
       "voiceProvider",
       "externalCallId",
+      "zoomExtensionNumber",
+      "zoomPhoneNumber",
+      "zoomDisplayName",
       "createdAt",
     ],
     include: [
@@ -269,6 +272,9 @@ export async function GET(req) {
         zipCode: call.zipCode || null,
         dialerIndex: Number(call.dialerIndex) === 2 ? 2 : 1,
         voiceProvider: call.voiceProvider === "zoom" ? "zoom" : "twilio",
+        zoomExtensionNumber: call.zoomExtensionNumber || null,
+        zoomPhoneNumber: call.zoomPhoneNumber || null,
+        zoomDisplayName: call.zoomDisplayName || null,
         ...(conferenceOnly ? { invitedToNames } : {}),
       };
     }),

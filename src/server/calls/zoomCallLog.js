@@ -13,6 +13,12 @@ function partyName(party) {
   return name ? name.slice(0, 255) : null;
 }
 
+function partyExtension(party) {
+  if (!party || typeof party !== "object") return null;
+  const ext = String(party.extensionNumber || "").trim();
+  return ext ? ext.slice(0, 64) : null;
+}
+
 export function extractZoomParties(data = {}) {
   const direction = data.direction === "inbound" ? "inbound" : "outbound";
   const callerPhone = partyPhone(data.caller);
@@ -36,6 +42,17 @@ export function extractZoomParties(data = {}) {
   };
 }
 
+/** Our Zoom line (outbound = caller, inbound = callee). */
+export function extractZoomOurLine(data = {}) {
+  const direction = data.direction === "inbound" ? "inbound" : "outbound";
+  const ours = direction === "inbound" ? data.callee : data.caller;
+  return {
+    zoomExtensionNumber: partyExtension(ours),
+    zoomPhoneNumber: partyPhone(ours),
+    zoomDisplayName: partyName(ours),
+  };
+}
+
 export function mapZoomEndStatus(result) {
   const r = String(result || "").toLowerCase();
   if (r === "missed" || r.includes("no answer")) return "no-answer";
@@ -54,6 +71,7 @@ export function mapZoomLogResultStatus(result) {
   if (/reject/i.test(r)) return "busy";
   if (/voicemail/i.test(r)) return "completed";
   if (/call connected|answered/i.test(r)) return "completed";
+  if (/missed/i.test(r)) return "no-answer";
   return "completed";
 }
 
@@ -63,12 +81,32 @@ export function parseZoomDurationSeconds(duration) {
     return Math.max(0, Math.round(duration));
   }
   const s = String(duration).trim();
-  if (/^\d+$/.test(s)) return Math.max(0, Number(s));
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.max(0, Math.round(Number(s)));
   // HH:MM:SS or MM:SS
   const parts = s.split(":").map((p) => Number(p));
-  if (parts.every((n) => Number.isFinite(n))) {
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
+    if (parts.length === 3) return Math.max(0, Math.round(parts[0] * 3600 + parts[1] * 60 + parts[2]));
+    if (parts.length === 2) return Math.max(0, Math.round(parts[0] * 60 + parts[1]));
   }
   return null;
+}
+
+export function parseZoomEventDate(dateTime) {
+  if (dateTime == null || dateTime === "") return null;
+  if (dateTime instanceof Date && !Number.isNaN(dateTime.getTime())) return dateTime;
+  if (typeof dateTime === "number" && Number.isFinite(dateTime)) {
+    const ms = dateTime < 1e12 ? dateTime * 1000 : dateTime;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(String(dateTime));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function durationSecondsBetween(startAt, endAt) {
+  if (!startAt || !endAt) return null;
+  const a = startAt instanceof Date ? startAt.getTime() : new Date(startAt).getTime();
+  const b = endAt instanceof Date ? endAt.getTime() : new Date(endAt).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  return Math.max(0, Math.round((b - a) / 1000));
 }

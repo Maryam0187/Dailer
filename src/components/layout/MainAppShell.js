@@ -18,12 +18,17 @@ import ActivityTracker from "@/components/layout/ActivityTracker";
 import OneSignalProvider from "@/components/push/OneSignalProvider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
+function VoiceLockChrome({ outsideManager = false }) {
+  const { canUseTwilioDialer } = useDialerCapabilities();
+  if (outsideManager || !canUseTwilioDialer) return null;
+  return <VoiceLockBanner />;
+}
+
 function VoiceProviderChrome({ userRole = null, outsideManager = false }) {
   const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
 
   return (
     <>
-      {!outsideManager && canUseTwilioDialer ? <VoiceLockBanner /> : null}
       {!outsideManager ? <IvrStaffAlert userRole={userRole} /> : null}
       {canUseTwilioDialer ? <GlobalWebCallInterface userRole={userRole} /> : null}
       {canUseTwilioDialer ? <Line2CallInterface /> : null}
@@ -60,6 +65,7 @@ export default function MainAppShell({
                     <OneSignalProvider userId={currentUserId} username={currentUsername} />
                     {outsideManager ? null : <ActivityTracker />}
                     {outsideManager ? null : <ShiftLogoutGuard />}
+                    <VoiceLockChrome outsideManager={outsideManager} />
                     {children}
                     <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
                     <VoiceProviderChrome userRole={userRole} outsideManager={outsideManager} />
