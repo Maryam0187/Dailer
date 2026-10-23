@@ -5,6 +5,8 @@ import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
+import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
+import ZoomCallButton from "@/components/Dialer/ZoomCallButton";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
@@ -12,6 +14,7 @@ const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-z
 export default function QuickDialPanel() {
   const { session, beginSession } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
+  const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
   const {
     ensureRegistered,
     retryVoiceRegistration,
@@ -37,6 +40,7 @@ export default function QuickDialPanel() {
   const canStartCall =
     isPrimaryTab !== false && (registered || voiceDisplaced) && !sdkInitializing;
   const canPlaceCall =
+    canUseTwilioDialer &&
     Boolean(phone.trim()) &&
     validation.isValid &&
     !loading &&
@@ -44,6 +48,7 @@ export default function QuickDialPanel() {
     canStartCall;
 
   const canPlaceLine2Call =
+    canUseTwilioDialer &&
     Boolean(phone.trim()) &&
     validation.isValid &&
     !loadingLine2 &&
@@ -218,40 +223,42 @@ export default function QuickDialPanel() {
                   }`}
                 />
               </div>
-              <button
-                type="button"
-                onClick={onCall}
-                disabled={!canPlaceCall}
-                className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
-              >
-                {loading ? (
-                  <span
-                    className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
-                    aria-hidden
-                  />
-                ) : (
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+              {canUseTwilioDialer ? (
+                <button
+                  type="button"
+                  onClick={onCall}
+                  disabled={!canPlaceCall}
+                  className="inline-flex h-14 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 px-8 text-base font-semibold text-white shadow-lg shadow-sky-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:from-sky-600 hover:to-indigo-600 hover:shadow-sky-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:bg-none disabled:text-zinc-500 disabled:shadow-none dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300"
+                >
+                  {loading ? (
+                    <span
+                      className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                      aria-hidden
                     />
-                  </svg>
-                )}
-                {hasActiveCall
-                  ? "Line 1 in call"
-                  : isPrimaryTab === false
-                    ? "Active in other tab"
-                    : voiceDisplaced
-                      ? "Use this tab"
-                      : !canStartCall
-                        ? "Voice Not Ready"
-                        : loading
-                          ? "Dialing..."
-                          : "Start Call"}
-              </button>
-              {canUseDialer2 ? (
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                      />
+                    </svg>
+                  )}
+                  {hasActiveCall
+                    ? "Line 1 in call"
+                    : isPrimaryTab === false
+                      ? "Active in other tab"
+                      : voiceDisplaced
+                        ? "Use this tab"
+                        : !canStartCall
+                          ? "Voice Not Ready"
+                          : loading
+                            ? "Dialing..."
+                            : "Start Call"}
+                </button>
+              ) : null}
+              {canUseTwilioDialer && canUseDialer2 ? (
                 <button
                   type="button"
                   onClick={onCallLine2}
@@ -270,6 +277,13 @@ export default function QuickDialPanel() {
                       ? "Dialing Line 2..."
                       : "Call Line 2"}
                 </button>
+              ) : null}
+              {canUseZoomPhone ? (
+                <ZoomCallButton
+                  phone={phone}
+                  disabled={!validation.isValid || !phone.trim()}
+                  label="Call Zoom"
+                />
               ) : null}
             </div>
             <div className="mt-2 min-h-[1.25rem]">

@@ -31,6 +31,8 @@ const LIST_ATTRIBUTES = [
   "totpEnabled",
   "totpEnabledAt",
   "canUseDialer2",
+  "canUseTwilioDialer",
+  "canUseZoomPhone",
   "canTrainAddressBot",
   "canReceiveSharedLeads",
   "selectsLeadSupervisor",
@@ -91,6 +93,8 @@ function serializeUserRow(
           totpEnabled: row.totpEnabled === true,
           totpEnabledAt: row.totpEnabledAt ?? null,
           canUseDialer2: Boolean(row.canUseDialer2),
+          canUseTwilioDialer: row.canUseTwilioDialer !== false,
+          canUseZoomPhone: Boolean(row.canUseZoomPhone),
           canTrainAddressBot: Boolean(row.canTrainAddressBot),
           canReceiveSharedLeads: Boolean(row.canReceiveSharedLeads),
         }
