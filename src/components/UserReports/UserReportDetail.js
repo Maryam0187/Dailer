@@ -496,8 +496,10 @@ export default function UserReportDetail({
   useEffect(() => {
     if (!filteredUsers.length) return;
     if (user && filteredUsers.some((u) => u.id === user.id)) return;
+    const nextId = filteredUsers[0]?.id;
+    if (nextId == null || user?.id === nextId) return;
     if (typeof onUserIdChange === "function") {
-      onUserIdChange(filteredUsers[0].id);
+      onUserIdChange(nextId);
     }
   }, [filteredUsers, user, onUserIdChange]);
 

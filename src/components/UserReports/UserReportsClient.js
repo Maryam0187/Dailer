@@ -64,12 +64,15 @@ export default function UserReportsClient({
     }
   }, [tabFromUrl, allowedTabs, topTab]);
 
+  // Sync selection from the URL only when the URL changes — not when local
+  // selectedUserId changes. Including selectedUserId in deps raced with filter
+  // auto-select (local id updates before router.replace commits) and looped.
   useEffect(() => {
     const n = Number(userIdFromUrl);
-    if (Number.isInteger(n) && n > 0 && users.some((u) => u.id === n) && n !== selectedUserId) {
-      setSelectedUserId(n);
+    if (Number.isInteger(n) && n > 0 && users.some((u) => u.id === n)) {
+      setSelectedUserId((prev) => (prev === n ? prev : n));
     }
-  }, [userIdFromUrl, users, selectedUserId]);
+  }, [userIdFromUrl, users]);
 
   const replaceQuery = useCallback(
     (next) => {
@@ -92,11 +95,14 @@ export default function UserReportsClient({
     replaceQuery(patch);
   }
 
-  function onUserIdChange(id) {
-    setSelectedUserId(id);
-    setTopTab("user");
-    replaceQuery({ tab: "user", userId: id });
-  }
+  const onUserIdChange = useCallback(
+    (id) => {
+      setSelectedUserId(id);
+      setTopTab("user");
+      replaceQuery({ tab: "user", userId: id });
+    },
+    [replaceQuery],
+  );
 
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) || null,
