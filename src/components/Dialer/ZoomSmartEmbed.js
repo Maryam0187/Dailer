@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useZoomSmartEmbed } from "@/contexts/ZoomSmartEmbedContext";
 import { buildZoomPhoneIframeUrl, ZOOM_PHONE_IFRAME_ID } from "@/lib/zoomSmartEmbed";
@@ -16,10 +16,11 @@ export default function ZoomSmartEmbed() {
   const pathname = usePathname();
   const { enabled, ready, lastEvent, onIframeLoad } = useZoomSmartEmbed();
   const [isMinimized, setIsMinimized] = useState(false);
+  // Set src after mount — SSR/useMemo([]) cached "" and left the iframe blank on refresh.
+  const [iframeSrc, setIframeSrc] = useState("");
 
-  const iframeSrc = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return buildZoomPhoneIframeUrl(window.location.origin);
+  useEffect(() => {
+    setIframeSrc(buildZoomPhoneIframeUrl(window.location.origin));
   }, []);
 
   if (!enabled) return null;
@@ -89,16 +90,18 @@ export default function ZoomSmartEmbed() {
           }
           aria-hidden={collapseBody}
         >
-          <iframe
-            id={ZOOM_PHONE_IFRAME_ID}
-            title="Zoom Phone"
-            src={iframeSrc}
-            allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
-            onLoad={() => onIframeLoad?.()}
-            scrolling="no"
-            className="block h-[700px] w-full border-0 bg-white dark:bg-zinc-950"
-            style={{ overflow: "hidden" }}
-          />
+          {iframeSrc ? (
+            <iframe
+              id={ZOOM_PHONE_IFRAME_ID}
+              title="Zoom Phone"
+              src={iframeSrc}
+              allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
+              onLoad={() => onIframeLoad?.()}
+              scrolling="no"
+              className="block h-[700px] w-full border-0 bg-white dark:bg-zinc-950"
+              style={{ overflow: "hidden" }}
+            />
+          ) : null}
         </div>
       </div>
     </div>

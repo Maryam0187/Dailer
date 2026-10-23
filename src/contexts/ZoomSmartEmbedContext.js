@@ -41,6 +41,10 @@ export function ZoomSmartEmbedProvider({ children }) {
   }, []);
 
   const onIframeLoad = useCallback(() => {
+    // Soft Embed (re)loaded — allow zp-init-config again (refresh / remount).
+    initSentRef.current = false;
+    readyRef.current = false;
+    setReady(false);
     // Give the Soft Embed a beat to attach message handlers, then init.
     window.setTimeout(() => markReady(), 300);
   }, [markReady]);
