@@ -11,9 +11,6 @@ import { buildZoomPhoneIframeUrl, ZOOM_PHONE_IFRAME_ID } from "@/lib/zoomSmartEm
  * not Zoom's default side dock.
  * Panel is shown on the Dialer home page; stays visible during an active Zoom call
  * if the user navigates away. Iframe stays mounted off-page so Soft Embed stays connected.
- *
- * Note: Soft Embed UI (incl. device picker) is cross-origin — we cannot restyle Zoom's
- * picker. We show a compact red banner above the iframe to call out device selection.
  */
 export default function ZoomSmartEmbed() {
   const pathname = usePathname();
@@ -21,7 +18,6 @@ export default function ZoomSmartEmbed() {
   const [isMinimized, setIsMinimized] = useState(true);
   // Set src after mount — SSR/useMemo([]) cached "" and left the iframe blank on refresh.
   const [iframeSrc, setIframeSrc] = useState("");
-  const [deviceHintDismissed, setDeviceHintDismissed] = useState(false);
 
   useEffect(() => {
     setIframeSrc(buildZoomPhoneIframeUrl(window.location.origin));
@@ -38,7 +34,6 @@ export default function ZoomSmartEmbed() {
   const showPanel = onDialerPage || inCall;
   // Minimized by default; auto-expand while Soft Embed has an active/ringing call.
   const collapsed = (isMinimized && !inCall) || !showPanel;
-  const showDeviceBanner = showPanel && !collapsed && !deviceHintDismissed;
 
   return (
     <div
@@ -46,12 +41,12 @@ export default function ZoomSmartEmbed() {
         showPanel
           ? collapsed
             ? "w-64"
-            : "w-[320px]"
+            : "w-[350px] max-h-[calc(100dvh-1.5rem)]"
           : "pointer-events-none h-0 w-0 overflow-hidden opacity-0"
       }`}
       aria-hidden={!showPanel}
     >
-      <div className="flex flex-col overflow-hidden rounded-xl border border-blue-300 bg-white shadow-xl shadow-blue-500/10 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
+      <div className="flex max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden rounded-xl border border-blue-300 bg-white shadow-xl shadow-blue-500/10 dark:border-blue-800 dark:bg-zinc-900 dark:shadow-blue-950/30">
         {showPanel ? (
           <div className="flex flex-shrink-0 items-center justify-between bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 px-2.5 py-1.5 text-white">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -90,34 +85,13 @@ export default function ZoomSmartEmbed() {
           </div>
         ) : null}
 
-        {/* Soft Embed device picker cannot be moved/styled — highlight selection above iframe. */}
-        {showDeviceBanner ? (
-          <div
-            role="status"
-            className="flex flex-shrink-0 items-start gap-2 border-b border-red-700 bg-red-600 px-2.5 py-1.5 text-white"
-          >
-            <span className="mt-0.5 text-[10px] font-bold uppercase tracking-wide">Device</span>
-            <p className="min-w-0 flex-1 text-[11px] leading-snug font-medium">
-              Select <span className="font-bold underline">this computer</span> in Zoom’s device
-              picker below — not another device.
-            </p>
-            <button
-              type="button"
-              onClick={() => setDeviceHintDismissed(true)}
-              className="shrink-0 rounded px-1 text-sm leading-none text-white/90 hover:bg-red-700"
-              aria-label="Dismiss device hint"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
-
-        {/* Keep iframe mounted when hidden/minimized so Soft Embed stays connected. */}
+        {/* Keep iframe mounted when hidden/minimized so Soft Embed stays connected.
+            Clip Soft Embed to panel — Zoom min size is 350×580; cap to viewport. */}
         <div
           className={
             collapsed
               ? "h-0 overflow-hidden opacity-0"
-              : "overflow-hidden opacity-100"
+              : "min-h-0 flex-1 overflow-hidden opacity-100"
           }
           aria-hidden={collapsed}
         >
@@ -129,8 +103,8 @@ export default function ZoomSmartEmbed() {
               allow="clipboard-read; clipboard-write https://applications.zoom.us; microphone; autoplay"
               onLoad={() => onIframeLoad?.()}
               scrolling="no"
-              className="block h-[520px] w-full border-0 bg-white dark:bg-zinc-950"
-              style={{ overflow: "hidden" }}
+              className="block w-full max-h-[calc(100dvh-4.5rem)] border-0 bg-white dark:bg-zinc-950"
+              style={{ height: "min(580px, calc(100dvh - 4.5rem))", overflow: "hidden" }}
             />
           ) : null}
         </div>

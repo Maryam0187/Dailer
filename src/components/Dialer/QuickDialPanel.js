@@ -274,6 +274,11 @@ export default function QuickDialPanel() {
                   Keep the Zoom desktop app open and signed in. If Zoom asks to log in, sign in
                   there, then refresh this page.
                 </p>
+                <p className="mt-2 leading-snug">
+                  In the Zoom softphone, open the <span className="font-semibold">device picker</span>{" "}
+                  and select <span className="font-semibold">this computer</span> — not another
+                  device — so calls ring and dial here.
+                </p>
               </div>
             ) : null}
 
