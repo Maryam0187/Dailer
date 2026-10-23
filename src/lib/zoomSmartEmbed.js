@@ -7,6 +7,16 @@ export const ZOOM_PHONE_SDK_URL =
   "https://vaapplicationscontent.zoom.us/phoneSdk/static/smart-embed/js/sdk.js";
 export const ZOOM_PHONE_IFRAME_ID = "zoom-embeddable-phone-iframe";
 
+/** Embed URL with originDomain so Marketplace Approved Domains can match this app. */
+export function buildZoomPhoneIframeUrl(originDomain) {
+  const base = ZOOM_PHONE_IFRAME_URL;
+  const origin = String(originDomain || "").trim();
+  if (!origin) return base;
+  const url = new URL(base);
+  url.searchParams.set("originDomain", origin);
+  return url.toString();
+}
+
 export function getZoomIframe() {
   if (typeof document === "undefined") return null;
   return document.querySelector(`#${ZOOM_PHONE_IFRAME_ID}`);

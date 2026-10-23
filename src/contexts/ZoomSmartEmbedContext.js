@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
+  buildZoomPhoneIframeUrl,
   initZoomSmartEmbed,
   subscribeZoomSmartEmbedEvents,
   zoomInputSms,
@@ -32,6 +33,10 @@ export function ZoomSmartEmbedProvider({ children }) {
     }
 
     const previousReady = typeof window !== "undefined" ? window.onZoomPhoneIframeApiReady : undefined;
+    const previousIframeUrl = typeof window !== "undefined" ? window.PHONESDKIFRAMEURL : undefined;
+
+    // Help Zoom match Marketplace Approved Domains to this page origin.
+    window.PHONESDKIFRAMEURL = buildZoomPhoneIframeUrl(window.location.origin);
 
     window.onZoomPhoneIframeApiReady = () => {
       initZoomSmartEmbed();
@@ -49,6 +54,7 @@ export function ZoomSmartEmbedProvider({ children }) {
     if (existing) {
       return () => {
         window.onZoomPhoneIframeApiReady = previousReady;
+        window.PHONESDKIFRAMEURL = previousIframeUrl;
       };
     }
 
@@ -61,6 +67,7 @@ export function ZoomSmartEmbedProvider({ children }) {
 
     return () => {
       window.onZoomPhoneIframeApiReady = previousReady;
+      window.PHONESDKIFRAMEURL = previousIframeUrl;
     };
   }, [enabled]);
 
