@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getTwilioClient } from "@/server/twilio";
+import { ZOOM_PENDING_NEVER_STARTED_MS } from "@/server/calls/zoomCallLog";
 
 const ACTIVE_CALL_STATUSES = ["queued", "ringing", "in-progress", "initiated", "answered"];
 const TWILIO_ACTIVE = new Set(ACTIVE_CALL_STATUSES);
@@ -52,7 +53,14 @@ async function finalizeCallLogStatus(call, status) {
 async function isOwnedCallActiveForUser(call) {
   const agentSid = String(call.twilioSid || "").trim();
   if (!agentSid) {
-    if (rowAgeMs(call) > ORPHAN_ACTIVE_GRACE_MS) {
+    // Zoom Soft Embed has no Twilio SID. Never-started dials (no Zoom callId) age out faster.
+    const isZoom = call.voiceProvider === "zoom";
+    const neverStarted =
+      isZoom &&
+      !String(call.externalCallId || "").trim() &&
+      ["initiated", "queued"].includes(String(call.status || "").toLowerCase());
+    const graceMs = neverStarted ? ZOOM_PENDING_NEVER_STARTED_MS : ORPHAN_ACTIVE_GRACE_MS;
+    if (rowAgeMs(call) > graceMs) {
       await finalizeCallLogStatus(call, "failed");
       return false;
     }

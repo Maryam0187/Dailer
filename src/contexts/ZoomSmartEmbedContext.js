@@ -153,7 +153,8 @@ export function ZoomSmartEmbedProvider({ children }) {
       const trimmed = String(number || "").trim();
       if (!trimmed) return false;
 
-      // Reserve CallLog for this dialer user so other Soft Embed sessions attach events here.
+      // Gate only — no CallLog. Soft Embed may fail even with Zoom enabled (no Phone
+      // license / not signed in). CallLogs + Live Status come from Soft Embed events.
       try {
         const res = await fetch("/api/calls/zoom/start", {
           method: "POST",
@@ -163,10 +164,12 @@ export function ZoomSmartEmbedProvider({ children }) {
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          console.warn("[zoom] start call log failed", json?.error || res.status);
+          console.warn("[zoom] dial blocked", json?.error || res.status);
+          return false;
         }
       } catch (err) {
-        console.warn("[zoom] start call log failed", err);
+        console.warn("[zoom] dial blocked", err);
+        return false;
       }
 
       return zoomMakeCall(trimmed, opts);

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { ZOOM_SMART_EMBED_ENABLED } from "@/lib/zoomSmartEmbedFlag";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
-import { refreshCallDailyMetricsForCall } from "@/server/calls/callDailyMetrics";
 
 /**
- * Reserve an outbound Zoom CallLog for the dialer user who clicked Call.
- * Soft Embed events from other open sessions attach to this row instead of creating duplicates.
+ * Permission gate before Soft Embed zp-make-call.
+ * Does NOT create a CallLog — Soft Embed may fail (no Zoom Phone license / not signed in)
+ * even when canUseZoomPhone is true. Live Status + minutes only come from /zoom/event
+ * when Soft Embed actually rings/connects.
  */
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -25,30 +25,8 @@ export async function POST(req) {
     return NextResponse.json({ error: "toNumber is required" }, { status: 400 });
   }
 
-  const call = await db.CallLog.create({
-    userId: authedUser.id,
-    fromNumber: null,
-    toNumber: normalizedToNumber,
-    direction: "outbound",
-    status: "initiated",
-    voiceProvider: "zoom",
-    dialMode: "zoom_embed",
-    callKind: "zoom",
-    dialerIndex: 1,
-    durationSeconds: null,
-    twilioSid: null,
-    externalCallId: null,
-  });
-
-  try {
-    await refreshCallDailyMetricsForCall(call);
-  } catch {
-    /* best-effort */
-  }
-
   return NextResponse.json({
     ok: true,
-    callId: call.id,
-    toNumber: call.toNumber,
+    toNumber: normalizedToNumber,
   });
 }

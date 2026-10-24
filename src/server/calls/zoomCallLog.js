@@ -5,6 +5,90 @@ import { normalizeToE164 } from "@/server/calls/normalizePhone";
 /** Pending outbound window for matching Soft Embed events to the dialer who clicked Call. */
 export const ZOOM_PENDING_OUTBOUND_MS = 5 * 60 * 1000;
 
+/**
+ * Soft Embed never attached a Zoom callId (no Phone license / dial failed).
+ * Shorter than Twilio orphan grace so Live status does not sit on "Connecting · Zoom".
+ */
+/** Clear leftover dial-click reservations that Soft Embed never picked up. */
+export const ZOOM_PENDING_NEVER_STARTED_MS = 45 * 1000;
+
+const ZOOM_ACTIVE_STATUSES = ["queued", "ringing", "in-progress", "initiated", "answered"];
+
+async function markZoomCallsFailed(where) {
+  const rows = await db.CallLog.findAll({
+    where,
+    attributes: [
+      "id",
+      "userId",
+      "status",
+      "durationSeconds",
+      "zoomConnectedAt",
+      "createdAt",
+      "updatedAt",
+    ],
+  });
+  if (rows.length === 0) return 0;
+
+  const ids = rows.map((r) => r.id);
+  await db.CallLog.update({ status: "failed" }, { where: { id: { [Op.in]: ids } } });
+
+  // Never-connected Zoom dials must not keep fake talk minutes in reports.
+  const zeroDurationIds = rows.filter((r) => !r.zoomConnectedAt).map((r) => r.id);
+  if (zeroDurationIds.length > 0) {
+    await db.CallLog.update(
+      { durationSeconds: 0, customerDurationSeconds: 0 },
+      { where: { id: { [Op.in]: zeroDurationIds } } },
+    );
+  }
+
+  try {
+    const { refreshCallDailyMetricsForCall } = await import("@/server/calls/callDailyMetrics");
+    for (const row of rows) {
+      await refreshCallDailyMetricsForCall({
+        userId: row.userId,
+        createdAt: row.createdAt,
+      });
+    }
+  } catch {
+    /* metrics best-effort */
+  }
+
+  return rows.length;
+}
+
+/**
+ * Mark Zoom dials that never left "initiated" (no Soft Embed callId) as failed.
+ * Optionally scope to one user. Safe to call on every live-status poll.
+ */
+export async function finalizeStaleZoomPendingCalls({
+  userId = null,
+  olderThanMs = ZOOM_PENDING_NEVER_STARTED_MS,
+} = {}) {
+  const cutoff = new Date(Date.now() - Math.max(30_000, olderThanMs));
+  const where = {
+    voiceProvider: "zoom",
+    status: { [Op.in]: ["initiated", "queued"] },
+    [Op.or]: [{ externalCallId: null }, { externalCallId: "" }],
+    createdAt: { [Op.lt]: cutoff },
+  };
+  const uid = Number(userId);
+  if (Number.isInteger(uid) && uid > 0) where.userId = uid;
+  return markZoomCallsFailed(where);
+}
+
+/**
+ * When admin revokes Zoom Phone for a user, drop any in-flight Zoom Live-status rows.
+ */
+export async function finalizeUserActiveZoomCalls(userId) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0) return 0;
+  return markZoomCallsFailed({
+    userId: uid,
+    voiceProvider: "zoom",
+    status: { [Op.in]: ZOOM_ACTIVE_STATUSES },
+  });
+}
+
 export function phoneDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }

@@ -67,16 +67,23 @@ function buildEventUpdates(call, type, data, parties, ourLine, eventAt) {
   if (type === "zp-call-log-completed-event") {
     if (data.callLogId != null) updates.externalCallLogId = String(data.callLogId);
     updates.status = mapZoomLogResultStatus(data.result);
+    const resultText = String(data.result || "");
+    const wasConnected =
+      Boolean(call.zoomConnectedAt) || /call connected|answered/i.test(resultText);
     const dur = parseZoomDurationSeconds(data.duration);
-    if (dur != null) {
+    // Only credit talk minutes after a real connect — not dial/ring/failed Soft Embed time.
+    if (wasConnected && dur != null) {
       updates.durationSeconds = dur;
       updates.customerDurationSeconds = dur;
-    } else if (call.durationSeconds == null && call.zoomConnectedAt) {
+    } else if (wasConnected && call.durationSeconds == null && call.zoomConnectedAt) {
       const fallback = durationSecondsBetween(call.zoomConnectedAt, eventAt);
       if (fallback != null) {
         updates.durationSeconds = fallback;
         updates.customerDurationSeconds = fallback;
       }
+    } else if (!wasConnected && call.durationSeconds == null) {
+      updates.durationSeconds = 0;
+      updates.customerDurationSeconds = 0;
     }
     if (parties.fromNumber) updates.fromNumber = parties.fromNumber;
     if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
@@ -156,10 +163,15 @@ export async function POST(req) {
     if (type === "zp-call-log-completed-event") {
       if (data.callLogId != null) createPayload.externalCallLogId = String(data.callLogId);
       createPayload.status = mapZoomLogResultStatus(data.result);
+      const resultText = String(data.result || "");
+      const wasConnected = /call connected|answered/i.test(resultText);
       const dur = parseZoomDurationSeconds(data.duration);
-      if (dur != null) {
+      if (wasConnected && dur != null) {
         createPayload.durationSeconds = dur;
         createPayload.customerDurationSeconds = dur;
+      } else {
+        createPayload.durationSeconds = 0;
+        createPayload.customerDurationSeconds = 0;
       }
     }
 

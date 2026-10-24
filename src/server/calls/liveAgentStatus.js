@@ -2,10 +2,19 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { derivePresence } from "@/server/auth/presence";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
+import { finalizeStaleZoomPendingCalls } from "@/server/calls/zoomCallLog";
 
 const ACTIVE_CALL_STATUSES = ["queued", "ringing", "in-progress", "initiated", "answered"];
 /** Drop DB rows stuck in "active" longer than this (Twilio webhooks usually clear sooner). */
 const STALE_ACTIVE_MS = 60 * 60 * 1000;
+
+function isZoomNeverStarted(row) {
+  if (row?.voiceProvider !== "zoom") return false;
+  const status = String(row.status || "").toLowerCase();
+  if (status !== "initiated" && status !== "queued") return false;
+  const ext = String(row.externalCallId || "").trim();
+  return !ext;
+}
 
 function rowAgeMs(row) {
   const touched = row?.updatedAt || row?.createdAt;
@@ -14,23 +23,32 @@ function rowAgeMs(row) {
 }
 
 function serializeActiveCall(row, { invited = false } = {}) {
-  const startedAt = row.createdAt ?? null;
-  const startedMs = startedAt ? new Date(startedAt).getTime() : null;
+  const status = String(row.status || "").toLowerCase();
+  const isZoom = row.voiceProvider === "zoom";
+  // Zoom: only count talk time after Soft Embed reports connected — not dial-click wait.
+  const talkStartedAt = isZoom
+    ? row.zoomConnectedAt || null
+    : row.createdAt ?? null;
+  const startedAt = talkStartedAt || row.createdAt || null;
+  const startedMs = talkStartedAt ? new Date(talkStartedAt).getTime() : null;
+  let durationSeconds = null;
+  if (isZoom && !row.zoomConnectedAt) {
+    durationSeconds = 0;
+  } else if (Number.isFinite(startedMs) && startedMs > 0) {
+    durationSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+  }
   return {
     callId: row.id,
     toNumber: row.toNumber ?? null,
     fromNumber: row.fromNumber ?? null,
     direction: row.direction || "outbound",
-    status: String(row.status || "").toLowerCase(),
+    status,
     dialerIndex: Number(row.dialerIndex) === 2 ? 2 : 1,
-    voiceProvider: row.voiceProvider === "zoom" ? "zoom" : "twilio",
+    voiceProvider: isZoom ? "zoom" : "twilio",
     conferenceName: row.conferenceName ?? null,
     leadId: row.leadId ?? null,
     startedAt,
-    durationSeconds:
-      Number.isFinite(startedMs) && startedMs > 0
-        ? Math.max(0, Math.floor((Date.now() - startedMs) / 1000))
-        : null,
+    durationSeconds,
     invited,
   };
 }
@@ -81,6 +99,9 @@ export async function getLiveAgentStatus({ roles = null, managerId = null } = {}
     };
   }
 
+  // Clear Zoom "Connecting" orphans (click-to-dial with no Soft Embed / no Phone license).
+  await finalizeStaleZoomPendingCalls().catch(() => {});
+
   const [activeOwned, inviteLegs, lastCallRows, currentLeaveByUserId] = await Promise.all([
     db.CallLog.findAll({
       attributes: [
@@ -94,6 +115,8 @@ export async function getLiveAgentStatus({ roles = null, managerId = null } = {}
         "voiceProvider",
         "conferenceName",
         "leadId",
+        "externalCallId",
+        "zoomConnectedAt",
         "createdAt",
         "updatedAt",
       ],
@@ -122,6 +145,8 @@ export async function getLiveAgentStatus({ roles = null, managerId = null } = {}
                 "voiceProvider",
                 "conferenceName",
                 "leadId",
+                "externalCallId",
+                "zoomConnectedAt",
                 "createdAt",
                 "updatedAt",
               ],
@@ -141,6 +166,8 @@ export async function getLiveAgentStatus({ roles = null, managerId = null } = {}
   const activeByUserId = new Map();
   for (const row of activeOwned) {
     if (rowAgeMs(row) > STALE_ACTIVE_MS) continue;
+    // Zoom click-to-dial reservation only — Soft Embed never started. Not on a call.
+    if (isZoomNeverStarted(row)) continue;
     const uid = Number(row.userId);
     if (!activeByUserId.has(uid)) {
       activeByUserId.set(uid, serializeActiveCall(row, { invited: false }));

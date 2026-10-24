@@ -26,10 +26,12 @@ export default function ZoomCallButton({
       return;
     }
     const ok = await makeCall(number, { autoDial: true });
-    if (!ok && !ready) {
+    if (ok) {
+      setStatus("Dialing via Zoom…");
+    } else if (!ready) {
       setStatus("Zoom Phone is loading… try again in a moment");
     } else {
-      setStatus(ok ? "Dialing via Zoom…" : "Zoom Phone not ready — use the floating softphone");
+      setStatus("Zoom call blocked — check Zoom Phone access or sign in to Zoom");
     }
     window.setTimeout(() => setStatus(null), 2000);
   }

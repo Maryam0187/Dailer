@@ -16,6 +16,7 @@ import {
 } from "@/server/auth/afterShiftGrant.cjs";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 import { clearTotpFields } from "@/server/auth/totp";
+import { finalizeUserActiveZoomCalls } from "@/server/calls/zoomCallLog";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -454,6 +455,11 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "username already exists" }, { status: 409 });
     }
     throw err;
+  }
+
+  // Revoking Zoom must clear Live status "Connecting · Zoom" rows immediately.
+  if (isAdmin && updates.canUseZoomPhone === false) {
+    await finalizeUserActiveZoomCalls(target.id).catch(() => {});
   }
 
   const accessRevoked =
