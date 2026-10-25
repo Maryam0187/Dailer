@@ -38,7 +38,8 @@ export function ZoomSmartEmbedProvider({ children }) {
     if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
       if (initZoomSmartEmbed()) initSentRef.current = true;
     }
-    if (!readyRef.current && (initSentRef.current || isZoomIframeReadyForPostMessage(getZoomIframe()))) {
+    // Soft Embed UI can be usable once the Zoom document loaded; don't stay on "Loading…".
+    if (!readyRef.current && iframeLoadedRef.current) {
       readyRef.current = true;
       setReady(true);
     }
@@ -46,9 +47,14 @@ export function ZoomSmartEmbedProvider({ children }) {
 
   const onIframeLoad = useCallback(() => {
     iframeLoadedRef.current = true;
-    initSentRef.current = false;
-    readyRef.current = false;
-    setReady(false);
+    // Soft Embed navigates during login — do NOT reset/re-init (causes Zoom Redux #9/#6).
+    if (initSentRef.current) {
+      if (!readyRef.current) {
+        readyRef.current = true;
+        setReady(true);
+      }
+      return;
+    }
     if (loadRetryRef.current) window.clearInterval(loadRetryRef.current);
     let tries = 0;
     loadRetryRef.current = window.setInterval(() => {
@@ -57,6 +63,11 @@ export function ZoomSmartEmbedProvider({ children }) {
       if (initSentRef.current || tries >= 40) {
         window.clearInterval(loadRetryRef.current);
         loadRetryRef.current = null;
+        // Even if zp-init-config never lands, stop showing Loading after retries.
+        if (!readyRef.current) {
+          readyRef.current = true;
+          setReady(true);
+        }
       }
     }, 250);
   }, [markReady]);
