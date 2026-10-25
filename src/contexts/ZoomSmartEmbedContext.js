@@ -29,30 +29,43 @@ export function ZoomSmartEmbedProvider({ children }) {
   const [lastEvent, setLastEvent] = useState(null);
   const readyRef = useRef(false);
   const initSentRef = useRef(false);
+  const iframeLoadedRef = useRef(false);
+  const loadRetryRef = useRef(null);
 
   const markReady = useCallback(() => {
-    // Only zp-init-config when iframe is on applications.zoom.us (not CRM/about:blank).
+    // Never init before Soft Embed iframe has fired load (avoids CRM same-origin postMessage).
+    if (!iframeLoadedRef.current) return;
     if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
       if (initZoomSmartEmbed()) initSentRef.current = true;
     }
-    if (!readyRef.current && (initSentRef.current || getZoomIframe()?.contentWindow)) {
+    if (!readyRef.current && (initSentRef.current || isZoomIframeReadyForPostMessage(getZoomIframe()))) {
       readyRef.current = true;
       setReady(true);
     }
   }, []);
 
   const onIframeLoad = useCallback(() => {
-    // Soft Embed (re)loaded — allow zp-init-config again (refresh / remount).
+    iframeLoadedRef.current = true;
     initSentRef.current = false;
     readyRef.current = false;
     setReady(false);
-    window.setTimeout(() => markReady(), 300);
+    if (loadRetryRef.current) window.clearInterval(loadRetryRef.current);
+    let tries = 0;
+    loadRetryRef.current = window.setInterval(() => {
+      tries += 1;
+      markReady();
+      if (initSentRef.current || tries >= 40) {
+        window.clearInterval(loadRetryRef.current);
+        loadRetryRef.current = null;
+      }
+    }, 250);
   }, [markReady]);
 
   useEffect(() => {
     if (!enabled) {
       readyRef.current = false;
       initSentRef.current = false;
+      iframeLoadedRef.current = false;
       setReady(false);
       return undefined;
     }
@@ -76,22 +89,20 @@ export function ZoomSmartEmbedProvider({ children }) {
         type === "zp-call-ended-event" ||
         type === "zp-call-log-completed-event"
       ) {
+        iframeLoadedRef.current = true;
         markReady();
       }
     }
     window.addEventListener("message", onMessage);
 
-    // Retry until Soft Embed is cross-origin — never init on same-origin contentWindow alone.
-    let attempts = 0;
-    const pollId = window.setInterval(() => {
-      attempts += 1;
-      markReady();
-      if (initSentRef.current || attempts >= 40) window.clearInterval(pollId);
-    }, 500);
+    // No early contentWindow poll — that caused applications.zoom.us vs Railway mismatch.
 
     return () => {
-      window.clearInterval(pollId);
       window.removeEventListener("message", onMessage);
+      if (loadRetryRef.current) {
+        window.clearInterval(loadRetryRef.current);
+        loadRetryRef.current = null;
+      }
     };
   }, [enabled, markReady]);
 

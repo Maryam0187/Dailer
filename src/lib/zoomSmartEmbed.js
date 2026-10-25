@@ -23,12 +23,17 @@ export function getZoomIframe() {
 }
 
 /**
- * Soft Embed loaded on applications.zoom.us (cross-origin).
+ * Soft Embed document is on applications.zoom.us (cross-origin).
  * Same-origin readable = still about:blank / CRM — do not postMessage yet.
  */
 export function isZoomIframeReadyForPostMessage(iframe = getZoomIframe()) {
   if (!iframe?.contentWindow) return false;
+  const src = String(iframe.getAttribute("src") || "");
+  if (!src.startsWith("https://applications.zoom.us/integration/phone/embeddablephone")) {
+    return false;
+  }
   try {
+    // Readable location ⇒ same-origin (CRM / about:blank) ⇒ unsafe for Zoom targetOrigin.
     void iframe.contentWindow.location.href;
     return false;
   } catch {
@@ -40,8 +45,12 @@ export function postToZoom({ type, data } = {}) {
   const iframe = getZoomIframe();
   if (!iframe?.contentWindow || !type) return false;
   if (!isZoomIframeReadyForPostMessage(iframe)) return false;
-  iframe.contentWindow.postMessage({ type, data: data ?? {} }, ZOOM_PHONE_ORIGIN);
-  return true;
+  try {
+    iframe.contentWindow.postMessage({ type, data: data ?? {} }, ZOOM_PHONE_ORIGIN);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function initZoomSmartEmbed(config = {}) {
