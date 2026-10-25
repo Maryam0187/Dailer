@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildZoomPhoneIframeUrl,
   getZoomIframe,
   initZoomSmartEmbed,
   isZoomIframeReadyForPostMessage,
@@ -9,6 +10,7 @@ import {
   zoomInputSms,
   zoomMakeCall,
   ZOOM_PHONE_ORIGIN,
+  ZOOM_PHONE_SDK_URL,
 } from "@/lib/zoomSmartEmbed";
 import { ZOOM_SMART_EMBED_ENABLED } from "@/lib/zoomSmartEmbedFlag";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
@@ -31,14 +33,11 @@ export function ZoomSmartEmbedProvider({ children }) {
   const initSentRef = useRef(false);
 
   const markReady = useCallback(() => {
-    // Only init once Soft Embed is cross-origin (Zoom), not CRM/about:blank.
+    // postToZoom also guards same-origin; only send zp-init-config when Zoom iframe is ready.
     if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
       if (initZoomSmartEmbed()) initSentRef.current = true;
     }
-    if (
-      !readyRef.current &&
-      (initSentRef.current || isZoomIframeReadyForPostMessage(getZoomIframe()))
-    ) {
+    if (!readyRef.current && initSentRef.current) {
       readyRef.current = true;
       setReady(true);
     }
@@ -49,7 +48,6 @@ export function ZoomSmartEmbedProvider({ children }) {
     initSentRef.current = false;
     readyRef.current = false;
     setReady(false);
-    // Give Soft Embed a beat to attach handlers, then init if cross-origin.
     window.setTimeout(() => markReady(), 300);
   }, [markReady]);
 
@@ -61,14 +59,21 @@ export function ZoomSmartEmbedProvider({ children }) {
       return undefined;
     }
 
-    // Remove Zoom SDK floating widget if a previous session injected it (side dock).
-    document.querySelectorAll('script[data-zoom-smart-embed="1"]').forEach((el) => {
-      try {
-        el.remove();
-      } catch {
-        /* ignore */
+    const previousReady = window.onZoomPhoneIframeApiReady;
+    const previousIframeUrl = window.PHONESDKIFRAMEURL;
+
+    // Zoom Marketplace approved-domain match + official ready callback (pre-d2288a5 path).
+    window.PHONESDKIFRAMEURL = buildZoomPhoneIframeUrl(window.location.origin);
+    window.onZoomPhoneIframeApiReady = () => {
+      markReady();
+      if (typeof previousReady === "function") {
+        try {
+          previousReady();
+        } catch {
+          /* ignore */
+        }
       }
-    });
+    };
 
     function onMessage(event) {
       if (event.origin !== ZOOM_PHONE_ORIGIN) return;
@@ -85,21 +90,22 @@ export function ZoomSmartEmbedProvider({ children }) {
     }
     window.addEventListener("message", onMessage);
 
-    // Poll until Zoom iframe is cross-origin — never init on same-origin contentWindow.
-    let attempts = 0;
-    const pollId = window.setInterval(() => {
-      attempts += 1;
-      if (isZoomIframeReadyForPostMessage(getZoomIframe())) {
-        markReady();
-        window.clearInterval(pollId);
-        return;
-      }
-      if (attempts >= 40) window.clearInterval(pollId);
-    }, 500);
+    if (!document.querySelector('script[data-zoom-smart-embed="1"]')) {
+      const script = document.createElement("script");
+      script.src = ZOOM_PHONE_SDK_URL;
+      script.async = true;
+      script.dataset.zoomSmartEmbed = "1";
+      script.onerror = () => {
+        readyRef.current = false;
+        setReady(false);
+      };
+      document.body.appendChild(script);
+    }
 
     return () => {
-      window.clearInterval(pollId);
       window.removeEventListener("message", onMessage);
+      window.onZoomPhoneIframeApiReady = previousReady;
+      window.PHONESDKIFRAMEURL = previousIframeUrl;
     };
   }, [enabled, markReady]);
 
