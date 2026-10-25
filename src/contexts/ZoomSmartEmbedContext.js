@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   getZoomIframe,
   initZoomSmartEmbed,
+  isZoomIframeReadyForPostMessage,
   subscribeZoomSmartEmbedEvents,
   zoomInputSms,
   zoomMakeCall,
@@ -30,11 +31,11 @@ export function ZoomSmartEmbedProvider({ children }) {
   const initSentRef = useRef(false);
 
   const markReady = useCallback(() => {
-    if (!initSentRef.current && getZoomIframe()?.contentWindow) {
-      initZoomSmartEmbed();
-      initSentRef.current = true;
+    // Only zp-init-config when iframe is on applications.zoom.us (not CRM/about:blank).
+    if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
+      if (initZoomSmartEmbed()) initSentRef.current = true;
     }
-    if (!readyRef.current) {
+    if (!readyRef.current && (initSentRef.current || getZoomIframe()?.contentWindow)) {
       readyRef.current = true;
       setReady(true);
     }
@@ -45,7 +46,6 @@ export function ZoomSmartEmbedProvider({ children }) {
     initSentRef.current = false;
     readyRef.current = false;
     setReady(false);
-    // Give the Soft Embed a beat to attach message handlers, then init.
     window.setTimeout(() => markReady(), 300);
   }, [markReady]);
 
@@ -57,7 +57,7 @@ export function ZoomSmartEmbedProvider({ children }) {
       return undefined;
     }
 
-    // Remove Zoom SDK floating widget if a previous session injected it (side dock).
+    // Built panel hosts the iframe — strip Zoom SDK side-dock (avoid two UIs).
     document.querySelectorAll('script[data-zoom-smart-embed="1"]').forEach((el) => {
       try {
         el.remove();
@@ -81,15 +81,12 @@ export function ZoomSmartEmbedProvider({ children }) {
     }
     window.addEventListener("message", onMessage);
 
+    // Retry until Soft Embed is cross-origin — never init on same-origin contentWindow alone.
     let attempts = 0;
     const pollId = window.setInterval(() => {
       attempts += 1;
-      if (getZoomIframe()?.contentWindow) {
-        markReady();
-        window.clearInterval(pollId);
-        return;
-      }
-      if (attempts >= 40) window.clearInterval(pollId);
+      markReady();
+      if (initSentRef.current || attempts >= 40) window.clearInterval(pollId);
     }, 500);
 
     return () => {
