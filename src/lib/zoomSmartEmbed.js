@@ -22,9 +22,24 @@ export function getZoomIframe() {
   return document.querySelector(`#${ZOOM_PHONE_IFRAME_ID}`);
 }
 
+/**
+ * Soft Embed has loaded on applications.zoom.us (cross-origin).
+ * Same-origin readable window = still about:blank / CRM — do not postMessage yet.
+ */
+export function isZoomIframeReadyForPostMessage(iframe = getZoomIframe()) {
+  if (!iframe?.contentWindow) return false;
+  try {
+    void iframe.contentWindow.location.href;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export function postToZoom({ type, data } = {}) {
   const iframe = getZoomIframe();
   if (!iframe?.contentWindow || !type) return false;
+  if (!isZoomIframeReadyForPostMessage(iframe)) return false;
   iframe.contentWindow.postMessage({ type, data: data ?? {} }, ZOOM_PHONE_ORIGIN);
   return true;
 }

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   getZoomIframe,
   initZoomSmartEmbed,
+  isZoomIframeReadyForPostMessage,
   subscribeZoomSmartEmbedEvents,
   zoomInputSms,
   zoomMakeCall,
@@ -30,11 +31,14 @@ export function ZoomSmartEmbedProvider({ children }) {
   const initSentRef = useRef(false);
 
   const markReady = useCallback(() => {
-    if (!initSentRef.current && getZoomIframe()?.contentWindow) {
-      initZoomSmartEmbed();
-      initSentRef.current = true;
+    // Only init once Soft Embed is cross-origin (Zoom), not CRM/about:blank.
+    if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
+      if (initZoomSmartEmbed()) initSentRef.current = true;
     }
-    if (!readyRef.current) {
+    if (
+      !readyRef.current &&
+      (initSentRef.current || isZoomIframeReadyForPostMessage(getZoomIframe()))
+    ) {
       readyRef.current = true;
       setReady(true);
     }
@@ -45,7 +49,7 @@ export function ZoomSmartEmbedProvider({ children }) {
     initSentRef.current = false;
     readyRef.current = false;
     setReady(false);
-    // Give the Soft Embed a beat to attach message handlers, then init.
+    // Give Soft Embed a beat to attach handlers, then init if cross-origin.
     window.setTimeout(() => markReady(), 300);
   }, [markReady]);
 
@@ -81,10 +85,11 @@ export function ZoomSmartEmbedProvider({ children }) {
     }
     window.addEventListener("message", onMessage);
 
+    // Poll until Zoom iframe is cross-origin — never init on same-origin contentWindow.
     let attempts = 0;
     const pollId = window.setInterval(() => {
       attempts += 1;
-      if (getZoomIframe()?.contentWindow) {
+      if (isZoomIframeReadyForPostMessage(getZoomIframe())) {
         markReady();
         window.clearInterval(pollId);
         return;
@@ -148,12 +153,11 @@ export function ZoomSmartEmbedProvider({ children }) {
   const makeCall = useCallback(
     async (number, opts) => {
       if (!enabled) return false;
-      if (getZoomIframe()?.contentWindow) markReady();
+      if (isZoomIframeReadyForPostMessage(getZoomIframe())) markReady();
 
       const trimmed = String(number || "").trim();
       if (!trimmed) return false;
 
-      // Reserve CallLog for this dialer user so other Soft Embed sessions attach events here.
       try {
         const res = await fetch("/api/calls/zoom/start", {
           method: "POST",
@@ -163,10 +167,12 @@ export function ZoomSmartEmbedProvider({ children }) {
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          console.warn("[zoom] start call log failed", json?.error || res.status);
+          console.warn("[zoom] dial blocked", json?.error || res.status);
+          return false;
         }
       } catch (err) {
-        console.warn("[zoom] start call log failed", err);
+        console.warn("[zoom] dial blocked", err);
+        return false;
       }
 
       return zoomMakeCall(trimmed, opts);
@@ -177,7 +183,7 @@ export function ZoomSmartEmbedProvider({ children }) {
   const inputSms = useCallback(
     (number, message) => {
       if (!enabled) return false;
-      if (getZoomIframe()?.contentWindow) markReady();
+      if (isZoomIframeReadyForPostMessage(getZoomIframe())) markReady();
       return zoomInputSms(number, message);
     },
     [enabled, markReady],
