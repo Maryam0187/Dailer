@@ -15,7 +15,8 @@ import { buildZoomPhoneIframeUrl, ZOOM_PHONE_IFRAME_ID } from "@/lib/zoomSmartEm
 export default function ZoomSmartEmbed() {
   const pathname = usePathname();
   const { enabled, ready, lastEvent, onIframeLoad } = useZoomSmartEmbed();
-  const [isMinimized, setIsMinimized] = useState(true);
+  // Expanded on Dialer so the built Zoom Phone panel is visible (not Zoom's side dock).
+  const [isMinimized, setIsMinimized] = useState(false);
   // Set src after mount — SSR/useMemo([]) cached "" and left the iframe blank on refresh.
   const [iframeSrc, setIframeSrc] = useState("");
 

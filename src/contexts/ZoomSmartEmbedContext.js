@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
-  buildZoomPhoneIframeUrl,
   getZoomIframe,
   initZoomSmartEmbed,
   isZoomIframeReadyForPostMessage,
@@ -10,7 +9,6 @@ import {
   zoomInputSms,
   zoomMakeCall,
   ZOOM_PHONE_ORIGIN,
-  ZOOM_PHONE_SDK_URL,
 } from "@/lib/zoomSmartEmbed";
 import { ZOOM_SMART_EMBED_ENABLED } from "@/lib/zoomSmartEmbedFlag";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
@@ -33,7 +31,7 @@ export function ZoomSmartEmbedProvider({ children }) {
   const initSentRef = useRef(false);
 
   const markReady = useCallback(() => {
-    // postToZoom also guards same-origin; only send zp-init-config when Zoom iframe is ready.
+    // Only post zp-init-config when our built panel iframe is on applications.zoom.us.
     if (!initSentRef.current && isZoomIframeReadyForPostMessage(getZoomIframe())) {
       if (initZoomSmartEmbed()) initSentRef.current = true;
     }
@@ -44,11 +42,20 @@ export function ZoomSmartEmbedProvider({ children }) {
   }, []);
 
   const onIframeLoad = useCallback(() => {
-    // Soft Embed (re)loaded — allow zp-init-config again (refresh / remount).
     initSentRef.current = false;
     readyRef.current = false;
     setReady(false);
-    window.setTimeout(() => markReady(), 300);
+    // Soft Embed handlers attach after load; retry briefly until cross-origin.
+    let tries = 0;
+    const id = window.setInterval(() => {
+      tries += 1;
+      if (isZoomIframeReadyForPostMessage(getZoomIframe())) {
+        markReady();
+        window.clearInterval(id);
+        return;
+      }
+      if (tries >= 40) window.clearInterval(id);
+    }, 250);
   }, [markReady]);
 
   useEffect(() => {
@@ -59,21 +66,14 @@ export function ZoomSmartEmbedProvider({ children }) {
       return undefined;
     }
 
-    const previousReady = window.onZoomPhoneIframeApiReady;
-    const previousIframeUrl = window.PHONESDKIFRAMEURL;
-
-    // Zoom Marketplace approved-domain match + official ready callback (pre-d2288a5 path).
-    window.PHONESDKIFRAMEURL = buildZoomPhoneIframeUrl(window.location.origin);
-    window.onZoomPhoneIframeApiReady = () => {
-      markReady();
-      if (typeof previousReady === "function") {
-        try {
-          previousReady();
-        } catch {
-          /* ignore */
-        }
+    // Built panel hosts the iframe — strip Zoom SDK side-dock so we don't get two UIs.
+    document.querySelectorAll('script[data-zoom-smart-embed="1"]').forEach((el) => {
+      try {
+        el.remove();
+      } catch {
+        /* ignore */
       }
-    };
+    });
 
     function onMessage(event) {
       if (event.origin !== ZOOM_PHONE_ORIGIN) return;
@@ -90,22 +90,8 @@ export function ZoomSmartEmbedProvider({ children }) {
     }
     window.addEventListener("message", onMessage);
 
-    if (!document.querySelector('script[data-zoom-smart-embed="1"]')) {
-      const script = document.createElement("script");
-      script.src = ZOOM_PHONE_SDK_URL;
-      script.async = true;
-      script.dataset.zoomSmartEmbed = "1";
-      script.onerror = () => {
-        readyRef.current = false;
-        setReady(false);
-      };
-      document.body.appendChild(script);
-    }
-
     return () => {
       window.removeEventListener("message", onMessage);
-      window.onZoomPhoneIframeApiReady = previousReady;
-      window.PHONESDKIFRAMEURL = previousIframeUrl;
     };
   }, [enabled, markReady]);
 
