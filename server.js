@@ -47,6 +47,13 @@ app.prepare().then(async () => {
     console.error("[address-bot] failed to attach relay:", err?.message || err);
   }
 
+  try {
+    const { attachSalesBotRelay } = require("./src/server/calls/salesBotRelay.cjs");
+    attachSalesBotRelay(server);
+  } catch (err) {
+    console.error("[sales-bot] failed to attach relay:", err?.message || err);
+  }
+
   function parseCookies(rawCookie) {
     const out = {};
     if (!rawCookie) return out;

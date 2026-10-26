@@ -190,6 +190,7 @@ async function resolveAuthedUser() {
       canUseTwilioDialer: user.canUseTwilioDialer !== false,
       canUseZoomPhone: Boolean(user.canUseZoomPhone),
       canTrainAddressBot: Boolean(user.canTrainAddressBot),
+      canTrainSalesBot: Boolean(user.canTrainSalesBot),
       canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
       selectsLeadSupervisor:
         user.role === "agent" ? Boolean(user.selectsLeadSupervisor) : false,

@@ -54,6 +54,7 @@ export async function GET(_req, { params }) {
       "canUseTwilioDialer",
       "canUseZoomPhone",
       "canTrainAddressBot",
+      "canTrainSalesBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
     ],
@@ -120,6 +121,7 @@ export async function GET(_req, { params }) {
         authedUser.role === "admin" ? target.canUseTwilioDialer !== false : undefined,
       canUseZoomPhone: authedUser.role === "admin" ? Boolean(target.canUseZoomPhone) : undefined,
       canTrainAddressBot: authedUser.role === "admin" ? Boolean(target.canTrainAddressBot) : undefined,
+      canTrainSalesBot: authedUser.role === "admin" ? Boolean(target.canTrainSalesBot) : undefined,
       canReceiveSharedLeads:
         authedUser.role === "admin" ? Boolean(target.canReceiveSharedLeads) : undefined,
       selectsLeadSupervisor:
@@ -303,6 +305,10 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.canTrainAddressBot !== undefined) {
     updates.canTrainAddressBot = Boolean(body.canTrainAddressBot);
+  }
+
+  if (isAdmin && body.canTrainSalesBot !== undefined) {
+    updates.canTrainSalesBot = Boolean(body.canTrainSalesBot);
   }
 
   if (isAdmin && body.canReceiveSharedLeads !== undefined) {
@@ -544,6 +550,7 @@ export async function PATCH(req, { params }) {
       "canUseTwilioDialer",
       "canUseZoomPhone",
       "canTrainAddressBot",
+      "canTrainSalesBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
     ],

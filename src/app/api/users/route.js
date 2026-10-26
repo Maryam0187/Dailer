@@ -34,6 +34,7 @@ const LIST_ATTRIBUTES = [
   "canUseTwilioDialer",
   "canUseZoomPhone",
   "canTrainAddressBot",
+  "canTrainSalesBot",
   "canReceiveSharedLeads",
   "selectsLeadSupervisor",
 ];
@@ -96,6 +97,7 @@ function serializeUserRow(
           canUseTwilioDialer: row.canUseTwilioDialer !== false,
           canUseZoomPhone: Boolean(row.canUseZoomPhone),
           canTrainAddressBot: Boolean(row.canTrainAddressBot),
+          canTrainSalesBot: Boolean(row.canTrainSalesBot),
           canReceiveSharedLeads: Boolean(row.canReceiveSharedLeads),
         }
       : {}),

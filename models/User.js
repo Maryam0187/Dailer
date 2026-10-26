@@ -146,6 +146,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /** Admin-gated: may edit the shared Sales Bot prompt and Q&A. */
+      canTrainSalesBot: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       /** Admin-gated: may receive view-only shared sales and see Shared with me. */
       canReceiveSharedLeads: {
         type: DataTypes.BOOLEAN,
@@ -214,6 +220,21 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "updatedBy",
     });
     User.hasMany(models.AddressBotTrainingChange, { as: "addressBotTrainingChanges", foreignKey: "userId" });
+    if (models.SalesBotProfile) {
+      User.hasMany(models.SalesBotProfile, { as: "updatedSalesBotProfiles", foreignKey: "updatedBy" });
+    }
+    if (models.SalesBotTrainingExample) {
+      User.hasMany(models.SalesBotTrainingExample, {
+        as: "updatedSalesBotTrainingExamples",
+        foreignKey: "updatedBy",
+      });
+    }
+    if (models.SalesBotTrainingChange) {
+      User.hasMany(models.SalesBotTrainingChange, {
+        as: "salesBotTrainingChanges",
+        foreignKey: "userId",
+      });
+    }
     User.hasMany(models.ShiftSetting, { as: "updatedShiftSettings", foreignKey: "updatedBy" });
     User.hasMany(models.UserActivity, { as: "activities", foreignKey: "userId" });
     User.hasMany(models.LeaveApplication, { as: "leaveApplications", foreignKey: "userId" });

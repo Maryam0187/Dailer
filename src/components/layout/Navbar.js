@@ -116,6 +116,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/address-bot",
     },
     {
+      href: "/sales-bot",
+      label: "Sales bot",
+      active: pathname === "/sales-bot",
+    },
+    {
       href: "/security",
       label: "Security",
       active: pathname === "/security",
@@ -134,7 +139,14 @@ function buildAdminDropdownItems(pathname) {
 }
 
 
-function buildNavItems(role, pathname, accessMode = "full", isOutside = false, canTrainAddressBot = false) {
+function buildNavItems(
+  role,
+  pathname,
+  accessMode = "full",
+  isOutside = false,
+  canTrainAddressBot = false,
+  canTrainSalesBot = false,
+) {
   const items = [
     {
       href: "/",
@@ -176,6 +188,15 @@ function buildNavItems(role, pathname, accessMode = "full", isOutside = false, c
       label: "Address bot",
       active: pathname === "/address-bot",
       palette: "indigo",
+    });
+  }
+
+  if (accessMode !== "limited" && role !== "admin" && canTrainSalesBot) {
+    items.push({
+      href: "/sales-bot",
+      label: "Sales bot",
+      active: pathname === "/sales-bot",
+      palette: "emerald",
     });
   }
 
@@ -432,11 +453,19 @@ export default function Navbar({
   accessMode = "full",
   isOutside = false,
   canTrainAddressBot = false,
+  canTrainSalesBot = false,
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
-  const navItems = buildNavItems(role, pathname, accessMode, isOutside, canTrainAddressBot);
+  const navItems = buildNavItems(
+    role,
+    pathname,
+    accessMode,
+    isOutside,
+    canTrainAddressBot,
+    canTrainSalesBot,
+  );
   const mobileItems = navItems.filter((item) => !item.brand);
 
   useEffect(() => {

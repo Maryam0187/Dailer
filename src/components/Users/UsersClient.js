@@ -572,6 +572,7 @@ function EditUserModal({
   const [canUseTwilioDialer, setCanUseTwilioDialer] = useState(user.canUseTwilioDialer !== false);
   const [canUseZoomPhone, setCanUseZoomPhone] = useState(Boolean(user.canUseZoomPhone));
   const [canTrainAddressBot, setCanTrainAddressBot] = useState(Boolean(user.canTrainAddressBot));
+  const [canTrainSalesBot, setCanTrainSalesBot] = useState(Boolean(user.canTrainSalesBot));
   const [canReceiveSharedLeads, setCanReceiveSharedLeads] = useState(
     Boolean(user.canReceiveSharedLeads),
   );
@@ -610,6 +611,7 @@ function EditUserModal({
     setCanUseTwilioDialer(user.canUseTwilioDialer !== false);
     setCanUseZoomPhone(Boolean(user.canUseZoomPhone));
     setCanTrainAddressBot(Boolean(user.canTrainAddressBot));
+    setCanTrainSalesBot(Boolean(user.canTrainSalesBot));
     setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
     setSelectsLeadSupervisor(Boolean(user.selectsLeadSupervisor));
     setLoginWindowExempt(Boolean(user.loginWindowExempt));
@@ -734,6 +736,9 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canTrainAddressBot) !== Boolean(user.canTrainAddressBot)) {
         payload.canTrainAddressBot = canTrainAddressBot;
+      }
+      if (isAdmin && Boolean(canTrainSalesBot) !== Boolean(user.canTrainSalesBot)) {
+        payload.canTrainSalesBot = canTrainSalesBot;
       }
       if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
         payload.canReceiveSharedLeads = canReceiveSharedLeads;
@@ -1249,6 +1254,23 @@ function EditUserModal({
               </label>
             </div>
           ) : null}
+          {isAdmin ? (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+              <input
+                id="edit-sales-bot-train"
+                type="checkbox"
+                checked={canTrainSalesBot}
+                onChange={(e) => setCanTrainSalesBot(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <label htmlFor="edit-sales-bot-train" className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                Allow Sales bot training
+                <span className="ml-1 font-normal text-zinc-500">
+                  (edit the sales pitch prompt and Q&amp;A)
+                </span>
+              </label>
+            </div>
+          ) : null}
 
           {isAdmin ? (
             <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 dark:border-teal-800 dark:bg-teal-950/30">
@@ -1431,6 +1453,7 @@ function normalizeUsersList(list) {
     canUseTwilioDialer: u.canUseTwilioDialer !== false,
     canUseZoomPhone: Boolean(u.canUseZoomPhone),
     canTrainAddressBot: Boolean(u.canTrainAddressBot),
+    canTrainSalesBot: Boolean(u.canTrainSalesBot),
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
     selectsLeadSupervisor: u.role === "agent" ? Boolean(u.selectsLeadSupervisor) : false,
     loginWindowExempt: Boolean(u.loginWindowExempt),

@@ -44,6 +44,7 @@ export default async function UsersPage() {
     "canUseTwilioDialer",
     "canUseZoomPhone",
     "canTrainAddressBot",
+    "canTrainSalesBot",
     "canReceiveSharedLeads",
     "selectsLeadSupervisor",
   ];
@@ -129,6 +130,7 @@ export default async function UsersPage() {
             canUseTwilioDialer: r.canUseTwilioDialer !== false,
             canUseZoomPhone: Boolean(r.canUseZoomPhone),
             canTrainAddressBot: Boolean(r.canTrainAddressBot),
+            canTrainSalesBot: Boolean(r.canTrainSalesBot),
             canReceiveSharedLeads: Boolean(r.canReceiveSharedLeads),
             lastIpAddress: lastIpByUserId?.get(r.id) ?? null,
           }
