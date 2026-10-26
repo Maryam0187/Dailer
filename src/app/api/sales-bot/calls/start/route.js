@@ -143,6 +143,7 @@ export async function POST(req) {
   }
 
   try {
+    // 1) Bot joins the conference BEFORE the customer is dialed (ready, silent).
     await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
     await addSpeakingSalesBot({
       client,
@@ -156,6 +157,7 @@ export async function POST(req) {
       console.warn("[sales-bot] relay session not ready yet; bot may still connect");
     }
 
+    // 2) Dial customer into the same conference (bot is already connected, not speaking yet).
     const customerLeg = await addCustomerToConference({
       client,
       conferenceSid: conference.sid,
@@ -169,7 +171,7 @@ export async function POST(req) {
       await call.update({ customerCallSid: customerSid }).catch(() => {});
     }
 
-    // Background: when customer answers, AI speaks from the start (do not block HTTP).
+    // 3) Speak only after the customer answers.
     if (customerSid) {
       const callIdForSpeech = call.id;
       void (async () => {
@@ -196,9 +198,10 @@ export async function POST(req) {
         ok: true,
         call: refreshed,
         conferenceName,
+        callMode: "conference",
         dialMode: "sales_bot",
         message:
-          "Listening muted. Softphone should ring — answer to listen. AI speaks when the customer answers. Unmute in the dialer if you need to jump in.",
+          "Dialer open. AI joined before the customer; it will speak when they answer. You are muted — unmute to jump in.",
       },
       { status: 201 },
     );

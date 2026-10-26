@@ -3,17 +3,12 @@
 import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
-import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export default function SalesBotLiveCallClient() {
   const { beginSession, session, endCall, patchSession } = useActiveCall();
@@ -30,56 +25,17 @@ export default function SalesBotLiveCallClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
-  const [attaching, setAttaching] = useState(false);
 
+  const inLiveCall = Boolean(session?.callId && session?.callOwnedByMe);
   const activeSalesCall =
     session?.callOwnedByMe &&
     (session?.dialMode === "sales_bot" || session?.salesBotAttached);
 
   // Listen-only: keep mic muted once the softphone is up on a sales-bot call.
   useEffect(() => {
-    if (!session?.salesBotAttached || !voiceConnected || !setCallMuted) return;
+    if (!activeSalesCall || !voiceConnected || !setCallMuted) return;
     setCallMuted(true);
-  }, [session?.salesBotAttached, voiceConnected, setCallMuted]);
-
-  async function attachSalesBot(callId, { attempts = 40 } = {}) {
-    setAttaching(true);
-    try {
-      for (let i = 0; i < attempts; i++) {
-        const res = await fetch("/api/sales-bot/calls/attach", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ callId }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (res.ok) {
-          if (patchSession) {
-            patchSession({
-              conferenceName: json.conferenceName,
-              callMode: json.callMode || "conference",
-              dialMode: "sales_bot",
-              salesBotAttached: true,
-            });
-          }
-          if (voiceConnected && setCallMuted) {
-            setCallMuted(true);
-          }
-          setInfo("AI bot is on the call and speaking. You are muted — unmute in the dialer to jump in.");
-          return true;
-        }
-        if (res.status === 409 || json?.retryable) {
-          setInfo(json?.error || "Waiting for the customer to answer…");
-          await sleep(1500);
-          continue;
-        }
-        throw new Error(json?.error || "Failed to attach sales bot");
-      }
-      throw new Error("Timed out waiting for the customer to answer so the AI could join.");
-    } finally {
-      setAttaching(false);
-    }
-  }
+  }, [activeSalesCall, voiceConnected, setCallMuted]);
 
   async function startCall() {
     setError(null);
@@ -96,32 +52,50 @@ export default function SalesBotLiveCallClient() {
         throw new Error("Enter a valid phone number");
       }
 
-      expectOutgoingIncomingLeg(45000);
+      // Softphone must be ready so the dialer popup can take the incoming Client leg.
+      expectOutgoingIncomingLeg(60000);
       if (!registered || sdkInitializing) {
         const ok = await ensureRegistered();
         if (!ok) throw new Error("Dialer is not ready. Open the Dialer page and try again.");
       }
 
-      // Same path as Quick Dial — opens the dialer popup and places the outbound call.
-      const result = await startOutgoingCall({ toNumber: toDigits });
-      if (!result.ok) throw new Error(result.error || "Dial failed");
+      setInfo("Opening dialer and connecting AI bot…");
 
+      const res = await fetch("/api/sales-bot/calls/start", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toNumber: toDigits }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to start");
+
+      // Opens the global dialer popup (same session model as Quick Dial).
       beginSession({
-        callId: result.call.id,
+        callId: json.call.id,
         callOwnedByMe: true,
-        callMode: result.callMode || "direct",
+        callMode: "conference",
         dialMode: "sales_bot",
-        toNumber: result.call.toNumber,
+        toNumber: json.call.toNumber || toDigits,
         phoneLabel: raw || formatLandline(toDigits),
         customerName: "Sales Bot call",
-        conferenceName: result.conferenceName || undefined,
-        salesBotAttached: false,
+        conferenceName: json.conferenceName || json.call?.conferenceName || undefined,
+        salesBotAttached: true,
       });
 
-      setInfo("Dialer opened. Answer/connect if needed — AI joins when the customer answers.");
-      void attachSalesBot(result.call.id).catch((err) => {
-        setError(err?.message || "Failed to attach AI bot");
-      });
+      if (patchSession) {
+        patchSession({
+          conferenceName: json.conferenceName,
+          callMode: "conference",
+          dialMode: "sales_bot",
+          salesBotAttached: true,
+        });
+      }
+
+      setInfo(
+        json.message ||
+          "Dialer open. AI bot is already in the conference (before the customer answers). You are muted to listen.",
+      );
     } catch (err) {
       setError(err?.message || "Failed to start");
     } finally {
@@ -156,14 +130,13 @@ export default function SalesBotLiveCallClient() {
     }
   }
 
-  const inLiveCall = Boolean(session?.callId && session?.callOwnedByMe);
-
   return (
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Enter a number and start. This opens the dialer popup and calls the customer (same as Quick Dial).
-        When they answer, the AI joins and speaks from the start. You stay muted to listen.
+        Enter a number and start. Opens the dialer popup, joins the AI into the conference before
+        the customer is dialed, then calls them. The AI speaks only after they answer. You stay muted
+        to listen.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -204,8 +177,7 @@ export default function SalesBotLiveCallClient() {
       {inLiveCall ? (
         <p className="mt-3 text-sm font-medium text-emerald-900 dark:text-emerald-200">
           Live call #{session.callId}
-          {activeSalesCall || attaching ? " · Sales Bot" : ""}
-          {attaching ? " · attaching AI…" : ""}
+          {activeSalesCall ? " · Sales Bot connected" : ""}
         </p>
       ) : null}
       {info ? <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{info}</p> : null}
