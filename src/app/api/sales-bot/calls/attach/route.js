@@ -34,6 +34,10 @@ export async function POST(req) {
   }
 
   const body = await req.json().catch(() => null);
+  // Hard gate: only Sales Bot UI may attach — never auto-touch normal dialer calls.
+  if (String(body?.intent || "").trim() !== "sales_bot") {
+    return NextResponse.json({ error: "intent must be sales_bot" }, { status: 400 });
+  }
   const callId = Number(body?.callId);
   if (!Number.isInteger(callId) || callId <= 0) {
     return NextResponse.json({ error: "callId must be a positive integer" }, { status: 400 });
@@ -63,6 +67,12 @@ export async function POST(req) {
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
   if (call.userId !== authedUser.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Do not attach onto terminal / unrelated calls.
+  const status = String(call.status || "").toLowerCase();
+  if (["completed", "failed", "busy", "no-answer", "canceled", "cancelled"].includes(status)) {
+    return NextResponse.json({ error: "Call already ended.", retryable: false }, { status: 409 });
   }
 
   const upgraded = await upgradeCallToConference({ req, authedUser, callId });

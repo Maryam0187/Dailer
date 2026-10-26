@@ -41,6 +41,12 @@ function getSalesBotOpenAiModel() {
   );
 }
 
+const SALES_BOT_HOLD_MESSAGE = "Please hold while we try to connect you.";
+
+function buildHoldMessage() {
+  return SALES_BOT_HOLD_MESSAGE;
+}
+
 function buildWelcomeGreeting(botName) {
   const name = String(botName || "").trim() || "Sales Assistant";
   return `Hi, this is ${name}. Thanks for taking my call — do you have a quick moment?`;
@@ -200,11 +206,13 @@ async function streamSalesOpenAiReply({ messages, onToken, signal }) {
 module.exports = {
   SALES_BOT_LABEL,
   DEFAULT_SALES_BOT_INSTRUCTIONS,
+  SALES_BOT_HOLD_MESSAGE,
   getOpenAiApiKey,
   getSalesBotVoice,
   getTtsProvider,
   wrapPlainTextForTts,
   buildConversationRelayTwiml,
+  buildHoldMessage,
   buildWelcomeGreeting,
   buildSystemPrompt,
   loadSalesBotTrainingForPrompt,

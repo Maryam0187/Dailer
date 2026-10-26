@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
+import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
 
 const labelClass = "mb-1.5 block text-sm font-semibold text-zinc-800 dark:text-zinc-200";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function SalesBotLiveCallClient() {
   const { beginSession, session, endCall, patchSession } = useActiveCall();
@@ -25,23 +30,119 @@ export default function SalesBotLiveCallClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
+  const [botStatus, setBotStatus] = useState(""); // "", "waiting", "live", "failed"
+  /** Only the call started from this Sales Bot button — never hijack a normal dialer call. */
+  const [salesBotCallId, setSalesBotCallId] = useState(null);
+  const salesBotCallIdRef = useRef(null);
+  const attachGenRef = useRef(0);
 
-  const inLiveCall = Boolean(session?.callId && session?.callOwnedByMe);
-  const activeSalesCall =
-    session?.callOwnedByMe &&
-    (session?.dialMode === "sales_bot" || session?.salesBotAttached);
+  const inSalesBotCall =
+    Number.isInteger(Number(salesBotCallId)) &&
+    Number(salesBotCallId) > 0 &&
+    Number(session?.callId) === Number(salesBotCallId) &&
+    Boolean(session?.callOwnedByMe);
 
-  // Listen-only: keep mic muted once the softphone is up on a sales-bot call.
+  const salesBotLive = Boolean(inSalesBotCall && session?.salesBotAttached);
+
+  function abortAttachLoop() {
+    attachGenRef.current += 1;
+  }
+
+  function clearSalesBotCallTracking() {
+    abortAttachLoop();
+    salesBotCallIdRef.current = null;
+    setSalesBotCallId(null);
+    setBotStatus("");
+  }
+
+  // If the dialer session ends or switches to another call, stop attaching.
   useEffect(() => {
-    if (!activeSalesCall || !voiceConnected || !setCallMuted) return;
+    const tracked = Number(salesBotCallIdRef.current);
+    if (!Number.isInteger(tracked) || tracked <= 0) return;
+    const activeId = Number(session?.callId);
+    if (!Number.isInteger(activeId) || activeId <= 0 || activeId !== tracked) {
+      clearSalesBotCallTracking();
+    }
+  }, [session?.callId]);
+
+  useEffect(() => {
+    return () => {
+      abortAttachLoop();
+    };
+  }, []);
+
+  // Mute only for this Sales Bot call after AI attaches — never mute unrelated dialer calls.
+  useEffect(() => {
+    if (!salesBotLive || !voiceConnected || !setCallMuted) return;
     setCallMuted(true);
-  }, [activeSalesCall, voiceConnected, setCallMuted]);
+  }, [salesBotLive, voiceConnected, setCallMuted]);
+
+  /**
+   * Same as Quick Dial: agent softphone + dialer popup + bridge to customer.
+   * After the customer answers, upgrade to conference, join AI, then speak.
+   * Safe: aborted if call ends / changes; only runs for salesBotCallId.
+   */
+  async function attachSalesBotWhenCustomerAnswers(callId, generation) {
+    setBotStatus("waiting");
+    for (let i = 0; i < 60; i++) {
+      if (attachGenRef.current !== generation) return;
+      if (Number(salesBotCallIdRef.current) !== Number(callId)) return;
+
+      const res = await fetch("/api/sales-bot/calls/attach", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId, intent: "sales_bot" }),
+      });
+      if (attachGenRef.current !== generation) return;
+
+      const json = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        if (patchSession) {
+          patchSession((current) => {
+            // Never patch a different / normal dialer session.
+            if (!current || Number(current.callId) !== Number(callId)) return current;
+            return {
+              ...current,
+              conferenceName: json.conferenceName,
+              callMode: json.callMode || "conference",
+              dialMode: "sales_bot",
+              salesBotAttached: true,
+              salesBotIntent: true,
+            };
+          });
+        }
+        if (setCallMuted) setCallMuted(true);
+        setBotStatus("live");
+        setInfo(
+          "Customer answered — playing please-hold, then AI pitch. You are muted; unmute to jump in.",
+        );
+        return;
+      }
+
+      if (res.status === 409 || json?.retryable) {
+        setBotStatus("waiting");
+        await sleep(1500);
+        continue;
+      }
+
+      setBotStatus("failed");
+      setError(json?.error || "Failed to attach AI bot");
+      return;
+    }
+    if (attachGenRef.current !== generation) return;
+    setBotStatus("failed");
+    setError("Timed out waiting for the customer so the AI could join.");
+  }
 
   async function startCall() {
     setError(null);
     setInfo(null);
+    setBotStatus("");
     setBusy(true);
     try {
+      // Do not interrupt a normal dialer / Address Bot call.
       if (session?.callId) {
         throw new Error("End your current dialer call before starting Sales Bot.");
       }
@@ -52,52 +153,44 @@ export default function SalesBotLiveCallClient() {
         throw new Error("Enter a valid phone number");
       }
 
-      // Softphone must be ready so the dialer popup can take the incoming Client leg.
-      expectOutgoingIncomingLeg(60000);
+      // Exact current dialer flow (Quick Dial) — unchanged /api/calls/start.
+      expectOutgoingIncomingLeg(45000);
       if (!registered || sdkInitializing) {
         const ok = await ensureRegistered();
         if (!ok) throw new Error("Dialer is not ready. Open the Dialer page and try again.");
       }
 
-      setInfo("Opening dialer and connecting AI bot…");
+      const result = await startOutgoingCall({ toNumber: toDigits });
+      if (!result.ok) throw new Error(result.error || "Dial failed");
 
-      const res = await fetch("/api/sales-bot/calls/start", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toNumber: toDigits }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to start");
+      const callId = result.call.id;
+      salesBotCallIdRef.current = callId;
+      setSalesBotCallId(callId);
 
-      // Opens the global dialer popup (same session model as Quick Dial).
       beginSession({
-        callId: json.call.id,
+        callId,
         callOwnedByMe: true,
-        callMode: "conference",
-        dialMode: "sales_bot",
-        toNumber: json.call.toNumber || toDigits,
+        callMode: result.callMode || "direct",
+        dialMode: "agent_first",
+        toNumber: result.call.toNumber,
         phoneLabel: raw || formatLandline(toDigits),
         customerName: "Sales Bot call",
-        conferenceName: json.conferenceName || json.call?.conferenceName || undefined,
-        salesBotAttached: true,
+        conferenceName: result.conferenceName || undefined,
+        salesBotAttached: false,
+        salesBotIntent: true,
       });
 
-      if (patchSession) {
-        patchSession({
-          conferenceName: json.conferenceName,
-          callMode: "conference",
-          dialMode: "sales_bot",
-          salesBotAttached: true,
-        });
-      }
+      setInfo("Dialer opened — agent connecting and calling the customer (same as Quick Dial).");
 
-      setInfo(
-        json.message ||
-          "Dialer open. AI bot is already in the conference (before the customer answers). You are muted to listen.",
-      );
+      const generation = ++attachGenRef.current;
+      void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
+        if (attachGenRef.current !== generation) return;
+        setBotStatus("failed");
+        setError(err?.message || "Failed to attach AI bot");
+      });
     } catch (err) {
       setError(err?.message || "Failed to start");
+      clearSalesBotCallTracking();
     } finally {
       setBusy(false);
     }
@@ -106,19 +199,25 @@ export default function SalesBotLiveCallClient() {
   async function stopCall() {
     setBusy(true);
     setError(null);
+    const callId = Number(salesBotCallIdRef.current || session?.callId);
+    const wasAttached = Boolean(session?.salesBotAttached);
+    const conferenceName = session?.conferenceName || "";
+    clearSalesBotCallTracking();
     try {
-      const callId = Number(session?.callId);
-      if (Number.isInteger(callId) && callId > 0) {
+      // Only tear down via sales-bot stop when AI actually attached (conference).
+      if (Number.isInteger(callId) && callId > 0 && wasAttached) {
         await fetch("/api/sales-bot/calls/stop", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             callId,
-            conferenceName: session?.conferenceName || "",
+            conferenceName,
+            intent: "sales_bot",
           }),
         }).catch(() => {});
       }
+      // Always end via the normal dialer end path so hangup matches Quick Dial.
       if (typeof endCall === "function") {
         await endCall();
       }
@@ -134,9 +233,8 @@ export default function SalesBotLiveCallClient() {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Enter a number and start. Opens the dialer popup, joins the AI into the conference before
-        the customer is dialed, then calls them. The AI speaks only after they answer. You stay muted
-        to listen.
+        Same as Quick Dial: click start → dialer popup opens → agent connects → customer is called.
+        After the customer answers, the AI joins and speaks. Normal dialer calls are never modified.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -150,14 +248,14 @@ export default function SalesBotLiveCallClient() {
             value={toNumber}
             onChange={(e) => setToNumber(e.target.value)}
             placeholder="+1…"
-            disabled={busy || inLiveCall}
+            disabled={busy || inSalesBotCall}
           />
         </div>
-        {!inLiveCall ? (
+        {!inSalesBotCall ? (
           <button
             type="button"
             onClick={() => void startCall()}
-            disabled={busy || !toNumber.trim()}
+            disabled={busy || !toNumber.trim() || Boolean(session?.callId)}
             className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
           >
             {busy ? "Starting…" : "Start AI Bot"}
@@ -174,10 +272,18 @@ export default function SalesBotLiveCallClient() {
         )}
       </div>
 
-      {inLiveCall ? (
+      {session?.callId && !inSalesBotCall ? (
+        <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
+          A dialer call is already active. End it in the dialer popup before starting Sales Bot.
+        </p>
+      ) : null}
+
+      {inSalesBotCall ? (
         <p className="mt-3 text-sm font-medium text-emerald-900 dark:text-emerald-200">
           Live call #{session.callId}
-          {activeSalesCall ? " · Sales Bot connected" : ""}
+          {botStatus === "waiting" ? " · waiting for customer, then AI joins…" : null}
+          {botStatus === "live" || salesBotLive ? " · AI bot live" : null}
+          {botStatus === "failed" ? " · AI bot failed to join" : null}
         </p>
       ) : null}
       {info ? <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{info}</p> : null}

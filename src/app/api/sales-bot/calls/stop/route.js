@@ -10,6 +10,9 @@ export async function POST(req) {
   if (errorResponse) return errorResponse;
 
   const body = await req.json().catch(() => null);
+  if (String(body?.intent || "").trim() !== "sales_bot") {
+    return NextResponse.json({ error: "intent must be sales_bot" }, { status: 400 });
+  }
   const callId = Number(body?.callId);
   const conferenceName = String(body?.conferenceName || "").trim();
 
@@ -19,11 +22,29 @@ export async function POST(req) {
 
   const call = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "userId", "conferenceName", "twilioSid", "customerCallSid", "callKind"],
+    attributes: [
+      "id",
+      "userId",
+      "conferenceName",
+      "twilioSid",
+      "customerCallSid",
+      "callKind",
+      "dialMode",
+    ],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
   if (call.userId !== authedUser.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Never tear down a normal dialer call through this endpoint.
+  const kind = String(call.callKind || "").trim();
+  const dialMode = String(call.dialMode || "").trim();
+  if (kind !== "sales_bot" && dialMode !== "sales_bot") {
+    return NextResponse.json(
+      { error: "Not a Sales Bot call. Use the dialer hangup instead." },
+      { status: 409 },
+    );
   }
 
   const name = conferenceName || String(call.conferenceName || "").trim();

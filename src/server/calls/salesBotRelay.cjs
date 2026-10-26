@@ -93,6 +93,12 @@ function attachSalesBotRelay(server) {
         return { ok: false, error: started.error || "Failed to start sales bot" };
       }
       applyTurnState(session, started);
+
+      // 1) Please-hold connect line, then 2) sales pitch.
+      if (!session.closed && started.holdMessage) {
+        sendTextTokens(ws, wrapPlainTextForTts(started.holdMessage));
+        await new Promise((resolve) => setTimeout(resolve, 2800));
+      }
       if (!session.closed && started.reply) {
         sendTextTokens(ws, wrapPlainTextForTts(started.reply));
       }

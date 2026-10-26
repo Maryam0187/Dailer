@@ -3,6 +3,7 @@
 const {
   buildSystemPrompt,
   loadSalesBotTrainingForPrompt,
+  buildHoldMessage,
   buildWelcomeGreeting,
   wrapPlainTextForTts,
   streamSalesOpenAiReply,
@@ -49,16 +50,19 @@ function parseState(raw) {
 
 async function startSalesBotTurn() {
   const training = await loadSalesBotTrainingForPrompt();
+  const hold = buildHoldMessage();
   const welcome = buildWelcomeGreeting(training.name);
   const state = {
     messages: [
       { role: "system", content: buildSystemPrompt(training) },
-      { role: "assistant", content: welcome },
+      { role: "assistant", content: `${hold} ${welcome}` },
     ],
   };
 
   return {
     ok: true,
+    // Hold first, then sales pitch (relay speaks hold, pauses, then reply).
+    holdMessage: wrapPlainTextForTts(hold),
     reply: wrapPlainTextForTts(welcome),
     customerText: "",
     botName: String(training?.name || "").trim() || "Sales Assistant",
