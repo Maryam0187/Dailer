@@ -32,7 +32,10 @@ export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: spoken }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json?.error || `Voice playback failed (${res.status})`);
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const audio = audioRef.current || new Audio();
@@ -40,8 +43,12 @@ export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
     audio.src = url;
     try {
       await audio.play();
-    } catch {
-      /* autoplay */
+    } catch (err) {
+      throw new Error(
+        err?.name === "NotAllowedError"
+          ? "Browser blocked audio. Click Start again or allow sound for this site."
+          : "Could not play bot audio in this browser.",
+      );
     }
   }
 

@@ -577,7 +577,15 @@ async function synthesizeSpeech({ text, signal }) {
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(errText || `OpenAI speech failed (${res.status})`);
+    let message = `OpenAI speech failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(errText);
+      if (parsed?.error?.message) message = parsed.error.message;
+      else if (errText) message = errText.slice(0, 300);
+    } catch {
+      if (errText) message = errText.slice(0, 300);
+    }
+    throw new Error(message);
   }
   return Buffer.from(await res.arrayBuffer());
 }

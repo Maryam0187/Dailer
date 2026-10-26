@@ -31,10 +31,18 @@ export async function POST(req) {
       },
     });
   } catch (err) {
-    console.error("[sales-bot] speak failed:", err?.message || err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to speak" },
-      { status: 502 },
-    );
+    const raw = String(err?.message || err || "Failed to speak");
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.error?.message) message = parsed.error.message;
+      else if (parsed?.message) message = parsed.message;
+    } catch {
+      /* plain text */
+    }
+    // Avoid dumping huge HTML/JSON bodies into the UI.
+    message = message.replace(/\s+/g, " ").trim().slice(0, 300);
+    console.error("[sales-bot] speak failed:", message);
+    return NextResponse.json({ error: message || "Failed to speak" }, { status: 502 });
   }
 }
