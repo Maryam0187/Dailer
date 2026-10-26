@@ -241,7 +241,7 @@ export default function QuickDialPanel() {
               className={tabBtnClass("twilio")}
               onClick={() => setActiveTab("twilio")}
             >
-              Twilio
+              Dialer
             </button>
             <button
               type="button"
