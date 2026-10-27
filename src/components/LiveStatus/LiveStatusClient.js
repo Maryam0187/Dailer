@@ -103,14 +103,22 @@ function buildSummary(agents) {
   return summary;
 }
 
-/** Oldest last call first (never called = min); username as tiebreaker. */
+/** On call → online → away → offline; within each group, newest last call first. */
 function sortAgents(list) {
   return [...list].sort((a, b) => {
+    const rank = (agent) => {
+      if (agent.onCall) return 0;
+      if (agent.presence === "online") return 1;
+      if (agent.presence === "away") return 2;
+      return 3;
+    };
+    const diff = rank(a) - rank(b);
+    if (diff !== 0) return diff;
     const aMs = a.lastCallAt ? new Date(a.lastCallAt).getTime() : 0;
     const bMs = b.lastCallAt ? new Date(b.lastCallAt).getTime() : 0;
     const aTime = Number.isFinite(aMs) ? aMs : 0;
     const bTime = Number.isFinite(bMs) ? bMs : 0;
-    if (aTime !== bTime) return aTime - bTime;
+    if (aTime !== bTime) return bTime - aTime;
     return (a.username || "").localeCompare(b.username || "");
   });
 }
