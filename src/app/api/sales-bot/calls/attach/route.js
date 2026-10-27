@@ -8,11 +8,8 @@ import {
   removeLabeledParticipant,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import {
-  isHumanAnsweredBy,
-  isMachineAnsweredBy,
-  waitForAnsweredBy,
-} from "@/server/calls/salesBotAnsweredBy";
+import { isHumanAnsweredBy, waitForAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
+import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
@@ -66,6 +63,7 @@ export async function POST(req) {
       "fromNumber",
       "callKind",
       "status",
+      "twilioSid",
       "customerCallSid",
       "answeredBy",
     ],
@@ -81,41 +79,26 @@ export async function POST(req) {
     return NextResponse.json({ error: "Call already ended.", retryable: false }, { status: 409 });
   }
 
-  // Still ringing / not bridged — client should keep retrying (bot must not speak yet).
-  if (!String(call.customerCallSid || "").trim()) {
-    return NextResponse.json(
-      {
-        error: "Customer is still ringing. Waiting for answer…",
-        phase: "ringing",
-        retryable: true,
-      },
-      { status: 409 },
-    );
+  // Status webhooks can lag — discover customer leg from Twilio before deciding "ringing".
+  if (!String(call.customerCallSid || "").trim() && String(call.twilioSid || "").trim()) {
+    await syncCustomerLegFromTwilio(call).catch(() => {});
   }
 
-  // Wait briefly for AMD. Only block on confirmed machine; human or unknown → speak
-  // (customer is already on the line — missing AMD must not silence the bot).
-  const answeredBy = await waitForAnsweredBy(call, { attempts: 8, delayMs: 400 });
-  if (isMachineAnsweredBy(answeredBy)) {
-    return NextResponse.json(
-      {
-        ok: false,
-        attached: false,
-        phase: "machine",
-        answeredBy,
-        error: "Answered by machine/voicemail/automated message — AI will not speak.",
-        retryable: false,
-      },
-      { status: 409 },
-    );
-  }
+  // AMD is logged only (do not block speak — carrier announcements often look like machine).
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 3, delayMs: 250 });
 
   const upgraded = await upgradeCallToConference({ req, authedUser, callId });
   if (!upgraded.ok) {
+    const err = String(upgraded.error || "");
+    const stillRinging =
+      /still ringing|not on the line yet|not live yet/i.test(err) ||
+      /customer=ringing|customer=queued|customer=initiated/i.test(
+        String(upgraded.twilioHint || ""),
+      );
     const payload = {
       error: upgraded.error,
       retryable: upgraded.status === 409,
-      phase: "connecting",
+      phase: stillRinging ? "ringing" : "connecting",
     };
     if (upgraded.twilioHint) payload.twilioHint = upgraded.twilioHint;
     return NextResponse.json(payload, { status: upgraded.status });
@@ -143,22 +126,7 @@ export async function POST(req) {
       );
     }
 
-    // Re-check: only abort if a late machine result arrived.
     await call.reload({ attributes: ["answeredBy"] }).catch(() => {});
-    if (isMachineAnsweredBy(call.answeredBy)) {
-      await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
-      return NextResponse.json(
-        {
-          ok: false,
-          attached: false,
-          phase: "machine",
-          answeredBy: call.answeredBy,
-          error: "Answered by machine/voicemail/automated message — AI will not speak.",
-          retryable: false,
-        },
-        { status: 409 },
-      );
-    }
 
     const existing = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
     const live = await waitForSalesBotSession(callId, 400);
