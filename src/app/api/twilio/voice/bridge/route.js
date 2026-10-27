@@ -74,22 +74,22 @@ export async function POST(req) {
     ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : "";
 
-  // Sales Bot only: detect human vs machine/voicemail/carrier connect messages.
-  // Enable = decide ASAP; longer speechEnd helps treat "please hold while we connect…" as machine.
+  // Sales Bot only: AMD attrs belong on <Number> (not <Dial>).
   const isSalesBot =
     String(callLog.callKind || "").trim() === "sales_bot" ||
     String(callLog.dialMode || "").trim() === "sales_bot";
   const amdAttr =
     isSalesBot && baseUrl
-      ? ` machineDetection="Enable" machineDetectionTimeout="30" machineDetectionSpeechEndThreshold="2400" amdStatusCallback="${escapeXmlAttr(
+      ? ` machineDetection="Enable" amdStatusCallback="${escapeXmlAttr(
           `${baseUrl}/api/twilio/sales-bot/amd?callId=${callId}`,
         )}" amdStatusCallbackMethod="POST"`
       : "";
+  const numberAttrs = [numberStatusAttr, amdAttr].filter(Boolean).join("");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}${dialActionAttr}${amdAttr}>
-    <Number${numberStatusAttr ? ` ${numberStatusAttr}` : ""}>${escapeXmlAttr(customerNumber)}</Number>
+  <Dial answerOnBridge="true" timeout="25"${callerIdAttr}${dialActionAttr}>
+    <Number${numberAttrs}>${escapeXmlAttr(customerNumber)}</Number>
   </Dial>
 </Response>`;
   return twimlResponse(xml);

@@ -80,6 +80,10 @@ export async function POST(req) {
     );
   }
 
+  // Sales Bot tags at create time so bridge TwiML can enable AMD before the dial.
+  const isSalesBot =
+    String(body?.intent || "").trim() === "sales_bot" ||
+    String(body?.dialMode || "").trim() === "sales_bot";
   const call = await db.CallLog.create({
     userId: authedUser.id,
     leadId: lead?.id || null,
@@ -87,8 +91,8 @@ export async function POST(req) {
     toNumber: normalizedToNumber,
     direction: "outbound",
     status: "initiated",
-    callKind: lead ? "lead" : null,
-    dialMode: "agent_first",
+    callKind: isSalesBot ? "sales_bot" : lead ? "lead" : null,
+    dialMode: isSalesBot ? "sales_bot" : "agent_first",
     contactName: lead?.fullName?.trim() || null,
     city: lead?.city || null,
     state: lead?.state || null,
@@ -145,7 +149,7 @@ export async function POST(req) {
       ok: true,
       call: refreshed,
       callMode: "direct",
-      dialMode: "agent_first",
+      dialMode: isSalesBot ? "sales_bot" : "agent_first",
       lead: lead
         ? {
             id: lead.id,

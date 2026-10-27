@@ -1,6 +1,6 @@
 /**
  * POST /api/calls/start — agent-first lead dial (or legacy toNumber).
- * @param {{ leadId?: number, toNumber?: string }} params
+ * @param {{ leadId?: number, toNumber?: string, intent?: string, dialMode?: string }} params
  */
 export async function startOutgoingCall(params) {
   const leadId = typeof params === "object" && params != null ? params.leadId : undefined;
@@ -15,6 +15,10 @@ export async function startOutgoingCall(params) {
   if (Number.isInteger(leadId) && leadId > 0) body.leadId = leadId;
   else if (trimmed) body.toNumber = trimmed;
   else return { ok: false, error: "leadId or toNumber is required" };
+  if (typeof params === "object" && params != null) {
+    if (params.intent) body.intent = String(params.intent).trim();
+    if (params.dialMode) body.dialMode = String(params.dialMode).trim();
+  }
 
   const res = await fetch("/api/calls/start", {
     method: "POST",

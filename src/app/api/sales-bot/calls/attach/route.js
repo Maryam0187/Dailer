@@ -93,8 +93,9 @@ export async function POST(req) {
     );
   }
 
-  // Wait for Twilio AMD: human vs machine/voicemail vs carrier "please hold…" announcement.
-  const answeredBy = await waitForAnsweredBy(call, { attempts: 20, delayMs: 500 });
+  // Wait briefly for AMD. Only block on confirmed machine; human or unknown → speak
+  // (customer is already on the line — missing AMD must not silence the bot).
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 8, delayMs: 400 });
   if (isMachineAnsweredBy(answeredBy)) {
     return NextResponse.json(
       {
@@ -104,19 +105,6 @@ export async function POST(req) {
         answeredBy,
         error: "Answered by machine/voicemail/automated message — AI will not speak.",
         retryable: false,
-      },
-      { status: 409 },
-    );
-  }
-  // Do not speak during ringing or while AMD is still deciding (provider connect messages).
-  if (!isHumanAnsweredBy(answeredBy)) {
-    return NextResponse.json(
-      {
-        error:
-          "Still connecting or hearing an automated message. Waiting for a human answer…",
-        phase: "detecting",
-        answeredBy: answeredBy || null,
-        retryable: true,
       },
       { status: 409 },
     );
@@ -155,7 +143,7 @@ export async function POST(req) {
       );
     }
 
-    // Re-check AMD in case a late machine / announcement result arrived.
+    // Re-check: only abort if a late machine result arrived.
     await call.reload({ attributes: ["answeredBy"] }).catch(() => {});
     if (isMachineAnsweredBy(call.answeredBy)) {
       await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
@@ -167,18 +155,6 @@ export async function POST(req) {
           answeredBy: call.answeredBy,
           error: "Answered by machine/voicemail/automated message — AI will not speak.",
           retryable: false,
-        },
-        { status: 409 },
-      );
-    }
-    if (!isHumanAnsweredBy(call.answeredBy)) {
-      return NextResponse.json(
-        {
-          error:
-            "Still connecting or hearing an automated message. Waiting for a human answer…",
-          phase: "detecting",
-          answeredBy: call.answeredBy || null,
-          retryable: true,
         },
         { status: 409 },
       );
@@ -220,17 +196,18 @@ export async function POST(req) {
       );
     }
 
-    // Confirmed human: speak greeting only.
+    // Customer live and not a machine: speak greeting.
     await sleep(250);
     await beginSalesBotSpeech({ callId });
 
     await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
 
+    const finalAnsweredBy = answeredBy || call.answeredBy || null;
     return NextResponse.json({
       ok: true,
       attached: true,
-      phase: "human",
-      answeredBy: answeredBy || call.answeredBy || "human",
+      phase: isHumanAnsweredBy(finalAnsweredBy) ? "human" : "answered",
+      answeredBy: finalAnsweredBy,
       conferenceName,
       callMode: "conference",
     });

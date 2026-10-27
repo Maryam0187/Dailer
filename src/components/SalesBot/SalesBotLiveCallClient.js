@@ -132,13 +132,9 @@ export default function SalesBotLiveCallClient() {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
         if (phase === "ringing") {
-          setInfo("Ringing… AI waits until a human answers.");
-        } else if (phase === "detecting") {
-          setInfo(
-            "Hearing connect/automated message from the network… AI waits for a real human.",
-          );
+          setInfo("Ringing… AI waits until the customer answers.");
         } else if (phase === "connecting") {
-          setInfo("Customer line connecting… waiting to confirm human before AI speaks.");
+          setInfo("Customer answered — connecting AI…");
         } else {
           setInfo(json?.error || "Waiting for customer answer…");
         }
@@ -179,14 +175,19 @@ export default function SalesBotLiveCallClient() {
         if (!ok) throw new Error("Dialer is not ready. Open the Dialer page and try again.");
       }
 
-      const result = await startOutgoingCall({ toNumber: toDigits });
+      // Tag sales_bot at create so bridge enables AMD before customer dial.
+      const result = await startOutgoingCall({
+        toNumber: toDigits,
+        intent: "sales_bot",
+        dialMode: "sales_bot",
+      });
       if (!result.ok) throw new Error(result.error || "Dial failed");
 
       const callId = result.call.id;
       salesBotCallIdRef.current = callId;
       setSalesBotCallId(callId);
 
-      // Tag immediately so this dial never lands in the main dialer call log.
+      // Keep mark as a safety net if start ignored intent.
       await fetch("/api/sales-bot/calls/mark", {
         method: "POST",
         credentials: "include",

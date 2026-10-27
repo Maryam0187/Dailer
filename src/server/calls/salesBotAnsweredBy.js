@@ -20,12 +20,11 @@ export function isHumanAnsweredBy(answeredBy) {
 }
 
 /**
- * Wait for Twilio AMD after the customer leg is live.
- * Carrier "please hold while we connect you" can take several seconds before
- * AnsweredBy is set (often machine_* for announcements, human for a real person).
+ * Wait briefly for Twilio AMD after the customer leg is live.
+ * Returns null if still unknown — callers should speak unless result is machine.
  * @returns {Promise<string|null>} AnsweredBy or null if still unknown
  */
-export async function waitForAnsweredBy(callRow, { attempts = 20, delayMs = 500 } = {}) {
+export async function waitForAnsweredBy(callRow, { attempts = 8, delayMs = 400 } = {}) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let current = callRow;
   for (let i = 0; i < attempts; i++) {
