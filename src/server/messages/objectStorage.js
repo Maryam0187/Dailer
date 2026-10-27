@@ -37,13 +37,17 @@ export function getS3Client() {
   }
   if (!cachedClient) {
     cachedClient = new S3Client({
-      region: process.env.S3_REGION || "auto",
-      endpoint: process.env.S3_ENDPOINT,
+      region: String(process.env.S3_REGION || "auto").trim() || "auto",
+      endpoint: String(process.env.S3_ENDPOINT || "").trim(),
       credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        accessKeyId: String(process.env.S3_ACCESS_KEY_ID || "").trim(),
+        secretAccessKey: String(process.env.S3_SECRET_ACCESS_KEY || "").trim(),
       },
       forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+      // SDK 3.729+ adds a CRC32 checksum to every upload. Railway buckets
+      // sign without it and reject the request as SignatureDoesNotMatch.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return cachedClient;
