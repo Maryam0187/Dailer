@@ -41,15 +41,58 @@ function getSalesBotOpenAiModel() {
   );
 }
 
-const SALES_BOT_HOLD_MESSAGE = "Please hold while we try to connect you.";
-
-function buildHoldMessage() {
-  return SALES_BOT_HOLD_MESSAGE;
-}
-
 function buildWelcomeGreeting(botName) {
   const name = String(botName || "").trim() || "Sales Assistant";
   return `Hi, this is ${name}. Thanks for taking my call — do you have a quick moment?`;
+}
+
+/** Opening line spoken once a human answers (greeting only — no carrier-style hold). */
+function buildOpeningSpeech(botName) {
+  return buildWelcomeGreeting(botName);
+}
+
+function escapeXmlAttr(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Sales Bot ConversationRelay: opening is not barge-in interruptible.
+ * Later turns stay interruptible so the customer can talk over replies.
+ */
+function buildSalesConversationRelayTwiml({ relayUrl, welcomeGreeting, voice } = {}) {
+  const provider = getTtsProvider();
+  const ttsVoice = escapeXmlAttr(voice || getSalesBotVoice());
+  const greeting = String(welcomeGreeting || "").trim();
+  const greetingAttr = greeting ? `\n      welcomeGreeting="${escapeXmlAttr(greeting)}"` : "";
+  const elevenLabsAttr =
+    provider === "ElevenLabs" ? `\n      elevenlabsTextNormalization="off"` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <ConversationRelay
+      url="${escapeXmlAttr(relayUrl)}"${greetingAttr}
+      welcomeGreetingInterruptible="none"
+      interruptible="speech"
+      interruptSensitivity="low"
+      ignoreBackchannel="true"${elevenLabsAttr}
+      ttsProvider="${escapeXmlAttr(provider)}"
+      voice="${ttsVoice}"
+      language="en-US"
+    />
+  </Connect>
+</Response>`;
+}
+
+/** Rough TTS duration so we can ignore barge-in until the opening finishes. */
+function estimateSpeakMs(text) {
+  const chars = String(text || "").replace(/\s+/g, " ").trim().length;
+  // ~14 chars/sec spoken + small buffer; clamp 6s–18s.
+  return Math.min(18000, Math.max(6000, Math.round(chars * 70) + 800));
 }
 
 function buildSystemPrompt(training = {}) {
@@ -206,14 +249,15 @@ async function streamSalesOpenAiReply({ messages, onToken, signal }) {
 module.exports = {
   SALES_BOT_LABEL,
   DEFAULT_SALES_BOT_INSTRUCTIONS,
-  SALES_BOT_HOLD_MESSAGE,
   getOpenAiApiKey,
   getSalesBotVoice,
   getTtsProvider,
   wrapPlainTextForTts,
   buildConversationRelayTwiml,
-  buildHoldMessage,
+  buildSalesConversationRelayTwiml,
   buildWelcomeGreeting,
+  buildOpeningSpeech,
+  estimateSpeakMs,
   buildSystemPrompt,
   loadSalesBotTrainingForPrompt,
   signRelayToken,

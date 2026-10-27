@@ -69,14 +69,12 @@ export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
       stateRef.current = json.state || null;
       if (json.botName) setSessionBotName(json.botName);
       setActive(true);
-      const opening = [json.holdMessage, json.reply].filter(Boolean);
-      if (opening.length) {
-        setLines(
-          opening.map((text) => ({ id: nextId(), role: "bot", text })),
-        );
-        for (const text of opening) {
-          await playBotReply(text);
-        }
+      // Opening greeting only (matches live call).
+      const opening =
+        String(json.opening || json.reply || "").trim();
+      if (opening) {
+        setLines([{ id: nextId(), role: "bot", text: opening }]);
+        await playBotReply(opening);
       }
     } catch (err) {
       setError(err?.message || "Failed to start try session");

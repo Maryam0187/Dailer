@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import SalesBotTryClient from "@/components/SalesBot/SalesBotTryClient";
 import SalesBotLiveCallClient from "@/components/SalesBot/SalesBotLiveCallClient";
+import SalesBotCallLogsClient from "@/components/SalesBot/SalesBotCallLogsClient";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -209,6 +210,8 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
       ) : null}
 
       <SalesBotLiveCallClient />
+
+      <SalesBotCallLogsClient isAdmin={isAdmin} />
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Prompt</h2>

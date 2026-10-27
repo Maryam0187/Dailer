@@ -6,6 +6,7 @@ import {
   applyCallKindToWhere,
   applyDialerIndexToWhere,
   applyVoiceProviderToWhere,
+  excludeSalesBotFromWhere,
   parseCallScope,
   parseDialerIndexFilter,
   parseVoiceProviderFilter,
@@ -167,6 +168,8 @@ export async function GET(req) {
   where = applyDialerIndexToWhere(where, dialerIndexFilter);
   where = applyVoiceProviderToWhere(where, voiceProviderFilter);
   where = andWhere(where, numberSearchWhere);
+  // Sales Bot dials belong only on /sales-bot, not the main dialer call log.
+  where = excludeSalesBotFromWhere(where);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,

@@ -15,7 +15,9 @@ export function getSalesBotVoice() {
 export function buildSalesBotConnectTwiml({ origin, callId }) {
   const token = core.signRelayToken({ callId });
   const relayUrl = core.buildRelayUrl(origin, { callId, token });
-  return core.buildConversationRelayTwiml({
+  // Opening greeting is spoken from beginSpeaking as one protected utterance.
+  // TwiML uses non-interruptible welcome settings so barge-in cannot wipe the greeting.
+  return core.buildSalesConversationRelayTwiml({
     relayUrl,
     voice: core.getSalesBotVoice(),
   });

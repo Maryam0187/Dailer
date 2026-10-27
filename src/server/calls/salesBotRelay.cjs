@@ -2,7 +2,11 @@
 
 const { parse } = require("url");
 const { WebSocketServer } = require("ws");
-const { verifyRelayToken, wrapPlainTextForTts } = require("./salesBotCore.cjs");
+const {
+  verifyRelayToken,
+  wrapPlainTextForTts,
+  estimateSpeakMs,
+} = require("./salesBotCore.cjs");
 const { startSalesBotTurn, continueSalesBotTurn } = require("./salesBotTurn.cjs");
 const {
   registerSalesBotSession,
@@ -68,7 +72,18 @@ function attachSalesBotRelay(server) {
       abort: null,
       closed: false,
       speaking: false,
+      /** While true, ignore prompt/interrupt so the greeting is not cut off. */
+      openingInProgress: false,
+      openingTimer: null,
     };
+
+    function clearOpeningGuard() {
+      session.openingInProgress = false;
+      if (session.openingTimer) {
+        clearTimeout(session.openingTimer);
+        session.openingTimer = null;
+      }
+    }
 
     function abortInflight() {
       if (!session.abort) return;
@@ -85,6 +100,7 @@ function attachSalesBotRelay(server) {
         return { ok: false, error: "Sales bot disconnected." };
       }
       abortInflight();
+      clearOpeningGuard();
       session.speaking = true;
       session.messages = [];
       const started = await startSalesBotTurn();
@@ -94,19 +110,24 @@ function attachSalesBotRelay(server) {
       }
       applyTurnState(session, started);
 
-      // 1) Please-hold connect line, then 2) sales pitch.
-      if (!session.closed && started.holdMessage) {
-        sendTextTokens(ws, wrapPlainTextForTts(started.holdMessage));
-        await new Promise((resolve) => setTimeout(resolve, 2800));
-      }
-      if (!session.closed && started.reply) {
-        sendTextTokens(ws, wrapPlainTextForTts(started.reply));
+      // One protected opening: greeting only (after human AMD).
+      const opening = wrapPlainTextForTts(
+        String(started.opening || started.reply || "").trim(),
+      );
+      if (!session.closed && opening) {
+        session.openingInProgress = true;
+        sendTextTokens(ws, opening);
+        const ms = estimateSpeakMs(opening);
+        session.openingTimer = setTimeout(() => {
+          session.openingInProgress = false;
+          session.openingTimer = null;
+        }, ms);
       }
       return { ok: true };
     };
 
     async function replyToPrompt(voicePrompt) {
-      if (!session.speaking) return;
+      if (!session.speaking || session.openingInProgress) return;
       const userText = String(voicePrompt || "").trim();
       if (!userText) return;
 
@@ -136,15 +157,17 @@ function attachSalesBotRelay(server) {
       }
       const type = String(msg?.type || "").toLowerCase();
       if (type === "setup") {
-        // Ready silently; start route calls beginSpeaking when the customer answers.
         return;
       }
       if (type === "prompt") {
+        // Do not let customer speech kill / replace the opening greeting.
+        if (session.openingInProgress) return;
         const text = msg.voicePrompt || msg.prompt || msg.transcript || "";
         void replyToPrompt(text);
         return;
       }
       if (type === "interrupt") {
+        if (session.openingInProgress) return;
         abortInflight();
       }
     });
@@ -152,6 +175,7 @@ function attachSalesBotRelay(server) {
     ws.on("close", () => {
       session.closed = true;
       session.speaking = false;
+      clearOpeningGuard();
       abortInflight();
       unregisterSalesBotSession(session.callId, session);
     });

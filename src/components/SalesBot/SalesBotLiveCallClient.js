@@ -116,13 +116,32 @@ export default function SalesBotLiveCallClient() {
         if (setCallMuted) setCallMuted(true);
         setBotStatus("live");
         setInfo(
-          "Customer answered — playing please-hold, then AI pitch. You are muted; unmute to jump in.",
+          "Human answered — AI speaking greeting. You are muted; unmute to jump in.",
         );
         return;
       }
 
+      // Machine / voicemail / carrier automated message: do not start AI pitch.
+      if (json?.phase === "machine" || String(json?.answeredBy || "").startsWith("machine")) {
+        setBotStatus("failed");
+        setInfo(json?.error || "Machine/voicemail answered — AI will not speak.");
+        return;
+      }
+
       if (res.status === 409 || json?.retryable) {
+        const phase = String(json?.phase || "");
         setBotStatus("waiting");
+        if (phase === "ringing") {
+          setInfo("Ringing… AI waits until a human answers.");
+        } else if (phase === "detecting") {
+          setInfo(
+            "Hearing connect/automated message from the network… AI waits for a real human.",
+          );
+        } else if (phase === "connecting") {
+          setInfo("Customer line connecting… waiting to confirm human before AI speaks.");
+        } else {
+          setInfo(json?.error || "Waiting for customer answer…");
+        }
         await sleep(1500);
         continue;
       }
@@ -167,11 +186,19 @@ export default function SalesBotLiveCallClient() {
       salesBotCallIdRef.current = callId;
       setSalesBotCallId(callId);
 
+      // Tag immediately so this dial never lands in the main dialer call log.
+      await fetch("/api/sales-bot/calls/mark", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId, intent: "sales_bot" }),
+      }).catch(() => {});
+
       beginSession({
         callId,
         callOwnedByMe: true,
         callMode: result.callMode || "direct",
-        dialMode: "agent_first",
+        dialMode: "sales_bot",
         toNumber: result.call.toNumber,
         phoneLabel: raw || formatLandline(toDigits),
         customerName: "Sales Bot call",
@@ -233,8 +260,9 @@ export default function SalesBotLiveCallClient() {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Same as Quick Dial: click start → dialer popup opens → agent connects → customer is called.
-        After the customer answers, the AI joins and speaks. Normal dialer calls are never modified.
+        Same as Quick Dial: start → dialer popup → agent connects → customer rings. AI speaks only
+        after a <strong>human</strong> answers (not while ringing, not for voicemail/machine).
+        Normal dialer calls are never modified.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

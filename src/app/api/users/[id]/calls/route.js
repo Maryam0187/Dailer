@@ -3,7 +3,11 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canViewTargetCalls } from "@/server/auth/userAccess";
-import { applyDialerIndexToWhere, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
+import {
+  applyDialerIndexToWhere,
+  excludeSalesBotFromWhere,
+  parseDialerIndexFilter,
+} from "@/server/calls/callKindFilter";
 import {
   conferenceCallIds,
   dateRangeWhere,
@@ -106,6 +110,7 @@ export async function GET(req, { params }) {
     where.recordingSid = { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: "" }] };
   }
   where = applyDialerIndexToWhere(where, dialerIndexFilter);
+  where = excludeSalesBotFromWhere(where);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,

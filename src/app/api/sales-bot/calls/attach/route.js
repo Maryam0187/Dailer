@@ -8,6 +8,11 @@ import {
   removeLabeledParticipant,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
+import {
+  isHumanAnsweredBy,
+  isMachineAnsweredBy,
+  waitForAnsweredBy,
+} from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
@@ -62,6 +67,7 @@ export async function POST(req) {
       "callKind",
       "status",
       "customerCallSid",
+      "answeredBy",
     ],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -75,16 +81,64 @@ export async function POST(req) {
     return NextResponse.json({ error: "Call already ended.", retryable: false }, { status: 409 });
   }
 
+  // Still ringing / not bridged — client should keep retrying (bot must not speak yet).
+  if (!String(call.customerCallSid || "").trim()) {
+    return NextResponse.json(
+      {
+        error: "Customer is still ringing. Waiting for answer…",
+        phase: "ringing",
+        retryable: true,
+      },
+      { status: 409 },
+    );
+  }
+
+  // Wait for Twilio AMD: human vs machine/voicemail vs carrier "please hold…" announcement.
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 20, delayMs: 500 });
+  if (isMachineAnsweredBy(answeredBy)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        attached: false,
+        phase: "machine",
+        answeredBy,
+        error: "Answered by machine/voicemail/automated message — AI will not speak.",
+        retryable: false,
+      },
+      { status: 409 },
+    );
+  }
+  // Do not speak during ringing or while AMD is still deciding (provider connect messages).
+  if (!isHumanAnsweredBy(answeredBy)) {
+    return NextResponse.json(
+      {
+        error:
+          "Still connecting or hearing an automated message. Waiting for a human answer…",
+        phase: "detecting",
+        answeredBy: answeredBy || null,
+        retryable: true,
+      },
+      { status: 409 },
+    );
+  }
+
   const upgraded = await upgradeCallToConference({ req, authedUser, callId });
   if (!upgraded.ok) {
-    const payload = { error: upgraded.error, retryable: upgraded.status === 409 };
+    const payload = {
+      error: upgraded.error,
+      retryable: upgraded.status === 409,
+      phase: "connecting",
+    };
     if (upgraded.twilioHint) payload.twilioHint = upgraded.twilioHint;
     return NextResponse.json(payload, { status: upgraded.status });
   }
 
   const conferenceName = String(upgraded.conferenceName || "").trim();
   if (!conferenceName) {
-    return NextResponse.json({ error: "Conference is not ready yet.", retryable: true }, { status: 409 });
+    return NextResponse.json(
+      { error: "Conference is not ready yet.", phase: "connecting", retryable: true },
+      { status: 409 },
+    );
   }
 
   try {
@@ -92,7 +146,40 @@ export async function POST(req) {
     const conference = await waitForInProgressConference(client, conferenceName);
     if (!conference?.sid) {
       return NextResponse.json(
-        { error: "Conference room is not live yet. Wait a moment and try again.", retryable: true },
+        {
+          error: "Conference room is not live yet. Wait a moment and try again.",
+          phase: "connecting",
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
+
+    // Re-check AMD in case a late machine / announcement result arrived.
+    await call.reload({ attributes: ["answeredBy"] }).catch(() => {});
+    if (isMachineAnsweredBy(call.answeredBy)) {
+      await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
+      return NextResponse.json(
+        {
+          ok: false,
+          attached: false,
+          phase: "machine",
+          answeredBy: call.answeredBy,
+          error: "Answered by machine/voicemail/automated message — AI will not speak.",
+          retryable: false,
+        },
+        { status: 409 },
+      );
+    }
+    if (!isHumanAnsweredBy(call.answeredBy)) {
+      return NextResponse.json(
+        {
+          error:
+            "Still connecting or hearing an automated message. Waiting for a human answer…",
+          phase: "detecting",
+          answeredBy: call.answeredBy || null,
+          retryable: true,
+        },
         { status: 409 },
       );
     }
@@ -106,6 +193,8 @@ export async function POST(req) {
         ok: true,
         attached: true,
         alreadyConnected: true,
+        phase: "human",
+        answeredBy: answeredBy || call.answeredBy || "human",
         conferenceName,
         callMode: "conference",
       });
@@ -122,12 +211,16 @@ export async function POST(req) {
     const session = await waitForSalesBotSession(callId, 12000);
     if (!session?.beginSpeaking) {
       return NextResponse.json(
-        { error: "Sales bot relay did not connect. Try again.", retryable: true },
+        {
+          error: "Sales bot relay did not connect. Try again.",
+          phase: "connecting",
+          retryable: true,
+        },
         { status: 409 },
       );
     }
 
-    // Customer is already live (upgrade requires it); speak from the start of this AI leg.
+    // Confirmed human: speak greeting only.
     await sleep(250);
     await beginSalesBotSpeech({ callId });
 
@@ -136,6 +229,8 @@ export async function POST(req) {
     return NextResponse.json({
       ok: true,
       attached: true,
+      phase: "human",
+      answeredBy: answeredBy || call.answeredBy || "human",
       conferenceName,
       callMode: "conference",
     });

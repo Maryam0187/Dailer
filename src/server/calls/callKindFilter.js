@@ -1,3 +1,5 @@
+import { Op } from "sequelize";
+
 /** Parse call log list/metrics scope: all | lead | conference */
 export function parseCallScope(scopeRaw) {
   const scope = String(scopeRaw || "all").trim().toLowerCase();
@@ -9,6 +11,21 @@ export function parseCallScope(scopeRaw) {
 export function applyCallKindToWhere(where, callKind) {
   if (!callKind) return where;
   return { ...where, callKind };
+}
+
+/**
+ * Keep Sales Bot calls off the main dialer / user call-log lists.
+ * They are listed only on the Sales Bot page.
+ */
+export function excludeSalesBotFromWhere(where) {
+  const exclude = {
+    [Op.and]: [
+      { [Op.or]: [{ callKind: { [Op.is]: null } }, { callKind: { [Op.ne]: "sales_bot" } }] },
+      { [Op.or]: [{ dialMode: { [Op.is]: null } }, { dialMode: { [Op.ne]: "sales_bot" } }] },
+    ],
+  };
+  if (!where || Object.keys(where).length === 0) return exclude;
+  return { [Op.and]: [where, exclude] };
 }
 
 /** `1` / `line1` / `2` / `line2`. Anything else = all lines. */

@@ -87,6 +87,14 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         defaultValue: "agent_first",
       },
+      /**
+       * Twilio AMD AnsweredBy for Sales Bot (and similar):
+       * human | machine_start | machine_end_* | fax | unknown
+       */
+      answeredBy: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       leadId: {
         type: DataTypes.INTEGER,
         allowNull: true,
