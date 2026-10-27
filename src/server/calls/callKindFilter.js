@@ -23,3 +23,16 @@ export function applyDialerIndexToWhere(where, dialerIndex) {
   if (dialerIndex !== 1 && dialerIndex !== 2) return where;
   return { ...where, dialerIndex };
 }
+
+/** `zoom` | `twilio`. Anything else (incl. `both` / `all`) = no filter. */
+export function parseVoiceProviderFilter(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (v === "zoom") return "zoom";
+  if (v === "twilio") return "twilio";
+  return null;
+}
+
+export function applyVoiceProviderToWhere(where, voiceProvider) {
+  if (voiceProvider !== "zoom" && voiceProvider !== "twilio") return where;
+  return { ...where, voiceProvider };
+}

@@ -151,6 +151,8 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
   const [logAudience, setLogAudience] = useState(() => (userRole === "admin" ? "all" : "mine"));
   /** `all` | `1` | `2` — Line 1 / Line 2 outbound. Default all so current list is unchanged. */
   const [lineFilter, setLineFilter] = useState("all");
+  /** `both` | `twilio` | `zoom` — voice provider. */
+  const [providerFilter, setProviderFilter] = useState("both");
   /** Admin-only phone search (applied `q` is 10 national digits). */
   const [searchInput, setSearchInput] = useState("");
   const [q, setQ] = useState("");
@@ -173,6 +175,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       scope: scopeOverride,
       audience: audienceOverride,
       line: lineOverride,
+      provider: providerOverride,
       numberQuery: numberQueryOverride,
     } = {}) => {
     const resolvedPage = targetPage ?? page;
@@ -181,6 +184,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
     const resolvedScope = scopeOverride ?? listScope;
     const resolvedAudience = audienceOverride ?? logAudience;
     const resolvedLine = lineOverride ?? lineFilter;
+    const resolvedProvider = providerOverride ?? providerFilter;
     const resolvedQ = numberQueryOverride !== undefined ? numberQueryOverride : q;
     if (silent) {
       setRefreshing(true);
@@ -210,6 +214,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       if (resolvedLine === "1" || resolvedLine === "2") {
         qs.set("dialerIndex", resolvedLine);
       }
+      if (resolvedProvider === "zoom" || resolvedProvider === "twilio") {
+        qs.set("voiceProvider", resolvedProvider);
+      }
       if (isAdmin && resolvedQ) {
         qs.set("q", resolvedQ);
       }
@@ -237,7 +244,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, q, isAdmin],
+    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, providerFilter, q, isAdmin],
   );
 
   function shouldRedialWithZoom(call) {
@@ -587,6 +594,20 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 <option value="2">Line 2</option>
               </FilterSelect>
             ) : null}
+            <FilterSelect
+              id="calls-provider-filter"
+              label="Provider"
+              value={providerFilter}
+              onChange={(e) => {
+                setProviderFilter(e.target.value);
+                setPage(1);
+              }}
+              className="w-[10rem]"
+            >
+              <option value="both">Both</option>
+              <option value="twilio">Twilio</option>
+              <option value="zoom">Zoom</option>
+            </FilterSelect>
           </div>
           {isAdmin ? (
             <form
@@ -732,10 +753,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   ? logAudience === "all"
                     ? "No conference calls in this range."
                     : "No conference calls in this range (no agent invites on record)."
-                  : lineFilter === "2"
-                    ? "No Line 2 calls in this range."
-                    : lineFilter === "1"
-                      ? "No Line 1 calls in this range."
+                  : providerFilter === "zoom"
+                    ? "No Zoom calls in this range."
+                    : providerFilter === "twilio"
+                      ? "No Twilio calls in this range."
+                      : lineFilter === "2"
+                        ? "No Line 2 calls in this range."
+                        : lineFilter === "1"
+                          ? "No Line 1 calls in this range."
                       : logAudience === "all"
                         ? "No calls in this range."
                         : "No calls yet."}

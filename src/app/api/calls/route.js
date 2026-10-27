@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { applyCallKindToWhere, applyDialerIndexToWhere, parseCallScope, parseDialerIndexFilter } from "@/server/calls/callKindFilter";
+import {
+  applyCallKindToWhere,
+  applyDialerIndexToWhere,
+  applyVoiceProviderToWhere,
+  parseCallScope,
+  parseDialerIndexFilter,
+  parseVoiceProviderFilter,
+} from "@/server/calls/callKindFilter";
 import {
   conferenceCallIds,
   dateRangeWhere,
@@ -63,6 +70,7 @@ export async function GET(req) {
   const scope = String(searchParams.get("scope") || "all").trim().toLowerCase();
   const { kind: callKindFilter, conferenceOnly } = parseCallScope(scope);
   const dialerIndexFilter = parseDialerIndexFilter(searchParams.get("dialerIndex"));
+  const voiceProviderFilter = parseVoiceProviderFilter(searchParams.get("voiceProvider"));
   const hasRecording =
     searchParams.get("hasRecording") === "true" ||
     searchParams.get("hasRecording") === "1";
@@ -157,6 +165,7 @@ export async function GET(req) {
 
   where = applyCallKindToWhere(where, callKindFilter);
   where = applyDialerIndexToWhere(where, dialerIndexFilter);
+  where = applyVoiceProviderToWhere(where, voiceProviderFilter);
   where = andWhere(where, numberSearchWhere);
 
   const { rows, count } = await db.CallLog.findAndCountAll({
