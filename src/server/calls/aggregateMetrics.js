@@ -199,7 +199,59 @@ export async function aggregateCallMetricsFromDaily({
     raw: true,
   });
 
-  return mapMetricsRow(row);
+  const providerDuration = await durationSecondsByVoiceProvider({
+    userId,
+    fromDate,
+    toDate,
+    conferenceOnly,
+  });
+
+  return { ...mapMetricsRow(row), ...providerDuration };
+}
+
+/** Twilio vs Zoom talk time from CallLogs for one user over inclusive calendar days. */
+async function durationSecondsByVoiceProvider({
+  userId,
+  fromDate,
+  toDate,
+  conferenceOnly = false,
+}) {
+  const empty = { twilioDurationSeconds: 0, zoomDurationSeconds: 0 };
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id < 1) return empty;
+
+  const bounds = calendarDateRangeBounds(fromDate, toDate);
+  if (!bounds) return empty;
+
+  const conferenceJoin = conferenceOnly
+    ? `INNER JOIN (SELECT DISTINCT callLogId FROM InviteDialLegs) idl ON idl.callLogId = cl.id`
+    : "";
+
+  const rows = await db.sequelize.query(
+    `SELECT
+       COALESCE(SUM(CASE
+         WHEN LOWER(COALESCE(cl.voiceProvider, 'twilio')) = 'zoom' THEN cl.durationSeconds
+         ELSE 0
+       END), 0) AS zoomDurationSeconds,
+       COALESCE(SUM(CASE
+         WHEN LOWER(COALESCE(cl.voiceProvider, 'twilio')) = 'zoom' THEN 0
+         ELSE cl.durationSeconds
+       END), 0) AS twilioDurationSeconds
+     FROM CallLogs cl
+     ${conferenceJoin}
+     WHERE cl.userId = :userId
+       AND cl.createdAt >= :after
+       AND cl.createdAt < :before`,
+    {
+      replacements: { userId: id, after: bounds.after, before: bounds.before },
+      type: QueryTypes.SELECT,
+    },
+  );
+
+  return {
+    twilioDurationSeconds: toInt(rows[0]?.twilioDurationSeconds),
+    zoomDurationSeconds: toInt(rows[0]?.zoomDurationSeconds),
+  };
 }
 
 export async function aggregateMetricsByUser({

@@ -1405,6 +1405,12 @@ export default function UserReportDetail({
               value={formatDuration(metrics?.durationSeconds)}
             />
           ) : null}
+          {isAdmin ? (
+            <MetricStat
+              label="Twilio / Zoom"
+              value={`${formatDuration(metrics?.twilioDurationSeconds)} / ${formatDuration(metrics?.zoomDurationSeconds)}`}
+            />
+          ) : null}
             <MetricStat
               label="Leads (created/updated)"
               value={overviewLeadsTotal == null ? (overviewLoading ? "…" : "—") : overviewLeadsTotal}
@@ -1816,6 +1822,10 @@ export default function UserReportDetail({
               <MetricStat label="Failed/Canceled" value={metrics?.failedOrCanceled ?? 0} />
               <MetricStat label="Busy" value={metrics?.busy ?? 0} />
               <MetricStat label="Total duration" value={formatDuration(metrics?.durationSeconds)} />
+              <MetricStat
+                label="Twilio / Zoom"
+                value={`${formatDuration(metrics?.twilioDurationSeconds)} / ${formatDuration(metrics?.zoomDurationSeconds)}`}
+              />
             </div>
           )}
         </div>
