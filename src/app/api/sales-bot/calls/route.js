@@ -55,6 +55,8 @@ export async function GET(req) {
     order: [["createdAt", "DESC"]],
     offset,
     limit: pageSize,
+    distinct: true,
+    col: "CallLog.id",
     attributes: [
       "id",
       "userId",
