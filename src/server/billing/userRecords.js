@@ -2,8 +2,6 @@ import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
 import { calendarDateRangeBounds } from "@/lib/calendarDayBounds";
 import { teamManagerLabel } from "@/lib/teamManagerLabel";
-import { aggregateCallMetricsFromDaily } from "@/server/calls/aggregateMetrics";
-
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_USER_RECORDS = 40;
 
@@ -69,11 +67,14 @@ export async function loadUserMetricRecord({ userId, fromDate, toDate, managerId
     throw httpError("That user is not on this team", 400);
   }
 
-  const metrics = await aggregateCallMetricsFromDaily({
-    userId: id,
-    fromDate: fromOnly,
-    toDate: toOnly,
-  });
+  const metrics = (await twilioCallMetricsByUser([id], fromOnly, toOnly)).get(id) || {
+    total: 0,
+    completed: 0,
+    noAnswer: 0,
+    failedOrCanceled: 0,
+    busy: 0,
+    durationSeconds: 0,
+  };
 
   const managerPerson = user.role === "manager" ? user : user.manager;
   return {
@@ -85,7 +86,7 @@ export async function loadUserMetricRecord({ userId, fromDate, toDate, managerId
     noAnswer: metrics.noAnswer,
     failedOrCanceled: metrics.failedOrCanceled,
     busy: metrics.busy,
-    durationSeconds: toInt(metrics.twilioDurationSeconds),
+    durationSeconds: metrics.durationSeconds,
   };
 }
 
@@ -100,25 +101,28 @@ function toInt(value) {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
-/** Talk time for calls that are not Zoom. Matches the Twilio half of the user report. */
-async function twilioDurationSecondsByUser(userIds, fromDate, toDate) {
-  const durations = new Map();
+/** Call counts and talk time for Twilio calls only. Zoom calls are excluded. */
+async function twilioCallMetricsByUser(userIds, fromDate, toDate) {
+  const metrics = new Map();
   const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
-  if (!ids.length) return durations;
+  if (!ids.length) return metrics;
 
   const bounds = calendarDateRangeBounds(fromDate, toDate);
-  if (!bounds) return durations;
+  if (!bounds) return metrics;
 
   const rows = await db.sequelize.query(
     `SELECT cl.userId AS userId,
-            COALESCE(SUM(CASE
-              WHEN LOWER(COALESCE(cl.voiceProvider, 'twilio')) = 'zoom' THEN 0
-              ELSE cl.durationSeconds
-            END), 0) AS durationSeconds
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN LOWER(cl.status) = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+            COALESCE(SUM(CASE WHEN LOWER(cl.status) = 'no-answer' THEN 1 ELSE 0 END), 0) AS noAnswer,
+            COALESCE(SUM(CASE WHEN LOWER(cl.status) IN ('failed', 'canceled', 'cancelled') THEN 1 ELSE 0 END), 0) AS failedOrCanceled,
+            COALESCE(SUM(CASE WHEN LOWER(cl.status) = 'busy' THEN 1 ELSE 0 END), 0) AS busy,
+            COALESCE(SUM(cl.durationSeconds), 0) AS durationSeconds
      FROM CallLogs cl
      WHERE cl.userId IN (:userIds)
        AND cl.createdAt >= :after
        AND cl.createdAt < :before
+       AND LOWER(COALESCE(cl.voiceProvider, 'twilio')) <> 'zoom'
      GROUP BY cl.userId`,
     {
       replacements: { userIds: ids, after: bounds.after, before: bounds.before },
@@ -127,9 +131,16 @@ async function twilioDurationSecondsByUser(userIds, fromDate, toDate) {
   );
 
   for (const row of rows) {
-    durations.set(Number(row.userId), toInt(row.durationSeconds));
+    metrics.set(Number(row.userId), {
+      total: toInt(row.total),
+      completed: toInt(row.completed),
+      noAnswer: toInt(row.noAnswer),
+      failedOrCanceled: toInt(row.failedOrCanceled),
+      busy: toInt(row.busy),
+      durationSeconds: toInt(row.durationSeconds),
+    });
   }
-  return durations;
+  return metrics;
 }
 
 async function accountUserWhere(scopedManager) {
@@ -161,8 +172,8 @@ async function accountUserWhere(scopedManager) {
 }
 
 /**
- * Every user on the billing account who dialed in the range.
- * Users with zero calls are omitted.
+ * Every user on the billing account who placed a Twilio call in the range.
+ * Zoom-only users are omitted.
  */
 export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
   const fromOnly = billingDateOnly(fromDate);
@@ -193,25 +204,7 @@ export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
   });
   if (!users.length) return [];
 
-  const { fn, col } = db.sequelize;
-  const rows = await db.CallDailyMetric.findAll({
-    attributes: [
-      "userId",
-      [fn("SUM", col("total")), "total"],
-      [fn("SUM", col("completed")), "completed"],
-      [fn("SUM", col("noAnswer")), "noAnswer"],
-      [fn("SUM", col("failedOrCanceled")), "failedOrCanceled"],
-      [fn("SUM", col("busy")), "busy"],
-    ],
-    where: {
-      userId: users.map((user) => user.id),
-      calendarDate: { [Op.gte]: fromOnly, [Op.lte]: toOnly },
-    },
-    group: ["userId"],
-    raw: true,
-  });
-  const metricsByUserId = new Map(rows.map((row) => [Number(row.userId), row]));
-  const twilioDurationByUser = await twilioDurationSecondsByUser(
+  const metricsByUserId = await twilioCallMetricsByUser(
     users.map((user) => user.id),
     fromOnly,
     toOnly,
@@ -220,20 +213,19 @@ export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
   const records = [];
   for (const user of users) {
     const metrics = metricsByUserId.get(user.id);
-    const total = toInt(metrics?.total);
-    if (total <= 0) continue;
+    if (!metrics || metrics.total <= 0) continue;
     const managerPerson = user.role === "manager" ? user : user.manager;
     records.push({
       userId: user.id,
       name: invoiceUserName(user),
       username: String(user.username || "").trim(),
       managerLabel: teamManagerLabel(managerPerson),
-      total,
-      completed: toInt(metrics?.completed),
-      noAnswer: toInt(metrics?.noAnswer),
-      failedOrCanceled: toInt(metrics?.failedOrCanceled),
-      busy: toInt(metrics?.busy),
-      durationSeconds: twilioDurationByUser.get(user.id) || 0,
+      total: metrics.total,
+      completed: metrics.completed,
+      noAnswer: metrics.noAnswer,
+      failedOrCanceled: metrics.failedOrCanceled,
+      busy: metrics.busy,
+      durationSeconds: metrics.durationSeconds,
     });
   }
 

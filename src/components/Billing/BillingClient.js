@@ -506,7 +506,7 @@ export default function BillingClient() {
                 <UserMetricsTable records={billPreview.userRecords} />
               ) : (
                 <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-                  No users with dialing in this range.
+                  No users with Twilio calls in this range.
                 </p>
               )}
             </div>
