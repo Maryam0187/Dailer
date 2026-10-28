@@ -45,17 +45,30 @@ function escapeXmlText(value) {
   return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
 
+/** Short buffer played to the customer before they join the Sales Bot conference. */
+export const SALES_BOT_CONNECT_SAY =
+  "Thanks for answering. One moment please.";
+
+/** Rough duration for SALES_BOT_CONNECT_SAY (Twilio <Say>) before AI should speak. */
+export function estimateConnectSayMs(text = SALES_BOT_CONNECT_SAY) {
+  const chars = String(text || "").replace(/\s+/g, " ").trim().length;
+  // ~14 chars/sec + padding; clamp 2.5s–8s so AI starts after Say ends.
+  return Math.min(8000, Math.max(2500, Math.round(chars * 70) + 1200));
+}
+
 /**
  * Inline TwiML for redirecting live legs into Conference (upgrade from direct &lt;Dial&gt;).
  * Prefer `calls.update({ twiml })` over `url`; URL redirects frequently fail mid-&lt;Dial&gt;.
  *
  * Mirrors `/api/twilio/voice` (Dial + Conference noun attributes).
+ * Optional `preSay` plays to that leg before joining Conference (Sales Bot customer buffer).
  */
 export function buildConferenceTwiMl(opts) {
   const conferenceName = String(opts?.conferenceName || "").trim();
   const participant = String(opts?.participant || "agent").trim().toLowerCase();
   const muteOnEntry = Boolean(opts?.muteOnEntry);
   const callerId = String(opts?.callerId || "").trim();
+  const preSay = String(opts?.preSay || "").trim();
 
   if (!conferenceName) throw new Error("conferenceName is required");
 
@@ -70,9 +83,13 @@ export function buildConferenceTwiMl(opts) {
     ? ` statusCallback="${escapeXmlAttr(statusCallbackAbsoluteUrl)}" statusCallbackEvent="start end join leave" statusCallbackMethod="POST"`
     : "";
 
+  const sayXml = preSay
+    ? `  <Say voice="Polly.Joanna">${escapeXmlText(preSay)}</Say>\n`
+    : "";
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial answerOnBridge="true"${callerIdAttr}>
+${sayXml}  <Dial answerOnBridge="true"${callerIdAttr}>
     <Conference
       startConferenceOnEnter="${startConferenceOnEnter}"
       endConferenceOnExit="${endConferenceOnExit}"

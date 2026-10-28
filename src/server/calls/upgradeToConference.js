@@ -7,6 +7,7 @@ import {
   createConferenceName,
   getDefaultTwilioCallerId,
   getRequestBaseUrlFromRequest,
+  SALES_BOT_CONNECT_SAY,
 } from "@/server/calls/conferenceVoice";
 import { getTwilioClient } from "@/server/twilio";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
@@ -149,6 +150,8 @@ export async function upgradeCallToConference({ req, authedUser, callId }) {
       "direction",
       "status",
       "fromNumber",
+      "callKind",
+      "dialMode",
     ],
   });
   if (!call) return fail(404, "Call not found");
@@ -239,11 +242,16 @@ export async function upgradeCallToConference({ req, authedUser, callId }) {
       ? buildConferenceStatusCallbackUrl(fallbackBaseUrl)
       : "";
 
+    // Sales Bot: short <Say> buffer on customer before conference so AI can attach then speak.
+    const isSalesBot =
+      String(call.callKind || "").trim() === "sales_bot" ||
+      String(call.dialMode || "").trim() === "sales_bot";
     const customerTwiml = buildConferenceTwiMl({
       conferenceName,
       participant: "customer",
       callerId: callerIdForConference,
       statusCallbackUrl: conferenceStatusCb || undefined,
+      preSay: isSalesBot ? SALES_BOT_CONNECT_SAY : undefined,
     });
 
     const customerVoiceUrl =

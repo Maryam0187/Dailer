@@ -8,13 +8,13 @@ import {
   removeLabeledParticipant,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import {
-  isHumanAnsweredBy,
-  isMachineAnsweredBy,
-  waitForAnsweredBy,
-} from "@/server/calls/salesBotAnsweredBy";
+import { isHumanAnsweredBy, waitForAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
-import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import {
+  estimateConnectSayMs,
+  getRequestBaseUrlFromRequest,
+  SALES_BOT_CONNECT_SAY,
+} from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
@@ -40,8 +40,9 @@ async function fetchCustomerLegStatus(call) {
 }
 
 /**
- * Attach Sales Bot after a real human answers (Twilio AMD).
- * Do not speak on ringing, carrier connect, or machine/voicemail.
+ * Attach Sales Bot once the customer leg is live.
+ * AMD is logged only (machine_start from carrier "please hold…" must not block forever).
+ * Customer hears a short Twilio &lt;Say&gt; during upgrade; AI speaks after that buffer.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -96,7 +97,6 @@ export async function POST(req) {
     return NextResponse.json({ error: "Call already ended.", retryable: false }, { status: 409 });
   }
 
-  // Discover customer leg (webhooks can lag).
   if (String(call.twilioSid || "").trim()) {
     await syncCustomerLegFromTwilio(call).catch(() => {});
   }
@@ -136,34 +136,12 @@ export async function POST(req) {
     );
   }
 
-  // Line may be "in-progress" from carrier connect before a person picks up.
-  // Speak only after Twilio AMD reports human.
-  const answeredBy = await waitForAnsweredBy(call, { attempts: 12, delayMs: 500 });
-  if (isMachineAnsweredBy(answeredBy)) {
-    return NextResponse.json(
-      {
-        ok: false,
-        attached: false,
-        phase: "machine",
-        answeredBy,
-        error: "Automated message / voicemail — AI will not speak. Unmute to take the call.",
-        retryable: false,
-      },
-      { status: 409 },
-    );
-  }
-  if (!isHumanAnsweredBy(answeredBy)) {
-    return NextResponse.json(
-      {
-        error: "Waiting for a person to answer (not speaking during connect/ringback)…",
-        phase: "detecting",
-        answeredBy: answeredBy || null,
-        retryable: true,
-      },
-      { status: 409 },
-    );
-  }
+  // Log AMD if present; never hard-block on machine_start (carrier hold false positives).
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 3, delayMs: 250 });
 
+  const alreadyConferenced = Boolean(String(call.conferenceName || "").trim());
+  const sayMs = estimateConnectSayMs(SALES_BOT_CONNECT_SAY);
+  const upgradeStartedAt = Date.now();
   const upgraded = await upgradeCallToConference({ req, authedUser, callId });
   if (!upgraded.ok) {
     const err = String(upgraded.error || "");
@@ -204,43 +182,31 @@ export async function POST(req) {
     }
 
     await call.reload({ attributes: ["answeredBy"] }).catch(() => {});
-    if (isMachineAnsweredBy(call.answeredBy)) {
-      await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
-      return NextResponse.json(
-        {
-          ok: false,
-          attached: false,
-          phase: "machine",
-          answeredBy: call.answeredBy,
-          error: "Automated message / voicemail — AI will not speak. Unmute to take the call.",
-          retryable: false,
-        },
-        { status: 409 },
-      );
-    }
-    if (!isHumanAnsweredBy(call.answeredBy)) {
-      return NextResponse.json(
-        {
-          error: "Waiting for a person to answer (not speaking during connect/ringback)…",
-          phase: "detecting",
-          answeredBy: call.answeredBy || null,
-          retryable: true,
-        },
-        { status: 409 },
-      );
-    }
 
     const existing = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
     const live = await waitForSalesBotSession(callId, 400);
+
+    async function waitOutConnectSay() {
+      // Fresh upgrade: customer <Say> started at redirect — wait remaining buffer before AI.
+      if (!alreadyConferenced && !upgraded.alreadyUpgraded) {
+        const remaining = sayMs - (Date.now() - upgradeStartedAt);
+        if (remaining > 0) await sleep(remaining);
+      } else {
+        await sleep(400);
+      }
+    }
+
     if (existing?.callSid && live?.beginSpeaking) {
+      await waitOutConnectSay();
       await beginSalesBotSpeech({ callId }).catch(() => {});
       await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
+      const finalAnsweredBy = answeredBy || call.answeredBy || null;
       return NextResponse.json({
         ok: true,
         attached: true,
         alreadyConnected: true,
-        phase: "human",
-        answeredBy: call.answeredBy || "human",
+        phase: isHumanAnsweredBy(finalAnsweredBy) ? "human" : "answered",
+        answeredBy: finalAnsweredBy,
         conferenceName,
         callMode: "conference",
       });
@@ -266,16 +232,17 @@ export async function POST(req) {
       );
     }
 
-    await sleep(250);
+    await waitOutConnectSay();
     await beginSalesBotSpeech({ callId });
 
     await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
 
+    const finalAnsweredBy = answeredBy || call.answeredBy || null;
     return NextResponse.json({
       ok: true,
       attached: true,
-      phase: "human",
-      answeredBy: call.answeredBy || answeredBy || "human",
+      phase: isHumanAnsweredBy(finalAnsweredBy) ? "human" : "answered",
+      answeredBy: finalAnsweredBy,
       conferenceName,
       callMode: "conference",
     });

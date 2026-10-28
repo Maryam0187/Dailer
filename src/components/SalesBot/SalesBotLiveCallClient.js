@@ -115,13 +115,9 @@ export default function SalesBotLiveCallClient() {
         }
         if (setCallMuted) setCallMuted(true);
         setBotStatus("live");
-        setInfo("Person answered — AI speaking greeting. You are muted; unmute to jump in.");
-        return;
-      }
-
-      if (json?.phase === "machine" || String(json?.answeredBy || "").startsWith("machine")) {
-        setBotStatus("failed");
-        setInfo(json?.error || "Automated message / voicemail — AI will not speak.");
+        setInfo(
+          "Customer line live — brief connect message, then AI greeting. You are muted; unmute to jump in.",
+        );
         return;
       }
 
@@ -129,11 +125,9 @@ export default function SalesBotLiveCallClient() {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
         if (phase === "ringing") {
-          setInfo("Ringing… AI waits until a person answers.");
-        } else if (phase === "detecting") {
-          setInfo("Line connected — waiting to confirm a person (not speaking yet)…");
+          setInfo("Ringing… AI waits until the customer line is answered.");
         } else if (phase === "connecting") {
-          setInfo("Person confirmed — connecting AI…");
+          setInfo("Customer answered — playing connect message, then AI speaks…");
         } else {
           setInfo(json?.error || "Waiting for customer answer…");
         }
@@ -260,9 +254,9 @@ export default function SalesBotLiveCallClient() {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Same as Quick Dial: start → dialer popup → agent connects → customer rings. AI speaks only
-        after Twilio confirms a <strong>person</strong> answered (not while ringing or on
-        connect/voicemail messages). Normal dialer calls are never modified.
+        Same as Quick Dial: start → dialer popup → agent connects → customer rings. When the line
+        is live, customer hears a short connect message while AI joins, then the bot greeting.
+        Normal dialer calls are never modified.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
