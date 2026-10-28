@@ -3,7 +3,7 @@ import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { calculateUsageTotals } from "@/server/billing/math";
 import { writeBillPdf } from "@/server/billing/pdf";
-import { resolveInvoiceUserRecords } from "@/server/billing/userRecords";
+import { listAccountUserRecords } from "@/server/billing/userRecords";
 import {
   listBillingUsageForClient,
   resolveBillingTwilioClient,
@@ -62,7 +62,7 @@ export async function POST(req) {
 
   let userRecords;
   try {
-    userRecords = await resolveInvoiceUserRecords(body?.userRecords, {
+    userRecords = await listAccountUserRecords({
       fromDate,
       toDate,
       managerId: billingAccount.managerId,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { calculateUsageTotals } from "@/server/billing/math";
+import { listAccountUserRecords } from "@/server/billing/userRecords";
 import {
   listBillingUsageForClient,
   resolveBillingTwilioClient,
@@ -58,6 +59,20 @@ export async function POST(req) {
 
   const totals = calculateUsageTotals(usageCategories, settings.fixedMarkupPerCall);
 
+  let userRecords;
+  try {
+    userRecords = await listAccountUserRecords({
+      fromDate,
+      toDate,
+      managerId: billingAccount.managerId,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Failed to load user records" },
+      { status: err?.status || 500 },
+    );
+  }
+
   return NextResponse.json({
     preview: {
       fromDate,
@@ -65,6 +80,7 @@ export async function POST(req) {
       currency: settings.currency,
       totalAmount: totals.totalAmount,
       categories: totals.categories,
+      userRecords,
       managerId: billingAccount.managerId,
       managerUsername: billingAccount.managerUsername,
       teamLabel: billingAccount.teamLabel,

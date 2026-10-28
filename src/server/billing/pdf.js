@@ -374,7 +374,7 @@ export async function buildBillPdfBytes({
       });
       let x = tableX;
       USER_METRIC_COLUMNS.forEach((col, colIndex) => {
-        const raw = colIndex === 0 ? pdfSafe(record.username || record.name || "") : col.value(record);
+        const raw = colIndex === 0 ? pdfSafe(record.name || record.username || "") : col.value(record);
         const text = fitText(String(raw || ""), regular, 8, col.width - 12);
         const textY = managerLine && colIndex === 0 ? top - 13 : top - (userRowH / 2 + 3);
         if (col.align === "right") {

@@ -15,8 +15,7 @@ export default async function BillingPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           Preview total cost and category breakdown (Client, Programmable Voice, Recording,
-          Phone Numbers). Add a per-user record to list that user&apos;s call metrics on the
-          invoice, then save the PDF.
+          Phone Numbers). The invoice lists every user on that account who dialed in the range.
         </p>
       </div>
       <BillingClient />

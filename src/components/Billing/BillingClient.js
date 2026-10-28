@@ -50,25 +50,11 @@ function metricCell(record, column) {
   return record[column.key];
 }
 
-function userOptionLabel(user) {
-  const username = String(user?.username || "").trim();
-  const displayName = String(user?.displayName || "").trim();
-  if (displayName && username && displayName !== username) return `${displayName} (${username})`;
-  return displayName || username || `User ${user?.id}`;
-}
-
 function billScopeLabel(bill) {
   if (bill?.accountScope === "team" || bill?.teamLabel) {
     return bill.teamLabel || teamManagerLabel(bill.managerUsername) || `Team #${bill.managerId} (Manager)`;
   }
   return "Main";
-}
-
-function usersForScope(users, scope, managerId) {
-  if (scope !== "team" || !managerId) return users;
-  return users.filter(
-    (user) => String(user.id) === String(managerId) || String(user.managerId) === String(managerId),
-  );
 }
 
 function UserMetricsTable({ records }) {
@@ -90,7 +76,7 @@ function UserMetricsTable({ records }) {
           {records.map((record) => (
             <tr key={record.userId} className="border-t border-zinc-200/80 dark:border-zinc-700">
               <td className="py-1.5 pr-3 font-medium text-zinc-900 dark:text-zinc-100">
-                <div>{record.username}</div>
+                <div>{record.name || record.username}</div>
                 {record.managerLabel ? (
                   <div className="text-xs font-normal text-zinc-500 dark:text-zinc-400">
                     {record.managerLabel}
@@ -131,7 +117,6 @@ export default function BillingClient() {
   const [billResult, setBillResult] = useState(null);
   const [billHistory, setBillHistory] = useState([]);
   const [users, setUsers] = useState([]);
-  const [userRecords, setUserRecords] = useState([]);
 
   function billingPayload(fromDate, toDate) {
     const payload = { fromDate, toDate };
@@ -253,7 +238,6 @@ export default function BillingClient() {
     setAppliedTo(next.to);
     setBillPreview(null);
     setBillResult(null);
-    setUserRecords([]);
     void previewBill(next.from, next.to);
   }
 
@@ -261,7 +245,6 @@ export default function BillingClient() {
     setAccountScope(nextScope);
     setBillPreview(null);
     setBillResult(null);
-    setUserRecords([]);
     if (appliedFrom && appliedTo) {
       void previewBill(appliedFrom, appliedTo, nextScope, managerId);
     }
@@ -271,7 +254,6 @@ export default function BillingClient() {
     setManagerId(nextId);
     setBillPreview(null);
     setBillResult(null);
-    setUserRecords([]);
     if (accountScope === "team" && appliedFrom && appliedTo && nextId) {
       void previewBill(appliedFrom, appliedTo, "team", nextId);
     }
@@ -290,97 +272,11 @@ export default function BillingClient() {
     }
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
-    setUserRecords([]);
     await previewBill(rangeFrom, rangeTo);
-  }
-
-  const scopedUsers = usersForScope(users, accountScope, managerId);
-
-  function addUserRecord() {
-    setUserRecords((prev) => [
-      ...prev,
-      {
-        key: `${Date.now()}-${prev.length}`,
-        userId: "",
-        username: "",
-        managerLabel: "",
-        total: null,
-        completed: null,
-        noAnswer: null,
-        failedOrCanceled: null,
-        busy: null,
-        durationSeconds: null,
-        loading: false,
-        error: null,
-      },
-    ]);
-  }
-
-  function removeUserRecord(key) {
-    setUserRecords((prev) => prev.filter((row) => row.key !== key));
-  }
-
-  async function onUserRecordChange(key, userId) {
-    setUserRecords((prev) =>
-      prev.map((row) =>
-        row.key === key
-          ? {
-              ...row,
-              userId,
-              username: "",
-              managerLabel: "",
-              total: null,
-              completed: null,
-              noAnswer: null,
-              failedOrCanceled: null,
-              busy: null,
-              durationSeconds: null,
-              loading: Boolean(userId),
-              error: null,
-            }
-          : row,
-      ),
-    );
-    if (!userId) return;
-    try {
-      const res = await fetch("/api/billing/user-record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ ...billingPayload(appliedFrom, appliedTo), userId: Number(userId) }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Failed to load user record");
-      setUserRecords((prev) =>
-        prev.map((row) =>
-          row.key === key && String(row.userId) === String(userId)
-            ? { ...row, ...json.record, userId: String(json.record.userId), loading: false, error: null }
-            : row,
-        ),
-      );
-    } catch (err) {
-      setUserRecords((prev) =>
-        prev.map((row) =>
-          row.key === key ? { ...row, loading: false, error: err.message || "Failed to load user record" } : row,
-        ),
-      );
-    }
   }
 
   async function onGenerateBill() {
     if (!billPreview) return;
-    if (userRecords.some((row) => !row.userId)) {
-      setError("Select a user for each record");
-      return;
-    }
-    if (userRecords.some((row) => row.loading)) {
-      setError("Wait for the user record to finish loading");
-      return;
-    }
-    if (userRecords.some((row) => row.error)) {
-      setError("Remove the user record that failed to load, then try again");
-      return;
-    }
     setError(null);
     setGenerating(true);
     try {
@@ -388,16 +284,12 @@ export default function BillingClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          ...billingPayload(appliedFrom, appliedTo),
-          userRecords: userRecords.map((row) => ({ userId: Number(row.userId) })),
-        }),
+        body: JSON.stringify(billingPayload(appliedFrom, appliedTo)),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to generate bill");
       setBillResult(json.bill);
       setBillPreview(null);
-      setUserRecords([]);
       setBillHistory((prev) => {
         const next = [json.bill, ...prev.filter((b) => b.id !== json.bill.id)];
         return next.slice(0, 50);
@@ -607,97 +499,21 @@ export default function BillingClient() {
               />
             </div>
             <div className="mt-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Per user
-                </p>
-                <button
-                  type="button"
-                  onClick={addUserRecord}
-                  disabled={scopedUsers.length === 0}
-                  className="rounded-lg border border-emerald-600 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-zinc-900 dark:text-emerald-100"
-                >
-                  Add user record
-                </button>
-              </div>
-              {userRecords.length > 0 ? (
-                <div className="mt-3 overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead>
-                      <tr className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                        <th className="py-1.5 pr-3 font-semibold">User</th>
-                        {USER_METRIC_COLUMNS.map((column) => (
-                          <th key={column.key} className="px-2 py-1.5 text-right font-semibold">
-                            {column.label}
-                          </th>
-                        ))}
-                        <th className="py-1.5 pl-3" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {userRecords.map((row) => {
-                        const taken = new Set(
-                          userRecords
-                            .filter((other) => other.key !== row.key && other.userId)
-                            .map((other) => String(other.userId)),
-                        );
-                        return (
-                          <tr key={row.key} className="border-t border-emerald-200/80 dark:border-emerald-900/40">
-                            <td className="py-2 pr-3">
-                              <select
-                                aria-label="User"
-                                className={`${inputClass} h-9 min-w-[12rem] text-sm`}
-                                value={row.userId}
-                                onChange={(e) => onUserRecordChange(row.key, e.target.value)}
-                              >
-                                <option value="">Select user</option>
-                                {scopedUsers.map((user) => (
-                                  <option
-                                    key={user.id}
-                                    value={user.id}
-                                    disabled={taken.has(String(user.id))}
-                                  >
-                                    {userOptionLabel(user)}
-                                  </option>
-                                ))}
-                              </select>
-                              {row.managerLabel ? (
-                                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{row.managerLabel}</p>
-                              ) : null}
-                              {row.error ? (
-                                <p className="mt-1 text-xs text-red-700 dark:text-red-300">{row.error}</p>
-                              ) : null}
-                            </td>
-                            {USER_METRIC_COLUMNS.map((column) => (
-                              <td key={column.key} className="px-2 py-2 text-right tabular-nums">
-                                {row.loading ? "…" : metricCell(row, column)}
-                              </td>
-                            ))}
-                            <td className="py-2 pl-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => removeUserRecord(row.key)}
-                                className="text-sm font-semibold text-red-700 underline underline-offset-4 dark:text-red-300"
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Per user
+              </p>
+              {Array.isArray(billPreview.userRecords) && billPreview.userRecords.length > 0 ? (
+                <UserMetricsTable records={billPreview.userRecords} />
               ) : (
                 <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-                  Add a user to include their call metrics on this invoice.
+                  No users with dialing in this range.
                 </p>
               )}
             </div>
             <button
               type="button"
               onClick={onGenerateBill}
-              disabled={generating || userRecords.some((row) => row.loading)}
+              disabled={generating}
               className="mt-4 w-full rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
             >
               {generating ? "Generating PDF..." : "Generate PDF"}

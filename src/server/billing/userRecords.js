@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import db from "@/server/db";
 import { teamManagerLabel } from "@/lib/teamManagerLabel";
 import { aggregateCallMetricsFromDaily } from "@/server/calls/aggregateMetrics";
@@ -85,6 +86,125 @@ export async function loadUserMetricRecord({ userId, fromDate, toDate, managerId
     busy: metrics.busy,
     durationSeconds: metrics.durationSeconds,
   };
+}
+
+function invoiceUserName(user) {
+  const displayName = String(user?.displayName || "").trim();
+  if (displayName) return displayName;
+  return String(user?.username || "").trim() || `User ${user?.id}`;
+}
+
+function toInt(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+async function accountUserWhere(scopedManager) {
+  if (scopedManager) {
+    return {
+      [Op.and]: [
+        { role: { [Op.ne]: "admin" } },
+        { [Op.or]: [{ id: scopedManager }, { managerId: scopedManager }] },
+      ],
+    };
+  }
+
+  const teamAccounts = await db.ManagerTwilioAccount.findAll({
+    attributes: ["managerId"],
+    raw: true,
+  });
+  const teamManagerIds = teamAccounts
+    .map((row) => Number(row.managerId))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  const parts = [{ role: { [Op.ne]: "admin" } }];
+  if (teamManagerIds.length) {
+    parts.push({
+      [Op.or]: [{ managerId: null }, { managerId: { [Op.notIn]: teamManagerIds } }],
+    });
+    parts.push({ id: { [Op.notIn]: teamManagerIds } });
+  }
+  return { [Op.and]: parts };
+}
+
+/**
+ * Every user on the billing account who dialed in the range.
+ * Users with zero calls are omitted.
+ */
+export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
+  const fromOnly = billingDateOnly(fromDate);
+  const toOnly = billingDateOnly(toDate);
+  if (!fromOnly || !toOnly) {
+    throw httpError("fromDate and toDate are required", 400);
+  }
+  if (fromOnly > toOnly) {
+    throw httpError("fromDate must be on or before toDate", 400);
+  }
+
+  const scopedManager = managerId != null && managerId !== "" ? Number(managerId) : null;
+  if (scopedManager != null && (!Number.isInteger(scopedManager) || scopedManager < 1)) {
+    throw httpError("Invalid team", 400);
+  }
+
+  const users = await db.User.findAll({
+    where: await accountUserWhere(scopedManager),
+    attributes: ["id", "username", "displayName", "managerId", "role"],
+    include: [
+      {
+        model: db.User,
+        as: "manager",
+        attributes: ["id", "username", "displayName", "role"],
+        required: false,
+      },
+    ],
+  });
+  if (!users.length) return [];
+
+  const { fn, col } = db.sequelize;
+  const rows = await db.CallDailyMetric.findAll({
+    attributes: [
+      "userId",
+      [fn("SUM", col("total")), "total"],
+      [fn("SUM", col("completed")), "completed"],
+      [fn("SUM", col("noAnswer")), "noAnswer"],
+      [fn("SUM", col("failedOrCanceled")), "failedOrCanceled"],
+      [fn("SUM", col("busy")), "busy"],
+      [fn("SUM", col("durationSeconds")), "durationSeconds"],
+    ],
+    where: {
+      userId: users.map((user) => user.id),
+      calendarDate: { [Op.gte]: fromOnly, [Op.lte]: toOnly },
+    },
+    group: ["userId"],
+    raw: true,
+  });
+  const metricsByUserId = new Map(rows.map((row) => [Number(row.userId), row]));
+
+  const records = [];
+  for (const user of users) {
+    const metrics = metricsByUserId.get(user.id);
+    const total = toInt(metrics?.total);
+    if (total <= 0) continue;
+    const managerPerson = user.role === "manager" ? user : user.manager;
+    records.push({
+      userId: user.id,
+      name: invoiceUserName(user),
+      username: String(user.username || "").trim(),
+      managerLabel: teamManagerLabel(managerPerson),
+      total,
+      completed: toInt(metrics?.completed),
+      noAnswer: toInt(metrics?.noAnswer),
+      failedOrCanceled: toInt(metrics?.failedOrCanceled),
+      busy: toInt(metrics?.busy),
+      durationSeconds: toInt(metrics?.durationSeconds),
+    });
+  }
+
+  records.sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.name.localeCompare(b.name);
+  });
+  return records;
 }
 
 /** Resolve invoice rows from selected user ids. Later duplicates are ignored. */
