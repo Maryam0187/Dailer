@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
+import { teamManagerLabel } from "@/lib/teamManagerLabel";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ export async function GET() {
       "currency",
       "totalAmount",
       "usageBreakdown",
+      "userRecords",
       "pdfPath",
       "managerId",
       "createdAt",
@@ -25,7 +27,7 @@ export async function GET() {
       {
         model: db.User,
         as: "teamManager",
-        attributes: ["id", "username"],
+        attributes: ["id", "username", "displayName"],
         required: false,
       },
     ],
@@ -40,8 +42,12 @@ export async function GET() {
       currency: b.currency,
       totalAmount: b.totalAmount,
       categories: Array.isArray(b.usageBreakdown) ? b.usageBreakdown : [],
+      userRecords: Array.isArray(b.userRecords) ? b.userRecords : [],
       managerId: b.managerId,
       managerUsername: b.teamManager?.username || null,
+      teamLabel: b.managerId
+        ? teamManagerLabel(b.teamManager) || `Team #${b.managerId} (Manager)`
+        : null,
       accountScope: b.managerId ? "team" : "main",
       createdAt: b.createdAt,
       hasPdf: Boolean(b.pdfPath),

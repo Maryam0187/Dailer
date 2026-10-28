@@ -67,6 +67,7 @@ export async function POST(req) {
       categories: totals.categories,
       managerId: billingAccount.managerId,
       managerUsername: billingAccount.managerUsername,
+      teamLabel: billingAccount.teamLabel,
       accountScope: billingAccount.managerId ? "team" : "main",
     },
   });

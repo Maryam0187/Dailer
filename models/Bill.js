@@ -57,6 +57,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSON,
         allowNull: true,
       },
+      /** Per-user call metrics included on the invoice. */
+      userRecords: {
+        type: DataTypes.JSON,
+        allowNull: true,
+      },
       generatedBy: {
         type: DataTypes.INTEGER,
         allowNull: false,

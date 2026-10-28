@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { formatDuration } from "@/lib/formatDuration";
 import {
   isAttachmentStorageAvailable,
   writeStoredAttachment,
@@ -38,6 +39,14 @@ function formatDate(value) {
   });
 }
 
+function pdfSafe(text) {
+  return String(text ?? "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function fitText(text, font, size, maxWidth) {
   const raw = String(text ?? "");
   if (font.widthOfTextAtSize(raw, size) <= maxWidth) return raw;
@@ -53,14 +62,37 @@ function drawRightText(page, text, rightX, y, size, font, color) {
   page.drawText(text, { x: rightX - width, y, size, font, color });
 }
 
+const USER_METRIC_COLUMNS = [
+  { label: "User", width: 140, align: "left" },
+  { label: "Total", width: 42, align: "right", value: (row) => String(row.total ?? 0) },
+  { label: "Completed", width: 64, align: "right", value: (row) => String(row.completed ?? 0) },
+  { label: "No answer", width: 58, align: "right", value: (row) => String(row.noAnswer ?? 0) },
+  { label: "Failed", width: 46, align: "right", value: (row) => String(row.failedOrCanceled ?? 0) },
+  { label: "Busy", width: 40, align: "right", value: (row) => String(row.busy ?? 0) },
+  {
+    label: "Duration",
+    width: 109,
+    align: "right",
+    value: (row) => {
+      const seconds = Number(row.durationSeconds);
+      return formatDuration(Number.isFinite(seconds) ? seconds : 0);
+    },
+  },
+];
+
 /**
- * Build invoice PDF bytes: total cost + usage category breakdown only.
+ * Build invoice PDF bytes: category costs, optional per-user call metrics, and total.
  */
-export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
+export async function buildBillPdfBytes({
+  bill,
+  usageCategories = [],
+  userRecords = [],
+  teamLabel = null,
+}) {
   const doc = await PDFDocument.create();
   doc.setTitle(`Dialer Invoice #${bill.id ?? ""}`);
   doc.setAuthor("Dialer");
-  doc.setSubject("Twilio billing invoice");
+  doc.setSubject("Dialer billing invoice");
   doc.setCreator("Dialer");
 
   const regular = await doc.embedFont(StandardFonts.Helvetica);
@@ -104,7 +136,7 @@ export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
     font: bold,
     color: WHITE,
   });
-  page.drawText("Twilio billing statement", {
+  page.drawText("Billing statement", {
     x: MARGIN,
     y: PAGE.height - 96,
     size: 11,
@@ -161,7 +193,18 @@ export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
   drawInfoCard(MARGIN, "BILLING PERIOD", range);
   drawInfoCard(MARGIN + cardW + gap, "CURRENCY", String(bill.currency || "USD"));
 
-  y = cardY - 36;
+  const safeTeamLabel = pdfSafe(teamLabel);
+  y = cardY - (safeTeamLabel ? 28 : 36);
+  if (safeTeamLabel) {
+    page.drawText(fitText(safeTeamLabel, bold, 12, tableW), {
+      x: MARGIN,
+      y,
+      size: 12,
+      font: bold,
+      color: INK,
+    });
+    y -= 28;
+  }
   page.drawText("Breakdown", {
     x: MARGIN,
     y,
@@ -257,6 +300,109 @@ export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
     y = top - rowH;
   });
 
+  const people = Array.isArray(userRecords) ? userRecords : [];
+  if (people.length) {
+    const userHeaderH = 22;
+
+    const drawUserHeader = () => {
+      page.drawRectangle({
+        x: tableX,
+        y: y - userHeaderH,
+        width: tableW,
+        height: userHeaderH,
+        color: NAVY,
+      });
+      let x = tableX;
+      for (const col of USER_METRIC_COLUMNS) {
+        const textY = y - 15;
+        if (col.align === "right") {
+          drawRightText(page, col.label, x + col.width - 6, textY, 7, bold, WHITE);
+        } else {
+          page.drawText(col.label, {
+            x: x + 8,
+            y: textY,
+            size: 7,
+            font: bold,
+            color: WHITE,
+          });
+        }
+        x += col.width;
+      }
+      y -= userHeaderH;
+    };
+
+    y -= 22;
+    if (y - 16 - userHeaderH < contentBottom) {
+      page = addPage();
+      drawContinuationHeader();
+    }
+    page.drawText("Per user", {
+      x: MARGIN,
+      y,
+      size: 14,
+      font: bold,
+      color: INK,
+    });
+    y -= 16;
+    if (y - userHeaderH < contentBottom) {
+      page = addPage();
+      drawContinuationHeader();
+    }
+    drawUserHeader();
+
+    people.forEach((record, index) => {
+      const managerLine = pdfSafe(record.managerLabel);
+      const userRowH = managerLine ? 34 : 24;
+      if (y - userRowH < contentBottom) {
+        page = addPage();
+        drawContinuationHeader();
+        drawUserHeader();
+      }
+      const top = y;
+      page.drawRectangle({
+        x: tableX,
+        y: top - userRowH,
+        width: tableW,
+        height: userRowH,
+        color: index % 2 === 0 ? WHITE : ROW,
+      });
+      page.drawLine({
+        start: { x: tableX, y: top - userRowH },
+        end: { x: tableX + tableW, y: top - userRowH },
+        thickness: 0.6,
+        color: LINE,
+      });
+      let x = tableX;
+      USER_METRIC_COLUMNS.forEach((col, colIndex) => {
+        const raw = colIndex === 0 ? pdfSafe(record.username || record.name || "") : col.value(record);
+        const text = fitText(String(raw || ""), regular, 8, col.width - 12);
+        const textY = managerLine && colIndex === 0 ? top - 13 : top - (userRowH / 2 + 3);
+        if (col.align === "right") {
+          drawRightText(page, text, x + col.width - 6, textY, 8, regular, INK);
+        } else {
+          page.drawText(text, {
+            x: x + 8,
+            y: textY,
+            size: 8,
+            font: regular,
+            color: INK,
+          });
+          if (managerLine) {
+            page.drawText(fitText(managerLine, regular, 7, col.width - 12), {
+              x: x + 8,
+              y: top - 26,
+              size: 7,
+              font: regular,
+              color: MUTED,
+            });
+          }
+        }
+        x += col.width;
+      });
+      y = top - userRowH;
+    });
+  }
+
   const totalH = 56;
   if (y - 16 - totalH < contentBottom) {
     page = addPage();
@@ -294,22 +440,16 @@ export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
       thickness: 0.6,
       color: LINE,
     });
-    p.drawRectangle({
+    p.drawText("Dialer Invoice", {
       x: MARGIN,
-      y: 26,
-      width: 8,
-      height: 8,
-      color: RED,
-    });
-    p.drawText("Powered by Twilio", {
-      x: MARGIN + 14,
       y: 27,
       size: 9,
       font: bold,
       color: MUTED,
     });
-    const footerRight = pages.length > 1 ? `Dialer Invoice  |  ${index + 1}` : "Dialer Invoice";
-    drawRightText(p, footerRight, PAGE.width - MARGIN, 27, 9, regular, MUTED);
+    if (pages.length > 1) {
+      drawRightText(p, String(index + 1), PAGE.width - MARGIN, 27, 9, regular, MUTED);
+    }
   });
 
   return Buffer.from(await doc.save());
@@ -319,14 +459,14 @@ export async function buildBillPdfBytes({ bill, usageCategories = [] }) {
  * Create PDF and store it in the same attachment bucket (S3 or local).
  * @returns {Promise<{ storageKey: string }>}
  */
-export async function writeBillPdf({ bill, usageCategories = [] }) {
+export async function writeBillPdf({ bill, usageCategories = [], userRecords = [], teamLabel = null }) {
   if (!isAttachmentStorageAvailable()) {
     throw new Error(
       "Attachment storage is not configured. Set S3_* env vars (same as message/file attachments).",
     );
   }
 
-  const bytes = await buildBillPdfBytes({ bill, usageCategories });
+  const bytes = await buildBillPdfBytes({ bill, usageCategories, userRecords, teamLabel });
   const storageKey = buildBillPdfStorageKey(bill.id, `bill-${bill.id}.pdf`);
   await writeStoredAttachment(storageKey, bytes, "application/pdf");
   return { storageKey };

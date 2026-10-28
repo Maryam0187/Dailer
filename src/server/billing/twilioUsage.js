@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import db from "@/server/db";
+import { teamManagerLabel } from "@/lib/teamManagerLabel";
 import { getTwilioClient } from "@/server/twilio";
 
 /** Categories included on every bill (Twilio Usage Records). */
@@ -99,7 +100,7 @@ export async function listCompletedCallsForClient(client, { fromDate, toDate }) 
 /**
  * Resolve Twilio client for billing: main account, or a manager's subaccount.
  * @param {number | null | undefined} managerId
- * @returns {Promise<{ client: import("twilio").Twilio, managerId: number | null, managerUsername: string | null }>}
+ * @returns {Promise<{ client: import("twilio").Twilio, managerId: number | null, managerUsername: string | null, teamLabel: string | null }>}
  */
 export async function resolveBillingTwilioClient(managerId) {
   const id = managerId != null && managerId !== "" ? Number(managerId) : null;
@@ -108,11 +109,12 @@ export async function resolveBillingTwilioClient(managerId) {
       client: await getTwilioClient(),
       managerId: null,
       managerUsername: null,
+      teamLabel: null,
     };
   }
 
   const manager = await db.User.findByPk(id, {
-    attributes: ["id", "username", "role"],
+    attributes: ["id", "username", "displayName", "role"],
   });
   if (!manager || manager.role !== "manager") {
     const err = new Error("managerId must refer to a manager");
@@ -133,5 +135,6 @@ export async function resolveBillingTwilioClient(managerId) {
     client: twilio(String(acct.accountSid).trim(), String(acct.authToken).trim()),
     managerId: id,
     managerUsername: manager.username,
+    teamLabel: teamManagerLabel(manager),
   };
 }

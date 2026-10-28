@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
 import { calculateUsageTotals } from "@/server/billing/math";
 import { writeBillPdf } from "@/server/billing/pdf";
+import { resolveInvoiceUserRecords } from "@/server/billing/userRecords";
 import {
   listBillingUsageForClient,
   resolveBillingTwilioClient,
@@ -59,6 +60,20 @@ export async function POST(req) {
 
   const totals = calculateUsageTotals(usageCategories, settings.fixedMarkupPerCall);
 
+  let userRecords;
+  try {
+    userRecords = await resolveInvoiceUserRecords(body?.userRecords, {
+      fromDate,
+      toDate,
+      managerId: billingAccount.managerId,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err?.message || "Failed to load user records" },
+      { status: err?.status || 400 },
+    );
+  }
+
   const tx = await db.sequelize.transaction();
   let committed = false;
   try {
@@ -73,6 +88,7 @@ export async function POST(req) {
         totalCalls: totals.totalCalls,
         totalAmount: totals.totalAmount,
         usageBreakdown: totals.categories,
+        userRecords,
         status: "generated",
         generatedBy: authedUser.id,
         managerId: billingAccount.managerId,
@@ -83,6 +99,8 @@ export async function POST(req) {
     const { storageKey } = await writeBillPdf({
       bill,
       usageCategories: totals.categories,
+      userRecords,
+      teamLabel: billingAccount.teamLabel,
     });
     await bill.update({ pdfPath: storageKey }, { transaction: tx });
     await tx.commit();
@@ -97,8 +115,10 @@ export async function POST(req) {
           currency: bill.currency,
           totalAmount: bill.totalAmount,
           categories: totals.categories,
+          userRecords,
           managerId: bill.managerId,
           managerUsername: billingAccount.managerUsername,
+          teamLabel: billingAccount.teamLabel,
           accountScope: billingAccount.managerId ? "team" : "main",
           hasPdf: true,
           pdfUrl: `/api/billing/bills/${bill.id}/pdf`,

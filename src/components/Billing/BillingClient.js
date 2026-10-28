@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getReportPresetRange } from "@/lib/attendanceTime";
+import { formatDuration } from "@/lib/formatDuration";
+import { teamManagerLabel } from "@/lib/teamManagerLabel";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -33,6 +35,81 @@ function getPresetRange(preset) {
   return getReportPresetRange(preset);
 }
 
+const USER_METRIC_COLUMNS = [
+  { key: "total", label: "Total" },
+  { key: "completed", label: "Completed" },
+  { key: "noAnswer", label: "No answer" },
+  { key: "failedOrCanceled", label: "Failed" },
+  { key: "busy", label: "Busy" },
+  { key: "durationSeconds", label: "Duration", duration: true },
+];
+
+function metricCell(record, column) {
+  if (!record || record[column.key] == null) return "—";
+  if (column.duration) return formatDuration(record.durationSeconds);
+  return record[column.key];
+}
+
+function userOptionLabel(user) {
+  const username = String(user?.username || "").trim();
+  const displayName = String(user?.displayName || "").trim();
+  if (displayName && username && displayName !== username) return `${displayName} (${username})`;
+  return displayName || username || `User ${user?.id}`;
+}
+
+function billScopeLabel(bill) {
+  if (bill?.accountScope === "team" || bill?.teamLabel) {
+    return bill.teamLabel || teamManagerLabel(bill.managerUsername) || `Team #${bill.managerId} (Manager)`;
+  }
+  return "Main";
+}
+
+function usersForScope(users, scope, managerId) {
+  if (scope !== "team" || !managerId) return users;
+  return users.filter(
+    (user) => String(user.id) === String(managerId) || String(user.managerId) === String(managerId),
+  );
+}
+
+function UserMetricsTable({ records }) {
+  if (!Array.isArray(records) || records.length === 0) return null;
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead>
+          <tr className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+            <th className="py-1.5 pr-3 font-semibold">User</th>
+            {USER_METRIC_COLUMNS.map((column) => (
+              <th key={column.key} className="px-2 py-1.5 text-right font-semibold">
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr key={record.userId} className="border-t border-zinc-200/80 dark:border-zinc-700">
+              <td className="py-1.5 pr-3 font-medium text-zinc-900 dark:text-zinc-100">
+                <div>{record.username}</div>
+                {record.managerLabel ? (
+                  <div className="text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                    {record.managerLabel}
+                  </div>
+                ) : null}
+              </td>
+              {USER_METRIC_COLUMNS.map((column) => (
+                <td key={column.key} className="px-2 py-1.5 text-right tabular-nums">
+                  {metricCell(record, column)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function BillingClient() {
   const [fixedMarkupPerCall, setFixedMarkupPerCall] = useState("0.00");
   const [currency, setCurrency] = useState("USD");
@@ -53,6 +130,8 @@ export default function BillingClient() {
   const [billPreview, setBillPreview] = useState(null);
   const [billResult, setBillResult] = useState(null);
   const [billHistory, setBillHistory] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [userRecords, setUserRecords] = useState([]);
 
   function billingPayload(fromDate, toDate) {
     const payload = { fromDate, toDate };
@@ -65,20 +144,23 @@ export default function BillingClient() {
   async function loadData() {
     setError(null);
     try {
-      const [settingsRes, billsRes, numbersRes] = await Promise.all([
+      const [settingsRes, billsRes, numbersRes, usersRes] = await Promise.all([
         fetch("/api/billing/settings", { credentials: "include" }),
         fetch("/api/billing/bills", { credentials: "include" }),
         fetch("/api/admin/twilio-numbers", { credentials: "include" }),
+        fetch("/api/users", { credentials: "include" }),
       ]);
       const settingsJson = await settingsRes.json().catch(() => ({}));
       const billsJson = await billsRes.json().catch(() => ({}));
       const numbersJson = await numbersRes.json().catch(() => ({}));
+      const usersJson = await usersRes.json().catch(() => ({}));
       if (!settingsRes.ok) throw new Error(settingsJson?.error || "Failed to load settings");
       if (!billsRes.ok) throw new Error(billsJson?.error || "Failed to load bills");
 
       setFixedMarkupPerCall(String(settingsJson.settings?.fixedMarkupPerCall ?? "0.00"));
       setCurrency(String(settingsJson.settings?.currency ?? "USD"));
       setBillHistory(billsJson.bills || []);
+      if (usersRes.ok) setUsers(Array.isArray(usersJson.users) ? usersJson.users : []);
 
       const options = (numbersJson.teams || []).map((t) => ({
         id: t.managerId,
@@ -171,6 +253,7 @@ export default function BillingClient() {
     setAppliedTo(next.to);
     setBillPreview(null);
     setBillResult(null);
+    setUserRecords([]);
     void previewBill(next.from, next.to);
   }
 
@@ -178,6 +261,7 @@ export default function BillingClient() {
     setAccountScope(nextScope);
     setBillPreview(null);
     setBillResult(null);
+    setUserRecords([]);
     if (appliedFrom && appliedTo) {
       void previewBill(appliedFrom, appliedTo, nextScope, managerId);
     }
@@ -187,6 +271,7 @@ export default function BillingClient() {
     setManagerId(nextId);
     setBillPreview(null);
     setBillResult(null);
+    setUserRecords([]);
     if (accountScope === "team" && appliedFrom && appliedTo && nextId) {
       void previewBill(appliedFrom, appliedTo, "team", nextId);
     }
@@ -205,11 +290,97 @@ export default function BillingClient() {
     }
     setAppliedFrom(rangeFrom);
     setAppliedTo(rangeTo);
+    setUserRecords([]);
     await previewBill(rangeFrom, rangeTo);
+  }
+
+  const scopedUsers = usersForScope(users, accountScope, managerId);
+
+  function addUserRecord() {
+    setUserRecords((prev) => [
+      ...prev,
+      {
+        key: `${Date.now()}-${prev.length}`,
+        userId: "",
+        username: "",
+        managerLabel: "",
+        total: null,
+        completed: null,
+        noAnswer: null,
+        failedOrCanceled: null,
+        busy: null,
+        durationSeconds: null,
+        loading: false,
+        error: null,
+      },
+    ]);
+  }
+
+  function removeUserRecord(key) {
+    setUserRecords((prev) => prev.filter((row) => row.key !== key));
+  }
+
+  async function onUserRecordChange(key, userId) {
+    setUserRecords((prev) =>
+      prev.map((row) =>
+        row.key === key
+          ? {
+              ...row,
+              userId,
+              username: "",
+              managerLabel: "",
+              total: null,
+              completed: null,
+              noAnswer: null,
+              failedOrCanceled: null,
+              busy: null,
+              durationSeconds: null,
+              loading: Boolean(userId),
+              error: null,
+            }
+          : row,
+      ),
+    );
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/billing/user-record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ...billingPayload(appliedFrom, appliedTo), userId: Number(userId) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load user record");
+      setUserRecords((prev) =>
+        prev.map((row) =>
+          row.key === key && String(row.userId) === String(userId)
+            ? { ...row, ...json.record, userId: String(json.record.userId), loading: false, error: null }
+            : row,
+        ),
+      );
+    } catch (err) {
+      setUserRecords((prev) =>
+        prev.map((row) =>
+          row.key === key ? { ...row, loading: false, error: err.message || "Failed to load user record" } : row,
+        ),
+      );
+    }
   }
 
   async function onGenerateBill() {
     if (!billPreview) return;
+    if (userRecords.some((row) => !row.userId)) {
+      setError("Select a user for each record");
+      return;
+    }
+    if (userRecords.some((row) => row.loading)) {
+      setError("Wait for the user record to finish loading");
+      return;
+    }
+    if (userRecords.some((row) => row.error)) {
+      setError("Remove the user record that failed to load, then try again");
+      return;
+    }
     setError(null);
     setGenerating(true);
     try {
@@ -217,12 +388,16 @@ export default function BillingClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(billingPayload(appliedFrom, appliedTo)),
+        body: JSON.stringify({
+          ...billingPayload(appliedFrom, appliedTo),
+          userRecords: userRecords.map((row) => ({ userId: Number(row.userId) })),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to generate bill");
       setBillResult(json.bill);
       setBillPreview(null);
+      setUserRecords([]);
       setBillHistory((prev) => {
         const next = [json.bill, ...prev.filter((b) => b.id !== json.bill.id)];
         return next.slice(0, 50);
@@ -332,7 +507,9 @@ export default function BillingClient() {
                 >
                   {teamOptions.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.username}
+                      {teamManagerLabel(users.find((user) => String(user.id) === String(t.id))) ||
+                        teamManagerLabel(t.username) ||
+                        `Team #${t.id} (Manager)`}
                     </option>
                   ))}
                 </select>
@@ -415,9 +592,7 @@ export default function BillingClient() {
               {new Date(billPreview.fromDate).toLocaleDateString()} –{" "}
               {new Date(billPreview.toDate).toLocaleDateString()}
               {" · "}
-              {billPreview.accountScope === "team"
-                ? `Team ${billPreview.managerUsername || `#${billPreview.managerId}`}`
-                : "Main"}
+              {billScopeLabel(billPreview)}
             </p>
             <p className="mt-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               Total cost: {money(billPreview.totalAmount, billPreview.currency)}
@@ -431,10 +606,98 @@ export default function BillingClient() {
                 currency={billPreview.currency}
               />
             </div>
+            <div className="mt-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Per user
+                </p>
+                <button
+                  type="button"
+                  onClick={addUserRecord}
+                  disabled={scopedUsers.length === 0}
+                  className="rounded-lg border border-emerald-600 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-zinc-900 dark:text-emerald-100"
+                >
+                  Add user record
+                </button>
+              </div>
+              {userRecords.length > 0 ? (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead>
+                      <tr className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                        <th className="py-1.5 pr-3 font-semibold">User</th>
+                        {USER_METRIC_COLUMNS.map((column) => (
+                          <th key={column.key} className="px-2 py-1.5 text-right font-semibold">
+                            {column.label}
+                          </th>
+                        ))}
+                        <th className="py-1.5 pl-3" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userRecords.map((row) => {
+                        const taken = new Set(
+                          userRecords
+                            .filter((other) => other.key !== row.key && other.userId)
+                            .map((other) => String(other.userId)),
+                        );
+                        return (
+                          <tr key={row.key} className="border-t border-emerald-200/80 dark:border-emerald-900/40">
+                            <td className="py-2 pr-3">
+                              <select
+                                aria-label="User"
+                                className={`${inputClass} h-9 min-w-[12rem] text-sm`}
+                                value={row.userId}
+                                onChange={(e) => onUserRecordChange(row.key, e.target.value)}
+                              >
+                                <option value="">Select user</option>
+                                {scopedUsers.map((user) => (
+                                  <option
+                                    key={user.id}
+                                    value={user.id}
+                                    disabled={taken.has(String(user.id))}
+                                  >
+                                    {userOptionLabel(user)}
+                                  </option>
+                                ))}
+                              </select>
+                              {row.managerLabel ? (
+                                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{row.managerLabel}</p>
+                              ) : null}
+                              {row.error ? (
+                                <p className="mt-1 text-xs text-red-700 dark:text-red-300">{row.error}</p>
+                              ) : null}
+                            </td>
+                            {USER_METRIC_COLUMNS.map((column) => (
+                              <td key={column.key} className="px-2 py-2 text-right tabular-nums">
+                                {row.loading ? "…" : metricCell(row, column)}
+                              </td>
+                            ))}
+                            <td className="py-2 pl-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeUserRecord(row.key)}
+                                className="text-sm font-semibold text-red-700 underline underline-offset-4 dark:text-red-300"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                  Add a user to include their call metrics on this invoice.
+                </p>
+              )}
+            </div>
             <button
               type="button"
               onClick={onGenerateBill}
-              disabled={generating}
+              disabled={generating || userRecords.some((row) => row.loading)}
               className="mt-4 w-full rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 sm:w-auto"
             >
               {generating ? "Generating PDF..." : "Generate PDF"}
@@ -445,7 +708,8 @@ export default function BillingClient() {
         {billResult ? (
           <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
             <p className="text-sm text-zinc-700 dark:text-zinc-200">
-              Bill #{billResult.id} saved. Total:{" "}
+              Bill #{billResult.id} saved
+              {billResult.teamLabel ? ` · ${billResult.teamLabel}` : ""}. Total:{" "}
               <span className="font-semibold">
                 {money(billResult.totalAmount, billResult.currency)}
               </span>
@@ -456,6 +720,7 @@ export default function BillingClient() {
                 currency={billResult.currency}
               />
             </div>
+            <UserMetricsTable records={billResult.userRecords} />
             <div className="mt-3 flex flex-wrap gap-3">
               {billResult.hasPdf !== false && billResult.pdfUrl ? (
                 <a
@@ -493,9 +758,7 @@ export default function BillingClient() {
                 <div>
                   <p className="font-semibold text-zinc-900 dark:text-zinc-100">Bill #{b.id}</p>
                   <p className="mt-0.5 text-zinc-600 dark:text-zinc-300">
-                    {b.accountScope === "team"
-                      ? `Team ${b.managerUsername || `#${b.managerId}`}`
-                      : "Main"}{" "}
+                    {billScopeLabel(b)}{" "}
                     · {new Date(b.fromDate).toLocaleDateString()} –{" "}
                     {new Date(b.toDate).toLocaleDateString()}
                   </p>
@@ -507,6 +770,7 @@ export default function BillingClient() {
               <div className="mt-3">
                 <CategoryBreakdown categories={b.categories} currency={b.currency} />
               </div>
+              <UserMetricsTable records={b.userRecords} />
               <div className="mt-3 flex flex-wrap gap-3">
                 {b.hasPdf && b.pdfUrl ? (
                   <a
