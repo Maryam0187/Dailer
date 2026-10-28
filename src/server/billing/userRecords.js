@@ -1,5 +1,6 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
+import { calendarDateRangeBounds } from "@/lib/calendarDayBounds";
 import { teamManagerLabel } from "@/lib/teamManagerLabel";
 import { aggregateCallMetricsFromDaily } from "@/server/calls/aggregateMetrics";
 
@@ -84,7 +85,7 @@ export async function loadUserMetricRecord({ userId, fromDate, toDate, managerId
     noAnswer: metrics.noAnswer,
     failedOrCanceled: metrics.failedOrCanceled,
     busy: metrics.busy,
-    durationSeconds: metrics.durationSeconds,
+    durationSeconds: toInt(metrics.twilioDurationSeconds),
   };
 }
 
@@ -97,6 +98,38 @@ function invoiceUserName(user) {
 function toInt(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+/** Talk time for calls that are not Zoom. Matches the Twilio half of the user report. */
+async function twilioDurationSecondsByUser(userIds, fromDate, toDate) {
+  const durations = new Map();
+  const ids = [...new Set(userIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return durations;
+
+  const bounds = calendarDateRangeBounds(fromDate, toDate);
+  if (!bounds) return durations;
+
+  const rows = await db.sequelize.query(
+    `SELECT cl.userId AS userId,
+            COALESCE(SUM(CASE
+              WHEN LOWER(COALESCE(cl.voiceProvider, 'twilio')) = 'zoom' THEN 0
+              ELSE cl.durationSeconds
+            END), 0) AS durationSeconds
+     FROM CallLogs cl
+     WHERE cl.userId IN (:userIds)
+       AND cl.createdAt >= :after
+       AND cl.createdAt < :before
+     GROUP BY cl.userId`,
+    {
+      replacements: { userIds: ids, after: bounds.after, before: bounds.before },
+      type: QueryTypes.SELECT,
+    },
+  );
+
+  for (const row of rows) {
+    durations.set(Number(row.userId), toInt(row.durationSeconds));
+  }
+  return durations;
 }
 
 async function accountUserWhere(scopedManager) {
@@ -169,7 +202,6 @@ export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
       [fn("SUM", col("noAnswer")), "noAnswer"],
       [fn("SUM", col("failedOrCanceled")), "failedOrCanceled"],
       [fn("SUM", col("busy")), "busy"],
-      [fn("SUM", col("durationSeconds")), "durationSeconds"],
     ],
     where: {
       userId: users.map((user) => user.id),
@@ -179,6 +211,11 @@ export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
     raw: true,
   });
   const metricsByUserId = new Map(rows.map((row) => [Number(row.userId), row]));
+  const twilioDurationByUser = await twilioDurationSecondsByUser(
+    users.map((user) => user.id),
+    fromOnly,
+    toOnly,
+  );
 
   const records = [];
   for (const user of users) {
@@ -196,7 +233,7 @@ export async function listAccountUserRecords({ fromDate, toDate, managerId }) {
       noAnswer: toInt(metrics?.noAnswer),
       failedOrCanceled: toInt(metrics?.failedOrCanceled),
       busy: toInt(metrics?.busy),
-      durationSeconds: toInt(metrics?.durationSeconds),
+      durationSeconds: twilioDurationByUser.get(user.id) || 0,
     });
   }
 
