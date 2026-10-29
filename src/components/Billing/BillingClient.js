@@ -15,41 +15,37 @@ function money(value, currency) {
   return `${currency} ${num.toFixed(2)}`;
 }
 
-function formatPercent(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "0";
-  return String(Number(n.toFixed(2)));
+function formatMarkupPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "0";
+  return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function CategoryBreakdown({ categories, currency, voiceMarkup, callMarkupAmount }) {
-  const voiceAmount = Number(voiceMarkup?.amount);
-  const callAmount = Number(callMarkupAmount);
-  const hasCategories = Array.isArray(categories) && categories.length > 0;
-  const hasVoice = Number.isFinite(voiceAmount) && voiceAmount > 0;
-  const hasCall = Number.isFinite(callAmount) && callAmount > 0;
-  if (!hasCategories && !hasVoice && !hasCall) {
+function totalWithoutVoiceMarkup(preview) {
+  const total = Number(preview?.totalAmount || 0);
+  const markup = Number(preview?.programmableVoiceMarkupAmount || 0);
+  return Math.max(0, total - markup);
+}
+
+function CategoryBreakdown({ categories, currency, voiceMarkup = null }) {
+  const markupPercent = Number(voiceMarkup?.percent || 0);
+  const markupAmount = Number(voiceMarkup?.amount || 0);
+  const showMarkup = markupPercent > 0 && markupAmount > 0;
+  if ((!Array.isArray(categories) || categories.length === 0) && !showMarkup) {
     return <p className="text-sm text-zinc-600 dark:text-zinc-300">No usage in this range.</p>;
   }
   return (
     <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
-      {hasCategories
-        ? categories.map((c) => (
-            <li key={c.category} className="flex items-center justify-between gap-3">
-              <span>{c.label || c.category}</span>
-              <span className="font-medium tabular-nums">{money(c.twilioCost, currency)}</span>
-            </li>
-          ))
-        : null}
-      {hasVoice ? (
-        <li className="flex items-center justify-between gap-3">
-          <span>Programmable Voice markup ({formatPercent(voiceMarkup.percent)}%)</span>
-          <span className="font-medium tabular-nums">{money(voiceAmount, currency)}</span>
+      {(categories || []).map((c) => (
+        <li key={c.category} className="flex items-center justify-between gap-3">
+          <span>{c.label || c.category}</span>
+          <span className="font-medium tabular-nums">{money(c.twilioCost, currency)}</span>
         </li>
-      ) : null}
-      {hasCall ? (
+      ))}
+      {showMarkup ? (
         <li className="flex items-center justify-between gap-3">
-          <span>Per-call markup</span>
-          <span className="font-medium tabular-nums">{money(callAmount, currency)}</span>
+          <span>Programmable Voice markup ({formatMarkupPercent(markupPercent)}%)</span>
+          <span className="font-medium tabular-nums">{money(markupAmount, currency)}</span>
         </li>
       ) : null}
     </ul>
@@ -542,6 +538,12 @@ export default function BillingClient() {
             <p className="mt-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               Total cost: {money(billPreview.totalAmount, billPreview.currency)}
             </p>
+            {Number(billPreview.programmableVoiceMarkupAmount) > 0 ? (
+              <p className="mt-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                Total without markup:{" "}
+                {money(totalWithoutVoiceMarkup(billPreview), billPreview.currency)}
+              </p>
+            ) : null}
             <div className="mt-3">
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Breakdown
@@ -553,7 +555,6 @@ export default function BillingClient() {
                   percent: billPreview.programmableVoiceMarkupPercent,
                   amount: billPreview.programmableVoiceMarkupAmount,
                 }}
-                callMarkupAmount={billPreview.markupAmount}
               />
             </div>
             <div className="mt-4">
@@ -592,11 +593,6 @@ export default function BillingClient() {
               <CategoryBreakdown
                 categories={billResult.categories}
                 currency={billResult.currency}
-                voiceMarkup={{
-                  percent: billResult.programmableVoiceMarkupPercent,
-                  amount: billResult.programmableVoiceMarkupAmount,
-                }}
-                callMarkupAmount={billResult.markupAmount}
               />
             </div>
             <UserMetricsTable records={billResult.userRecords} />
@@ -647,15 +643,7 @@ export default function BillingClient() {
                 </p>
               </div>
               <div className="mt-3">
-                <CategoryBreakdown
-                  categories={b.categories}
-                  currency={b.currency}
-                  voiceMarkup={{
-                    percent: b.programmableVoiceMarkupPercent,
-                    amount: b.programmableVoiceMarkupAmount,
-                  }}
-                  callMarkupAmount={b.markupAmount}
-                />
+                <CategoryBreakdown categories={b.categories} currency={b.currency} />
               </div>
               <UserMetricsTable records={b.userRecords} />
               <div className="mt-3 flex flex-wrap gap-3">

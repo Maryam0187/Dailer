@@ -112,11 +112,6 @@ export async function POST(req) {
       usageCategories: totals.categories,
       userRecords,
       teamLabel: billingAccount.teamLabel,
-      voiceMarkup: {
-        percent: totals.programmableVoiceMarkupPercent,
-        amount: totals.programmableVoiceMarkupAmount,
-      },
-      callMarkupAmount: totals.markupAmount,
     });
     await bill.update({ pdfPath: storageKey }, { transaction: tx });
     await tx.commit();

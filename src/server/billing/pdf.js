@@ -47,12 +47,6 @@ function pdfSafe(text) {
     .trim();
 }
 
-function formatPercentLabel(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "0";
-  return String(Number(n.toFixed(2)));
-}
-
 function fitText(text, font, size, maxWidth) {
   const raw = String(text ?? "");
   if (font.widthOfTextAtSize(raw, size) <= maxWidth) return raw;
@@ -94,8 +88,6 @@ export async function buildBillPdfBytes({
   usageCategories = [],
   userRecords = [],
   teamLabel = null,
-  voiceMarkup = null,
-  callMarkupAmount = 0,
 }) {
   const doc = await PDFDocument.create();
   doc.setTitle(`Dialer Invoice #${bill.id ?? ""}`);
@@ -308,58 +300,6 @@ export async function buildBillPdfBytes({
     y = top - rowH;
   });
 
-  const extraRows = [];
-  const voiceAmount = Number(voiceMarkup?.amount);
-  if (Number.isFinite(voiceAmount) && voiceAmount > 0) {
-    extraRows.push({
-      label: `Programmable Voice markup (${formatPercentLabel(voiceMarkup.percent)}%)`,
-      amount: voiceAmount,
-    });
-  }
-  const callMarkup = Number(callMarkupAmount);
-  if (Number.isFinite(callMarkup) && callMarkup > 0) {
-    extraRows.push({ label: "Per-call markup", amount: callMarkup });
-  }
-  extraRows.forEach((row, index) => {
-    if (y - rowH < contentBottom) {
-      page = addPage();
-      drawContinuationHeader();
-      drawTableHeader();
-    }
-    const top = y;
-    const stripe = (usageCategories.length + index) % 2 === 0 ? WHITE : ROW;
-    page.drawRectangle({
-      x: tableX,
-      y: top - rowH,
-      width: tableW,
-      height: rowH,
-      color: stripe,
-    });
-    page.drawLine({
-      start: { x: tableX, y: top - rowH },
-      end: { x: tableX + tableW, y: top - rowH },
-      thickness: 0.6,
-      color: LINE,
-    });
-    page.drawText(fitText(row.label, regular, 11, tableW - 160), {
-      x: tableX + 16,
-      y: top - 20,
-      size: 11,
-      font: regular,
-      color: INK,
-    });
-    drawRightText(
-      page,
-      `${bill.currency} ${formatAmount(row.amount)}`,
-      tableX + tableW - 16,
-      top - 20,
-      11,
-      regular,
-      INK,
-    );
-    y = top - rowH;
-  });
-
   const people = Array.isArray(userRecords) ? userRecords : [];
   if (people.length) {
     const userHeaderH = 22;
@@ -524,8 +464,6 @@ export async function writeBillPdf({
   usageCategories = [],
   userRecords = [],
   teamLabel = null,
-  voiceMarkup = null,
-  callMarkupAmount = 0,
 }) {
   if (!isAttachmentStorageAvailable()) {
     throw new Error(
@@ -538,8 +476,6 @@ export async function writeBillPdf({
     usageCategories,
     userRecords,
     teamLabel,
-    voiceMarkup,
-    callMarkupAmount,
   });
   const storageKey = buildBillPdfStorageKey(bill.id, `bill-${bill.id}.pdf`);
   await writeStoredAttachment(storageKey, bytes, "application/pdf");
