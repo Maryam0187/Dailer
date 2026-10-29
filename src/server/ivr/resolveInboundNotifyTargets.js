@@ -119,19 +119,21 @@ async function findLeadExact(from) {
     }
 
     if (!lead?.id) {
+      const customerPayload = customer
+        ? {
+            id: customer.id,
+            phone: customer.phone || null,
+            fullName: customer.fullName || null,
+            isOutside: Boolean(customer.isOutside),
+            lastSale: null,
+          }
+        : null;
       return {
         leadInSystem: false,
+        callerInSystem: Boolean(customerPayload),
         lastSale: null,
         leadUserIds: [],
-        customer: customer
-          ? {
-              id: customer.id,
-              phone: customer.phone || null,
-              fullName: customer.fullName || null,
-              isOutside: Boolean(customer.isOutside),
-              lastSale: null,
-            }
-          : null,
+        customer: customerPayload,
       };
     }
 
@@ -147,6 +149,7 @@ async function findLeadExact(from) {
 
     return {
       leadInSystem: true,
+      callerInSystem: true,
       lastSale,
       leadUserIds: uniqPositiveIds([lead.assignedUserId, lead.createdByUserId]),
       customer: customer
@@ -167,7 +170,13 @@ async function findLeadExact(from) {
     };
   } catch (err) {
     console.warn("[ivr/resolveInbound] lead", err?.message || err);
-    return { leadInSystem: false, lastSale: null, leadUserIds: [], customer: null };
+    return {
+      leadInSystem: false,
+      callerInSystem: false,
+      lastSale: null,
+      leadUserIds: [],
+      customer: null,
+    };
   }
 }
 
@@ -185,9 +194,12 @@ export async function resolveInboundNotifyTargets({ from } = {}) {
     ? callLogUserIds
     : lead.leadUserIds || [];
 
+  // Caller/lead already in CRM → call-log agents must ask admin (do not expose others' lead).
+  const callerInSystem = Boolean(lead.callerInSystem || lead.leadInSystem);
+
   let notifySource = "none";
   let messageMode = "incoming";
-  if (hasCallLogAgents && lead.leadInSystem) {
+  if (hasCallLogAgents && callerInSystem) {
     notifySource = "call_log";
     messageMode = "ask_admin";
   } else if (hasCallLogAgents) {
@@ -203,6 +215,7 @@ export async function resolveInboundNotifyTargets({ from } = {}) {
     callLogUserIds,
     leadUserIds: lead.leadUserIds || [],
     leadInSystem: Boolean(lead.leadInSystem),
+    callerInSystem,
     lastSale: lead.lastSale || null,
     customer: lead.customer || null,
     relatedCallLogs,

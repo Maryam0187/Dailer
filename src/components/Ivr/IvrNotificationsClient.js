@@ -201,7 +201,7 @@ export default function IvrNotificationsClient() {
                     </div>
                     {row.messageMode === "ask_admin" ? (
                       <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                        This lead is already in our system — ask an admin for further action.
+                        This caller is already in our system — ask an admin for further action.
                       </p>
                     ) : null}
                     {(() => {
@@ -211,13 +211,16 @@ export default function IvrNotificationsClient() {
                           : row.customer
                             ? [row.customer]
                             : [];
+                      const allowLeadPreview = row.allowLeadPreview !== false;
                       return matches.map((match) => (
                         <IvrCustomerMatchRow
                           key={match.id || match.phone || "match"}
                           label={match.isOutside ? "Outside" : "Caller"}
+                          allowLeadPreview={allowLeadPreview}
                           customer={{
                             ...match,
                             phone: row.fromNumber || match.phone,
+                            lastSale: allowLeadPreview ? match.lastSale : null,
                           }}
                         />
                       ));

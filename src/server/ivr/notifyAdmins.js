@@ -37,7 +37,7 @@ function buildAgentCopy({ messageMode, from, lastSale }) {
   if (messageMode === "ask_admin") {
     return {
       title: "Inbound callback",
-      body: `Callback from ${fromLabel}${leadBit} — this lead is already in our system. Ask an admin for further action.`,
+      body: `Callback from ${fromLabel}${leadBit} — this caller is already in our system. Ask an admin for further action.`,
     };
   }
   if (messageMode === "callback" || messageMode === "lead_callback") {
@@ -179,4 +179,40 @@ export function notifyInboundCallbackAsync(raw) {
   void notifyAdmins(raw).catch((err) => {
     console.warn("[ivr/notify] async", err?.message || err);
   });
+}
+
+/**
+ * Zoom Soft Embed inbound → same callback notify as Twilio.
+ * Dedupes by callSid so multiple open Soft Embed sessions only alert once.
+ */
+export function notifyZoomInboundCallbackOnce({
+  from,
+  to,
+  zoomCallId,
+  eventType = "incoming",
+} = {}) {
+  const externalId = String(zoomCallId || "").trim();
+  const fromNumber = String(from || "").trim();
+  if (!externalId || !fromNumber) return;
+
+  const callSid = `zoom:${externalId}`.slice(0, 64);
+
+  void (async () => {
+    try {
+      const existing = await db.IvrNotification.findOne({
+        where: { callSid },
+        attributes: ["id"],
+      });
+      if (existing) return;
+
+      await notifyAdmins({
+        type: String(eventType || "incoming"),
+        from: fromNumber,
+        to: String(to || "").trim() || null,
+        callSid,
+      });
+    } catch (err) {
+      console.warn("[ivr/notify] zoom inbound", err?.message || err);
+    }
+  })();
 }

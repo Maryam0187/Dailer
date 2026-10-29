@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
-import { serializeIvrNotificationWithCustomers } from "@/server/ivr/persistIvrNotification";
+import {
+  serializeIvrNotificationWithCustomers,
+  shapeNotificationForViewer,
+} from "@/server/ivr/persistIvrNotification";
 
 export const runtime = "nodejs";
 
@@ -72,7 +75,8 @@ export async function GET(req) {
     const notifications = await Promise.all(
       rows.map(async (row) => {
         const recipientReadAt = readById.has(row.id) ? readById.get(row.id) : row.readAt;
-        return serializeIvrNotificationWithCustomers(row, { recipientReadAt });
+        const raw = await serializeIvrNotificationWithCustomers(row, { recipientReadAt });
+        return shapeNotificationForViewer(raw, { viewerUserId: userId, isAdmin: true });
       }),
     );
 
@@ -115,11 +119,12 @@ export async function GET(req) {
   });
 
   const notifications = await Promise.all(
-    recipientPage.map((rec) =>
-      serializeIvrNotificationWithCustomers(rec.notification, {
+    recipientPage.map(async (rec) => {
+      const raw = await serializeIvrNotificationWithCustomers(rec.notification, {
         recipientReadAt: rec.readAt,
-      }),
-    ),
+      });
+      return shapeNotificationForViewer(raw, { viewerUserId: userId, isAdmin: false });
+    }),
   );
 
   return NextResponse.json({

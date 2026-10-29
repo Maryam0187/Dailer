@@ -149,13 +149,17 @@ export default function IvrStaffAlert({ userRole = null }) {
                 </p>
               );
             }
+            const hideLead =
+              alert.messageMode === "ask_admin" || alert.allowLeadPreview === false;
             return matches.map((match) => (
               <IvrCustomerMatchRow
                 key={match.id || match.phone || "match"}
                 label={match.isOutside ? "Outside" : "Caller"}
+                allowLeadPreview={!hideLead}
                 customer={{
                   ...match,
                   phone: alert.from || match.phone,
+                  lastSale: hideLead ? null : match.lastSale,
                 }}
               />
             ));
@@ -175,7 +179,7 @@ export default function IvrStaffAlert({ userRole = null }) {
           ) : null}
           {alert.messageMode === "ask_admin" ? (
             <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              This lead is already in our system — ask an admin for further action.
+              This caller is already in our system — ask an admin for further action.
             </p>
           ) : (
             <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">

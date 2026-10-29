@@ -18,8 +18,13 @@ function customerSummary(customer) {
 
 /**
  * Customer match line with deep-link + last-sale link icon + View sidebar.
+ * When allowLeadPreview is false (lead belongs to someone else), show name only — no links/preview.
  */
-export default function IvrCustomerMatchRow({ label = "Customer", customer }) {
+export default function IvrCustomerMatchRow({
+  label = "Customer",
+  customer,
+  allowLeadPreview = true,
+}) {
   const [lead, setLead] = useState(null);
   const [loadingLead, setLoadingLead] = useState(false);
   const [error, setError] = useState(null);
@@ -27,13 +32,15 @@ export default function IvrCustomerMatchRow({ label = "Customer", customer }) {
   if (!customer?.id) return null;
 
   const summary = customerSummary(customer);
-  const lastSaleId = customer.isOutside ? null : customer.lastSale?.id || null;
+  const lastSaleId =
+    allowLeadPreview && !customer.isOutside ? customer.lastSale?.id || null : null;
   const customerHref = `/customers?customerId=${customer.id}`;
   const saleHref = lastSaleId
     ? `/customers?customerId=${customer.id}&leadId=${lastSaleId}`
     : customerHref;
 
   async function openLastSaleSidebar() {
+    if (!allowLeadPreview) return;
     if (!lastSaleId) {
       window.location.href = customerHref;
       return;
@@ -54,6 +61,16 @@ export default function IvrCustomerMatchRow({ label = "Customer", customer }) {
     } finally {
       setLoadingLead(false);
     }
+  }
+
+  if (!allowLeadPreview) {
+    return (
+      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
+        <span>
+          {label}: <span className="font-medium text-zinc-800 dark:text-zinc-200">{summary}</span>
+        </span>
+      </div>
+    );
   }
 
   return (

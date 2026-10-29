@@ -140,4 +140,84 @@ export async function serializeIvrNotificationWithCustomers(row, extra = {}) {
   return serialize(row, customers, extra);
 }
 
+function viewerOwnsLead(viewerUserId, lastSale) {
+  const uid = Number(viewerUserId);
+  if (!Number.isInteger(uid) || uid <= 0 || !lastSale) return false;
+  const assigned = Number(lastSale.assignedUserId);
+  const created = Number(lastSale.createdByUserId);
+  return assigned === uid || created === uid;
+}
+
+/**
+ * Shape a notification for the viewing user:
+ * - Call-log agent + caller/lead in system (not their lead) → ask_admin, no lead preview
+ * - Lead owner / admin → full preview
+ */
+export function shapeNotificationForViewer(notification, { viewerUserId, isAdmin } = {}) {
+  if (!notification) return null;
+
+  const lastSale =
+    notification.lastSale ||
+    notification.customer?.lastSale ||
+    notification.customers?.[0]?.lastSale ||
+    null;
+  const hasCallerOrLead =
+    Boolean(notification.leadInSystem) ||
+    Boolean(lastSale?.id) ||
+    Boolean(notification.customer?.id) ||
+    (Array.isArray(notification.customers) && notification.customers.some((c) => c?.id));
+
+  const ownsLead = viewerOwnsLead(viewerUserId, lastSale);
+  const fromCallLog =
+    notification.notifySource === "call_log" ||
+    notification.messageMode === "ask_admin" ||
+    notification.messageMode === "callback";
+
+  // Non-owner agent: never expose another agent's lead link/preview; show ask-admin when in system.
+  if (!isAdmin && hasCallerOrLead && !ownsLead) {
+    const strippedCustomers = (Array.isArray(notification.customers) ? notification.customers : [])
+      .filter((c) => c?.id)
+      .map((c) => ({
+        id: c.id,
+        phone: c.phone || null,
+        fullName: c.fullName || null,
+        isOutside: Boolean(c.isOutside),
+        lastSale: null,
+      }));
+    const strippedCustomer = notification.customer?.id
+      ? {
+          id: notification.customer.id,
+          phone: notification.customer.phone || null,
+          fullName: notification.customer.fullName || null,
+          isOutside: Boolean(notification.customer.isOutside),
+          lastSale: null,
+        }
+      : strippedCustomers[0] || null;
+
+    return {
+      ...notification,
+      messageMode: "ask_admin",
+      leadInSystem: true,
+      allowLeadPreview: false,
+      lastSale: null,
+      customer: strippedCustomer,
+      customers: strippedCustomer ? [strippedCustomer] : [],
+    };
+  }
+
+  // Owner (or admin): full preview; don't keep ask_admin if they own the lead.
+  let messageMode = notification.messageMode;
+  if (!isAdmin && ownsLead && messageMode === "ask_admin") {
+    messageMode = "lead_callback";
+  } else if (!isAdmin && fromCallLog && hasCallerOrLead && !ownsLead) {
+    messageMode = "ask_admin";
+  }
+
+  return {
+    ...notification,
+    allowLeadPreview: true,
+    messageMode,
+  };
+}
+
 export { serialize as serializeIvrNotification, upsertRecipients };

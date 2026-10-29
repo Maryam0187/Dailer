@@ -14,6 +14,7 @@ import {
   parseZoomDurationSeconds,
   parseZoomEventDate,
 } from "@/server/calls/zoomCallLog";
+import { notifyZoomInboundCallbackOnce } from "@/server/ivr/notifyAdmins";
 
 const HANDLED = new Set([
   "zp-call-ringing-event",
@@ -118,6 +119,21 @@ export async function POST(req) {
   const parties = extractZoomParties(data);
   const ourLine = extractZoomOurLine(data);
   const eventAt = parseZoomEventDate(data.dateTime) || new Date();
+
+  // Inbound Zoom callback → same affinity notify as Twilio (call logs 48h / lead / ask-admin).
+  // Fire once per Zoom callId (deduped); do not await (keep Soft Embed event fast).
+  if (
+    parties.direction === "inbound" &&
+    (type === "zp-call-ringing-event" || type === "zp-call-connected-event") &&
+    parties.fromNumber
+  ) {
+    notifyZoomInboundCallbackOnce({
+      from: parties.fromNumber,
+      to: ourLine.zoomPhoneNumber || parties.toNumber || null,
+      zoomCallId: externalCallId,
+      eventType: "incoming",
+    });
+  }
 
   // 1) Same Zoom callId → one CallLog (do not create a second row for another open Soft Embed).
   let call = await findZoomCallByExternalId(externalCallId);
