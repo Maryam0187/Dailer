@@ -9,7 +9,15 @@ import {
 } from "@/server/ivr/ivrRingTwiml";
 
 export function localConnectingMessage() {
-  return "Thank you for calling. Please hold while we connect you to a representative.";
+  return "Thank you for calling. Please wait while I connect you to our representative.";
+}
+
+/** After the hold pause — assigned rep busy / will return the call. */
+export function localUnavailableCallbackMessage() {
+  return (
+    "Thank you for your call. Your assigned extension or representative is either busy or not available at the moment. " +
+    "Your assigned representative will call you shortly if they would be available, else they will return your call according to their shift working hours."
+  );
 }
 
 export function localConnectingSayXml() {
@@ -53,12 +61,17 @@ export function localHoldTwiml({ redirectUrl, baseUrl, chunkSec, includeGreeting
   );
 }
 
-/** Notify-only local answer: greeting + thanks, no Dial. */
-export function localNotifyOnlyTwiml() {
+/**
+ * Notify-only answer (local + toll-free connect): greeting → pause → unavailable/callback, no Dial.
+ * Pause is 5–10s (default 8) so the caller hears a brief “connecting” wait.
+ */
+export function localNotifyOnlyTwiml({ pauseSec = 8 } = {}) {
+  const pause = Math.max(5, Math.min(10, Number(pauseSec) || 8));
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${localConnectingSayXml()}
-  <Say voice="alice">${escapeXmlText(thanksMessage())}</Say>
+  <Pause length="${pause}"/>
+  <Say voice="alice">${escapeXmlText(localUnavailableCallbackMessage())}</Say>
   <Hangup/>
 </Response>`;
 }

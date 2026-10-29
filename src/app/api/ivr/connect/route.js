@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { assertIvrSecret, parseIvrBody } from "@/server/ivr/parseIvrBody";
 import { notifyInboundCallbackAsync } from "@/server/ivr/notifyAdmins";
-import { thanksSayTwiml } from "@/server/ivr/ivrRingTwiml";
+import { localNotifyOnlyTwiml } from "@/server/calls/localInboundTwiml";
 
 export const runtime = "nodejs";
 
@@ -54,7 +54,7 @@ export async function POST(req) {
     });
   }
 
-  return twimlResponse(thanksSayTwiml());
+  return twimlResponse(localNotifyOnlyTwiml());
 }
 
 export async function GET(req) {
