@@ -9,6 +9,7 @@ import ThemeToggle from "@/components/theme/ThemeToggle";
 import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
 import ShiftStatusBadge from "@/components/layout/ShiftStatusBadge";
 import NavbarMessagingButton from "@/components/Messaging/NavbarMessagingButton";
+import NavbarInboundBell from "@/components/layout/NavbarInboundBell";
 
 const PALETTES = {
   dialer: {
@@ -538,6 +539,7 @@ export default function Navbar({
                 <ShiftStatusBadge initialShiftStatus={shiftStatus} />
               </span>
             ) : null}
+            <NavbarInboundBell />
             <NavbarMessagingButton />
             <ThemeToggle />
             <LogoutButton />

@@ -182,6 +182,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["leadId"] },
         { fields: ["createdAt"] },
         { fields: ["userId", "createdAt"] },
+        { fields: ["toNumber", "createdAt"] },
         { fields: ["voiceProvider"] },
         { fields: ["userId", "externalCallId"] },
       ],

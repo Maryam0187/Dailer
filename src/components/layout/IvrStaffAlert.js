@@ -42,13 +42,13 @@ function mergeCustomerList(prevList, nextList, fallback) {
 }
 
 /**
- * Live IVR panel for admins — merges events by callSid.
+ * Live inbound/callback toast for anyone who receives ivr:alert (admins + targeted agents).
  */
 export default function IvrStaffAlert({ userRole = null }) {
   const [alert, setAlert] = useState(null);
 
   useEffect(() => {
-    if (userRole !== "admin") return undefined;
+    if (!userRole) return undefined;
 
     function unlock() {
       void unlockMessageSound();
@@ -76,6 +76,11 @@ export default function IvrStaffAlert({ userRole = null }) {
           choice: payload.choice != null && payload.choice !== "" ? payload.choice : prev?.choice || null,
           customer: mergeCustomerMatch(prev?.customer, payload.customer),
           customers: mergeCustomerList(prev?.customers, payload.customers, payload.customer),
+          lastSale: payload.lastSale || prev?.lastSale || null,
+          leadInSystem: Boolean(payload.leadInSystem ?? prev?.leadInSystem),
+          messageMode: payload.messageMode || prev?.messageMode || null,
+          title: payload.title || prev?.title || null,
+          body: payload.body || prev?.body || null,
           at: payload.at || new Date().toISOString(),
         };
         if (!same || payload.type === "incoming" || payload.type === "gather" || payload.type === "ringing") {
@@ -92,20 +97,21 @@ export default function IvrStaffAlert({ userRole = null }) {
     };
   }, [userRole]);
 
-  if (userRole !== "admin" || !alert) return null;
+  if (!userRole || !alert) return null;
 
   const lineKind = ourLineKind(alert.to);
   const isLocalLine = lineKind === "local";
   const title =
-    alert.type === "ringing"
-      ? isLocalLine
-        ? "Local line — ringing you"
-        : "IVR — ringing you"
-      : alert.type === "gather"
-        ? "IVR — gather update"
+    alert.title ||
+    (alert.messageMode === "ask_admin"
+      ? "Callback — lead in system"
+      : alert.type === "ringing"
+        ? isLocalLine
+          ? "Local line — inbound"
+          : "IVR — inbound"
         : isLocalLine
           ? "Incoming local call"
-          : "Incoming IVR call";
+          : "Incoming IVR call");
 
   const choiceText =
     alert.choice != null && String(alert.choice).trim()
@@ -126,6 +132,9 @@ export default function IvrStaffAlert({ userRole = null }) {
               </span>
             ) : null}
           </div>
+          {alert.body ? (
+            <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">{alert.body}</p>
+          ) : null}
           {(() => {
             const matches =
               Array.isArray(alert.customers) && alert.customers.length
@@ -142,7 +151,7 @@ export default function IvrStaffAlert({ userRole = null }) {
             }
             return matches.map((match) => (
               <IvrCustomerMatchRow
-                key={match.id}
+                key={match.id || match.phone || "match"}
                 label={match.isOutside ? "Outside" : "Caller"}
                 customer={{
                   ...match,
@@ -164,23 +173,20 @@ export default function IvrStaffAlert({ userRole = null }) {
           {choiceText ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">Choice: {choiceText}</p>
           ) : null}
-          {alert.type === "incoming" ? (
-            <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-              {isLocalLine
-                ? "Caller is holding / connecting — stay ready to answer."
-                : "Caller is in IVR — stay ready to answer when it rings."}
+          {alert.messageMode === "ask_admin" ? (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              This lead is already in our system — ask an admin for further action.
             </p>
-          ) : null}
-          {alert.type === "ringing" ? (
+          ) : (
             <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-              Answer the incoming call to connect.
+              Call the customer back when ready.
             </p>
-          ) : null}
+          )}
           <Link
             href="/ivr-notifications"
             className="mt-2 inline-block text-xs font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-300"
           >
-            Open IVR notifications
+            Open notifications
           </Link>
         </div>
         <button

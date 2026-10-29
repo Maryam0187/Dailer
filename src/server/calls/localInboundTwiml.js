@@ -4,6 +4,7 @@ import {
   escapeXmlText,
   holdWaitLoopTwiml,
   retryWaitLoopTwiml,
+  thanksMessage,
   thanksSayTwiml,
 } from "@/server/ivr/ivrRingTwiml";
 
@@ -52,4 +53,14 @@ export function localHoldTwiml({ redirectUrl, baseUrl, chunkSec, includeGreeting
   );
 }
 
-export { busySayTwiml, retryWaitLoopTwiml, thanksSayTwiml, escapeXmlAttr, escapeXmlText };
+/** Notify-only local answer: greeting + thanks, no Dial. */
+export function localNotifyOnlyTwiml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${localConnectingSayXml()}
+  <Say voice="alice">${escapeXmlText(thanksMessage())}</Say>
+  <Hangup/>
+</Response>`;
+}
+
+export { busySayTwiml, retryWaitLoopTwiml, thanksSayTwiml, thanksMessage, escapeXmlAttr, escapeXmlText };

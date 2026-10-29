@@ -1,67 +1,182 @@
 import db from "@/server/db";
-import { sendResendEmail } from "@/lib/sendResendEmail";
-import { emitToUser } from "@/server/socketHub";
-import { buildIvrAlert, isIvrAlertEnabled } from "@/server/ivr/buildIvrAlert";
+import { emitToUser, isUserOnline } from "@/server/socketHub";
+import { isIvrAlertEnabled } from "@/server/ivr/buildIvrAlert";
 import { persistIvrNotification } from "@/server/ivr/persistIvrNotification";
+import { resolveInboundNotifyTargets } from "@/server/ivr/resolveInboundNotifyTargets";
+import { sendPushToUser } from "@/server/push/oneSignal";
+import { ourLineKind } from "@/lib/ourLineKind";
+
+function getAppBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, "") ||
+    ""
+  );
+}
+
+function uniqPositiveIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of ids || []) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function buildAgentCopy({ messageMode, from, lastSale }) {
+  const fromLabel = String(from || "").trim() || "Unknown";
+  const leadBit = lastSale?.fullName
+    ? ` (${lastSale.fullName}${lastSale.id ? ` #${lastSale.id}` : ""})`
+    : lastSale?.id
+      ? ` (#${lastSale.id})`
+      : "";
+
+  if (messageMode === "ask_admin") {
+    return {
+      title: "Inbound callback",
+      body: `Callback from ${fromLabel}${leadBit} — this lead is already in our system. Ask an admin for further action.`,
+    };
+  }
+  if (messageMode === "callback" || messageMode === "lead_callback") {
+    return {
+      title: "Inbound callback",
+      body: `Incoming callback from ${fromLabel}${leadBit}.`,
+    };
+  }
+  return {
+    title: "Incoming call",
+    body: `Incoming call from ${fromLabel}.`,
+  };
+}
+
+async function loadActiveAdminIds() {
+  try {
+    const admins = await db.User.findAll({
+      where: { role: "admin", isActive: true },
+      attributes: ["id"],
+    });
+    return uniqPositiveIds(admins.map((a) => a.id));
+  } catch (err) {
+    console.warn("[ivr/notify] admins", err?.message || err);
+    return [];
+  }
+}
 
 /**
- * Persist log + email (when configured) + socket toast to every active admin.
- * @param {{ type: string, step?: string|null, from?: string, to?: string, callSid?: string, choice?: string }} raw
+ * Persist + socket toast (+ push for offline agents). No email.
+ * Resolves call-log (48h) / lead targets cheaply when not pre-resolved.
  */
 export async function notifyAdmins(raw) {
   if (!isIvrAlertEnabled()) {
     return { emailed: false, socketTargets: 0, skipped: true };
   }
 
+  const from = String(raw?.from || "").trim() || null;
+  const to = String(raw?.to || "").trim() || null;
+
+  let resolved = raw?.resolved || null;
+  if (!resolved) {
+    try {
+      resolved = await resolveInboundNotifyTargets({ from });
+    } catch (err) {
+      console.warn("[ivr/notify] resolve", err?.message || err);
+      resolved = {
+        agentNotifyUserIds: [],
+        leadInSystem: false,
+        lastSale: null,
+        customer: null,
+        relatedCallLogs: [],
+        notifySource: "none",
+        messageMode: "incoming",
+      };
+    }
+  }
+
+  const adminIds = await loadActiveAdminIds();
+  const agentIds = uniqPositiveIds(resolved.agentNotifyUserIds);
+  const recipientUserIds = uniqPositiveIds([...agentIds, ...adminIds]);
+
   const payload = {
     type: String(raw?.type || "incoming"),
     step: raw?.step != null ? String(raw.step) : null,
-    from: String(raw?.from || "").trim() || null,
-    to: String(raw?.to || "").trim() || null,
+    from,
+    to,
     callSid: String(raw?.callSid || "").trim() || null,
     choice: raw?.choice != null ? String(raw.choice).trim() : null,
     at: new Date().toISOString(),
+    leadInSystem: Boolean(resolved.leadInSystem),
+    notifySource: resolved.notifySource || null,
+    messageMode: resolved.messageMode || "incoming",
+    lineKind: ourLineKind(to),
   };
 
-  const notification = await persistIvrNotification(payload);
+  const notification = await persistIvrNotification(payload, {
+    skipCustomerLookup: true,
+    customer: resolved.customer || null,
+    lastSale: resolved.lastSale || null,
+    relatedCallLogs: resolved.relatedCallLogs || [],
+    recipientUserIds,
+  });
+
+  const copy = buildAgentCopy({
+    messageMode: payload.messageMode,
+    from,
+    lastSale: resolved.lastSale,
+  });
+
   const socketPayload = {
     ...payload,
-    customer: notification?.customer || null,
-    customers: Array.isArray(notification?.customers) ? notification.customers : [],
+    title: copy.title,
+    body: copy.body,
+    customer: notification?.customer || resolved.customer || null,
+    customers: Array.isArray(notification?.customers)
+      ? notification.customers
+      : resolved.customer
+        ? [resolved.customer]
+        : [],
+    lastSale: resolved.lastSale || notification?.lastSale || null,
+    relatedCallLogs: resolved.relatedCallLogs || [],
     notificationId: notification?.id || null,
     notification: notification || null,
   };
 
   let socketTargets = 0;
-  try {
-    const admins = await db.User.findAll({
-      where: { role: "admin", isActive: true },
-      attributes: ["id"],
-    });
-    for (const admin of admins) {
-      if (emitToUser(admin.id, "ivr:alert", socketPayload)) socketTargets += 1;
-    }
-  } catch (err) {
-    console.warn("[ivr/notifyAdmins] socket", err?.message || err);
-  }
+  const agentIdSet = new Set(agentIds);
 
-  // Email only when the call first arrives. Choice/ringing stay dialer + DB realtime.
-  let emailed = false;
-  if (payload.type === "incoming") {
-    const email = buildIvrAlert({
-      ...payload,
-      customer: notification?.customer || null,
-      customers: Array.isArray(notification?.customers) ? notification.customers : [],
-    });
-    if (email) {
-      void sendResendEmail(email).then((result) => {
-        if (!result?.ok && !result?.skipped) {
-          console.warn("[ivr/notifyAdmins] email failed", result?.error);
-        }
+  for (const userId of recipientUserIds) {
+    try {
+      if (emitToUser(userId, "ivr:alert", socketPayload)) socketTargets += 1;
+    } catch (err) {
+      console.warn("[ivr/notify] socket", userId, err?.message || err);
+    }
+
+    // Push only offline agents in the affinity/lead notify set (not every admin).
+    if (agentIdSet.has(userId) && !isUserOnline(userId)) {
+      const base = getAppBaseUrl();
+      const url = base ? `${base}/ivr-notifications` : "/ivr-notifications";
+      void sendPushToUser(userId, {
+        title: copy.title,
+        body: copy.body,
+        url,
       });
-      emailed = true;
     }
   }
 
-  return { emailed, socketTargets, payload, notification };
+  return {
+    emailed: false,
+    socketTargets,
+    payload: socketPayload,
+    notification,
+    recipientUserIds,
+  };
+}
+
+/** Fire-and-forget wrapper for Twilio webhooks (never block TwiML). */
+export function notifyInboundCallbackAsync(raw) {
+  void notifyAdmins(raw).catch((err) => {
+    console.warn("[ivr/notify] async", err?.message || err);
+  });
 }

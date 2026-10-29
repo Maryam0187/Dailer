@@ -48,6 +48,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      leadInSystem: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      notifySource: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      messageMode: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
     },
     {
       tableName: "IvrNotifications",
@@ -59,6 +72,13 @@ module.exports = (sequelize, DataTypes) => {
       ],
     },
   );
+
+  IvrNotification.associate = (models) => {
+    IvrNotification.hasMany(models.IvrNotificationRecipient, {
+      as: "recipients",
+      foreignKey: "notificationId",
+    });
+  };
 
   return IvrNotification;
 };

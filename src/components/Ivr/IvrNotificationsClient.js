@@ -8,10 +8,12 @@ import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 const PAGE_SIZE = 15;
 
-function eventLabel(type) {
+function eventLabel(type, messageMode) {
+  if (messageMode === "ask_admin") return "Callback · lead in system";
+  if (messageMode === "callback" || messageMode === "lead_callback") return "Callback";
   if (type === "incoming") return "Incoming";
   if (type === "gather") return "Gather update";
-  if (type === "ringing") return "Ringing admin";
+  if (type === "ringing") return "Inbound alert";
   return type || "Update";
 }
 
@@ -130,7 +132,7 @@ export default function IvrNotificationsClient() {
           ) : null}
           {pagination.total > 0
             ? `Showing ${rows.length} of ${pagination.total} notifications`
-            : "Inbound IVR calls and gather answers (live)."}
+            : "Inbound and callback alerts (live)."}
         </p>
         <div className="flex gap-2">
           <button
@@ -162,7 +164,7 @@ export default function IvrNotificationsClient() {
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-          No IVR notifications yet. When a caller hits your Studio flow, they appear here.
+          No inbound notifications yet. When a caller dials your local or toll-free line, they appear here.
         </p>
       ) : (
         <>
@@ -193,8 +195,15 @@ export default function IvrNotificationsClient() {
                           {ourLineKindLabel(row.toNumber)}
                         </span>
                       ) : null}
-                      <span className="text-xs text-zinc-500">{eventLabel(row.lastEventType)}</span>
+                      <span className="text-xs text-zinc-500">
+                        {eventLabel(row.lastEventType, row.messageMode)}
+                      </span>
                     </div>
+                    {row.messageMode === "ask_admin" ? (
+                      <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                        This lead is already in our system — ask an admin for further action.
+                      </p>
+                    ) : null}
                     {(() => {
                       const matches =
                         Array.isArray(row.customers) && row.customers.length
@@ -204,7 +213,7 @@ export default function IvrNotificationsClient() {
                             : [];
                       return matches.map((match) => (
                         <IvrCustomerMatchRow
-                          key={match.id}
+                          key={match.id || match.phone || "match"}
                           label={match.isOutside ? "Outside" : "Caller"}
                           customer={{
                             ...match,
