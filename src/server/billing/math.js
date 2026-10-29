@@ -93,3 +93,21 @@ export function calculateUsageTotals(categories, fixedMarkupPerCall, programmabl
     totalAmount: fromCents(totalAmountCents),
   };
 }
+
+/**
+ * Invoice lines: fold the Programmable Voice percent markup into that category
+ * so the bill shows one Programmable Voice amount and no separate markup row.
+ */
+export function categoriesWithVoiceMarkup(categories, programmableVoiceMarkupAmount) {
+  const extraCents = toCents(programmableVoiceMarkupAmount);
+  if (!extraCents) return categories || [];
+  let applied = false;
+  return (categories || []).map((row) => {
+    if (applied || row.category !== "calls") return row;
+    applied = true;
+    return {
+      ...row,
+      twilioCost: fromCents(toCents(row.twilioCost) + extraCents),
+    };
+  });
+}

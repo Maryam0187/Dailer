@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireAdmin } from "@/server/auth/requireAdmin";
-import { calculateUsageTotals } from "@/server/billing/math";
+import { calculateUsageTotals, categoriesWithVoiceMarkup } from "@/server/billing/math";
 import { writeBillPdf } from "@/server/billing/pdf";
 import { listAccountUserRecords } from "@/server/billing/userRecords";
 import {
@@ -68,6 +68,10 @@ export async function POST(req) {
     settings.fixedMarkupPerCall,
     settings.programmableVoiceMarkupPercent,
   );
+  const invoiceCategories = categoriesWithVoiceMarkup(
+    totals.categories,
+    totals.programmableVoiceMarkupAmount,
+  );
 
   let userRecords;
   try {
@@ -98,7 +102,7 @@ export async function POST(req) {
         programmableVoiceMarkupAmount: totals.programmableVoiceMarkupAmount,
         totalCalls: totals.totalCalls,
         totalAmount: totals.totalAmount,
-        usageBreakdown: totals.categories,
+        usageBreakdown: invoiceCategories,
         userRecords,
         status: "generated",
         generatedBy: authedUser.id,
@@ -109,7 +113,7 @@ export async function POST(req) {
 
     const { storageKey } = await writeBillPdf({
       bill,
-      usageCategories: totals.categories,
+      usageCategories: invoiceCategories,
       userRecords,
       teamLabel: billingAccount.teamLabel,
     });
@@ -125,7 +129,7 @@ export async function POST(req) {
           toDate: bill.toDate,
           currency: bill.currency,
           totalAmount: bill.totalAmount,
-          categories: totals.categories,
+          categories: invoiceCategories,
           markupAmount: totals.markupAmount,
           programmableVoiceMarkupPercent: totals.programmableVoiceMarkupPercent,
           programmableVoiceMarkupAmount: totals.programmableVoiceMarkupAmount,
