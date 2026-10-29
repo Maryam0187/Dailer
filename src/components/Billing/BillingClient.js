@@ -15,18 +15,43 @@ function money(value, currency) {
   return `${currency} ${num.toFixed(2)}`;
 }
 
-function CategoryBreakdown({ categories, currency }) {
-  if (!Array.isArray(categories) || categories.length === 0) {
+function formatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return String(Number(n.toFixed(2)));
+}
+
+function CategoryBreakdown({ categories, currency, voiceMarkup, callMarkupAmount }) {
+  const voiceAmount = Number(voiceMarkup?.amount);
+  const callAmount = Number(callMarkupAmount);
+  const hasCategories = Array.isArray(categories) && categories.length > 0;
+  const hasVoice = Number.isFinite(voiceAmount) && voiceAmount > 0;
+  const hasCall = Number.isFinite(callAmount) && callAmount > 0;
+  if (!hasCategories && !hasVoice && !hasCall) {
     return <p className="text-sm text-zinc-600 dark:text-zinc-300">No usage in this range.</p>;
   }
   return (
     <ul className="space-y-1 text-sm text-zinc-700 dark:text-zinc-200">
-      {categories.map((c) => (
-        <li key={c.category} className="flex items-center justify-between gap-3">
-          <span>{c.label || c.category}</span>
-          <span className="font-medium tabular-nums">{money(c.twilioCost, currency)}</span>
+      {hasCategories
+        ? categories.map((c) => (
+            <li key={c.category} className="flex items-center justify-between gap-3">
+              <span>{c.label || c.category}</span>
+              <span className="font-medium tabular-nums">{money(c.twilioCost, currency)}</span>
+            </li>
+          ))
+        : null}
+      {hasVoice ? (
+        <li className="flex items-center justify-between gap-3">
+          <span>Programmable Voice markup ({formatPercent(voiceMarkup.percent)}%)</span>
+          <span className="font-medium tabular-nums">{money(voiceAmount, currency)}</span>
         </li>
-      ))}
+      ) : null}
+      {hasCall ? (
+        <li className="flex items-center justify-between gap-3">
+          <span>Per-call markup</span>
+          <span className="font-medium tabular-nums">{money(callAmount, currency)}</span>
+        </li>
+      ) : null}
     </ul>
   );
 }
@@ -98,6 +123,7 @@ function UserMetricsTable({ records }) {
 
 export default function BillingClient() {
   const [fixedMarkupPerCall, setFixedMarkupPerCall] = useState("0.00");
+  const [voiceMarkupPercent, setVoiceMarkupPercent] = useState("0.00");
   const [currency, setCurrency] = useState("USD");
   const [rangePreset, setRangePreset] = useState("today");
   const initialRange = getPresetRange("today");
@@ -143,6 +169,7 @@ export default function BillingClient() {
       if (!billsRes.ok) throw new Error(billsJson?.error || "Failed to load bills");
 
       setFixedMarkupPerCall(String(settingsJson.settings?.fixedMarkupPerCall ?? "0.00"));
+      setVoiceMarkupPercent(String(settingsJson.settings?.programmableVoiceMarkupPercent ?? "0.00"));
       setCurrency(String(settingsJson.settings?.currency ?? "USD"));
       setBillHistory(billsJson.bills || []);
       if (usersRes.ok) setUsers(Array.isArray(usersJson.users) ? usersJson.users : []);
@@ -211,12 +238,19 @@ export default function BillingClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ fixedMarkupPerCall: Number(fixedMarkupPerCall) }),
+        body: JSON.stringify({
+          fixedMarkupPerCall: Number(fixedMarkupPerCall),
+          programmableVoiceMarkupPercent: Number(voiceMarkupPercent),
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save settings");
       setFixedMarkupPerCall(String(json.settings.fixedMarkupPerCall));
+      setVoiceMarkupPercent(String(json.settings.programmableVoiceMarkupPercent ?? "0.00"));
       setCurrency(json.settings.currency || "USD");
+      if (appliedFrom && appliedTo) {
+        void previewBill(appliedFrom, appliedTo);
+      }
     } catch (err) {
       setError(err.message || "Failed to save settings");
     } finally {
@@ -352,6 +386,25 @@ export default function BillingClient() {
               onChange={(e) => setFixedMarkupPerCall(e.target.value)}
               className={inputClass}
             />
+          </div>
+          <div>
+            <label htmlFor="voice-markup-percent" className={labelClass}>
+              Programmable Voice markup (%)
+            </label>
+            <input
+              id="voice-markup-percent"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1000"
+              value={voiceMarkupPercent}
+              onChange={(e) => setVoiceMarkupPercent(e.target.value)}
+              className={inputClass}
+            />
+            <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+              Added once to the Programmable Voice amount. Client, Recording, and Phone Numbers stay
+              at their Twilio prices.
+            </p>
           </div>
           <div>
             <button
@@ -496,6 +549,11 @@ export default function BillingClient() {
               <CategoryBreakdown
                 categories={billPreview.categories}
                 currency={billPreview.currency}
+                voiceMarkup={{
+                  percent: billPreview.programmableVoiceMarkupPercent,
+                  amount: billPreview.programmableVoiceMarkupAmount,
+                }}
+                callMarkupAmount={billPreview.markupAmount}
               />
             </div>
             <div className="mt-4">
@@ -534,6 +592,11 @@ export default function BillingClient() {
               <CategoryBreakdown
                 categories={billResult.categories}
                 currency={billResult.currency}
+                voiceMarkup={{
+                  percent: billResult.programmableVoiceMarkupPercent,
+                  amount: billResult.programmableVoiceMarkupAmount,
+                }}
+                callMarkupAmount={billResult.markupAmount}
               />
             </div>
             <UserMetricsTable records={billResult.userRecords} />
@@ -584,7 +647,15 @@ export default function BillingClient() {
                 </p>
               </div>
               <div className="mt-3">
-                <CategoryBreakdown categories={b.categories} currency={b.currency} />
+                <CategoryBreakdown
+                  categories={b.categories}
+                  currency={b.currency}
+                  voiceMarkup={{
+                    percent: b.programmableVoiceMarkupPercent,
+                    amount: b.programmableVoiceMarkupAmount,
+                  }}
+                  callMarkupAmount={b.markupAmount}
+                />
               </div>
               <UserMetricsTable records={b.userRecords} />
               <div className="mt-3 flex flex-wrap gap-3">

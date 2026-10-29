@@ -14,6 +14,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 0,
       },
+      /** Percent added once to the Programmable Voice amount. */
+      programmableVoiceMarkupPercent: {
+        type: DataTypes.DECIMAL(6, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
       currency: {
         type: DataTypes.STRING(8),
         allowNull: false,

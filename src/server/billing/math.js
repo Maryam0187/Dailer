@@ -47,18 +47,22 @@ export function calculateTotals(calls, fixedMarkupPerCall) {
 
 /**
  * Totals from Twilio Usage Records categories (Voice, Client, Recording, Phone Numbers).
- * Markup is applied per voice+client call count (Programmable Voice + Client).
+ * Per-call markup applies to the Programmable Voice + Client call count.
+ * Percent markup applies once to the Programmable Voice amount only.
  * @param {Array<{ category: string, label?: string, price: string|number, count?: number, usage?: number, usageUnit?: string|null }>} categories
  * @param {number|string} fixedMarkupPerCall
+ * @param {number|string} [programmableVoiceMarkupPercent]
  */
-export function calculateUsageTotals(categories, fixedMarkupPerCall) {
+export function calculateUsageTotals(categories, fixedMarkupPerCall, programmableVoiceMarkupPercent = 0) {
   const markupCents = toCents(fixedMarkupPerCall);
   let baseTotalCents = 0;
+  let voiceCents = 0;
   let callCount = 0;
 
   const categoryLines = (categories || []).map((row) => {
     const priceCents = toCents(Math.abs(Number(row.price || 0)));
     baseTotalCents += priceCents;
+    if (row.category === "calls") voiceCents += priceCents;
     if (row.category === "calls" || row.category === "calls-client") {
       const c = Number(row.count);
       if (Number.isFinite(c) && c > 0) callCount += c;
@@ -73,14 +77,19 @@ export function calculateUsageTotals(categories, fixedMarkupPerCall) {
     };
   });
 
+  const percent = Number(programmableVoiceMarkupPercent);
+  const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
+  const percentMarkupCents = Math.round((voiceCents * safePercent) / 100);
   const markupTotalCents = callCount * markupCents;
-  const totalAmountCents = baseTotalCents + markupTotalCents;
+  const totalAmountCents = baseTotalCents + markupTotalCents + percentMarkupCents;
 
   return {
     categories: categoryLines,
     totalCalls: callCount,
     twilioBaseAmount: fromCents(baseTotalCents),
     markupAmount: fromCents(markupTotalCents),
+    programmableVoiceMarkupPercent: safePercent.toFixed(2),
+    programmableVoiceMarkupAmount: fromCents(percentMarkupCents),
     totalAmount: fromCents(totalAmountCents),
   };
 }

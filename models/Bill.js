@@ -34,6 +34,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DECIMAL(12, 4),
         allowNull: false,
       },
+      /** Percent applied to Programmable Voice when this bill was generated. */
+      programmableVoiceMarkupPercent: {
+        type: DataTypes.DECIMAL(6, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      programmableVoiceMarkupAmount: {
+        type: DataTypes.DECIMAL(12, 4),
+        allowNull: false,
+        defaultValue: 0,
+      },
       totalCalls: {
         type: DataTypes.INTEGER,
         allowNull: false,

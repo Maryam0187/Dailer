@@ -33,7 +33,12 @@ export async function POST(req) {
 
   const settings =
     (await db.BillingSetting.findOne({ order: [["id", "DESC"]] })) ||
-    (await db.BillingSetting.create({ fixedMarkupPerCall: 0, currency: "USD", updatedBy: null }));
+    (await db.BillingSetting.create({
+      fixedMarkupPerCall: 0,
+      programmableVoiceMarkupPercent: 0,
+      currency: "USD",
+      updatedBy: null,
+    }));
 
   let billingAccount;
   try {
@@ -58,7 +63,11 @@ export async function POST(req) {
     );
   }
 
-  const totals = calculateUsageTotals(usageCategories, settings.fixedMarkupPerCall);
+  const totals = calculateUsageTotals(
+    usageCategories,
+    settings.fixedMarkupPerCall,
+    settings.programmableVoiceMarkupPercent,
+  );
 
   let userRecords;
   try {
@@ -85,6 +94,8 @@ export async function POST(req) {
         twilioBaseAmount: totals.twilioBaseAmount,
         fixedMarkupPerCall: Number(settings.fixedMarkupPerCall).toFixed(2),
         markupAmount: totals.markupAmount,
+        programmableVoiceMarkupPercent: totals.programmableVoiceMarkupPercent,
+        programmableVoiceMarkupAmount: totals.programmableVoiceMarkupAmount,
         totalCalls: totals.totalCalls,
         totalAmount: totals.totalAmount,
         usageBreakdown: totals.categories,
@@ -101,6 +112,11 @@ export async function POST(req) {
       usageCategories: totals.categories,
       userRecords,
       teamLabel: billingAccount.teamLabel,
+      voiceMarkup: {
+        percent: totals.programmableVoiceMarkupPercent,
+        amount: totals.programmableVoiceMarkupAmount,
+      },
+      callMarkupAmount: totals.markupAmount,
     });
     await bill.update({ pdfPath: storageKey }, { transaction: tx });
     await tx.commit();
@@ -115,6 +131,9 @@ export async function POST(req) {
           currency: bill.currency,
           totalAmount: bill.totalAmount,
           categories: totals.categories,
+          markupAmount: totals.markupAmount,
+          programmableVoiceMarkupPercent: totals.programmableVoiceMarkupPercent,
+          programmableVoiceMarkupAmount: totals.programmableVoiceMarkupAmount,
           userRecords,
           managerId: bill.managerId,
           managerUsername: billingAccount.managerUsername,

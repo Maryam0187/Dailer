@@ -32,7 +32,12 @@ export async function POST(req) {
 
   const settings =
     (await db.BillingSetting.findOne({ order: [["id", "DESC"]] })) ||
-    (await db.BillingSetting.create({ fixedMarkupPerCall: 0, currency: "USD", updatedBy: null }));
+    (await db.BillingSetting.create({
+      fixedMarkupPerCall: 0,
+      programmableVoiceMarkupPercent: 0,
+      currency: "USD",
+      updatedBy: null,
+    }));
 
   let billingAccount;
   try {
@@ -57,7 +62,11 @@ export async function POST(req) {
     );
   }
 
-  const totals = calculateUsageTotals(usageCategories, settings.fixedMarkupPerCall);
+  const totals = calculateUsageTotals(
+    usageCategories,
+    settings.fixedMarkupPerCall,
+    settings.programmableVoiceMarkupPercent,
+  );
 
   let userRecords;
   try {
@@ -80,6 +89,9 @@ export async function POST(req) {
       currency: settings.currency,
       totalAmount: totals.totalAmount,
       categories: totals.categories,
+      markupAmount: totals.markupAmount,
+      programmableVoiceMarkupPercent: totals.programmableVoiceMarkupPercent,
+      programmableVoiceMarkupAmount: totals.programmableVoiceMarkupAmount,
       userRecords,
       managerId: billingAccount.managerId,
       managerUsername: billingAccount.managerUsername,
