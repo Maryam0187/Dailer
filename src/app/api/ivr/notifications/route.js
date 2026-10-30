@@ -6,6 +6,7 @@ import {
   serializeIvrNotificationWithCustomers,
   shapeNotificationForViewer,
 } from "@/server/ivr/persistIvrNotification";
+import { loadReturnCallStatusByNotification } from "@/server/ivr/returnCallStatus";
 
 export const runtime = "nodejs";
 
@@ -102,6 +103,8 @@ export async function GET(req) {
       notifiedById.set(rec.notificationId, list);
     }
 
+    const returnCallsById = await loadReturnCallStatusByNotification(rows, notifiedById);
+
     const notifications = await Promise.all(
       rows.map(async (row) => {
         const recipientReadAt = readById.has(row.id) ? readById.get(row.id) : row.readAt;
@@ -113,7 +116,8 @@ export async function GET(req) {
           if (ar !== br) return ar - br; // agents first, then admins
           return String(a.name).localeCompare(String(b.name));
         });
-        return shaped ? { ...shaped, notifiedUsers } : null;
+        const returnCalls = returnCallsById.get(row.id) || [];
+        return shaped ? { ...shaped, notifiedUsers, returnCalls } : null;
       }),
     );
 

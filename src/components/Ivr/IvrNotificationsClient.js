@@ -37,6 +37,27 @@ function formatNotifiedUsers(users) {
     .join(", ");
 }
 
+function formatDuration(sec) {
+  if (sec == null || sec === "") return null;
+  const n = Math.max(0, Math.round(Number(sec)));
+  if (!Number.isFinite(n)) return null;
+  if (n < 60) return `${n}s`;
+  const m = Math.floor(n / 60);
+  const s = n % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+function formatReturnCallLine(entry) {
+  const name = String(entry?.name || "").trim() || `User #${entry?.id || "?"}`;
+  if (!entry?.calledBack) return `${name} — Not yet`;
+  const bits = [`${name} — Called back`];
+  if (entry.createdAt) bits.push(formatWhen(entry.createdAt));
+  if (entry.status) bits.push(String(entry.status));
+  const dur = formatDuration(entry.durationSeconds);
+  if (dur) bits.push(dur);
+  return bits.join(" · ");
+}
+
 export default function IvrNotificationsClient({ isAdmin = false }) {
   const [rows, setRows] = useState([]);
   const [adminView, setAdminView] = useState(Boolean(isAdmin));
@@ -265,6 +286,29 @@ export default function IvrNotificationsClient({ isAdmin = false }) {
                         </span>{" "}
                         {formatNotifiedUsers(row.notifiedUsers) || "—"}
                       </p>
+                    ) : null}
+                    {adminView &&
+                    Array.isArray(row.returnCalls) &&
+                    row.returnCalls.length > 0 ? (
+                      <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                        <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                          Return calls:
+                        </p>
+                        <ul className="mt-0.5 list-inside list-disc space-y-0.5">
+                          {row.returnCalls.map((entry) => (
+                            <li
+                              key={entry.id}
+                              className={
+                                entry.calledBack
+                                  ? "text-emerald-700 dark:text-emerald-300"
+                                  : "text-amber-800 dark:text-amber-200"
+                              }
+                            >
+                              {formatReturnCallLine(entry)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ) : null}
                   </div>
                   {unread ? (
