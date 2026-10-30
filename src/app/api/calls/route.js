@@ -7,6 +7,7 @@ import {
   applyDialerIndexToWhere,
   applyVoiceProviderToWhere,
   excludeSalesBotFromWhere,
+  isEmptyWhere,
   parseCallScope,
   parseDialerIndexFilter,
   parseVoiceProviderFilter,
@@ -53,7 +54,7 @@ function buildCallNumberSearchWhere(q) {
 
 function andWhere(base, extra) {
   if (!extra) return base;
-  if (!base || Object.keys(base).length === 0) return extra;
+  if (isEmptyWhere(base)) return extra;
   return { [Op.and]: [base, extra] };
 }
 

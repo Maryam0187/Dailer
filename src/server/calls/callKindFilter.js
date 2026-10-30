@@ -14,6 +14,15 @@ export function applyCallKindToWhere(where, callKind) {
 }
 
 /**
+ * True when `where` is absent or `{}`.
+ * Sequelize operators are Symbol keys, so `Object.keys` alone treats `{ [Op.or]: ... }` as empty.
+ */
+export function isEmptyWhere(where) {
+  if (!where || typeof where !== "object") return true;
+  return Object.keys(where).length === 0 && Object.getOwnPropertySymbols(where).length === 0;
+}
+
+/**
  * Keep Sales Bot calls off the main dialer / user call-log lists.
  * They are listed only on the Sales Bot page.
  */
@@ -24,7 +33,7 @@ export function excludeSalesBotFromWhere(where) {
       { [Op.or]: [{ dialMode: { [Op.is]: null } }, { dialMode: { [Op.ne]: "sales_bot" } }] },
     ],
   };
-  if (!where || Object.keys(where).length === 0) return exclude;
+  if (isEmptyWhere(where)) return exclude;
   return { [Op.and]: [where, exclude] };
 }
 
