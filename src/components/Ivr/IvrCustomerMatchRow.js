@@ -8,22 +8,24 @@ import IconTooltipButton, {
   ViewIcon,
 } from "@/components/Leads/IconTooltipButton";
 
-function customerSummary(customer) {
+function customerSummary(customer, { showKind = true } = {}) {
   if (!customer?.id) return null;
   const name = customer.fullName || `Customer #${customer.id}`;
   const phone = customer.phone ? ` (${customer.phone})` : "";
-  const kind = customer.isOutside ? " · Outside" : "";
+  const kind = showKind && customer.isOutside ? " · Outside" : "";
   return `${name}${phone}${kind}`;
 }
 
 /**
  * Customer match line with deep-link + last-sale link icon + View sidebar.
  * When allowLeadPreview is false (lead belongs to someone else), show name only — no links/preview.
+ * When showKind is false (non-admin), show name + number only — no Outside / in-house label.
  */
 export default function IvrCustomerMatchRow({
   label = "Customer",
   customer,
   allowLeadPreview = true,
+  showKind = true,
 }) {
   const [lead, setLead] = useState(null);
   const [loadingLead, setLoadingLead] = useState(false);
@@ -31,7 +33,8 @@ export default function IvrCustomerMatchRow({
 
   if (!customer?.id) return null;
 
-  const summary = customerSummary(customer);
+  const summary = customerSummary(customer, { showKind });
+  const displayLabel = showKind ? label : null;
   const lastSaleId =
     allowLeadPreview && !customer.isOutside ? customer.lastSale?.id || null : null;
   const customerHref = `/customers?customerId=${customer.id}`;
@@ -66,8 +69,9 @@ export default function IvrCustomerMatchRow({
   if (!allowLeadPreview) {
     return (
       <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-        <span>
-          {label}: <span className="font-medium text-zinc-800 dark:text-zinc-200">{summary}</span>
+        <span className="font-medium text-zinc-800 dark:text-zinc-200">
+          {displayLabel ? `${displayLabel}: ` : null}
+          {summary}
         </span>
       </div>
     );
@@ -77,7 +81,7 @@ export default function IvrCustomerMatchRow({
     <>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
         <span>
-          {label}:{" "}
+          {displayLabel ? <>{displayLabel}: </> : null}
           <Link
             href={customerHref}
             className="font-medium text-sky-700 underline underline-offset-2 dark:text-sky-300"

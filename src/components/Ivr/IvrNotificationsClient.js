@@ -246,11 +246,13 @@ export default function IvrNotificationsClient({ isAdmin = false }) {
                             ? [row.customer]
                             : [];
                       const allowLeadPreview = row.allowLeadPreview !== false;
+                      // Non-admin: name + number only (no Outside / in-house label).
                       return matches.map((match) => (
                         <IvrCustomerMatchRow
                           key={match.id || match.phone || "match"}
                           label={match.isOutside ? "Outside" : "Caller"}
                           allowLeadPreview={allowLeadPreview}
+                          showKind={adminView}
                           customer={{
                             ...match,
                             phone: row.fromNumber || match.phone,

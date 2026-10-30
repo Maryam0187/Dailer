@@ -151,11 +151,13 @@ export default function IvrStaffAlert({ userRole = null }) {
             }
             const hideLead =
               alert.messageMode === "ask_admin" || alert.allowLeadPreview === false;
+            const isAdmin = userRole === "admin";
             return matches.map((match) => (
               <IvrCustomerMatchRow
                 key={match.id || match.phone || "match"}
                 label={match.isOutside ? "Outside" : "Caller"}
                 allowLeadPreview={!hideLead}
+                showKind={isAdmin}
                 customer={{
                   ...match,
                   phone: alert.from || match.phone,
