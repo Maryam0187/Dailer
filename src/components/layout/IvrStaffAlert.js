@@ -9,6 +9,11 @@ import {
   ourLineKindBadgeClass,
   ourLineKindLabel,
 } from "@/lib/ourLineKind";
+import {
+  resolveVoiceProvider,
+  voiceProviderBadgeClass,
+  voiceProviderLabel,
+} from "@/lib/voiceProviderLabel";
 import { playIncomingMessageSound, unlockMessageSound } from "@/lib/messageSound";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
@@ -79,6 +84,7 @@ export default function IvrStaffAlert({ userRole = null }) {
           lastSale: payload.lastSale || prev?.lastSale || null,
           leadInSystem: Boolean(payload.leadInSystem ?? prev?.leadInSystem),
           messageMode: payload.messageMode || prev?.messageMode || null,
+          voiceProvider: payload.voiceProvider || prev?.voiceProvider || null,
           title: payload.title || prev?.title || null,
           body: payload.body || prev?.body || null,
           at: payload.at || new Date().toISOString(),
@@ -131,6 +137,18 @@ export default function IvrStaffAlert({ userRole = null }) {
                 {ourLineKindLabel(alert.to)}
               </span>
             ) : null}
+            {(() => {
+              const provider = resolveVoiceProvider(alert);
+              const label = voiceProviderLabel(provider);
+              if (!label) return null;
+              return (
+                <span
+                  className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ring-1 ring-inset ${voiceProviderBadgeClass(provider)}`}
+                >
+                  {label}
+                </span>
+              );
+            })()}
           </div>
           {alert.body ? (
             <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">{alert.body}</p>

@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { io as ioClient } from "socket.io-client";
 import { ivrChoiceLabel } from "@/lib/ivrChoiceLabel";
 import { ourLineKindBadgeClass, ourLineKindLabel } from "@/lib/ourLineKind";
+import {
+  resolveVoiceProvider,
+  voiceProviderBadgeClass,
+  voiceProviderLabel,
+} from "@/lib/voiceProviderLabel";
 import IvrCustomerMatchRow from "@/components/Ivr/IvrCustomerMatchRow";
 
 const PAGE_SIZE = 15;
@@ -229,6 +234,18 @@ export default function IvrNotificationsClient({ isAdmin = false }) {
                           {ourLineKindLabel(row.toNumber)}
                         </span>
                       ) : null}
+                      {(() => {
+                        const provider = resolveVoiceProvider(row);
+                        const label = voiceProviderLabel(provider);
+                        if (!label) return null;
+                        return (
+                          <span
+                            className={`inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ring-1 ring-inset ${voiceProviderBadgeClass(provider)}`}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
                       <span className="text-xs text-zinc-500">
                         {eventLabel(row.lastEventType, row.messageMode)}
                       </span>

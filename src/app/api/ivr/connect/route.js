@@ -51,6 +51,7 @@ export async function POST(req) {
       to: ctx.to,
       callSid: ctx.callSid,
       choice: ctx.choice,
+      voiceProvider: "twilio",
     });
   }
 

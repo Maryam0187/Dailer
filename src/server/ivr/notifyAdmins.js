@@ -5,6 +5,7 @@ import { persistIvrNotification } from "@/server/ivr/persistIvrNotification";
 import { resolveInboundNotifyTargets } from "@/server/ivr/resolveInboundNotifyTargets";
 import { sendPushToUser } from "@/server/push/oneSignal";
 import { ourLineKind } from "@/lib/ourLineKind";
+import { resolveVoiceProvider } from "@/lib/voiceProviderLabel";
 
 function getAppBaseUrl() {
   return (
@@ -99,12 +100,19 @@ export async function notifyAdmins(raw) {
   const agentIds = uniqPositiveIds(resolved.agentNotifyUserIds);
   const recipientUserIds = uniqPositiveIds([...agentIds, ...adminIds]);
 
+  const callSid = String(raw?.callSid || "").trim() || null;
+  const voiceProvider = resolveVoiceProvider({
+    callSid,
+    voiceProvider: raw?.voiceProvider,
+  });
+
   const payload = {
     type: String(raw?.type || "incoming"),
     step: raw?.step != null ? String(raw.step) : null,
     from,
     to,
-    callSid: String(raw?.callSid || "").trim() || null,
+    callSid,
+    voiceProvider,
     choice: raw?.choice != null ? String(raw.choice).trim() : null,
     at: new Date().toISOString(),
     leadInSystem: Boolean(resolved.leadInSystem),
@@ -119,6 +127,7 @@ export async function notifyAdmins(raw) {
     lastSale: resolved.lastSale || null,
     relatedCallLogs: resolved.relatedCallLogs || [],
     recipientUserIds,
+    voiceProvider,
   });
 
   const copy = buildAgentCopy({
@@ -210,6 +219,7 @@ export function notifyZoomInboundCallbackOnce({
         from: fromNumber,
         to: String(to || "").trim() || null,
         callSid,
+        voiceProvider: "zoom",
       });
     } catch (err) {
       console.warn("[ivr/notify] zoom inbound", err?.message || err);

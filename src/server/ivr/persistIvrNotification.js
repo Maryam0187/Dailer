@@ -1,12 +1,18 @@
 import db from "@/server/db";
 import { lookupIvrCustomers } from "@/server/ivr/lookupIvrCustomers";
+import { resolveVoiceProvider } from "@/lib/voiceProviderLabel";
 
 function serialize(row, customers = null, extra = {}) {
   if (!row) return null;
   const recipientReadAt = extra.recipientReadAt;
+  const callSid = row.callSid || null;
   return {
     id: row.id,
-    callSid: row.callSid || null,
+    callSid,
+    voiceProvider: resolveVoiceProvider({
+      callSid,
+      voiceProvider: extra.voiceProvider ?? row.voiceProvider,
+    }),
     lastEventType: row.lastEventType,
     step: row.step || null,
     fromNumber: row.fromNumber || null,
@@ -61,7 +67,7 @@ async function upsertRecipients(notificationId, userIds) {
 /**
  * Upsert IVR notification log by callSid (or create a new row when callSid missing).
  * @param {object} payload
- * @param {{ skipCustomerLookup?: boolean, customer?: object|null, lastSale?: object|null, relatedCallLogs?: array, recipientUserIds?: number[] }} opts
+ * @param {{ skipCustomerLookup?: boolean, customer?: object|null, lastSale?: object|null, relatedCallLogs?: array, recipientUserIds?: number[], voiceProvider?: string|null }} opts
  */
 export async function persistIvrNotification(payload, opts = {}) {
   const callSid = String(payload?.callSid || "").trim() || null;
@@ -127,6 +133,7 @@ export async function persistIvrNotification(payload, opts = {}) {
       customer: opts.customer || null,
       lastSale: opts.lastSale || null,
       relatedCallLogs: opts.relatedCallLogs || [],
+      voiceProvider: opts.voiceProvider ?? payload?.voiceProvider ?? null,
     });
   } catch (err) {
     console.warn("[ivr/persistIvrNotification]", err?.message || err);
