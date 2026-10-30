@@ -12,7 +12,8 @@ export function resolveVoiceProvider({ callSid, voiceProvider } = {}) {
 
 export function voiceProviderLabel(provider) {
   if (provider === "zoom") return "Zoom";
-  if (provider === "twilio") return "Twilio";
+  // Twilio inbound/callbacks use our dialer softphone — show "Dialer" in the UI.
+  if (provider === "twilio") return "Dialer";
   return null;
 }
 
