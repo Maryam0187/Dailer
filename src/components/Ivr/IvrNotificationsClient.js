@@ -26,8 +26,20 @@ function formatWhen(iso) {
   }
 }
 
-export default function IvrNotificationsClient() {
+function formatNotifiedUsers(users) {
+  if (!Array.isArray(users) || !users.length) return null;
+  return users
+    .map((u) => {
+      const name = String(u?.name || "").trim() || `User #${u?.id || "?"}`;
+      const role = u?.role === "admin" ? " (admin)" : "";
+      return `${name}${role}`;
+    })
+    .join(", ");
+}
+
+export default function IvrNotificationsClient({ isAdmin = false }) {
   const [rows, setRows] = useState([]);
+  const [adminView, setAdminView] = useState(Boolean(isAdmin));
   const [unreadCount, setUnreadCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
@@ -54,6 +66,7 @@ export default function IvrNotificationsClient() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to load notifications");
       setRows(Array.isArray(json.notifications) ? json.notifications : []);
+      if (typeof json.isAdmin === "boolean") setAdminView(json.isAdmin);
       setUnreadCount(Number(json.unreadCount) || 0);
       const p = json.pagination || {};
       const safePage = Number(p.page) || target;
@@ -245,6 +258,14 @@ export default function IvrNotificationsClient() {
                       · Updated {formatWhen(row.updatedAt || row.createdAt)}
                       {row.callSid ? ` · ${row.callSid}` : ""}
                     </p>
+                    {adminView && Array.isArray(row.notifiedUsers) ? (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                          Notified:
+                        </span>{" "}
+                        {formatNotifiedUsers(row.notifiedUsers) || "—"}
+                      </p>
+                    ) : null}
                   </div>
                   {unread ? (
                     <button

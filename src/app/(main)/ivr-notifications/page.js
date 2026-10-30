@@ -20,7 +20,7 @@ export default async function IvrNotificationsPage() {
             : "Inbound callbacks related to your recent calls or leads. Ask an admin when a lead is already in the system."}
         </p>
       </div>
-      <IvrNotificationsClient />
+      <IvrNotificationsClient isAdmin={isAdmin} />
     </>
   );
 }

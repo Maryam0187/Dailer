@@ -63,27 +63,65 @@ export async function GET(req) {
       offset,
     });
 
+    const notificationIds = rows.map((r) => r.id);
     const recipientRows = await db.IvrNotificationRecipient.findAll({
       where: {
         userId,
-        notificationId: { [Op.in]: rows.map((r) => r.id) },
+        notificationId: { [Op.in]: notificationIds },
       },
       attributes: ["notificationId", "readAt"],
     });
     const readById = new Map(recipientRows.map((r) => [r.notificationId, r.readAt]));
 
+    // Admin-only: who was notified for each callback (agents + admins).
+    const allRecipientRows =
+      notificationIds.length === 0
+        ? []
+        : await db.IvrNotificationRecipient.findAll({
+            where: { notificationId: { [Op.in]: notificationIds } },
+            attributes: ["notificationId", "userId", "readAt"],
+            include: [
+              {
+                model: db.User,
+                as: "user",
+                attributes: ["id", "username", "displayName", "role"],
+                required: false,
+              },
+            ],
+          });
+    const notifiedById = new Map();
+    for (const rec of allRecipientRows) {
+      const list = notifiedById.get(rec.notificationId) || [];
+      const u = rec.user;
+      list.push({
+        id: rec.userId,
+        name: String(u?.displayName || u?.username || "").trim() || `User #${rec.userId}`,
+        role: u?.role || null,
+        readAt: rec.readAt ? new Date(rec.readAt).toISOString() : null,
+      });
+      notifiedById.set(rec.notificationId, list);
+    }
+
     const notifications = await Promise.all(
       rows.map(async (row) => {
         const recipientReadAt = readById.has(row.id) ? readById.get(row.id) : row.readAt;
         const raw = await serializeIvrNotificationWithCustomers(row, { recipientReadAt });
-        return shapeNotificationForViewer(raw, { viewerUserId: userId, isAdmin: true });
+        const shaped = shapeNotificationForViewer(raw, { viewerUserId: userId, isAdmin: true });
+        const notifiedUsers = (notifiedById.get(row.id) || []).slice().sort((a, b) => {
+          const ar = a.role === "admin" ? 1 : 0;
+          const br = b.role === "admin" ? 1 : 0;
+          if (ar !== br) return ar - br; // agents first, then admins
+          return String(a.name).localeCompare(String(b.name));
+        });
+        return shaped ? { ...shaped, notifiedUsers } : null;
       }),
     );
 
     return NextResponse.json({
       ok: true,
+      isAdmin: true,
       unreadCount: await countUnreadForUser(userId, isAdmin),
-      notifications,
+      notifications: notifications.filter(Boolean),
       pagination: {
         page: safePage,
         pageSize: PAGE_SIZE,
@@ -129,6 +167,7 @@ export async function GET(req) {
 
   return NextResponse.json({
     ok: true,
+    isAdmin: false,
     unreadCount: await countUnreadForUser(userId, isAdmin),
     notifications,
     pagination: {
