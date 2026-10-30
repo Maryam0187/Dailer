@@ -26,6 +26,29 @@ export default function NavbarInboundBell() {
   }, [refresh]);
 
   useEffect(() => {
+    // Visiting /ivr-notifications: clear badge only (rows stay unread until Mark read).
+    function onVisited() {
+      setUnreadCount(0);
+    }
+    // Mark read / Mark all read: sync badge to server unread.
+    function onRead(event) {
+      const next = Number(event?.detail?.unreadCount);
+      if (Number.isFinite(next) && next >= 0) {
+        setUnreadCount(next);
+      } else {
+        setUnreadCount(0);
+      }
+      void refresh();
+    }
+    window.addEventListener("ivr:notifications-visited", onVisited);
+    window.addEventListener("ivr:notifications-read", onRead);
+    return () => {
+      window.removeEventListener("ivr:notifications-visited", onVisited);
+      window.removeEventListener("ivr:notifications-read", onRead);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
     const socket = ioClient({
       path: "/socket.io",
       withCredentials: true,

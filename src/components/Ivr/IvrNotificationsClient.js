@@ -112,8 +112,20 @@ export default function IvrNotificationsClient({ isAdmin = false }) {
     }
   }, []);
 
+  function notifyBell(eventName, nextUnread = 0) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(eventName, { detail: { unreadCount: nextUnread } }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
   useEffect(() => {
     void load(1);
+    // Clear navbar badge only — do not mark rows read (still use Mark read / Mark all read).
+    notifyBell("ivr:notifications-visited", 0);
   }, [load]);
 
   useEffect(() => {
@@ -143,7 +155,9 @@ export default function IvrNotificationsClient({ isAdmin = false }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to update");
-      setUnreadCount(Number(json.unreadCount) || 0);
+      const next = Number(json.unreadCount) || 0;
+      setUnreadCount(next);
+      notifyBell("ivr:notifications-read", next);
       if (markAll) {
         setRows((prev) => prev.map((r) => ({ ...r, readAt: r.readAt || new Date().toISOString() })));
       } else {
