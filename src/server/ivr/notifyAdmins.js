@@ -68,7 +68,7 @@ async function loadActiveAdminIds() {
 
 /**
  * Persist + socket toast (+ push for offline agents). No email.
- * Resolves call-log (48h) / lead targets cheaply when not pre-resolved.
+ * Resolves call-log (admin lookback days) / lead targets cheaply when not pre-resolved.
  */
 export async function notifyAdmins(raw) {
   if (!isIvrAlertEnabled()) {

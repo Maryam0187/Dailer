@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import IvrNotificationsClient from "@/components/Ivr/IvrNotificationsClient";
+import IvrAffinitySettingsAdmin from "@/components/Ivr/IvrAffinitySettingsAdmin";
 
 export default async function IvrNotificationsPage() {
   const authedUser = await getAuthedUser();
@@ -20,6 +21,7 @@ export default async function IvrNotificationsPage() {
             : "Inbound callbacks related to your recent calls or leads. Ask an admin when a lead is already in the system."}
         </p>
       </div>
+      {isAdmin ? <IvrAffinitySettingsAdmin /> : null}
       <IvrNotificationsClient isAdmin={isAdmin} />
     </>
   );

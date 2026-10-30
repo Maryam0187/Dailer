@@ -1,8 +1,8 @@
 import { Op } from "sequelize";
 import db from "@/server/db";
 import { phoneVariants } from "@/server/ivr/phoneVariants";
+import { getCallbackAffinityWindowMs } from "@/server/ivr/ivrSettings";
 
-const CALL_LOG_WINDOW_MS = 48 * 60 * 60 * 1000;
 const CALL_LOG_ROW_LIMIT = 20;
 const CALL_LOG_AGENT_CAP = 5;
 
@@ -24,7 +24,8 @@ async function findCallLogAgents(from) {
     return { callLogUserIds: [], relatedCallLogs: [] };
   }
 
-  const since = new Date(Date.now() - CALL_LOG_WINDOW_MS);
+  const windowMs = await getCallbackAffinityWindowMs();
+  const since = new Date(Date.now() - windowMs);
   let rows = [];
   try {
     rows = await db.CallLog.findAll({
@@ -182,7 +183,7 @@ async function findLeadExact(from) {
 
 /**
  * Resolve who gets inbound notify (agents only — admins merged in notifier).
- * Call logs (48h) win for agent targets; lead owners only when no call-log agents.
+ * Call logs (admin-configured lookback days) win for agent targets; lead owners only when no call-log agents.
  * If call-log agents + lead exists → messageMode ask_admin (do not notify lead owners).
  */
 export async function resolveInboundNotifyTargets({ from } = {}) {

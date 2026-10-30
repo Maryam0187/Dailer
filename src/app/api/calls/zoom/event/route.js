@@ -120,7 +120,7 @@ export async function POST(req) {
   const ourLine = extractZoomOurLine(data);
   const eventAt = parseZoomEventDate(data.dateTime) || new Date();
 
-  // Inbound Zoom callback → same affinity notify as Twilio (call logs 48h / lead / ask-admin).
+  // Inbound Zoom callback → same affinity notify as Twilio (call logs 6d / lead / ask-admin).
   // Fire once per Zoom callId (deduped); do not await (keep Soft Embed event fast).
   if (
     parties.direction === "inbound" &&
