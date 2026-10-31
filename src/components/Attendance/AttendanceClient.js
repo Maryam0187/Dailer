@@ -4,13 +4,16 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import AttendancePeriodStats, {
   presentAbsentFromDays,
 } from "@/components/Attendance/AttendancePeriodStats";
-import AttendanceStatusBadge from "@/components/Attendance/AttendanceStatusBadge";
+import StatusOverrideCell from "@/components/Attendance/StatusOverrideCell";
+import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
+import ReportLoader, { ReportLoadingOverlay } from "@/components/UserReports/ReportLoader";
 import {
   ATTENDANCE_EASTERN_TODAY_NOTICE,
   formatAttendanceTimeEt,
   formatAttendanceTimePkt,
   getAttendancePresetRange,
 } from "@/lib/attendanceTime";
+import { formatDuration } from "@/lib/formatDuration";
 
 const RANGE_PRESET_OPTIONS = [
   { id: "today", label: "Today" },
@@ -49,6 +52,14 @@ function compareAttendanceValue(a, b, key, dir) {
     if (av == null) return 1;
     if (bv == null) return -1;
     return mult * (av - bv);
+  }
+
+  if (key === "status") {
+    const rank = { absent: 0, half_leave: 1, on_leave: 2, exempt: 3, present: 4 };
+    const av = rank[a.status] ?? 4;
+    const bv = rank[b.status] ?? 4;
+    if (av !== bv) return mult * (av - bv);
+    return mult * String(a.username ?? "").localeCompare(String(b.username ?? ""));
   }
 
   if (key === "tierSort") {
@@ -146,6 +157,37 @@ const LOCATION_FILTER_OPTIONS = [
   { id: "outside", label: "Outside" },
 ];
 
+const SUMMARY_COLUMN_STORAGE_KEY = "user-reports:attendance-summary-columns";
+
+const SUMMARY_OPTIONAL_COLUMNS = [
+  { key: "locationLabel", label: "Location", sortable: true },
+  { key: "shiftKey", label: "Shift", sortable: true },
+  { key: "firstLoginAt", label: "First login", sortable: true },
+  { key: "status", label: "Status", sortable: true, singleDayOnly: true },
+  { key: "daysAbsent", label: "Absent", sortable: true, align: "right" },
+  { key: "totalLogins", label: "Logins", sortable: true, align: "right" },
+  { key: "totalDesktopOnlineMs", label: "Desktop", sortable: true, align: "right" },
+  { key: "totalMobileOnlineMs", label: "Mobile", sortable: true, align: "right" },
+  { key: "totalOnlineMs", label: "Online time", sortable: true, align: "right" },
+  { key: "totalCalls", label: "Total calls", sortable: true, align: "right" },
+  { key: "callDurationSeconds", label: "Call duration", sortable: true, align: "right" },
+];
+
+const SUMMARY_OPTIONAL_KEYS = SUMMARY_OPTIONAL_COLUMNS.map((column) => column.key);
+
+function defaultSummaryColumns() {
+  return new Set(SUMMARY_OPTIONAL_KEYS);
+}
+
+function resolveSummarySortKey(sortKey, visibleKeys, singleDay) {
+  if (sortKey === "username") return "username";
+  const column = SUMMARY_OPTIONAL_COLUMNS.find((item) => item.key === sortKey);
+  const hiddenByRange = Boolean(column?.singleDayOnly && !singleDay);
+  if (column && !hiddenByRange && visibleKeys.has(sortKey)) return sortKey;
+  if (visibleKeys.has("totalOnlineMs")) return "totalOnlineMs";
+  return "username";
+}
+
 const selectClass =
   "h-10 min-w-[10rem] rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200";
 
@@ -184,77 +226,6 @@ function formatOnlineMs(value) {
   const minutes = Math.floor((totalSec % 3600) / 60);
   if (hours <= 0) return `${minutes}m`;
   return `${hours}h ${minutes}m`;
-}
-
-function statusBadge(day) {
-  return <AttendanceStatusBadge day={day} />;
-}
-
-const STATUS_OVERRIDE_OPTIONS = [
-  { value: "", label: "Auto" },
-  { value: "present", label: "Present" },
-  { value: "half_leave", label: "Half leave" },
-  { value: "on_leave", label: "Leave" },
-  { value: "absent", label: "Absent" },
-];
-
-function StatusOverrideCell({ day, userId, canEditStatus, onSaved }) {
-  const [value, setValue] = useState(() => day.statusOverride || "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setValue(day.statusOverride || "");
-  }, [day.statusOverride, day.date]);
-
-  if (!canEditStatus) {
-    return statusBadge(day);
-  }
-
-  async function save(next) {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/attendance/status-override", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          calendarDate: day.date,
-          statusOverride: next || null,
-        }),
-      });
-      if (res.ok) {
-        setValue(next);
-        onSaved?.();
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="min-w-[9rem] space-y-1" onClick={(e) => e.stopPropagation()}>
-      {statusBadge(day)}
-      <select
-        value={value}
-        disabled={saving}
-        onChange={(e) => void save(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
-        aria-label={`Set attendance status for ${day.date}`}
-      >
-        {STATUS_OVERRIDE_OPTIONS.map((opt) => (
-          <option key={opt.value || "auto"} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {value ? (
-        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Manual override</p>
-      ) : (
-        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Auto from online time</p>
-      )}
-    </div>
-  );
 }
 
 function formatDevice(label) {
@@ -380,8 +351,7 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
         <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
           <tr>
             <SortableHeader label="Date" columnKey="date" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortableHeader label="First login (PKT)" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <StaticHeader label="First login (ET)" />
+            <SortableHeader label="First login" columnKey="firstLoginAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <SortableHeader label="Device" columnKey="firstLoginDeviceLabel" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             <StaticHeader label="Office fingerprint" className="min-w-[11rem]" />
             <SortableHeader label="Status" columnKey="tierSort" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
@@ -399,8 +369,9 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
                 onClick={() => void toggleDay(day.date)}
               >
                 <td className={tdClass}>{day.date}</td>
-                <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimePkt(day.firstLoginAt)}</td>
-                <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimeEt(day.firstLoginAt)}</td>
+                <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                  <EtTimeWithTooltip value={day.firstLoginAt} />
+                </td>
                 <td className={tdClass}>{formatDevice(day.firstLoginDeviceLabel)}</td>
                 <td className={`${tdClass} min-w-[11rem]`}>
                   <OfficeFingerprintCell
@@ -425,9 +396,9 @@ function DailyTable({ days, userId, isAdmin, canEditStatus, onSaved }) {
               </tr>
               {expanded === day.date ? (
                 <tr>
-                  <td colSpan={10} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
+                  <td colSpan={9} className="bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-900/30">
                     {loginLoading === day.date ? (
-                      <p>Loading logins…</p>
+                      <ReportLoader label="Loading logins…" compact />
                     ) : (loginCache[day.date]?.length ?? day.logins?.length ?? 0) === 0 ? (
                       <p>No login events</p>
                     ) : (
@@ -468,14 +439,67 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? null);
   const [summaryRows, setSummaryRows] = useState([]);
   const [detail, setDetail] = useState(null);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [columnPrefsReady, setColumnPrefsReady] = useState(false);
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState(defaultSummaryColumns);
   const { sortKey: summarySortKey, sortDir: summarySortDir, onSort: onSummarySort } = useTableSort(
     "totalOnlineMs",
     "desc",
   );
+  const singleDaySummary = Boolean(appliedFrom && appliedFrom === appliedTo);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SUMMARY_COLUMN_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const allowed = new Set(SUMMARY_OPTIONAL_KEYS);
+          setVisibleColumnKeys(new Set(parsed.filter((key) => allowed.has(key))));
+        }
+      }
+    } catch {
+      /* keep defaults */
+    }
+    setColumnPrefsReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!columnPrefsReady) return;
+    window.localStorage.setItem(
+      SUMMARY_COLUMN_STORAGE_KEY,
+      JSON.stringify([...visibleColumnKeys]),
+    );
+  }, [visibleColumnKeys, columnPrefsReady]);
+
+  function toggleSummaryColumn(key) {
+    setVisibleColumnKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const detailRangeStats = useMemo(
     () => presentAbsentFromDays(detail?.days || []),
     [detail?.days],
+  );
+
+  const visibleSummaryColumns = useMemo(() => {
+    const optional = SUMMARY_OPTIONAL_COLUMNS.filter((column) => {
+      if (column.singleDayOnly && !singleDaySummary) return false;
+      return visibleColumnKeys.has(column.key);
+    });
+    return [{ key: "username", label: "User", sortable: true }, ...optional];
+  }, [visibleColumnKeys, singleDaySummary]);
+
+  const summarySort = useMemo(
+    () => ({
+      key: resolveSummarySortKey(summarySortKey, visibleColumnKeys, singleDaySummary),
+      dir: summarySortDir,
+    }),
+    [summarySortKey, summarySortDir, visibleColumnKeys, singleDaySummary],
   );
 
   const sortedSummaryRows = useMemo(
@@ -485,17 +509,34 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
           ...row,
           locationLabel: locationLabel(row.isOutside),
         })),
-        summarySortKey,
-        summarySortDir,
+        summarySort.key,
+        summarySort.dir,
       ),
-    [summaryRows, summarySortKey, summarySortDir],
+    [summaryRows, summarySort.key, summarySort.dir],
   );
 
   const summaryTotals = useMemo(() => {
+    if (singleDaySummary) {
+      let present = 0;
+      let halfLeave = 0;
+      let absent = 0;
+      for (const row of sortedSummaryRows) {
+        if (row.status === "half_leave") halfLeave += 1;
+        else if (row.status === "absent") absent += 1;
+        else if (row.status === "present") present += 1;
+      }
+      return {
+        totalUsers: sortedSummaryRows.length,
+        present,
+        halfLeave,
+        absent,
+      };
+    }
+
     let present = 0;
     let absent = 0;
     for (const row of sortedSummaryRows) {
-      // Present = at least one desktop login in the selected range.
+      // Present = at least one login in the selected range.
       if ((Number(row.totalLogins) || 0) > 0) present += 1;
       else absent += 1;
     }
@@ -504,7 +545,7 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
       present,
       absent,
     };
-  }, [sortedSummaryRows]);
+  }, [sortedSummaryRows, singleDaySummary]);
 
   const filteredUsers = usersForFilters(users, shiftFilter, locationFilter);
 
@@ -578,6 +619,55 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
 
   async function refreshAll({ silent = true } = {}) {
     await loadAttendance({ silent });
+  }
+
+  function renderSummaryCell(key, row) {
+    switch (key) {
+      case "username":
+        return row.username;
+      case "locationLabel":
+        return row.locationLabel;
+      case "shiftKey":
+        return shiftLabel(row.shiftKey);
+      case "firstLoginAt":
+        return (
+          <span onClick={(e) => e.stopPropagation()}>
+            <EtTimeWithTooltip value={row.firstLoginAt} />
+          </span>
+        );
+      case "daysAbsent":
+        return row.daysAbsent;
+      case "totalLogins":
+        return row.totalLogins;
+      case "totalDesktopOnlineMs":
+        return formatOnlineMs(Number(row.totalDesktopOnlineMs) || 0);
+      case "totalMobileOnlineMs":
+        return formatOnlineMs(Number(row.totalMobileOnlineMs) || 0);
+      case "totalOnlineMs":
+        return formatOnlineMs(Number(row.totalOnlineMs) || 0);
+      case "totalCalls":
+        return Number(row.totalCalls) || 0;
+      case "callDurationSeconds":
+        return formatDuration(row.callDurationSeconds);
+      case "status":
+        return (
+          <StatusOverrideCell
+            day={{
+              date: row.date || appliedFrom,
+              autoStatus: row.autoStatus,
+              status: row.status,
+              statusOverride: row.statusOverride,
+              isCompanyLeave: row.isCompanyLeave,
+              companyLeaveLabel: row.companyLeaveLabel,
+            }}
+            userId={row.userId}
+            canEditStatus={isAdmin}
+            onSaved={() => void loadAttendance({ silent: true })}
+          />
+        );
+      default:
+        return "—";
+    }
   }
 
   useEffect(() => {
@@ -725,7 +815,7 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
                   : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
               }`}
             >
-              All users
+              Summary
             </button>
             <button
               type="button"
@@ -767,11 +857,12 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
         </p>
       ) : null}
 
-      {loading ? <p className="text-sm text-zinc-500">Loading…</p> : null}
+      {loading ? <ReportLoader label="Loading attendance…" /> : null}
 
       {canManage && adminTab === "summary" && !loading ? (
-        <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-3">
+        <div className="relative space-y-3">
+          {refreshing ? <ReportLoadingOverlay label="Updating attendance…" /> : null}
+          <div className={`grid gap-3 ${singleDaySummary ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
             <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Total users
@@ -788,6 +879,16 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
                 {summaryTotals.present}
               </p>
             </div>
+            {singleDaySummary ? (
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 shadow-sm dark:border-orange-900/50 dark:bg-orange-950/30">
+                <p className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
+                  Half leave
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-orange-900 dark:text-orange-100">
+                  {summaryTotals.halfLeave}
+                </p>
+              </div>
+            ) : null}
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30">
               <p className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
                 Absent
@@ -797,20 +898,57 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
               </p>
             </div>
           </div>
+          <div className="flex justify-end">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setColumnsOpen((open) => !open)}
+                className="h-9 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                aria-expanded={columnsOpen}
+                aria-haspopup="true"
+              >
+                Columns
+              </button>
+              {columnsOpen ? (
+                <div className="absolute right-0 z-20 mt-1 w-60 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
+                  {SUMMARY_OPTIONAL_COLUMNS.filter(
+                    (column) => !column.singleDayOnly || singleDaySummary,
+                  ).map((column) => (
+                    <label
+                      key={column.key}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumnKeys.has(column.key)}
+                        onChange={() => toggleSummaryColumn(column.key)}
+                      />
+                      <span>{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
             <table className={tableClass}>
               <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
                 <tr>
-                  <SortableHeader label="User" columnKey="username" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                  <SortableHeader label="Location" columnKey="locationLabel" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                  <SortableHeader label="Shift" columnKey="shiftKey" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                  <SortableHeader label="First login (PKT)" columnKey="firstLoginAt" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} />
-                  <StaticHeader label="First login (ET)" />
-                  <SortableHeader label="Absent" columnKey="daysAbsent" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                  <SortableHeader label="Logins" columnKey="totalLogins" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                  <SortableHeader label="Desktop" columnKey="totalDesktopOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                  <SortableHeader label="Mobile" columnKey="totalMobileOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
-                  <SortableHeader label="Online time" columnKey="totalOnlineMs" sortKey={summarySortKey} sortDir={summarySortDir} onSort={onSummarySort} align="right" />
+                  {visibleSummaryColumns.map((column) =>
+                    column.sortable ? (
+                      <SortableHeader
+                        key={column.key}
+                        label={column.label}
+                        columnKey={column.key}
+                        sortKey={summarySort.key}
+                        sortDir={summarySort.dir}
+                        onSort={onSummarySort}
+                        align={column.align}
+                      />
+                    ) : (
+                      <StaticHeader key={column.key} label={column.label} align={column.align} />
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -823,16 +961,18 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
                       setAdminTab("detail");
                     }}
                   >
-                    <td className={tdClass}>{row.username}</td>
-                    <td className={tdClass}>{row.locationLabel}</td>
-                    <td className={tdClass}>{shiftLabel(row.shiftKey)}</td>
-                    <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimePkt(row.firstLoginAt)}</td>
-                    <td className={`${tdClass} tabular-nums`}>{formatAttendanceTimeEt(row.firstLoginAt)}</td>
-                    <td className={tdClassRight}>{row.daysAbsent}</td>
-                    <td className={tdClassRight}>{row.totalLogins}</td>
-                    <td className={tdClassRight}>{formatOnlineMs(Number(row.totalDesktopOnlineMs) || 0)}</td>
-                    <td className={tdClassRight}>{formatOnlineMs(Number(row.totalMobileOnlineMs) || 0)}</td>
-                    <td className={tdClassRight}>{formatOnlineMs(Number(row.totalOnlineMs) || 0)}</td>
+                    {visibleSummaryColumns.map((column) => (
+                      <td
+                        key={column.key}
+                        className={
+                          column.align === "right"
+                            ? tdClassRight
+                            : tdClass
+                        }
+                      >
+                        {renderSummaryCell(column.key, row)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -871,7 +1011,8 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
 
       {((canManage && adminTab === "detail" && !loading && detail) ||
         (!canManage && !loading && detail)) && (
-        <>
+        <div className="relative space-y-4">
+          {refreshing ? <ReportLoadingOverlay label="Updating attendance…" /> : null}
           {!canManage ? (
             <AttendancePeriodStats
               present={detailRangeStats.present}
@@ -889,7 +1030,7 @@ export default function AttendanceClient({ isAdmin, canEditStatus = false, users
             canEditStatus={canEditStatus && adminTab === "detail"}
             onSaved={reloadDetail}
           />
-        </>
+        </div>
       )}
     </div>
   );

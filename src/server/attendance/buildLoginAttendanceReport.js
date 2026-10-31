@@ -236,6 +236,7 @@ function summarizeDays(days) {
   }
 
   const anchorDay = days.length > 0 ? days[days.length - 1] : null;
+  const singleDay = days.length === 1 ? anchorDay : null;
 
   return {
     daysFullPoints,
@@ -254,6 +255,16 @@ function summarizeDays(days) {
     daysOnTime: daysFullPoints + daysTier90,
     firstLoginAt: anchorDay?.firstLoginAt ?? null,
     firstLoginDeviceLabel: anchorDay?.firstLoginDeviceLabel ?? null,
+    ...(singleDay
+      ? {
+          date: singleDay.date ?? null,
+          autoStatus: singleDay.autoStatus ?? singleDay.status ?? "absent",
+          status: singleDay.status ?? "absent",
+          statusOverride: singleDay.statusOverride ?? null,
+          isCompanyLeave: Boolean(singleDay.isCompanyLeave),
+          companyLeaveLabel: singleDay.companyLeaveLabel ?? null,
+        }
+      : {}),
   };
 }
 
@@ -283,6 +294,7 @@ function buildDayRow(
     const overrideFields = statusOverrideField(record);
     const row = {
       date: dateStr,
+      autoStatus: "on_leave",
       status: applyStatusOverride("on_leave", overrideFields.statusOverride),
       tierKey: null,
       pointPercent: null,
@@ -309,6 +321,7 @@ function buildDayRow(
     const overrideFields = statusOverrideField(record);
     const row = {
       date: dateStr,
+      autoStatus: "exempt",
       status: applyStatusOverride("exempt", overrideFields.statusOverride),
       tierKey: null,
       pointPercent: null,
@@ -336,16 +349,17 @@ function buildDayRow(
     // (e.g. login-window unchecked used to mark every day exempt).
     const hasLogin = dayHasLogin(record);
     const overrideFields = statusOverrideField(record);
-    let status = record.status;
-    if (status === "exempt") {
-      status = hasLogin ? "present" : "absent";
+    let autoStatus = record.status;
+    if (autoStatus === "exempt") {
+      autoStatus = hasLogin ? "present" : "absent";
     }
-    if (status === "present" || status === "half_leave") {
-      status = applyHalfLeaveStatus("present", record.onlineMs, hasLogin);
+    if (autoStatus === "present" || autoStatus === "half_leave") {
+      autoStatus = applyHalfLeaveStatus("present", record.onlineMs, hasLogin);
     }
-    status = applyStatusOverride(status, overrideFields.statusOverride);
+    const status = applyStatusOverride(autoStatus, overrideFields.statusOverride);
     const row = {
       date: dateStr,
+      autoStatus,
       status,
       tierKey: record.tierKey,
       pointPercent: record.pointPercent,
@@ -374,6 +388,7 @@ function buildDayRow(
 
   const absent = {
     date: dateStr,
+    autoStatus: "absent",
     status: "absent",
     tierKey: "none",
     pointPercent: 0,

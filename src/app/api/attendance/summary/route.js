@@ -7,6 +7,7 @@ import {
   buildLoginAttendanceReport,
   parseAttendanceDateOnly,
 } from "@/server/attendance/buildLoginAttendanceReport";
+import { aggregateMetricsByUser } from "@/server/calls/aggregateMetrics";
 
 const MANAGER_TEAM_ROLES = ["agent", "supervisor", "processor", "lead_supervisor"];
 
@@ -63,21 +64,38 @@ export async function GET(req) {
       }
     }
 
-    const report = await buildLoginAttendanceReport(userIds, fromDate, toDate, {
-      includeDays: false,
-      allActiveUsers,
-      locationFilter: isAdmin ? locationFilter : "all",
-    });
+    const [report, metricsResult] = await Promise.all([
+      buildLoginAttendanceReport(userIds, fromDate, toDate, {
+        includeDays: false,
+        allActiveUsers,
+        locationFilter: isAdmin ? locationFilter : "all",
+      }),
+      aggregateMetricsByUser({
+        fromDate,
+        toDate,
+        conferenceOnly: false,
+        includeAllUsers: false,
+      }),
+    ]);
+
+    const metricsByUserId = new Map(
+      (metricsResult.metrics || []).map((metric) => [metric.userId, metric]),
+    );
 
     const rows = report.users
-      .map((row) => ({
-        userId: row.userId,
-        username: row.username,
-        role: row.role,
-        shiftKey: row.shiftKey === "night" ? "night" : "day",
-        isOutside: Boolean(row.isOutside),
-        ...row.summary,
-      }))
+      .map((row) => {
+        const metric = metricsByUserId.get(row.userId);
+        return {
+          userId: row.userId,
+          username: row.username,
+          role: row.role,
+          shiftKey: row.shiftKey === "night" ? "night" : "day",
+          isOutside: Boolean(row.isOutside),
+          ...row.summary,
+          totalCalls: Number(metric?.total) || 0,
+          callDurationSeconds: Number(metric?.durationSeconds) || 0,
+        };
+      })
       .filter((row) => !shiftKey || row.shiftKey === shiftKey)
       .sort(
         (a, b) =>
