@@ -15,6 +15,7 @@ import IvrStaffAlert from "@/components/layout/IvrStaffAlert";
 import VoiceLockBanner from "@/components/layout/VoiceLockBanner";
 import ShiftLogoutGuard from "@/components/layout/ShiftLogoutGuard";
 import ActivityTracker from "@/components/layout/ActivityTracker";
+import OnlineTimeHeartbeat from "@/components/layout/OnlineTimeHeartbeat";
 import OneSignalProvider from "@/components/push/OneSignalProvider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
@@ -64,6 +65,7 @@ export default function MainAppShell({
                   <ThemeProvider>
                     <OneSignalProvider userId={currentUserId} username={currentUsername} />
                     {outsideManager ? null : <ActivityTracker />}
+                    <OnlineTimeHeartbeat />
                     {outsideManager ? null : <ShiftLogoutGuard />}
                     <VoiceLockChrome outsideManager={outsideManager} />
                     {children}

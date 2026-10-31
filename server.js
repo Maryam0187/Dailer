@@ -144,8 +144,9 @@ app.prepare().then(async () => {
   const presence = globalThis[HUB_KEY].presence;
 
   const {
-    markUserOnline,
     markUserOffline,
+    noteUserActivity,
+    pauseUserActivity,
     startOnlineTimeFlushTimer,
   } = require("./src/server/attendance/onlineTime.boot.cjs");
   const {
@@ -268,9 +269,16 @@ app.prepare().then(async () => {
     const dKey = devicePresenceKey(userId, deviceBucket);
     const deviceNext = (devicePresence.get(dKey) || 0) + 1;
     devicePresence.set(dKey, deviceNext);
-    if (deviceNext === 1) markUserOnline(userId, deviceBucket);
 
     void touchLastSeen(userId).then(() => broadcastPresenceUpdate(userId));
+
+    socket.on("attendance:activity", () => {
+      noteUserActivity(userId, socket.data.deviceBucket || deviceBucket);
+    });
+
+    socket.on("attendance:pause", () => {
+      void pauseUserActivity(userId, socket.data.deviceBucket || deviceBucket);
+    });
 
     socket.on("disconnect", () => {
       const current = presence.get(userId) || 0;
