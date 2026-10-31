@@ -14,6 +14,7 @@ import {
   sendTestPush,
 } from "@/lib/oneSignalClient";
 import ProfileAttendanceClient from "@/components/Profile/ProfileAttendanceClient";
+import ProfileCallMetricsClient from "@/components/Profile/ProfileCallMetricsClient";
 
 function formatWhen(iso) {
   if (!iso) return "—";
@@ -41,6 +42,11 @@ const TABS = [
     id: "attendance",
     label: "Attendance",
     description: "Login & online time",
+  },
+  {
+    id: "metrics",
+    label: "Call metrics",
+    description: "Calls & talk time",
   },
 ];
 
@@ -517,6 +523,8 @@ export default function ProfileClient({
         ) : null}
 
         {activeTab === "attendance" ? <ProfileAttendanceClient /> : null}
+
+        {activeTab === "metrics" ? <ProfileCallMetricsClient /> : null}
       </div>
     </div>
   );

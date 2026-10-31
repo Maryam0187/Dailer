@@ -13,7 +13,7 @@ export default async function ProfilePage() {
           Profile
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-600 sm:text-base dark:text-zinc-400">
-          Manage your account, notifications, and personal attendance.
+          Manage your account, notifications, attendance, and call metrics.
         </p>
       </div>
       <ProfileClient

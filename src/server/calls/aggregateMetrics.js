@@ -1,6 +1,6 @@
 import { Op, QueryTypes } from "sequelize";
 import db from "@/server/db";
-import { calendarDateRangeBounds } from "@/lib/calendarDayBounds";
+import { calendarDateRangeBounds, zonedDayStart } from "@/lib/calendarDayBounds";
 import { pickMetricColumns } from "@/server/calls/callDailyMetrics";
 
 /**
@@ -207,6 +207,192 @@ export async function aggregateCallMetricsFromDaily({
   });
 
   return { ...mapMetricsRow(row), ...providerDuration };
+}
+
+const MAX_PROFILE_DAY_ROWS = 93;
+
+function shiftCalendarDate(dateOnly, days) {
+  const [y, m, d] = String(dateOnly).split("-").map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d + days));
+  const yy = utc.getUTCFullYear();
+  const mm = String(utc.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(utc.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function calendarDatesInRange(fromDate, toDate, maxDays = MAX_PROFILE_DAY_ROWS) {
+  const dates = [];
+  let cursor = fromDate;
+  let guard = 0;
+  while (cursor <= toDate && guard < 4000) {
+    dates.push(cursor);
+    cursor = shiftCalendarDate(cursor, 1);
+    guard += 1;
+  }
+  const truncated = dates.length > maxDays;
+  return {
+    dates: truncated ? dates.slice(dates.length - maxDays) : dates,
+    truncated,
+  };
+}
+
+function dateOnlyKey(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value);
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : "";
+}
+
+function emptyDayMetrics() {
+  return {
+    total: 0,
+    completed: 0,
+    noAnswer: 0,
+    failedOrCanceled: 0,
+    busy: 0,
+    durationSeconds: 0,
+    twilioDurationSeconds: 0,
+    zoomDurationSeconds: 0,
+  };
+}
+
+/**
+ * One row per calendar day for a user. Days with no calls are included as zeros.
+ * Ranges longer than MAX_PROFILE_DAY_ROWS keep the most recent days.
+ */
+export async function listCallMetricsByDay({
+  userId,
+  fromDate,
+  toDate,
+  conferenceOnly = false,
+}) {
+  const id = Number(userId);
+  const { dates, truncated } = calendarDatesInRange(fromDate, toDate);
+  if (!Number.isInteger(id) || id < 1 || dates.length === 0) {
+    return { days: [], daysTruncated: truncated };
+  }
+
+  const metricAttributes = conferenceOnly
+    ? [
+        "calendarDate",
+        ["confTotal", "total"],
+        ["confCompleted", "completed"],
+        ["confNoAnswer", "noAnswer"],
+        ["confFailedOrCanceled", "failedOrCanceled"],
+        ["confBusy", "busy"],
+        ["confDurationSeconds", "durationSeconds"],
+      ]
+    : [
+        "calendarDate",
+        "total",
+        "completed",
+        "noAnswer",
+        "failedOrCanceled",
+        "busy",
+        "durationSeconds",
+      ];
+
+  const stored = await db.CallDailyMetric.findAll({
+    attributes: metricAttributes,
+    where: {
+      userId: id,
+      calendarDate: { [Op.gte]: dates[0], [Op.lte]: dates[dates.length - 1] },
+    },
+    raw: true,
+  });
+
+  const byDate = new Map();
+  for (const row of stored) {
+    const key = dateOnlyKey(row.calendarDate);
+    if (!key) continue;
+    byDate.set(key, mapMetricsRow(row));
+  }
+
+  const providerByDate = await durationSecondsByVoiceProviderByDay({
+    userId: id,
+    dates,
+    conferenceOnly,
+  });
+
+  const days = dates
+    .map((date) => ({
+      date,
+      ...emptyDayMetrics(),
+      ...(byDate.get(date) || {}),
+      ...(providerByDate.get(date) || {}),
+    }))
+    .reverse();
+
+  return { days, daysTruncated: truncated };
+}
+
+/** Twilio vs Zoom talk time per Eastern calendar day, using the same day bounds as the rollup. */
+async function durationSecondsByVoiceProviderByDay({
+  userId,
+  dates,
+  conferenceOnly = false,
+}) {
+  const map = new Map();
+  for (const date of dates) {
+    map.set(date, { twilioDurationSeconds: 0, zoomDurationSeconds: 0 });
+  }
+  if (!dates.length) return map;
+
+  const bounds = calendarDateRangeBounds(dates[0], dates[dates.length - 1]);
+  if (!bounds) return map;
+
+  const replacements = {
+    userId,
+    rangeAfter: bounds.after,
+    rangeBefore: bounds.before,
+  };
+  const selectParts = [];
+  dates.forEach((date, i) => {
+    const after = zonedDayStart(date);
+    const before = zonedDayStart(shiftCalendarDate(date, 1));
+    if (!after || !before) return;
+    replacements[`after${i}`] = after;
+    replacements[`before${i}`] = before;
+    const window = `cl.createdAt >= :after${i} AND cl.createdAt < :before${i}`;
+    const zoom = "LOWER(COALESCE(cl.voiceProvider, 'twilio')) = 'zoom'";
+    selectParts.push(
+      `COALESCE(SUM(CASE WHEN ${window} AND ${zoom} THEN cl.durationSeconds ELSE 0 END), 0) AS zoom${i}`,
+    );
+    selectParts.push(
+      `COALESCE(SUM(CASE WHEN ${window} AND NOT (${zoom}) THEN cl.durationSeconds ELSE 0 END), 0) AS twilio${i}`,
+    );
+  });
+  if (selectParts.length === 0) return map;
+
+  const conferenceJoin = conferenceOnly
+    ? "INNER JOIN (SELECT DISTINCT callLogId FROM InviteDialLegs) idl ON idl.callLogId = cl.id"
+    : "";
+
+  const rows = await db.sequelize.query(
+    `SELECT ${selectParts.join(", ")}
+     FROM CallLogs cl
+     ${conferenceJoin}
+     WHERE cl.userId = :userId
+       AND cl.createdAt >= :rangeAfter
+       AND cl.createdAt < :rangeBefore`,
+    {
+      replacements,
+      type: QueryTypes.SELECT,
+    },
+  );
+  const row = rows[0] || {};
+  dates.forEach((date, i) => {
+    map.set(date, {
+      twilioDurationSeconds: toInt(row[`twilio${i}`]),
+      zoomDurationSeconds: toInt(row[`zoom${i}`]),
+    });
+  });
+  return map;
 }
 
 /** Twilio vs Zoom talk time from CallLogs for one user over inclusive calendar days. */
