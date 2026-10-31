@@ -153,6 +153,9 @@ export default function LeadWorkflowSection({
     try {
       await onPatch(payload);
       await onReloadActivity?.();
+      if (payload?.leadContactTag !== undefined || payload?.leadAppointmentAt !== undefined) {
+        window.dispatchEvent(new Event("appointments:changed"));
+      }
     } catch (e) {
       setError(e.message || "Update failed");
       throw e;

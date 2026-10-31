@@ -57,6 +57,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/live-status",
     },
     {
+      href: "/user-reports",
+      label: "User reports",
+      active: pathname === "/user-reports" || pathname === "/attendance" || pathname === "/reports",
+    },
+    {
       href: "/customers",
       label: "Customers",
       active: pathname === "/customers" || pathname?.startsWith("/customers/"),
@@ -165,6 +170,13 @@ function buildNavItems(
       active: pathname === "/leads",
       palette: "emerald",
     });
+    items.push({
+      href: "/appointments",
+      label: "APPT",
+      active: pathname === "/appointments",
+      palette: "violet",
+      showUpcomingCount: true,
+    });
   }
 
   if (!isOutside) {
@@ -201,7 +213,7 @@ function buildNavItems(
     });
   }
 
-  if (accessMode !== "limited" && (role === "admin" || (role === "manager" && !isOutside))) {
+  if (accessMode !== "limited" && role === "manager" && !isOutside) {
     items.push({
       href: "/user-reports",
       label: "User reports",
@@ -280,8 +292,21 @@ function NavLink({ item, onNavigate, className = "" }) {
       onClick={onNavigate}
       className={linkClass(item.active, item.palette, `px-3 py-2 text-sm lg:text-base ${className}`)}
       aria-current={item.active ? "page" : undefined}
+      aria-label={
+        item.showUpcomingCount
+          ? `Appointments, ${item.upcomingCount ?? 0} upcoming`
+          : undefined
+      }
+      title={item.showUpcomingCount ? "Upcoming appointments" : undefined}
     >
-      {item.label}
+      <span className="inline-flex items-center gap-1.5">
+        <span>{item.label}</span>
+        {item.showUpcomingCount && item.upcomingCount != null ? (
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-600 px-1.5 text-[10px] font-bold leading-none text-white">
+            {item.upcomingCount > 99 ? "99+" : item.upcomingCount}
+          </span>
+        ) : null}
+      </span>
     </Link>
   );
 }
@@ -459,6 +484,37 @@ export default function Navbar({
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
+  const [upcomingCount, setUpcomingCount] = useState(null);
+
+  useEffect(() => {
+    if (accessMode === "limited") return undefined;
+    let cancelled = false;
+
+    async function loadUpcomingCount() {
+      try {
+        const res = await fetch("/api/leads/appointments?countOnly=1", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        const next = Number(json.upcomingCount);
+        if (Number.isFinite(next) && next >= 0) setUpcomingCount(next);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void loadUpcomingCount();
+    window.addEventListener("focus", loadUpcomingCount);
+    window.addEventListener("appointments:changed", loadUpcomingCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", loadUpcomingCount);
+      window.removeEventListener("appointments:changed", loadUpcomingCount);
+    };
+  }, [pathname, accessMode]);
+
   const navItems = buildNavItems(
     role,
     pathname,
@@ -466,6 +522,8 @@ export default function Navbar({
     isOutside,
     canTrainAddressBot,
     canTrainSalesBot,
+  ).map((item) =>
+    item.showUpcomingCount ? { ...item, upcomingCount } : item,
   );
   const mobileItems = navItems.filter((item) => !item.brand);
 
