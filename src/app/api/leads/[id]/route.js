@@ -17,6 +17,7 @@ import { buildTextActivityDiff } from "@/server/leads/buildTextActivityDiff";
 import { logLeadUpdateActivity, logLeadUserActivity } from "@/server/activity/logLeadActivity";
 import { applyLeadWorkflowPatch } from "@/server/leads/applyLeadWorkflowPatch";
 import { hasLeadWorkflowPatch } from "@/lib/leadWorkflow";
+import { initialSharedViewerStatus } from "@/lib/shareViewerStatus";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 import { syncLeadCustomer } from "@/server/customers/syncCustomer";
 
@@ -265,6 +266,7 @@ export async function PATCH(req, { params }) {
         const previousName = previousUser?.username ?? `user #${previousId}`;
         update.sharedViewerUserId = null;
         update.sharedViewerAt = null;
+        update.sharedViewerStatus = null;
         activity.push({
           type: "shared_view",
           body: `Shared view cleared (was ${previousName})`,
@@ -293,6 +295,7 @@ export async function PATCH(req, { params }) {
           : null;
         update.sharedViewerUserId = nextViewerId;
         update.sharedViewerAt = new Date();
+        update.sharedViewerStatus = initialSharedViewerStatus(lead);
         activity.push({
           type: "shared_view",
           body: previousName
@@ -399,6 +402,10 @@ export async function PATCH(req, { params }) {
   if (Object.prototype.hasOwnProperty.call(update, "sharedViewerAt")) {
     sharePatch.sharedViewerAt = update.sharedViewerAt;
     delete update.sharedViewerAt;
+  }
+  if (Object.prototype.hasOwnProperty.call(update, "sharedViewerStatus")) {
+    sharePatch.sharedViewerStatus = update.sharedViewerStatus;
+    delete update.sharedViewerStatus;
   }
 
   if (Object.keys(update).length > 0) {

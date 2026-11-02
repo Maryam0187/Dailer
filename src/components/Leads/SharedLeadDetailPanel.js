@@ -14,6 +14,7 @@ import {
   workflowTagTone,
 } from "@/lib/workflowTagLabels";
 import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
+import ShareViewerStatusControls from "@/components/Leads/ShareViewerStatusControls";
 
 const labelClass =
   "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
@@ -53,6 +54,7 @@ export default function SharedLeadDetailPanel({
   preferShortLabels = true,
   variant = "drawer",
   showFullPageLink = true,
+  onLeadUpdated,
 }) {
   const isPage = variant === "page";
   const Shell = isPage ? "div" : "aside";
@@ -142,6 +144,12 @@ export default function SharedLeadDetailPanel({
               <Field label="Sale created"><EtTimeWithTooltip value={lead.createdAt} /></Field>
               <Field label="Last updated"><EtTimeWithTooltip value={lead.updatedAt} /></Field>
             </dl>
+            <ShareViewerStatusControls
+              lead={lead}
+              onLeadUpdated={onLeadUpdated}
+              workflowTagLookup={workflowTagLookup}
+              preferShortLabels={preferShortLabels}
+            />
             {isCancelled || lead.leadCancelReason ? (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/80 p-3 dark:border-red-900/50 dark:bg-red-950/30">
                 <p className={labelClass}>Cancel notes</p>

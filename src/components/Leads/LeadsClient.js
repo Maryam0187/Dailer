@@ -38,6 +38,8 @@ import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
 import WorkflowStatusLegend from "@/components/Leads/WorkflowStatusLegend";
 import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
+import { ShareStatusSelect } from "@/components/Leads/ShareViewerStatusControls";
+import { SHARE_VIEWER_STATUSES } from "@/lib/shareViewerStatus";
 import {
   REPORT_EASTERN_TODAY_NOTICE,
   formatReportDateTimeEt,
@@ -78,7 +80,7 @@ function buildWorkflowFilterOptions(tags, category, allLabel, fallback) {
     .map((t) => ({ id: t.tagKey, label: t.fullLabel, shortLabel: t.shortLabel }));
   const options = fromDb.length
     ? fromDb
-    : fallback.map((t) => ({ id: t.value, label: t.label, shortLabel: t.label }));
+    : fallback.map((t) => ({ id: t.value, label: t.label, shortLabel: t.shortLabel || t.label }));
   return [{ id: "all", label: allLabel, shortLabel: allLabel }, ...options];
 }
 
@@ -129,6 +131,7 @@ function hasActiveLeadFilters({
   leadContactTagFilter,
   stateFilter,
   serviceTypeFilter,
+  shareStatusFilter,
   rangePreset,
   q,
 }) {
@@ -143,6 +146,7 @@ function hasActiveLeadFilters({
     leadContactTagFilter !== "all" ||
     stateFilter !== "all" ||
     serviceTypeFilter !== "all" ||
+    shareStatusFilter !== "all" ||
     rangePreset !== "all" ||
     Boolean(q)
   );
@@ -279,6 +283,7 @@ export default function LeadsClient({
   const [leadPhaseFilter, setLeadPhaseFilter] = useState("all");
   const [leadProgressTagFilter, setLeadProgressTagFilter] = useState("all");
   const [leadContactTagFilter, setLeadContactTagFilter] = useState("all");
+  const [shareStatusFilter, setShareStatusFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [serviceTypeFilter, setServiceTypeFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState(
@@ -334,6 +339,10 @@ export default function LeadsClient({
     () => buildWorkflowFilterOptions(workflowTags, "contact", "All outcomes", LEAD_CONTACT_TAGS),
     [workflowTags],
   );
+  const shareStatusFilterOptions = useMemo(
+    () => buildWorkflowFilterOptions(workflowTags, "share", "All", SHARE_VIEWER_STATUSES),
+    [workflowTags],
+  );
   const visibleMissingProgressOptions = useMemo(
     () =>
       progressFilterOptions.filter(
@@ -356,11 +365,15 @@ export default function LeadsClient({
   const showAgentColumn = showLeadFilters || isProcessor;
   const showSharedViewerColumn = isAdmin;
   const onSharedWithMeTab = leadsListTab === "shared_with_me";
+  const showShareStatusColumn = onSharedWithMeTab;
   const showBulkShareView = isAdmin && leadsListTab === "leads";
   const showBulkRevokeShare = isAdmin && onSharedWithMeTab;
   const showShareSelection = showBulkShareView || showBulkRevokeShare;
   const colSpan =
-    (showAgentColumn ? 8 : 7) + (showShareSelection ? 1 : 0) + (showSharedViewerColumn ? 1 : 0);
+    (showAgentColumn ? 8 : 7) +
+    (showShareSelection ? 1 : 0) +
+    (showSharedViewerColumn ? 1 : 0) +
+    (showShareStatusColumn ? 1 : 0);
   const selectedShareCount = selectedShareLeadIds.size;
   const pageLeadIds = useMemo(() => leads.map((lead) => lead.id), [leads]);
   const allPageShareSelected =
@@ -491,6 +504,9 @@ export default function LeadsClient({
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
       }
+      if (leadsListTab === "shared_with_me" && shareStatusFilter && shareStatusFilter !== "all") {
+        params.set("sharedViewerStatus", shareStatusFilter);
+      }
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
@@ -554,6 +570,7 @@ export default function LeadsClient({
     leadPhaseFilter,
     leadProgressTagFilter,
     leadContactTagFilter,
+    shareStatusFilter,
     stateFilter,
     serviceTypeFilter,
     shiftFilter,
@@ -920,6 +937,9 @@ export default function LeadsClient({
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
+      }
+      if (shareStatusFilter && shareStatusFilter !== "all") {
+        params.set("sharedViewerStatus", shareStatusFilter);
       }
       if (stateFilter && stateFilter !== "all") params.set("state", stateFilter);
       if (q.trim()) {
@@ -1515,6 +1535,31 @@ export default function LeadsClient({
               ))}
             </select>
           </div>
+          {onSharedWithMeTab ? (
+            <div className="w-full sm:min-w-[160px] sm:flex-1">
+              <label htmlFor="leads-share-status-filter" className={labelClass}>
+                Share status
+              </label>
+              <select
+                id="leads-share-status-filter"
+                value={shareStatusFilter}
+                onChange={(e) => {
+                  setShareStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className={inputClass}
+                aria-label="Filter by share status"
+              >
+                {shareStatusFilterOptions.map((option) => (
+                  <option key={option.id} value={option.id} title={option.label}>
+                    {option.id === "all"
+                      ? option.label
+                      : option.shortLabel || option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {canFilterByShift ? (
             <div className="w-full sm:min-w-[160px] sm:flex-1">
               <label htmlFor="leads-shift-filter" className={labelClass}>
@@ -2044,6 +2089,7 @@ export default function LeadsClient({
                 } else if (sortBy === "sharedViewerAt") {
                   setSortBy("updatedAt");
                 }
+                setShareStatusFilter("all");
                 setPage(1);
               }}
               className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
@@ -2164,6 +2210,9 @@ export default function LeadsClient({
               <th className={tableHeadClass}>Phone</th>
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
+              {showShareStatusColumn ? (
+                <th className={`${tableHeadClass} w-[92px]`}>Share status</th>
+              ) : null}
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
               <th className={`${tableHeadClass} w-16 max-w-[72px] text-right`}>Calls</th>
               {showAgentColumn ? <th className={`${tableHeadClass} max-w-[56px]`}>Agent</th> : null}
@@ -2194,6 +2243,7 @@ export default function LeadsClient({
                     leadContactTagFilter,
                     stateFilter,
                     serviceTypeFilter,
+                    shareStatusFilter,
                     rangePreset,
                     q,
                   })
@@ -2240,7 +2290,12 @@ export default function LeadsClient({
                     className={`${tableCellClass} max-w-[140px] truncate font-medium`}
                     title={formatLeadName(lead) !== "—" ? formatLeadName(lead) : undefined}
                   >
-                    {formatLeadName(lead)}
+                    <span className="block truncate">{formatLeadName(lead)}</span>
+                    {lead.createdFromLeadId ? (
+                      <span className="mt-0.5 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+                        From share
+                      </span>
+                    ) : null}
                   </td>
                   <td className={`${tableCellClass} whitespace-nowrap font-mono`}>
                     <span className="inline-flex items-center gap-1">
@@ -2259,6 +2314,24 @@ export default function LeadsClient({
                   <td className={`${tableCellClass} max-w-[140px] overflow-hidden`}>
                     <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
                   </td>
+                  {showShareStatusColumn ? (
+                    <td className={`${tableCellClass} w-[92px]`}>
+                      <ShareStatusSelect
+                        lead={lead}
+                        workflowTagLookup={workflowTagLookup}
+                        onLeadUpdated={(updated) => {
+                          handleLeadUpdated(updated);
+                          if (
+                            shareStatusFilter !== "all" &&
+                            updated?.sharedViewerStatus &&
+                            updated.sharedViewerStatus !== shareStatusFilter
+                          ) {
+                            setLeads((prev) => prev.filter((row) => row.id !== updated.id));
+                          }
+                        }}
+                      />
+                    </td>
+                  ) : null}
                   <td
                     className={`${tableCellClass} max-w-[100px] truncate text-zinc-600 dark:text-zinc-400`}
                     title={locationLabel !== "—" ? locationLabel : undefined}

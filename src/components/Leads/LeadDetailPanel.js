@@ -22,6 +22,7 @@ import LeadPaymentSection from "@/components/Leads/LeadPaymentSection";
 import AssigneePicker from "@/components/Leads/AssigneePicker";
 import LegacyImportAssignControls from "@/components/Import/LegacyImportAssignControls";
 import SharedLeadDetailPanel from "@/components/Leads/SharedLeadDetailPanel";
+import ShareViewerStatusControls from "@/components/Leads/ShareViewerStatusControls";
 import { shouldHideLeadPaymentSection } from "@/lib/leadRoles";
 import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 
@@ -691,6 +692,7 @@ export default function LeadDetailPanel({
         preferShortLabels={preferShortLabels}
         variant={variant}
         showFullPageLink={showFullPageLink}
+        onLeadUpdated={onLeadUpdated}
       />
     );
   }
@@ -812,6 +814,16 @@ export default function LeadDetailPanel({
                     <EtTimeWithTooltip value={lead.sharedViewerAt} />
                   </p>
                 ) : null}
+                {canManageShareView && lead.sharedViewerUserId ? (
+                  <div className="basis-full">
+                    <ShareViewerStatusControls
+                      lead={lead}
+                      onLeadUpdated={onLeadUpdated}
+                      workflowTagLookup={workflowTagLookup}
+                      preferShortLabels={preferShortLabels}
+                    />
+                  </div>
+                ) : null}
                 <p className="text-zinc-600 dark:text-zinc-400">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">Sale created:</span>{" "}
                   <EtTimeWithTooltip value={lead.createdAt} />
@@ -896,6 +908,20 @@ export default function LeadDetailPanel({
             ) : null}
           </div>
         </div>
+
+        {lead.createdFromLeadId ? (
+          <div className="border-b border-emerald-200 bg-emerald-50 px-5 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+            <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">
+              Created from shared lead
+            </p>
+            <Link
+              href={`/leads/${lead.createdFromLeadId}`}
+              className="mt-0.5 inline-block text-sm font-semibold text-emerald-800 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-950 dark:text-emerald-200 dark:hover:text-emerald-50"
+            >
+              {lead.createdFromLeadName || `Lead #${lead.createdFromLeadId}`}
+            </Link>
+          </div>
+        ) : null}
 
         {viewOnlyShare ? (
           <div className="border-b border-sky-200 bg-sky-50 px-5 py-3 dark:border-sky-900/50 dark:bg-sky-950/30">

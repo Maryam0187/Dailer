@@ -1,6 +1,8 @@
 import db from "@/server/db";
 import { maskPhoneLastFour, shouldRedactLeadPhones } from "@/lib/maskPhone";
 import {
+  canSeeSharedLeadOrigin,
+  canSeeShareViewerStatus,
   canViewLeadPaymentChargeInfo,
   isViewOnlySharedViewer,
   shouldHideLeadNotes,
@@ -56,11 +58,27 @@ export const leadProcessorUserInclude = {
   required: false,
 };
 
+export const leadCreatedFromInclude = {
+  model: db.Lead,
+  as: "createdFromLead",
+  attributes: ["id", "fullName"],
+  required: false,
+};
+
+export const leadSharedCreatedInclude = {
+  model: db.Lead,
+  as: "sharedCreatedLead",
+  attributes: ["id", "fullName"],
+  required: false,
+};
+
 export const leadListIncludes = [
   leadAssignedUserInclude,
   leadCreatedByInclude,
   leadProcessorUserInclude,
   leadSharedViewerInclude,
+  leadCreatedFromInclude,
+  leadSharedCreatedInclude,
 ];
 
 export function serializeLead(
@@ -75,6 +93,8 @@ export function serializeLead(
   const paymentChargeVisible = canViewLeadPaymentChargeInfo(viewerRole);
   const viewOnlyShare = isViewOnlySharedViewer(lead, viewerRole, viewerId);
   const isAdmin = viewerRole === "admin";
+  const showShareStatus = canSeeShareViewerStatus(lead, viewerRole, viewerId);
+  const showShareOrigin = canSeeSharedLeadOrigin(lead, viewerRole, viewerId);
   const callLogsCountRaw =
     extras?.callLogsCount != null ? extras.callLogsCount : lead.callLogsCount;
   const callLogsCount =
@@ -143,6 +163,19 @@ export function serializeLead(
           sharedViewerUserId: lead.sharedViewerUserId ?? null,
           sharedViewerUsername: lead.sharedViewer?.username ?? null,
           sharedViewerAt: lead.sharedViewerAt ?? null,
+        }
+      : {}),
+    ...(showShareStatus
+      ? {
+          sharedViewerStatus: lead.sharedViewerStatus || null,
+          sharedCreatedLeadId: lead.sharedCreatedLeadId ?? null,
+          sharedCreatedLeadName: lead.sharedCreatedLead?.fullName || null,
+        }
+      : {}),
+    ...(showShareOrigin
+      ? {
+          createdFromLeadId: lead.createdFromLeadId,
+          createdFromLeadName: lead.createdFromLead?.fullName || null,
         }
       : {}),
     viewOnlyShare,

@@ -13,6 +13,11 @@ export const WORKFLOW_TAG_SEEDS = [
   { category: "payment", tagKey: "e_check", fullLabel: "E-check", shortLabel: "ECK", tone: "yellow", sortOrder: 15 },
   { category: "payment", tagKey: "card", fullLabel: "Card", shortLabel: "Card", tone: "indigo", sortOrder: 20 },
   { category: "payment", tagKey: "pos_link", fullLabel: "POS Link", shortLabel: "POS", tone: "fuchsia", sortOrder: 30 },
+  { category: "share", tagKey: "pending", fullLabel: "Pending", shortLabel: "Pnd", tone: "zinc", sortOrder: 10 },
+  { category: "share", tagKey: "in_progress", fullLabel: "In progress", shortLabel: "IP", tone: "sky", sortOrder: 15 },
+  { category: "share", tagKey: "cancelled", fullLabel: "Cancelled", shortLabel: "Cxl", tone: "red", sortOrder: 20 },
+  { category: "share", tagKey: "no_contact", fullLabel: "No contact", shortLabel: "NC", tone: "amber", sortOrder: 30 },
+  { category: "share", tagKey: "lead_created", fullLabel: "Lead created", shortLabel: "New", tone: "emerald", sortOrder: 40 },
 ];
 
-export const WORKFLOW_TAG_CATEGORIES = new Set(["phase", "progress", "contact", "payment"]);
+export const WORKFLOW_TAG_CATEGORIES = new Set(["phase", "progress", "contact", "payment", "share"]);

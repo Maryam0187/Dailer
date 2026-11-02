@@ -6,6 +6,8 @@ import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
 import { andWhereClause, resolveLeadsListWhere } from "@/server/leads/leadAccess";
 import { leadListIncludes } from "@/server/leads/serializeLead";
 import { LEAD_CONTACT_TAG_VALUES } from "@/lib/leadWorkflow";
+import { SHARE_VIEWER_STATUS_VALUES, shareViewerStatusLabel } from "@/lib/shareViewerStatus";
+import { getWorkflowTagRegistry, workflowTagFullLabel } from "@/server/workflowTags/registry";
 import { getStateByCode } from "@/lib/usStates";
 import { formatLeadService } from "@/lib/leadService";
 import { stripHtml } from "@/lib/richText";
@@ -99,6 +101,14 @@ export async function GET(req) {
     where = andWhereClause(where, dateRangeWhereOn(field, fromDate, toDate));
   }
 
+  const sharedViewerStatus = String(searchParams.get("sharedViewerStatus") || "").trim();
+  if (sharedViewerStatus) {
+    if (!SHARE_VIEWER_STATUS_VALUES.has(sharedViewerStatus)) {
+      return NextResponse.json({ error: "Invalid sharedViewerStatus" }, { status: 400 });
+    }
+    where = andWhereClause(where, { sharedViewerStatus });
+  }
+
   const leadContactTag = searchParams.get("leadContactTag");
   if (leadContactTag) {
     if (!LEAD_CONTACT_TAG_VALUES.has(leadContactTag)) {
@@ -127,6 +137,7 @@ export async function GET(req) {
     });
   }
 
+  const tagRegistry = await getWorkflowTagRegistry();
   const leads = await db.Lead.findAll({
     where,
     include: leadListIncludes,
@@ -146,6 +157,14 @@ export async function GET(req) {
     Zip: lead.zipCode || "",
     Service: formatLeadService(lead),
     Status: lead.leadPhase || "",
+    "Share status": lead.sharedViewerStatus
+      ? workflowTagFullLabel(
+          tagRegistry,
+          "share",
+          lead.sharedViewerStatus,
+          shareViewerStatusLabel(lead.sharedViewerStatus),
+        )
+      : "",
     "Sale created": formatIsoDate(lead.createdAt),
     "Last updated": formatIsoDate(lead.updatedAt),
     "Lead notes": stripHtml(lead.notes || ""),

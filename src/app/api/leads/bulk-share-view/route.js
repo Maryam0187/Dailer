@@ -49,7 +49,7 @@ export async function POST(req) {
 
   const leads = await db.Lead.findAll({
     where: { id: { [Op.in]: leadIds } },
-    attributes: ["id", "fullName", "sharedViewerUserId"],
+    attributes: ["id", "fullName", "sharedViewerUserId", "leadPhase", "sharedCreatedLeadId"],
   });
   const leadById = new Map(leads.map((lead) => [lead.id, lead]));
 

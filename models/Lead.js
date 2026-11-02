@@ -96,6 +96,32 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      /**
+       * Share-user tracking only. Visible to admin and sharedViewerUserId.
+       * Cleared when the share is revoked. Does not change leadPhase.
+       */
+      sharedViewerStatus: {
+        type: DataTypes.ENUM("pending", "in_progress", "cancelled", "no_contact", "lead_created"),
+        allowNull: true,
+      },
+      /** New lead created from this shared lead. Kept after the share is revoked. */
+      sharedCreatedLeadId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Leads", key: "id" },
+      },
+      /** Set on the new lead. Points at the shared lead it was created from. */
+      createdFromLeadId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Leads", key: "id" },
+      },
+      /** Share user who could see the origin marker, even if an admin clicked Create lead. */
+      createdFromSharedViewerUserId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
       processorUserId: {
         type: DataTypes.INTEGER,
         allowNull: true,
@@ -234,6 +260,9 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["phone"] },
         { fields: ["assignedUserId"] },
         { fields: ["sharedViewerUserId"] },
+        { fields: ["sharedViewerStatus"] },
+        { fields: ["createdFromLeadId"], unique: true },
+        { fields: ["sharedCreatedLeadId"], unique: true },
         { fields: ["processorUserId"] },
         { fields: ["status"] },
         { fields: ["createdByUserId"] },
@@ -252,6 +281,12 @@ module.exports = (sequelize, DataTypes) => {
   Lead.associate = (models) => {
     Lead.belongsTo(models.User, { as: "assignedUser", foreignKey: "assignedUserId" });
     Lead.belongsTo(models.User, { as: "sharedViewer", foreignKey: "sharedViewerUserId" });
+    Lead.belongsTo(models.User, {
+      as: "createdFromSharedViewer",
+      foreignKey: "createdFromSharedViewerUserId",
+    });
+    Lead.belongsTo(models.Lead, { as: "createdFromLead", foreignKey: "createdFromLeadId" });
+    Lead.belongsTo(models.Lead, { as: "sharedCreatedLead", foreignKey: "sharedCreatedLeadId" });
     Lead.belongsTo(models.User, { as: "processorUser", foreignKey: "processorUserId" });
     Lead.belongsTo(models.User, { as: "createdBy", foreignKey: "createdByUserId" });
     Lead.belongsTo(models.CallLog, { as: "createdFromCall", foreignKey: "createdFromCallLogId" });

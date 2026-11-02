@@ -1,6 +1,22 @@
 import db from "@/server/db";
 import { createLeadUpdate } from "@/server/leads/leadUpdates";
 import { logLeadUserActivity } from "@/server/activity/logLeadActivity";
+import { initialSharedViewerStatus } from "@/lib/shareViewerStatus";
+
+function hasLoaded(lead, key) {
+  return lead?.dataValues && Object.prototype.hasOwnProperty.call(lead.dataValues, key);
+}
+
+async function statusForNewShare(lead) {
+  let createdId = hasLoaded(lead, "sharedCreatedLeadId") ? lead.sharedCreatedLeadId : undefined;
+  if (createdId === undefined) {
+    const row = await db.Lead.findByPk(lead.id, {
+      attributes: ["sharedCreatedLeadId"],
+    });
+    createdId = row?.sharedCreatedLeadId ?? null;
+  }
+  return initialSharedViewerStatus({ sharedCreatedLeadId: createdId });
+}
 
 /**
  * Set or clear sharedViewerUserId (does not change assignedUserId / createdByUserId).
@@ -59,13 +75,13 @@ export async function applySharedViewerChange({
       : `Shared view with ${nextName}`;
   }
 
-  await lead.update(
-    {
-      sharedViewerUserId: normalizedNext,
-      sharedViewerAt: normalizedNext == null ? null : new Date(),
-    },
-    { silent: true },
-  );
+  const sharePatch = {
+    sharedViewerUserId: normalizedNext,
+    sharedViewerAt: normalizedNext == null ? null : new Date(),
+    sharedViewerStatus: normalizedNext == null ? null : await statusForNewShare(lead),
+  };
+
+  await lead.update(sharePatch, { silent: true });
 
   await createLeadUpdate({
     leadId: lead.id,

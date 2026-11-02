@@ -28,6 +28,7 @@ import {
 import { Op, Sequelize } from "sequelize";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
+import { SHARE_VIEWER_STATUS_VALUES } from "@/lib/shareViewerStatus";
 import { syncLeadCustomer } from "@/server/customers/syncCustomer";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7"]);
@@ -338,6 +339,14 @@ export async function GET(req) {
 
   if (leadPhase) {
     where.leadPhase = leadPhase;
+  }
+
+  const sharedViewerStatus = String(searchParams.get("sharedViewerStatus") || "").trim();
+  if (sharedViewerStatus && onSharedTab) {
+    if (!SHARE_VIEWER_STATUS_VALUES.has(sharedViewerStatus)) {
+      return NextResponse.json({ error: "Invalid sharedViewerStatus" }, { status: 400 });
+    }
+    where = andWhereClause(where, { sharedViewerStatus });
   }
 
   const leadContactTag = searchParams.get("leadContactTag");

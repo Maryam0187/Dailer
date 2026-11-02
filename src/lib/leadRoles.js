@@ -134,9 +134,36 @@ export function isViewOnlySharedViewer(lead, viewerRole, viewerId = null) {
   return true;
 }
 
+/** Share status on a shared lead — admin and that lead's share user only. */
+export function canSeeShareViewerStatus(lead, viewerRole, viewerId = null) {
+  if (lead?.sharedViewerUserId == null) return false;
+  if (viewerRole === "admin") return true;
+  const id = Number(viewerId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  return Number(lead.sharedViewerUserId) === id;
+}
+
+/**
+ * "Created from shared lead" on the new lead — admin and the share user the
+ * original lead was shared with. The original agent, supervisor, and creator do not.
+ */
+export function canSeeSharedLeadOrigin(lead, viewerRole, viewerId = null) {
+  if (lead?.createdFromLeadId == null) return false;
+  if (viewerRole === "admin") return true;
+  const id = Number(viewerId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  return Number(lead.createdFromSharedViewerUserId) === id;
+}
+
 /** Share-view audit lines on the lead timeline — admin only. */
 export function isAdminOnlySharedViewActivityBody(body) {
   const text = String(body || "").trim();
   if (!text) return false;
-  return /^Shared view with\b/i.test(text) || /^Shared view cleared\b/i.test(text);
+  return (
+    /^Shared view with\b/i.test(text) ||
+    /^Shared view cleared\b/i.test(text) ||
+    /^Share status:/i.test(text) ||
+    /^Lead created from this shared lead\b/i.test(text) ||
+    /^Created from shared lead\b/i.test(text)
+  );
 }

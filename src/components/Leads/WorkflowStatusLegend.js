@@ -4,7 +4,7 @@ import { WORKFLOW_BADGE_CLASS } from "@/lib/leadWorkflow";
 import WorkflowSwatch from "@/components/Leads/WorkflowSwatch";
 import { WORKFLOW_TAG_CATEGORY_LABELS } from "@/lib/workflowTagLabels";
 
-const CATEGORY_ORDER = ["phase", "progress", "contact", "payment"];
+const CATEGORY_ORDER = ["phase", "progress", "contact", "payment", "share"];
 
 function groupWorkflowTags(tags) {
   const grouped = {};
@@ -25,6 +25,18 @@ function LegendItem({ tag, category, preferShortLabels }) {
   const tone = tag.tone || "zinc";
   const displayLabel = preferShortLabels ? tag.shortLabel : tag.fullLabel;
   const tooltipLabel = preferShortLabels ? tag.shortLabel : tag.fullLabel;
+  if (category === "share") {
+    return (
+      <span title={tag.fullLabel}>
+        <span
+          className={`inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${WORKFLOW_BADGE_CLASS[tone] || WORKFLOW_BADGE_CLASS.zinc}`}
+        >
+          {tag.shortLabel || displayLabel}
+        </span>
+      </span>
+    );
+  }
+
   if (category === "phase") {
     return (
       <span title={tooltipLabel}>
