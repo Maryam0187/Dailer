@@ -1554,7 +1554,9 @@ export default function LeadsClient({
                   <option key={option.id} value={option.id} title={option.label}>
                     {option.id === "all"
                       ? option.label
-                      : option.shortLabel || option.label}
+                      : preferShortLabels
+                        ? option.shortLabel || option.label
+                        : option.label}
                   </option>
                 ))}
               </select>
@@ -2211,7 +2213,7 @@ export default function LeadsClient({
               <th className={`${tableHeadClass} max-w-[110px]`}>Service</th>
               <th className={`${tableHeadClass} max-w-[140px]`}>Status</th>
               {showShareStatusColumn ? (
-                <th className={`${tableHeadClass} w-[92px]`}>Share status</th>
+                <th className={`${tableHeadClass} ${preferShortLabels ? "w-[92px]" : "w-[124px]"}`}>Share status</th>
               ) : null}
               <th className={`${tableHeadClass} max-w-[100px]`}>Location</th>
               <th className={`${tableHeadClass} w-16 max-w-[72px] text-right`}>Calls</th>
@@ -2315,10 +2317,11 @@ export default function LeadsClient({
                     <StatusPill lead={lead} workflowTagLookup={workflowTagLookup} preferShortLabels={preferShortLabels} />
                   </td>
                   {showShareStatusColumn ? (
-                    <td className={`${tableCellClass} w-[92px]`}>
+                    <td className={`${tableCellClass} ${preferShortLabels ? "w-[92px]" : "w-[124px]"}`}>
                       <ShareStatusSelect
                         lead={lead}
                         workflowTagLookup={workflowTagLookup}
+                        preferShortLabels={preferShortLabels}
                         onLeadUpdated={(updated) => {
                           handleLeadUpdated(updated);
                           if (

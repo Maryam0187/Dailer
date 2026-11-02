@@ -41,7 +41,12 @@ export function shareStatusLabels(status, workflowTagLookup) {
   return { full, short, tone: workflowTagTone(workflowTagLookup, "share", status, meta.tone) };
 }
 
-export function ShareStatusBadge({ status, workflowTagLookup }) {
+function shareStatusVisibleLabel(labels, preferShortLabels) {
+  if (!labels) return "";
+  return preferShortLabels ? labels.short : labels.full;
+}
+
+export function ShareStatusBadge({ status, workflowTagLookup, preferShortLabels = true }) {
   const labels = shareStatusLabels(status, workflowTagLookup);
   if (!labels) return <span className="text-zinc-400 dark:text-zinc-500">—</span>;
   return (
@@ -49,12 +54,12 @@ export function ShareStatusBadge({ status, workflowTagLookup }) {
       title={labels.full}
       className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${WORKFLOW_BADGE_CLASS[labels.tone] || WORKFLOW_BADGE_CLASS.zinc}`}
     >
-      {labels.short}
+      {shareStatusVisibleLabel(labels, preferShortLabels)}
     </span>
   );
 }
 
-export function ShareStatusSelect({ lead, workflowTagLookup, onLeadUpdated }) {
+export function ShareStatusSelect({ lead, workflowTagLookup, onLeadUpdated, preferShortLabels = true }) {
   const [status, setStatus] = useState(lead?.sharedViewerStatus || "pending");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -92,7 +97,13 @@ export function ShareStatusSelect({ lead, workflowTagLookup, onLeadUpdated }) {
   }
 
   if (locked) {
-    return <ShareStatusBadge status="lead_created" workflowTagLookup={workflowTagLookup} />;
+    return (
+      <ShareStatusBadge
+        status="lead_created"
+        workflowTagLookup={workflowTagLookup}
+        preferShortLabels={preferShortLabels}
+      />
+    );
   }
 
   const current = shareStatusLabels(status, workflowTagLookup);
@@ -122,7 +133,7 @@ export function ShareStatusSelect({ lead, workflowTagLookup, onLeadUpdated }) {
             value={option.value}
             style={{ color: color.text, backgroundColor: color.background, fontWeight: 600 }}
           >
-            {labels?.short || option.shortLabel}
+            {shareStatusVisibleLabel(labels, preferShortLabels) || option.shortLabel}
           </option>
         );
       })}
@@ -226,7 +237,11 @@ export default function ShareViewerStatusControls({
             Share status
           </label>
           {locked ? (
-            <ShareStatusBadge status="lead_created" workflowTagLookup={workflowTagLookup} />
+            <ShareStatusBadge
+              status="lead_created"
+              workflowTagLookup={workflowTagLookup}
+              preferShortLabels={preferShortLabels}
+            />
           ) : (
             <select
               id={`share-status-${lead.id}`}
@@ -242,11 +257,7 @@ export default function ShareViewerStatusControls({
               {MANUAL_SHARE_VIEWER_STATUSES.map((option) => {
                 const labels = shareStatusLabels(option.value, workflowTagLookup);
                 const color = shareStatusColor(labels?.tone);
-                const text = preferShortLabels
-                  ? labels?.short
-                  : labels && labels.short !== labels.full
-                    ? `${labels.full} (${labels.short})`
-                    : labels?.full;
+                const text = shareStatusVisibleLabel(labels, preferShortLabels);
                 return (
                   <option
                     key={option.value}

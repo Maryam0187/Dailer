@@ -31,7 +31,7 @@ function LegendItem({ tag, category, preferShortLabels }) {
         <span
           className={`inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${WORKFLOW_BADGE_CLASS[tone] || WORKFLOW_BADGE_CLASS.zinc}`}
         >
-          {tag.shortLabel || displayLabel}
+          {displayLabel}
         </span>
       </span>
     );
