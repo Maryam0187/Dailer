@@ -25,16 +25,11 @@ function rowAgeMs(row) {
 function serializeActiveCall(row, { invited = false } = {}) {
   const status = String(row.status || "").toLowerCase();
   const isZoom = row.voiceProvider === "zoom";
-  // Zoom: only count talk time after Soft Embed reports connected — not dial-click wait.
-  const talkStartedAt = isZoom
-    ? row.zoomConnectedAt || null
-    : row.createdAt ?? null;
-  const startedAt = talkStartedAt || row.createdAt || null;
-  const startedMs = talkStartedAt ? new Date(talkStartedAt).getTime() : null;
+  // Count from the dial click, including ring time before answer.
+  const startedAt = row.createdAt ?? null;
+  const startedMs = startedAt ? new Date(startedAt).getTime() : null;
   let durationSeconds = null;
-  if (isZoom && !row.zoomConnectedAt) {
-    durationSeconds = 0;
-  } else if (Number.isFinite(startedMs) && startedMs > 0) {
+  if (Number.isFinite(startedMs) && startedMs > 0) {
     durationSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
   }
   return {

@@ -37,6 +37,17 @@ async function refreshMetrics(call) {
   }
 }
 
+function longestDuration(...values) {
+  let best = null;
+  for (const value of values) {
+    const n = value == null || value === "" ? null : Number(value);
+    if (!Number.isFinite(n) || n < 0) continue;
+    const rounded = Math.round(n);
+    if (best == null || rounded > best) best = rounded;
+  }
+  return best;
+}
+
 function buildEventUpdates(call, type, data, parties, ourLine, eventAt) {
   const updates = {};
   if (parties.fromNumber && !call.fromNumber) updates.fromNumber = parties.fromNumber;
@@ -56,35 +67,27 @@ function buildEventUpdates(call, type, data, parties, ourLine, eventAt) {
 
   if (type === "zp-call-ended-event") {
     updates.status = mapZoomEndStatus(data.result);
-    if (call.durationSeconds == null && call.zoomConnectedAt) {
-      const dur = durationSecondsBetween(call.zoomConnectedAt, eventAt);
-      if (dur != null) {
-        updates.durationSeconds = dur;
-        updates.customerDurationSeconds = dur;
-      }
+    // Dial click through hangup, including ring time before the callee answers.
+    const dur = durationSecondsBetween(call.createdAt, eventAt);
+    if (dur != null) {
+      updates.durationSeconds = dur;
+      updates.customerDurationSeconds = dur;
     }
   }
 
   if (type === "zp-call-log-completed-event") {
     if (data.callLogId != null) updates.externalCallLogId = String(data.callLogId);
     updates.status = mapZoomLogResultStatus(data.result);
-    const resultText = String(data.result || "");
-    const wasConnected =
-      Boolean(call.zoomConnectedAt) || /call connected|answered/i.test(resultText);
-    const dur = parseZoomDurationSeconds(data.duration);
-    // Only credit talk minutes after a real connect — not dial/ring/failed Soft Embed time.
-    if (wasConnected && dur != null) {
+    const fromDial =
+      call.durationSeconds == null ? durationSecondsBetween(call.createdAt, eventAt) : null;
+    const dur = longestDuration(
+      call.durationSeconds,
+      fromDial,
+      parseZoomDurationSeconds(data.duration),
+    );
+    if (dur != null) {
       updates.durationSeconds = dur;
       updates.customerDurationSeconds = dur;
-    } else if (wasConnected && call.durationSeconds == null && call.zoomConnectedAt) {
-      const fallback = durationSecondsBetween(call.zoomConnectedAt, eventAt);
-      if (fallback != null) {
-        updates.durationSeconds = fallback;
-        updates.customerDurationSeconds = fallback;
-      }
-    } else if (!wasConnected && call.durationSeconds == null) {
-      updates.durationSeconds = 0;
-      updates.customerDurationSeconds = 0;
     }
     if (parties.fromNumber) updates.fromNumber = parties.fromNumber;
     if (parties.toNumber && parties.toNumber !== "unknown") updates.toNumber = parties.toNumber;
@@ -179,16 +182,9 @@ export async function POST(req) {
     if (type === "zp-call-log-completed-event") {
       if (data.callLogId != null) createPayload.externalCallLogId = String(data.callLogId);
       createPayload.status = mapZoomLogResultStatus(data.result);
-      const resultText = String(data.result || "");
-      const wasConnected = /call connected|answered/i.test(resultText);
       const dur = parseZoomDurationSeconds(data.duration);
-      if (wasConnected && dur != null) {
-        createPayload.durationSeconds = dur;
-        createPayload.customerDurationSeconds = dur;
-      } else {
-        createPayload.durationSeconds = 0;
-        createPayload.customerDurationSeconds = 0;
-      }
+      createPayload.durationSeconds = dur != null ? dur : 0;
+      createPayload.customerDurationSeconds = createPayload.durationSeconds;
     }
 
     // Race: another session may have created the same externalCallId first.
