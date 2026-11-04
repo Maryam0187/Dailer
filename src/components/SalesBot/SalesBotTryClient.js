@@ -9,7 +9,7 @@ function nextId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
+export default function SalesBotTryClient({ botName = "Sales Assistant", botKey = "primary" }) {
   const [lines, setLines] = useState([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
@@ -62,7 +62,7 @@ export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start", state: null }),
+        body: JSON.stringify({ action: "start", state: null, botKey }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to start");
@@ -100,6 +100,7 @@ export default function SalesBotTryClient({ botName = "Sales Assistant" }) {
           action: "message",
           userText: spoken,
           state: stateRef.current,
+          botKey,
         }),
       });
       const json = await res.json().catch(() => ({}));

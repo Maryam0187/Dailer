@@ -11,6 +11,7 @@ import {
   getTeamTwilioContext,
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
+import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -93,6 +94,7 @@ export async function POST(req) {
     status: "initiated",
     callKind: isSalesBot ? "sales_bot" : lead ? "lead" : null,
     dialMode: isSalesBot ? "sales_bot" : "agent_first",
+    salesBotKey: isSalesBot ? normalizeSalesBotKey(body?.salesBotKey) : null,
     contactName: lead?.fullName?.trim() || null,
     city: lead?.city || null,
     state: lead?.state || null,

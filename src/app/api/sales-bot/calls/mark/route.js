@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
+import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,15 @@ export async function POST(req) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await call.update({ callKind: "sales_bot", dialMode: "sales_bot" });
-  return NextResponse.json({ ok: true, callId: call.id, callKind: "sales_bot" });
+  const updates = { callKind: "sales_bot", dialMode: "sales_bot" };
+  if (body?.salesBotKey != null && String(body.salesBotKey).trim()) {
+    updates.salesBotKey = normalizeSalesBotKey(body.salesBotKey);
+  }
+  await call.update(updates);
+  return NextResponse.json({
+    ok: true,
+    callId: call.id,
+    callKind: "sales_bot",
+    salesBotKey: updates.salesBotKey || call.salesBotKey || null,
+  });
 }

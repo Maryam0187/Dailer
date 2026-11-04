@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import SalesBotTryClient from "@/components/SalesBot/SalesBotTryClient";
 import SalesBotLiveCallClient from "@/components/SalesBot/SalesBotLiveCallClient";
 import SalesBotCallLogsClient from "@/components/SalesBot/SalesBotCallLogsClient";
@@ -49,8 +49,15 @@ function changeActionLabel(action) {
   }
 }
 
-export default function SalesBotSettingsClient({ isAdmin = false }) {
-  const [profile, setProfile] = useState({ name: "Sales Assistant", instructions: "" });
+function botQuery(botKey) {
+  return `bot=${encodeURIComponent(botKey)}`;
+}
+
+function SalesBotPanel({ isAdmin = false, botKey = "primary", onProfileName }) {
+  const fallbackName = botKey === "secondary" ? "Sales Bot 2" : "Sales Assistant";
+  const onProfileNameRef = useRef(onProfileName);
+  onProfileNameRef.current = onProfileName;
+  const [profile, setProfile] = useState({ name: fallbackName, instructions: "" });
   const [profileMeta, setProfileMeta] = useState({ updatedByUsername: null, updatedAt: null });
   const [examples, setExamples] = useState([]);
   const [exampleForm, setExampleForm] = useState(emptyExampleForm);
@@ -65,35 +72,37 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
 
   const loadTraining = useCallback(async () => {
     const [profileRes, examplesRes] = await Promise.all([
-      fetch("/api/sales-bot/profile", { credentials: "include" }),
-      fetch("/api/sales-bot/examples", { credentials: "include" }),
+      fetch(`/api/sales-bot/profile?${botQuery(botKey)}`, { credentials: "include" }),
+      fetch(`/api/sales-bot/examples?${botQuery(botKey)}`, { credentials: "include" }),
     ]);
     const profileJson = await profileRes.json().catch(() => ({}));
     const examplesJson = await examplesRes.json().catch(() => ({}));
     if (!profileRes.ok) throw new Error(profileJson?.error || "Failed to load prompt");
     if (!examplesRes.ok) throw new Error(examplesJson?.error || "Failed to load Q&A");
     const nextProfile = profileJson.profile || {};
+    const name = nextProfile.name || fallbackName;
     setProfile({
-      name: nextProfile.name || "Sales Assistant",
+      name,
       instructions: nextProfile.instructions || "",
     });
+    if (onProfileNameRef.current) onProfileNameRef.current(name);
     setProfileMeta({
       updatedByUsername: nextProfile.updatedByUsername || null,
       updatedAt: nextProfile.updatedAt || null,
     });
     setExamples(Array.isArray(examplesJson.examples) ? examplesJson.examples : []);
-  }, []);
+  }, [botKey, fallbackName]);
 
   const loadChanges = useCallback(async () => {
     if (!isAdmin) {
       setChanges([]);
       return;
     }
-    const res = await fetch("/api/sales-bot/changes", { credentials: "include" });
+    const res = await fetch(`/api/sales-bot/changes?${botQuery(botKey)}`, { credentials: "include" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to load changes");
     setChanges(Array.isArray(json.changes) ? json.changes : []);
-  }, [isAdmin]);
+  }, [isAdmin, botKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,15 +133,17 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({ ...profile, botKey }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save prompt");
       const next = json.profile || {};
+      const name = next.name || fallbackName;
       setProfile({
-        name: next.name || "Sales Assistant",
+        name,
         instructions: next.instructions || "",
       });
+      if (onProfileNameRef.current) onProfileNameRef.current(name);
       setProfileMeta({
         updatedByUsername: next.updatedByUsername || null,
         updatedAt: next.updatedAt || null,
@@ -158,7 +169,7 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
         method: isEdit ? "PATCH" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(exampleForm),
+        body: JSON.stringify({ ...exampleForm, botKey }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to save Q&A");
@@ -209,22 +220,22 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
         </p>
       ) : null}
 
-      <SalesBotLiveCallClient />
+      <SalesBotLiveCallClient salesBotKey={botKey} />
 
-      <SalesBotCallLogsClient isAdmin={isAdmin} />
+      <SalesBotCallLogsClient isAdmin={isAdmin} botKey={botKey} />
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Prompt</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Name and instructions for the SaaS pitch. The bot speaks from the start of every live call.
+          Name and instructions for this bot. It speaks from the start of every live call started on this tab.
         </p>
         <form className="mt-4 space-y-4" onSubmit={saveProfile}>
           <div>
-            <label className={labelClass} htmlFor="sales-bot-name">
+            <label className={labelClass} htmlFor={`sales-bot-name-${botKey}`}>
               Bot name
             </label>
             <input
-              id="sales-bot-name"
+              id={`sales-bot-name-${botKey}`}
               className={inputClass}
               value={profile.name}
               onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
@@ -232,11 +243,11 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
             />
           </div>
           <div>
-            <label className={labelClass} htmlFor="sales-bot-instructions">
+            <label className={labelClass} htmlFor={`sales-bot-instructions-${botKey}`}>
               Instructions / pitch
             </label>
             <textarea
-              id="sales-bot-instructions"
+              id={`sales-bot-instructions-${botKey}`}
               className={textareaClass}
               value={profile.instructions}
               onChange={(e) => setProfile((p) => ({ ...p, instructions: e.target.value }))}
@@ -266,11 +277,11 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
         </p>
         <form className="mt-4 space-y-3" onSubmit={saveExample}>
           <div>
-            <label className={labelClass} htmlFor="sales-bot-question">
+            <label className={labelClass} htmlFor={`sales-bot-question-${botKey}`}>
               If the customer says
             </label>
             <input
-              id="sales-bot-question"
+              id={`sales-bot-question-${botKey}`}
               className={inputClass}
               value={exampleForm.question}
               onChange={(e) => setExampleForm((f) => ({ ...f, question: e.target.value }))}
@@ -278,11 +289,11 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
             />
           </div>
           <div>
-            <label className={labelClass} htmlFor="sales-bot-answer">
+            <label className={labelClass} htmlFor={`sales-bot-answer-${botKey}`}>
               Bot should say
             </label>
             <textarea
-              id="sales-bot-answer"
+              id={`sales-bot-answer-${botKey}`}
               className={textareaClass}
               value={exampleForm.answer}
               onChange={(e) => setExampleForm((f) => ({ ...f, answer: e.target.value }))}
@@ -353,7 +364,7 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
         </ul>
       </section>
 
-      <SalesBotTryClient botName={profile.name} />
+      <SalesBotTryClient botName={profile.name} botKey={botKey} />
 
       {isAdmin ? (
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -371,6 +382,62 @@ export default function SalesBotSettingsClient({ isAdmin = false }) {
           </ul>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+const BOT_TABS = ["primary", "secondary"];
+
+export default function SalesBotSettingsClient({ isAdmin = false }) {
+  const [activeBot, setActiveBot] = useState("primary");
+  const [names, setNames] = useState({
+    primary: "Sales Assistant",
+    secondary: "Sales Bot 2",
+  });
+
+  return (
+    <div>
+      <div
+        className="mb-6 flex gap-2 border-b border-zinc-200 dark:border-zinc-800"
+        role="tablist"
+        aria-label="Sales bots"
+      >
+        {BOT_TABS.map((key) => {
+          const selected = activeBot === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setActiveBot(key)}
+              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold ${
+                selected
+                  ? "border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              }`}
+            >
+              {names[key]}
+            </button>
+          );
+        })}
+      </div>
+      {BOT_TABS.map((key) => (
+        <div
+          key={key}
+          role="tabpanel"
+          hidden={activeBot !== key}
+          className={activeBot === key ? undefined : "hidden"}
+        >
+          <SalesBotPanel
+            isAdmin={isAdmin}
+            botKey={key}
+            onProfileName={(name) => {
+              setNames((prev) => (prev[key] === name ? prev : { ...prev, [key]: name }));
+            }}
+          />
+        </div>
+      ))}
     </div>
   );
 }

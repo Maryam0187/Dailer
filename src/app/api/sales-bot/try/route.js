@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
+import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 import {
   continueSalesBotTurn,
   getOpenAiApiKey,
@@ -45,6 +46,7 @@ async function readTryRequest(req) {
       userText: String(form.get("userText") || ""),
       state,
       audio,
+      botKey: normalizeSalesBotKey(form.get("botKey")),
     };
   }
 
@@ -57,6 +59,7 @@ async function readTryRequest(req) {
     userText: String(src.userText || ""),
     state,
     audio: null,
+    botKey: normalizeSalesBotKey(src.botKey),
   };
 }
 
@@ -74,7 +77,7 @@ export async function POST(req) {
   const action = parsed.action;
 
   if (action === "start") {
-    const started = await startSalesBotTurn();
+    const started = await startSalesBotTurn(parsed.botKey);
     if (!started.ok) {
       return NextResponse.json(
         { error: started.error || "Failed to start" },
@@ -110,6 +113,7 @@ export async function POST(req) {
   const result = await continueSalesBotTurn({
     userText,
     state: parsed.state,
+    botKey: parsed.botKey,
   });
   if (!result.ok) {
     return NextResponse.json(

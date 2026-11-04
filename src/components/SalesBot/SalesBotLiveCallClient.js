@@ -15,7 +15,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default function SalesBotLiveCallClient() {
+export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
   const { beginSession, session, endCall, patchSession } = useActiveCall();
   const {
     ensureRegistered,
@@ -173,6 +173,7 @@ export default function SalesBotLiveCallClient() {
         toNumber: toDigits,
         intent: "sales_bot",
         dialMode: "sales_bot",
+        salesBotKey,
       });
       if (!result.ok) throw new Error(result.error || "Dial failed");
 
@@ -185,7 +186,7 @@ export default function SalesBotLiveCallClient() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callId, intent: "sales_bot" }),
+        body: JSON.stringify({ callId, intent: "sales_bot", salesBotKey }),
       }).catch(() => {});
 
       beginSession({
@@ -261,11 +262,11 @@ export default function SalesBotLiveCallClient() {
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <div>
-          <label className={labelClass} htmlFor="sales-bot-to">
+          <label className={labelClass} htmlFor={`sales-bot-to-${salesBotKey}`}>
             Phone number
           </label>
           <input
-            id="sales-bot-to"
+            id={`sales-bot-to-${salesBotKey}`}
             className={inputClass}
             value={toNumber}
             onChange={(e) => setToNumber(e.target.value)}

@@ -6,6 +6,8 @@ const {
   buildWelcomeGreeting,
   wrapPlainTextForTts,
   streamSalesOpenAiReply,
+  normalizeSalesBotKey,
+  defaultSalesBotName,
 } = require("./salesBotCore.cjs");
 
 const FALLBACK_SAY = "Sorry, I lost that for a second. Could you say that again?";
@@ -47,8 +49,9 @@ function parseState(raw) {
   };
 }
 
-async function startSalesBotTurn() {
-  const training = await loadSalesBotTrainingForPrompt();
+async function startSalesBotTurn(botKey) {
+  const key = normalizeSalesBotKey(botKey);
+  const training = await loadSalesBotTrainingForPrompt(key);
   const welcome = buildWelcomeGreeting(training.name);
   const state = {
     messages: [
@@ -62,12 +65,13 @@ async function startSalesBotTurn() {
     reply: wrapPlainTextForTts(welcome),
     opening: wrapPlainTextForTts(welcome),
     customerText: "",
-    botName: String(training?.name || "").trim() || "Sales Assistant",
+    botName: String(training?.name || "").trim() || defaultSalesBotName(key),
     state: serializeState(state),
   };
 }
 
-async function continueSalesBotTurn({ userText, state: rawState, signal }) {
+async function continueSalesBotTurn({ userText, state: rawState, signal, botKey }) {
+  const key = normalizeSalesBotKey(botKey);
   const user = String(userText || "").trim();
   if (!user) {
     return { ok: false, error: "Say something as the customer.", status: 400 };
@@ -75,7 +79,7 @@ async function continueSalesBotTurn({ userText, state: rawState, signal }) {
 
   let state = parseState(rawState);
   if (!state.messages.length) {
-    const started = await startSalesBotTurn();
+    const started = await startSalesBotTurn(key);
     if (!started.ok) return started;
     state = parseState(started.state);
   }
@@ -83,7 +87,7 @@ async function continueSalesBotTurn({ userText, state: rawState, signal }) {
   state.messages.push({ role: "user", content: user });
   state.messages = trimMessages(state.messages);
 
-  const training = await loadSalesBotTrainingForPrompt();
+  const training = await loadSalesBotTrainingForPrompt(key);
   let reply = "";
   try {
     reply = await streamSalesOpenAiReply({
@@ -104,7 +108,7 @@ async function continueSalesBotTurn({ userText, state: rawState, signal }) {
     ok: true,
     reply: spoken,
     customerText: user,
-    botName: String(training?.name || "").trim() || "Sales Assistant",
+    botName: String(training?.name || "").trim() || defaultSalesBotName(key),
     state: serializeState(state),
   };
 }

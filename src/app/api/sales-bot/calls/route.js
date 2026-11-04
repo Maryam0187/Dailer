@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import db from "@/server/db";
 import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
 import { dateRangeWhere } from "@/server/calls/aggregateMetrics";
+import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,7 @@ export async function GET(req) {
   const toDate = parseDateOnly(searchParams.get("toDate"));
   const view = String(searchParams.get("view") || "mine").trim().toLowerCase();
   const viewAll = view === "all" && authedUser.role === "admin";
+  const botKey = normalizeSalesBotKey(searchParams.get("bot"));
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
     return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
@@ -40,8 +42,15 @@ export async function GET(req) {
     return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
   }
 
+  const botScope =
+    botKey === "secondary"
+      ? { salesBotKey: "secondary" }
+      : { [Op.or]: [{ salesBotKey: "primary" }, { salesBotKey: null }] };
   let where = {
-    [Op.or]: [{ callKind: "sales_bot" }, { dialMode: "sales_bot" }],
+    [Op.and]: [
+      { [Op.or]: [{ callKind: "sales_bot" }, { dialMode: "sales_bot" }] },
+      botScope,
+    ],
   };
   if (!viewAll) {
     where = { [Op.and]: [where, { userId: authedUser.id }] };
@@ -55,8 +64,6 @@ export async function GET(req) {
     order: [["createdAt", "DESC"]],
     offset,
     limit: pageSize,
-    distinct: true,
-    col: "CallLog.id",
     attributes: [
       "id",
       "userId",
@@ -74,22 +81,22 @@ export async function GET(req) {
       "recordingDurationSeconds",
       "callKind",
       "dialMode",
+      "salesBotKey",
       "answeredBy",
       "conferenceName",
       "contactName",
       "createdAt",
       "updatedAt",
     ],
-    include:
-      viewAll
-        ? [
-            {
-              association: "user",
-              attributes: ["id", "username"],
-              required: false,
-            },
-          ]
-        : [],
+    include: viewAll
+      ? [
+          {
+            association: "user",
+            attributes: ["id", "username"],
+            required: false,
+          },
+        ]
+      : undefined,
   });
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize));
@@ -113,6 +120,7 @@ export async function GET(req) {
         recordingUrl: plain.recordingSid ? `/api/calls/recording/download/${plain.id}` : null,
         callKind: plain.callKind || "sales_bot",
         dialMode: plain.dialMode || "sales_bot",
+        salesBotKey: plain.salesBotKey || "primary",
         answeredBy: plain.answeredBy || null,
         conferenceName: plain.conferenceName || null,
         contactName: plain.contactName || null,

@@ -87,6 +87,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         defaultValue: "agent_first",
       },
+      /** Which Sales Bot tab started this call: primary | secondary. */
+      salesBotKey: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       /**
        * Twilio AMD AnsweredBy for Sales Bot (and similar):
        * human | machine_start | machine_end_* | fax | unknown

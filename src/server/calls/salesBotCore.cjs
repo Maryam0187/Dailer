@@ -16,7 +16,19 @@ const {
 } = require("./addressBotCore.cjs");
 
 const SALES_BOT_LABEL = "sales-bot";
+const SALES_BOT_KEY_PRIMARY = "primary";
+const SALES_BOT_KEY_SECONDARY = "secondary";
 const RELAY_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
+
+function normalizeSalesBotKey(value) {
+  return String(value || "").trim().toLowerCase() === SALES_BOT_KEY_SECONDARY
+    ? SALES_BOT_KEY_SECONDARY
+    : SALES_BOT_KEY_PRIMARY;
+}
+
+function defaultSalesBotName(botKey) {
+  return normalizeSalesBotKey(botKey) === SALES_BOT_KEY_SECONDARY ? "Sales Bot 2" : "Sales Assistant";
+}
 
 const DEFAULT_SALES_BOT_INSTRUCTIONS = [
   "You are a friendly SaaS sales assistant on a live phone call.",
@@ -125,19 +137,22 @@ function buildSystemPrompt(training = {}) {
   return parts.join(" ");
 }
 
-async function loadSalesBotTrainingForPrompt() {
+async function loadSalesBotTrainingForPrompt(botKey) {
+  const key = normalizeSalesBotKey(botKey);
+  const fallbackName = defaultSalesBotName(key);
   try {
     const db = require("../../../models");
     const profile = await db.SalesBotProfile.findOne({
-      order: [["id", "ASC"]],
-      attributes: ["name", "instructions"],
+      where: { botKey: key },
+      attributes: ["name", "instructions", "botKey"],
     });
     const examples = await db.SalesBotTrainingExample.findAll({
+      where: { botKey: key },
       order: [["id", "ASC"]],
       attributes: ["question", "answer"],
     });
     return {
-      name: profile?.name || "Sales Assistant",
+      name: profile?.name || fallbackName,
       instructions: profile?.instructions || "",
       examples: (examples || []).map((row) => ({
         question: row.question,
@@ -146,7 +161,7 @@ async function loadSalesBotTrainingForPrompt() {
     };
   } catch (err) {
     console.error("[sales-bot] failed to load training profile:", err?.message || err);
-    return { name: "Sales Assistant", instructions: "", examples: [] };
+    return { name: fallbackName, instructions: "", examples: [] };
   }
 }
 
@@ -248,6 +263,10 @@ async function streamSalesOpenAiReply({ messages, onToken, signal }) {
 
 module.exports = {
   SALES_BOT_LABEL,
+  SALES_BOT_KEY_PRIMARY,
+  SALES_BOT_KEY_SECONDARY,
+  normalizeSalesBotKey,
+  defaultSalesBotName,
   DEFAULT_SALES_BOT_INSTRUCTIONS,
   getOpenAiApiKey,
   getSalesBotVoice,

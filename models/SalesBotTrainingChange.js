@@ -14,6 +14,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "Users", key: "id" },
       },
+      botKey: {
+        type: DataTypes.STRING(32),
+        allowNull: false,
+        defaultValue: "primary",
+      },
       action: {
         type: DataTypes.STRING(32),
         allowNull: false,

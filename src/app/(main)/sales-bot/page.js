@@ -17,8 +17,8 @@ export default async function SalesBotSettingsPage() {
           Sales Bot
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Train the SaaS telemarketing bot, then enter a number and Start AI Bot. You listen while the
-          AI pitches from the start of the call.
+          Each tab is a separate sales bot. Train its prompt and Q&amp;A, then enter a number and Start
+          AI Bot. You listen while that bot speaks from the start of the call.
         </p>
       </div>
       <SalesBotSettingsClient isAdmin={isAdmin} />

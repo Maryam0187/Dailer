@@ -9,6 +9,11 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      botKey: {
+        type: DataTypes.STRING(32),
+        allowNull: false,
+        defaultValue: "primary",
+      },
       question: {
         type: DataTypes.STRING(500),
         allowNull: false,

@@ -3,6 +3,7 @@ import db from "@/server/db";
 import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
 import {
   exampleUserInclude,
+  normalizeSalesBotKey,
   parseSalesBotExampleBody,
   recordSalesBotTrainingChange,
   serializeSalesBotExample,
@@ -35,6 +36,7 @@ export async function PATCH(req, { params }) {
   await row.update({ ...data, updatedBy: authedUser.id });
   await recordSalesBotTrainingChange({
     userId: authedUser.id,
+    botKey: normalizeSalesBotKey(row.botKey),
     action: "update_example",
     summary: `Q: ${row.question} A: ${row.answer}`,
   });
@@ -59,9 +61,11 @@ export async function DELETE(_req, { params }) {
   if (!row) return NextResponse.json({ error: "Example not found" }, { status: 404 });
 
   const summary = `Q: ${row.question} A: ${row.answer}`;
+  const botKey = normalizeSalesBotKey(row.botKey);
   await row.destroy();
   await recordSalesBotTrainingChange({
     userId: authedUser.id,
+    botKey,
     action: "delete_example",
     summary,
   });

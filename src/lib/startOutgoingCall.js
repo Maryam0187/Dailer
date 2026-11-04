@@ -1,6 +1,6 @@
 /**
  * POST /api/calls/start — agent-first lead dial (or legacy toNumber).
- * @param {{ leadId?: number, toNumber?: string, intent?: string, dialMode?: string }} params
+ * @param {{ leadId?: number, toNumber?: string, intent?: string, dialMode?: string, salesBotKey?: string }} params
  */
 export async function startOutgoingCall(params) {
   const leadId = typeof params === "object" && params != null ? params.leadId : undefined;
@@ -18,6 +18,7 @@ export async function startOutgoingCall(params) {
   if (typeof params === "object" && params != null) {
     if (params.intent) body.intent = String(params.intent).trim();
     if (params.dialMode) body.dialMode = String(params.dialMode).trim();
+    if (params.salesBotKey) body.salesBotKey = String(params.salesBotKey).trim();
   }
 
   const res = await fetch("/api/calls/start", {

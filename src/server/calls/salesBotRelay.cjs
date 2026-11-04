@@ -8,6 +8,7 @@ const {
   estimateSpeakMs,
 } = require("./salesBotCore.cjs");
 const { startSalesBotTurn, continueSalesBotTurn } = require("./salesBotTurn.cjs");
+const { normalizeSalesBotKey } = require("./salesBotCore.cjs");
 const {
   registerSalesBotSession,
   unregisterSalesBotSession,
@@ -41,6 +42,17 @@ function readQuery(req) {
 function applyTurnState(session, result) {
   if (!result?.state) return;
   session.messages = result.state.messages;
+}
+
+async function readCallBotKey(callId) {
+  try {
+    const db = require("../../../models");
+    const call = await db.CallLog.findByPk(callId, { attributes: ["id", "salesBotKey"] });
+    return normalizeSalesBotKey(call?.salesBotKey);
+  } catch (err) {
+    console.error("[sales-bot] failed to read call bot key:", err?.message || err);
+    return "primary";
+  }
 }
 
 function attachSalesBotRelay(server) {
@@ -103,7 +115,8 @@ function attachSalesBotRelay(server) {
       clearOpeningGuard();
       session.speaking = true;
       session.messages = [];
-      const started = await startSalesBotTurn();
+      if (!session.botKey) session.botKey = await readCallBotKey(session.callId);
+      const started = await startSalesBotTurn(session.botKey);
       if (!started.ok) {
         session.speaking = false;
         return { ok: false, error: started.error || "Failed to start sales bot" };
@@ -138,6 +151,7 @@ function attachSalesBotRelay(server) {
         userText,
         state: { messages: session.messages },
         signal: session.abort.signal,
+        botKey: session.botKey,
       });
 
       if (result?.aborted || session.closed) return;

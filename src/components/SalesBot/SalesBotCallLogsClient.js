@@ -21,7 +21,7 @@ function formatDuration(sec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default function SalesBotCallLogsClient({ isAdmin = false }) {
+export default function SalesBotCallLogsClient({ isAdmin = false, botKey = "primary" }) {
   const [calls, setCalls] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -44,6 +44,7 @@ export default function SalesBotCallLogsClient({ isAdmin = false }) {
         page: String(page),
         pageSize: String(PAGE_SIZE),
         view: isAdmin ? view : "mine",
+        bot: botKey,
       });
       const res = await fetch(`/api/sales-bot/calls?${qs}`, { credentials: "include" });
       const json = await res.json().catch(() => ({}));
@@ -67,7 +68,7 @@ export default function SalesBotCallLogsClient({ isAdmin = false }) {
     } finally {
       setLoading(false);
     }
-  }, [page, view, isAdmin]);
+  }, [page, view, isAdmin, botKey]);
 
   useEffect(() => {
     void load();
@@ -79,7 +80,7 @@ export default function SalesBotCallLogsClient({ isAdmin = false }) {
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Sales Bot call logs</h2>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Only calls started from Sales Bot. They do not appear in the main dialer call log.
+            Only calls started from this bot. They do not appear in the main dialer call log.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -134,7 +135,7 @@ export default function SalesBotCallLogsClient({ isAdmin = false }) {
 
       {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
-      ) : !calls.length ? (
+      ) : error ? null : !calls.length ? (
         <p className="text-sm text-zinc-500">No Sales Bot calls yet.</p>
       ) : (
         <>
