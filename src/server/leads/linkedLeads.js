@@ -15,7 +15,7 @@ import {
 
 function progressTagContainsLiteral(tag) {
   return Sequelize.literal(
-    `JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+    `JSON_CONTAINS(\`Lead\`.\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
   );
 }
 

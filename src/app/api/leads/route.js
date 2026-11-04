@@ -35,13 +35,13 @@ const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7"]);
 
 function progressTagContainsLiteral(tag) {
   return Sequelize.literal(
-    `JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+    `JSON_CONTAINS(\`Lead\`.\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
   );
 }
 
 function progressTagMissingLiteral(tag) {
   return Sequelize.literal(
-    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+    `NOT JSON_CONTAINS(\`Lead\`.\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
   );
 }
 

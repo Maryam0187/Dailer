@@ -12,7 +12,7 @@ import db from "@/server/db";
 /** Leads that do not have the given progress tag (JSON array column). */
 function progressTagMissingLiteral(tag) {
   return Sequelize.literal(
-    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+    `NOT JSON_CONTAINS(\`Lead\`.\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
   );
 }
 

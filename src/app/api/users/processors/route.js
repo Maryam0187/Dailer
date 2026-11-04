@@ -6,7 +6,7 @@ import { derivePresence } from "@/server/auth/presence";
 
 function progressTagMissingLiteral(tag) {
   return Sequelize.literal(
-    `NOT JSON_CONTAINS(\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
+    `NOT JSON_CONTAINS(\`Lead\`.\`leadProgressTags\`, ${db.sequelize.escape(JSON.stringify(tag))})`,
   );
 }
 
