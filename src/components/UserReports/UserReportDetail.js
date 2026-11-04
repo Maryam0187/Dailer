@@ -254,28 +254,26 @@ function TimelineWhen({ value, timeOnly }) {
   );
 }
 
-function isInstantInDateRange(value, fromDate, toDate) {
-  if (!value || !fromDate || !toDate) return false;
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return false;
-  const key = calendarDateInTimezone(d, ATTENDANCE_REPORT_TIMEZONE);
-  return key >= fromDate && key <= toDate;
-}
-
-function annotateLeadForRange(lead, fromDate, toDate) {
-  const createdInRange = isInstantInDateRange(lead.createdAt, fromDate, toDate);
-  const updatedInRange = isInstantInDateRange(lead.updatedAt, fromDate, toDate);
-  return { ...lead, createdInRange, updatedInRange };
-}
-
-function mergeLeadsById(createdRows, updatedRows, fromDate, toDate) {
+function mergeLeadsById(createdRows, updatedRows) {
+  const createdIds = new Set();
+  const updatedIds = new Set();
   const map = new Map();
-  for (const row of [...createdRows, ...updatedRows]) {
+  for (const row of createdRows) {
     if (!row?.id) continue;
+    createdIds.add(row.id);
+    if (!map.has(row.id)) map.set(row.id, row);
+  }
+  for (const row of updatedRows) {
+    if (!row?.id) continue;
+    updatedIds.add(row.id);
     if (!map.has(row.id)) map.set(row.id, row);
   }
   return [...map.values()]
-    .map((lead) => annotateLeadForRange(lead, fromDate, toDate))
+    .map((lead) => ({
+      ...lead,
+      createdInRange: createdIds.has(lead.id),
+      updatedInRange: updatedIds.has(lead.id),
+    }))
     .sort((a, b) => {
       const at = new Date(a.updatedAt || a.createdAt || 0).getTime();
       const bt = new Date(b.updatedAt || b.createdAt || 0).getTime();
@@ -283,7 +281,7 @@ function mergeLeadsById(createdRows, updatedRows, fromDate, toDate) {
     });
 }
 
-async function fetchLeadsByDateField({ userId, fromDate, toDate, dateField, signal }) {
+async function fetchCreatedLeads({ userId, fromDate, toDate, signal }) {
   const qs = new URLSearchParams({
     agentId: String(userId),
     page: "1",
@@ -292,9 +290,27 @@ async function fetchLeadsByDateField({ userId, fromDate, toDate, dateField, sign
   if (fromDate && toDate) {
     qs.set("fromDate", fromDate);
     qs.set("toDate", toDate);
-    qs.set("dateField", dateField);
+    qs.set("dateField", "created");
   }
   const res = await fetch(`/api/leads?${qs.toString()}`, {
+    credentials: "include",
+    signal,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error || "Failed to load leads");
+  return json.leads || [];
+}
+
+/** Leads this user edited. Not leads whose updatedAt changed because someone else saved them. */
+async function fetchUpdatedLeads({ userId, fromDate, toDate, signal }) {
+  const qs = new URLSearchParams({
+    pageSize: String(LEADS_FETCH_SIZE),
+  });
+  if (fromDate && toDate) {
+    qs.set("fromDate", fromDate);
+    qs.set("toDate", toDate);
+  }
+  const res = await fetch(`/api/users/${userId}/updated-leads?${qs.toString()}`, {
     credentials: "include",
     signal,
   });
@@ -720,22 +736,20 @@ export default function UserReportDetail({
       setLeadsError(null);
       try {
         const [createdRows, updatedRows] = await Promise.all([
-          fetchLeadsByDateField({
+          fetchCreatedLeads({
             userId: user.id,
             fromDate,
             toDate,
-            dateField: "created",
             signal,
           }),
-          fetchLeadsByDateField({
+          fetchUpdatedLeads({
             userId: user.id,
             fromDate,
             toDate,
-            dateField: "updated",
             signal,
           }),
         ]);
-        const merged = mergeLeadsById(createdRows, updatedRows, fromDate, toDate);
+        const merged = mergeLeadsById(createdRows, updatedRows);
         setAllLeads(merged);
         setOverviewLeadsTotal(merged.length);
         setLeadsPage(1);
@@ -803,23 +817,19 @@ export default function UserReportDetail({
         });
 
         const leadsPromise = Promise.all([
-          fetchLeadsByDateField({
+          fetchCreatedLeads({
             userId: user.id,
             fromDate,
             toDate,
-            dateField: "created",
             signal,
           }).catch(() => []),
-          fetchLeadsByDateField({
+          fetchUpdatedLeads({
             userId: user.id,
             fromDate,
             toDate,
-            dateField: "updated",
             signal,
           }).catch(() => []),
-        ]).then(([createdRows, updatedRows]) =>
-          mergeLeadsById(createdRows, updatedRows, fromDate, toDate),
-        );
+        ]).then(([createdRows, updatedRows]) => mergeLeadsById(createdRows, updatedRows));
 
         const metricsPromise = isAdmin
           ? fetch(
@@ -2114,7 +2124,8 @@ export default function UserReportDetail({
             <div className="min-w-0">
               <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Leads</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Leads this user created or updated in the selected range (Eastern dates).
+                Leads this user created, and leads this user edited, in the selected range (Eastern
+                dates).
               </p>
             </div>
             <PageNav
@@ -2214,8 +2225,9 @@ export default function UserReportDetail({
           {!leadsLoading && !leadsError && allLeads.length > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Showing {leads.length} of {leadsPagination.total} leads (created or updated in range;
-                up to {LEADS_FETCH_SIZE} each). Click a name to open the sale sidebar.
+                Showing {leads.length} of {leadsPagination.total} leads (created by this user, or
+                edited by this user; up to {LEADS_FETCH_SIZE} each). Click a name to open the sale
+                sidebar.
               </p>
               <PageNav
                 page={leadsPagination.page}
@@ -2250,7 +2262,12 @@ export default function UserReportDetail({
             setAllLeads((prev) =>
               prev.map((row) =>
                 row.id === updated.id
-                  ? annotateLeadForRange({ ...row, ...updated }, appliedFrom, appliedTo)
+                  ? {
+                      ...row,
+                      ...updated,
+                      createdInRange: row.createdInRange,
+                      updatedInRange: row.updatedInRange || isSelf,
+                    }
                   : row,
               ),
             );
