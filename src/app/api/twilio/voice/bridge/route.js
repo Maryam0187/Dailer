@@ -80,7 +80,7 @@ export async function POST(req) {
     String(callLog.dialMode || "").trim() === "sales_bot";
   const amdAttr =
     isSalesBot && baseUrl
-      ? ` machineDetection="Enable" amdStatusCallback="${escapeXmlAttr(
+      ? ` machineDetection="DetectMessageEnd" amdStatusCallback="${escapeXmlAttr(
           `${baseUrl}/api/twilio/sales-bot/amd?callId=${callId}`,
         )}" amdStatusCallbackMethod="POST"`
       : "";

@@ -10,7 +10,8 @@ import {
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
 import {
   isHumanAnsweredBy,
-  isMachineAnsweredBy,
+  isPendingAnsweredBy,
+  isVoicemailAnsweredBy,
   waitForAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
@@ -44,9 +45,8 @@ async function fetchCustomerLegStatus(call) {
 }
 
 /**
- * Attach Sales Bot once the customer leg is live and AMD is not a machine.
- * machine_start is the start of a voicemail or carrier greeting — do not speak yet.
- * A human, or unknown after the AMD wait, hears the short connect Say, then the AI.
+ * Attach Sales Bot once AMD says a person answered (or unknown).
+ * machine_start is not final — keep waiting. machine_end_* and fax do not get the bot.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -140,9 +140,9 @@ export async function POST(req) {
     );
   }
 
-  // AMD often arrives a few seconds after the leg is in-progress. Wait before any <Say>.
-  const answeredBy = await waitForAnsweredBy(call, { attempts: 16, delayMs: 500 });
-  if (isMachineAnsweredBy(answeredBy)) {
+  // DetectMessageEnd returns human quickly, or machine_end_* when the greeting finishes.
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 4, delayMs: 500 });
+  if (isVoicemailAnsweredBy(answeredBy)) {
     return NextResponse.json(
       {
         error: "Answering machine answered. The bot did not speak.",
@@ -151,6 +151,17 @@ export async function POST(req) {
         retryable: false,
       },
       { status: 422 },
+    );
+  }
+  if (isPendingAnsweredBy(answeredBy)) {
+    return NextResponse.json(
+      {
+        error: "Waiting to confirm a person answered…",
+        phase: "detecting",
+        answeredBy: answeredBy || null,
+        retryable: true,
+      },
+      { status: 409 },
     );
   }
 
