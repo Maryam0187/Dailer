@@ -8,7 +8,11 @@ import {
   removeLabeledParticipant,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import { isHumanAnsweredBy, waitForAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
+import {
+  isHumanAnsweredBy,
+  isMachineAnsweredBy,
+  waitForAnsweredBy,
+} from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import {
   estimateConnectSayMs,
@@ -40,9 +44,9 @@ async function fetchCustomerLegStatus(call) {
 }
 
 /**
- * Attach Sales Bot once the customer leg is live.
- * AMD is logged only (machine_start from carrier "please hold…" must not block forever).
- * Customer hears a short Twilio &lt;Say&gt; during upgrade; AI speaks after that buffer.
+ * Attach Sales Bot once the customer leg is live and AMD is not a machine.
+ * machine_start is the start of a voicemail or carrier greeting — do not speak yet.
+ * A human, or unknown after the AMD wait, hears the short connect Say, then the AI.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -136,8 +140,19 @@ export async function POST(req) {
     );
   }
 
-  // Log AMD if present; never hard-block on machine_start (carrier hold false positives).
-  const answeredBy = await waitForAnsweredBy(call, { attempts: 3, delayMs: 250 });
+  // AMD often arrives a few seconds after the leg is in-progress. Wait before any <Say>.
+  const answeredBy = await waitForAnsweredBy(call, { attempts: 16, delayMs: 500 });
+  if (isMachineAnsweredBy(answeredBy)) {
+    return NextResponse.json(
+      {
+        error: "Answering machine answered. The bot did not speak.",
+        phase: "machine",
+        answeredBy,
+        retryable: false,
+      },
+      { status: 422 },
+    );
+  }
 
   const alreadyConferenced = Boolean(String(call.conferenceName || "").trim());
   const sayMs = estimateConnectSayMs(SALES_BOT_CONNECT_SAY);
