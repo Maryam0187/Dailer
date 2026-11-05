@@ -84,7 +84,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
    */
   async function attachSalesBotWhenCustomerAnswers(callId, generation) {
     setBotStatus("waiting");
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 90; i++) {
       if (attachGenRef.current !== generation) return;
       if (Number(salesBotCallIdRef.current) !== Number(callId)) return;
 
@@ -116,7 +116,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         if (setCallMuted) setCallMuted(true);
         setBotStatus("live");
         setInfo(
-          "Customer line live — brief connect message, then AI greeting. You are muted; unmute to jump in.",
+          "Customer answered — AI is speaking. You are muted; unmute to jump in.",
         );
         return;
       }
@@ -124,14 +124,14 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
       if (res.status === 409 || json?.retryable) {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
-        if (phase === "ringing") {
-          setInfo("Ringing… AI waits until the customer line is answered.");
+        if (phase === "ringing" || phase === "detecting") {
+          setInfo("Bot is connected and silent. It speaks when a person answers.");
         } else if (phase === "connecting") {
-          setInfo("Customer answered — playing connect message, then AI speaks…");
+          setInfo("Answered — connecting the bot…");
         } else {
           setInfo(json?.error || "Waiting for customer answer…");
         }
-        await sleep(1500);
+        await sleep(phase === "ringing" ? 700 : 400);
         continue;
       }
 
@@ -202,7 +202,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Dialer opened — agent connecting and calling the customer (same as Quick Dial).");
+      setInfo("Calling the customer. The bot is connected and will speak when a person answers.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -255,9 +255,8 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Same as Quick Dial: start → dialer popup → agent connects → customer rings. When the line
-        is live, customer hears a short connect message while AI joins, then the bot greeting.
-        Normal dialer calls are never modified.
+        Start dials the customer right away. The bot is already connected and stays silent until a
+        person answers, then it speaks. Your browser line connects in the background so you can listen.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

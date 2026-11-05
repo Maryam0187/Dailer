@@ -95,8 +95,49 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
       Label: SALES_BOT_LABEL,
       Muted: "false",
       EarlyMedia: "false",
+      StartConferenceOnEnter: "true",
       EndConferenceOnExit: "false",
       Beep: "false",
+    },
+  );
+
+  return {
+    callSid: json.call_sid || json.callSid || null,
+    ...json,
+  };
+}
+
+/** Dial the customer into an existing Sales Bot conference. AMD is on; the bot stays silent until a person answers. */
+export async function dialSalesBotCustomer({
+  client,
+  conferenceSid,
+  toNumber,
+  fromNumber,
+  callId,
+  origin,
+}) {
+  const base = String(origin || "").replace(/\/$/, "");
+  const amdUrl = `${base}/api/twilio/sales-bot/amd?callId=${encodeURIComponent(String(callId))}`;
+  const statusUrl = `${base}/api/twilio/customer-leg-status?callId=${encodeURIComponent(String(callId))}`;
+  const json = await twilioFormPost(
+    client,
+    `/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`,
+    {
+      From: fromNumber,
+      To: toNumber,
+      Label: "customer",
+      Muted: "false",
+      EarlyMedia: "true",
+      StartConferenceOnEnter: "true",
+      EndConferenceOnExit: "true",
+      Beep: "false",
+      Timeout: "25",
+      MachineDetection: "DetectMessageEnd",
+      AmdStatusCallback: amdUrl,
+      AmdStatusCallbackMethod: "POST",
+      StatusCallback: statusUrl,
+      StatusCallbackMethod: "POST",
+      StatusCallbackEvent: "initiated ringing answered completed",
     },
   );
 

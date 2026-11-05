@@ -12,6 +12,8 @@ import {
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
+import { createConferenceName } from "@/server/calls/conferenceVoice";
+import { addSpeakingSalesBot, dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -115,6 +117,35 @@ export async function POST(req) {
   let agentLeg = null;
   try {
     const client = ctx.client;
+    if (isSalesBot) {
+      const conferenceName = createConferenceName({ userId: authedUser.id });
+      await call.update({ conferenceName });
+      try {
+        await addSpeakingSalesBot({
+          client,
+          conferenceSid: conferenceName,
+          origin: fallbackBaseUrl,
+          callId: call.id,
+        });
+      } catch (err) {
+        console.error("[sales-bot] attach at start failed:", err?.message || err);
+      }
+      try {
+        const customer = await dialSalesBotCustomer({
+          client,
+          conferenceSid: conferenceName,
+          toNumber: normalizedToNumber,
+          fromNumber,
+          callId: call.id,
+          origin: fallbackBaseUrl,
+        });
+        if (customer.callSid) {
+          await call.update({ customerCallSid: customer.callSid });
+        }
+      } catch (err) {
+        console.error("[sales-bot] customer dial at start failed:", err?.message || err);
+      }
+    }
     const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import {
+  buildConferenceTwiMl,
+  buildConferenceStatusCallbackUrl,
+  getRequestBaseUrlFromRequest,
+} from "@/server/calls/conferenceVoice";
+import { dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -37,7 +43,17 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: ["id", "toNumber", "fromNumber", "direction", "callKind", "dialMode"],
+    attributes: [
+      "id",
+      "userId",
+      "toNumber",
+      "fromNumber",
+      "direction",
+      "callKind",
+      "dialMode",
+      "conferenceName",
+      "customerCallSid",
+    ],
   });
 
   if (!callLog || callLog.direction !== "outbound") {
@@ -74,10 +90,41 @@ export async function POST(req) {
     ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : "";
 
-  // Sales Bot only: AMD attrs belong on <Number> (not <Dial>).
+  // Sales Bot: agent joins the conference the bot already entered at Start. Customer is dialed here.
   const isSalesBot =
     String(callLog.callKind || "").trim() === "sales_bot" ||
     String(callLog.dialMode || "").trim() === "sales_bot";
+  const salesConference = String(callLog.conferenceName || "").trim();
+  if (isSalesBot && salesConference) {
+    if (!String(callLog.customerCallSid || "").trim() && callerId && baseUrl) {
+      try {
+        const { client } = await getTwilioContextForUserId(callLog.userId);
+        const customer = await dialSalesBotCustomer({
+          client,
+          conferenceSid: salesConference,
+          toNumber: customerNumber,
+          fromNumber: callerId,
+          callId,
+          origin: baseUrl,
+        });
+        if (customer.callSid) {
+          await callLog.update({ customerCallSid: customer.callSid }).catch(() => {});
+        }
+      } catch (err) {
+        console.error("[sales-bot] customer dial failed:", err?.message || err);
+      }
+    }
+    const statusUrl = baseUrl ? buildConferenceStatusCallbackUrl(baseUrl) : "";
+    return twimlResponse(
+      buildConferenceTwiMl({
+        conferenceName: salesConference,
+        participant: "agent",
+        callerId,
+        statusCallbackUrl: statusUrl || undefined,
+      }),
+    );
+  }
+
   const amdAttr =
     isSalesBot && baseUrl
       ? ` machineDetection="DetectMessageEnd" amdStatusCallback="${escapeXmlAttr(
