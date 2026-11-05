@@ -11,7 +11,6 @@ import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
 import {
   isHumanAnsweredBy,
   isPendingAnsweredBy,
-  isVoicemailAnsweredBy,
   waitForAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
@@ -45,8 +44,9 @@ async function fetchCustomerLegStatus(call) {
 }
 
 /**
- * Attach Sales Bot once AMD says a person answered (or unknown).
- * machine_start is not final — keep waiting. machine_end_* and fax do not get the bot.
+ * Attach Sales Bot once the greeting is over.
+ * machine_start means the greeting is still playing — keep waiting.
+ * human, unknown, and machine_end_* (beep already happened) get the bot. Fax does not.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -140,12 +140,12 @@ export async function POST(req) {
     );
   }
 
-  // DetectMessageEnd returns human quickly, or machine_end_* when the greeting finishes.
+  // DetectMessageEnd returns human quickly, or machine_end_* after the greeting beep.
   const answeredBy = await waitForAnsweredBy(call, { attempts: 4, delayMs: 500 });
-  if (isVoicemailAnsweredBy(answeredBy)) {
+  if (String(answeredBy || "").trim().toLowerCase() === "fax") {
     return NextResponse.json(
       {
-        error: "Answering machine answered. The bot did not speak.",
+        error: "Fax answered. The bot did not speak.",
         phase: "machine",
         answeredBy,
         retryable: false,

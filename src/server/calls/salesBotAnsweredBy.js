@@ -13,14 +13,6 @@ export function isMachineAnsweredBy(answeredBy) {
   return v.startsWith("machine") || v === "fax";
 }
 
-/** Voicemail greeting finished, or a fax. machine_start is not final. */
-export function isVoicemailAnsweredBy(answeredBy) {
-  const v = String(answeredBy || "")
-    .trim()
-    .toLowerCase();
-  return v.startsWith("machine_end") || v === "fax";
-}
-
 /** No AMD result yet, or only the early machine_start signal. */
 export function isPendingAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
