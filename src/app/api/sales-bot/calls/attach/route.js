@@ -8,11 +8,7 @@ import {
   removeLabeledParticipant,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import {
-  isHumanAnsweredBy,
-  isPendingAnsweredBy,
-  waitForAnsweredBy,
-} from "@/server/calls/salesBotAnsweredBy";
+import { isHumanAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -22,6 +18,10 @@ export const runtime = "nodejs";
 
 const LIVE_CUSTOMER = new Set(["in-progress", "answered"]);
 const RINGING_CUSTOMER = new Set(["queued", "ringing", "initiated"]);
+
+function waiting(body) {
+  return NextResponse.json({ waiting: true, retryable: true, ...body }, { status: 200 });
+}
 
 async function fetchCustomerLegStatus(call) {
   const sid = String(call?.customerCallSid || "").trim();
@@ -35,9 +35,23 @@ async function fetchCustomerLegStatus(call) {
   }
 }
 
+async function findSalesBotConference(client, conferenceName) {
+  const name = String(conferenceName || "").trim();
+  if (!name) return null;
+  for (const status of ["in-progress", "init"]) {
+    const matches = await client.conferences.list({
+      friendlyName: name,
+      status,
+      limit: 1,
+    });
+    if (matches.length) return matches[0];
+  }
+  return null;
+}
+
 /**
- * The bot is placed in the conference when Start is clicked and stays quiet.
- * It speaks only after a person answers (human), unknown, or the machine greeting has ended.
+ * The bot joins the conference while the customer phone is still ringing and stays silent.
+ * Speech starts only after that leg is answered (in-progress). Ringing polls return 200.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -89,7 +103,10 @@ export async function POST(req) {
 
   const status = String(call.status || "").toLowerCase();
   if (["completed", "failed", "busy", "no-answer", "canceled", "cancelled"].includes(status)) {
-    return NextResponse.json({ error: "Call already ended.", retryable: false }, { status: 409 });
+    return NextResponse.json(
+      { stop: true, error: "Call already ended.", retryable: false },
+      { status: 200 },
+    );
   }
 
   if (String(call.twilioSid || "").trim()) {
@@ -103,43 +120,28 @@ export async function POST(req) {
   const customerLive = LIVE_CUSTOMER.has(String(customerStatus || ""));
 
   if (!presetConference && !String(call.customerCallSid || "").trim()) {
-    return NextResponse.json(
-      {
-        error: "Customer is still ringing. Waiting for answer…",
-        phase: "ringing",
-        retryable: true,
-      },
-      { status: 409 },
-    );
+    return waiting({
+      error: "Customer is still ringing. Waiting for answer…",
+      phase: "ringing",
+    });
   }
 
   if (!presetConference && (!customerStatus || RINGING_CUSTOMER.has(customerStatus))) {
-    return NextResponse.json(
-      {
-        error: "Customer is still ringing. Waiting for answer…",
-        phase: "ringing",
-        retryable: true,
-        customerStatus,
-      },
-      { status: 409 },
-    );
+    return waiting({
+      error: "Customer is still ringing. Waiting for answer…",
+      phase: "ringing",
+      customerStatus,
+    });
   }
   if (!presetConference && !customerLive) {
-    return NextResponse.json(
-      {
-        error: "Customer line is not live yet.",
-        phase: "ringing",
-        retryable: true,
-        customerStatus,
-      },
-      { status: 409 },
-    );
+    return waiting({
+      error: "Customer line is not live yet.",
+      phase: "ringing",
+      customerStatus,
+    });
   }
 
-  // Do not block on AMD. The bot is already in the conference; speech is gated below.
-  let answeredBy = customerLive
-    ? await waitForAnsweredBy(call, { attempts: 2, delayMs: 250 })
-    : String(call.answeredBy || "").trim();
+  let answeredBy = String(call.answeredBy || "").trim();
   if (String(answeredBy || "").trim().toLowerCase() === "fax") {
     return NextResponse.json(
       {
@@ -162,94 +164,121 @@ export async function POST(req) {
       );
     const payload = {
       error: upgraded.error,
-      retryable: upgraded.status === 409,
       phase: stillRinging ? "ringing" : "connecting",
     };
     if (upgraded.twilioHint) payload.twilioHint = upgraded.twilioHint;
-    return NextResponse.json(payload, { status: upgraded.status });
+    if (upgraded.status === 409) return waiting(payload);
+    return NextResponse.json({ ...payload, retryable: false }, { status: upgraded.status });
   }
 
   const conferenceName = String(upgraded.conferenceName || "").trim();
   if (!conferenceName) {
-    return NextResponse.json(
-      { error: "Conference is not ready yet.", phase: "connecting", retryable: true },
-      { status: 409 },
-    );
+    return waiting({ error: "Conference is not ready yet.", phase: "connecting" });
   }
 
   try {
     const { client } = await getTwilioContextForUserId(call.userId);
-    const conference = await waitForInProgressConference(client, conferenceName);
+    let conference = await findSalesBotConference(client, conferenceName);
     if (!conference?.sid) {
-      return NextResponse.json(
-        {
-          error: "Conference room is not live yet. Wait a moment and try again.",
-          phase: "connecting",
-          retryable: true,
-        },
-        { status: 409 },
-      );
-    }
-
-    await call.reload({ attributes: ["answeredBy"] }).catch(() => {});
-    answeredBy = String(call.answeredBy || answeredBy || "").trim();
-    const canSpeak = customerLive && !isPendingAnsweredBy(answeredBy);
-
-    const existing = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
-    const live = await waitForSalesBotSession(callId, existing?.callSid ? 400 : 0);
-
-    async function speakNow() {
-      if (!canSpeak) {
-        return NextResponse.json(
-          {
-            error: customerLive
-              ? "Bot is connected. It will speak when a person answers."
-              : "Bot is connected and waiting. It will speak when a person answers.",
-            phase: customerLive ? "detecting" : "ringing",
-            answeredBy: answeredBy || null,
-            retryable: true,
-            conferenceName,
-          },
-          { status: 409 },
-        );
-      }
-      await beginSalesBotSpeech({ callId });
-      await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
-      return NextResponse.json({
-        ok: true,
-        attached: true,
-        phase: isHumanAnsweredBy(answeredBy) ? "human" : "answered",
-        answeredBy: answeredBy || null,
-        conferenceName,
-        callMode: "conference",
+      conference = await waitForInProgressConference(client, conferenceName, {
+        attempts: 2,
+        delayMs: 200,
       });
     }
 
-    if (existing?.callSid && live?.beginSpeaking) {
-      return speakNow();
+    const roomSid = conference?.sid || conferenceName;
+    let botParticipant = conference?.sid
+      ? await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL)
+      : null;
+    if (!botParticipant?.callSid) {
+      await addSpeakingSalesBot({
+        client,
+        conferenceSid: roomSid,
+        origin,
+        callId,
+      });
+      conference = (await findSalesBotConference(client, conferenceName)) || conference;
+      if (conference?.sid) {
+        botParticipant = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
+      }
     }
 
-    await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
-    await addSpeakingSalesBot({
-      client,
-      conferenceSid: conference.sid,
-      origin,
-      callId,
-    });
+    const sessionWaitMs = botParticipant?.callSid ? 1500 : 8000;
+    let session = await waitForSalesBotSession(callId, sessionWaitMs);
 
-    const session = await waitForSalesBotSession(callId, 12000);
-    if (!session?.beginSpeaking) {
+    await call.reload({ attributes: ["answeredBy", "customerCallSid"] }).catch(() => {});
+    answeredBy = String(call.answeredBy || answeredBy || "").trim();
+    const freshStatus = (await fetchCustomerLegStatus(call)) || customerStatus;
+    const customerAnswered = LIVE_CUSTOMER.has(String(freshStatus || ""));
+
+    if (String(answeredBy || "").trim().toLowerCase() === "fax") {
       return NextResponse.json(
         {
-          error: "Sales bot relay did not connect. Try again.",
-          phase: "connecting",
-          retryable: true,
+          error: "Fax answered. The bot did not speak.",
+          phase: "machine",
+          answeredBy,
+          retryable: false,
         },
-        { status: 409 },
+        { status: 422 },
       );
     }
 
-    return speakNow();
+    if (!customerAnswered) {
+      return waiting({
+        error: "Bot is on the call and silent until the customer answers.",
+        phase: "ringing",
+        botAttached: Boolean(botParticipant?.callSid || session?.beginSpeaking),
+        speaking: false,
+        answeredBy: answeredBy || null,
+        customerStatus: freshStatus || null,
+        conferenceName,
+      });
+    }
+
+    if (!session?.beginSpeaking) {
+      if (conference?.sid) {
+        await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
+      }
+      await addSpeakingSalesBot({
+        client,
+        conferenceSid: conference?.sid || conferenceName,
+        origin,
+        callId,
+      });
+      session = await waitForSalesBotSession(callId, 8000);
+    }
+
+    if (!session?.beginSpeaking) {
+      return waiting({
+        error: "Customer answered. The bot is joining…",
+        phase: "connecting",
+        botAttached: false,
+        speaking: false,
+        conferenceName,
+      });
+    }
+
+    const spoken = await beginSalesBotSpeech({ callId });
+    if (!spoken?.ok) {
+      return waiting({
+        error: spoken?.error || "Customer answered. The bot is joining…",
+        phase: "connecting",
+        botAttached: true,
+        speaking: false,
+        conferenceName,
+      });
+    }
+    await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
+    return NextResponse.json({
+      ok: true,
+      attached: true,
+      botAttached: true,
+      speaking: true,
+      phase: isHumanAnsweredBy(answeredBy) ? "human" : "answered",
+      answeredBy: answeredBy || null,
+      conferenceName,
+      callMode: "conference",
+    });
   } catch (err) {
     console.error("[sales-bot] attach failed:", err?.message || err);
     return NextResponse.json(

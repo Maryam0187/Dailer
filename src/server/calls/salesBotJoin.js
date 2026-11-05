@@ -107,7 +107,7 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
   };
 }
 
-/** Dial the customer into an existing Sales Bot conference. AMD is on; the bot stays silent until a person answers. */
+/** Dial the customer into the conference. They join when they answer. The bot is already in the room and stays silent until then. */
 export async function dialSalesBotCustomer({
   client,
   conferenceSid,
@@ -127,7 +127,7 @@ export async function dialSalesBotCustomer({
       To: toNumber,
       Label: "customer",
       Muted: "false",
-      EarlyMedia: "true",
+      EarlyMedia: "false",
       StartConferenceOnEnter: "true",
       EndConferenceOnExit: "true",
       Beep: "false",

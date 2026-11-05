@@ -111,6 +111,8 @@ function attachSalesBotRelay(server) {
       if (session.closed) {
         return { ok: false, error: "Sales bot disconnected." };
       }
+      if (session.greetingStarted) return { ok: true, already: true };
+      session.greetingStarted = true;
       abortInflight();
       clearOpeningGuard();
       session.speaking = true;
@@ -118,6 +120,7 @@ function attachSalesBotRelay(server) {
       if (!session.botKey) session.botKey = await readCallBotKey(session.callId);
       const started = await startSalesBotTurn(session.botKey);
       if (!started.ok) {
+        session.greetingStarted = false;
         session.speaking = false;
         return { ok: false, error: started.error || "Failed to start sales bot" };
       }
