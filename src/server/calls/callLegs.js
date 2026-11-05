@@ -20,40 +20,11 @@ export function parseDurationSeconds(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
 
-const TERMINAL_CALL_STATUSES = new Set([
-  "completed",
-  "canceled",
-  "cancelled",
-  "failed",
-  "busy",
-  "no-answer",
-]);
-
 export function mergeCallDurationSeconds(agentDuration, customerDuration) {
   const a = agentDuration != null ? Number(agentDuration) : null;
   const c = customerDuration != null ? Number(customerDuration) : null;
   if (a == null && c == null) return null;
   return Math.max(a ?? 0, c ?? 0);
-}
-
-function longestDuration(...values) {
-  let best = null;
-  for (const value of values) {
-    const n = value == null || value === "" ? null : Number(value);
-    if (!Number.isFinite(n) || n < 0) continue;
-    const rounded = Math.floor(n);
-    if (best == null || rounded > best) best = rounded;
-  }
-  return best;
-}
-
-/** Seconds from the dial click to now, including connect and ring time. */
-function secondsSinceDial(createdAt, endAt = new Date()) {
-  if (!createdAt) return null;
-  const startMs = new Date(createdAt).getTime();
-  const endMs = endAt instanceof Date ? endAt.getTime() : new Date(endAt).getTime();
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
-  return Math.max(0, Math.round((endMs - startMs) / 1000));
 }
 
 /**
@@ -102,13 +73,6 @@ export async function applyCallLegUpdate(call, patch) {
     update.status = String(patch.status).toLowerCase();
   }
 
-  const conference = Boolean(
-    String(call.pendingConferenceName || "").trim() ||
-    String(call.conferenceName || "").trim(),
-  );
-  const terminal =
-    patch.status && TERMINAL_CALL_STATUSES.has(String(patch.status).toLowerCase());
-
   const agentDuration =
     patch.leg === "agent" && patch.durationSeconds != null
       ? patch.durationSeconds
@@ -125,14 +89,12 @@ export async function applyCallLegUpdate(call, patch) {
     update.customerDurationSeconds = patch.durationSeconds;
   }
 
-  const merged = mergeCallDurationSeconds(
+  // Longer Twilio leg. The agent leg already includes ring time, so Total is not
+  // wall-clock from the dial click to when the status callback is saved.
+  const duration = mergeCallDurationSeconds(
     update.agentDurationSeconds ?? agentDuration,
     update.customerDurationSeconds ?? customerDuration,
   );
-  // Conference calls keep Twilio's reported duration. Direct calls also store
-  // ringing and connecting time from the dial click.
-  const fromDial = terminal && !conference ? secondsSinceDial(call.createdAt) : null;
-  const duration = conference ? merged : longestDuration(merged, fromDial);
   if (duration != null) {
     update.durationSeconds = duration;
   }
