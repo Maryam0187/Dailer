@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { buildConferenceTwiMl, getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { buildConferenceTwiMl } from "@/server/calls/conferenceVoice";
 
 export const runtime = "nodejs";
 
@@ -18,31 +18,9 @@ function hangupXml() {
 </Response>`;
 }
 
-function escapeXmlAttr(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function waitXml(req) {
-  const incoming = new URL(req.url);
-  const waits = Number(incoming.searchParams.get("wait") || 0) + 1;
-  if (waits > 15) return hangupXml();
-  const base = getRequestBaseUrlFromRequest(req);
-  const url = new URL(`${incoming.pathname}${incoming.search}`, base || incoming.origin);
-  url.searchParams.set("wait", String(waits));
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Pause length="2"/>
-  <Redirect method="POST">${escapeXmlAttr(url.toString())}</Redirect>
-</Response>`;
-}
-
 /**
- * Runs when the customer answers. Machine speech also makes the call in-progress,
- * so an empty result waits. Only AnsweredBy=human joins the conference.
+ * Runs when the customer answers. They join the conference immediately so a
+ * machine greeting is audible. The bot stays muted until AMD reports human.
  */
 export async function POST(req) {
   const url = new URL(req.url);
@@ -66,21 +44,20 @@ export async function POST(req) {
   }
 
   const answeredBy = postedAnswer || String(call.answeredBy || "").trim().toLowerCase();
-  const conferenceName = String(call.conferenceName || "").trim();
-  if (answeredBy === "human" && conferenceName) {
-    return twimlResponse(
-      buildConferenceTwiMl({
-        conferenceName,
-        participant: "customer",
-        callerId: call.fromNumber,
-      }),
-    );
-  }
   if (answeredBy === "fax" || answeredBy.startsWith("machine")) {
     return twimlResponse(hangupXml());
   }
 
-  return twimlResponse(waitXml(req));
+  const conferenceName = String(call.conferenceName || "").trim();
+  if (!conferenceName) return twimlResponse(hangupXml());
+
+  return twimlResponse(
+    buildConferenceTwiMl({
+      conferenceName,
+      participant: "customer",
+      callerId: call.fromNumber,
+    }),
+  );
 }
 
 export async function GET(req) {

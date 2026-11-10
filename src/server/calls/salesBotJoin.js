@@ -117,8 +117,8 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
 }
 
 /**
- * Dial the customer. The join URL runs when they answer and puts them in the
- * conference. AMD is async so a missing AnsweredBy label cannot hold the call open in silence.
+ * Dial the customer. When they answer they join the conference so a greeting is audible.
+ * AMD reports human or machine in the background. The bot speaks only for human.
  */
 export async function dialSalesBotCustomer({
   client,

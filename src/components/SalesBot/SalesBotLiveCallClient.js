@@ -133,7 +133,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
           setInfo("Bot is on the call and silent. It speaks when a person answers.");
         } else if (phase === "detecting") {
           setInfo(
-            "Line is live from a pickup or a machine greeting. The bot stays silent until Twilio confirms a person.",
+            "You can hear the line. The bot stays silent until Twilio confirms a person.",
           );
         } else if (phase === "connecting") {
           setInfo("Customer answered. The bot is about to speak…");
