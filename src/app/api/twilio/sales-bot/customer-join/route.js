@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
-import { buildConferenceTwiMl } from "@/server/calls/conferenceVoice";
+import { buildConferenceTwiMl, getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 
 export const runtime = "nodejs";
 
@@ -18,15 +18,37 @@ function hangupXml() {
 </Response>`;
 }
 
+function escapeXmlAttr(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function waitXml(req) {
+  const incoming = new URL(req.url);
+  const waits = Number(incoming.searchParams.get("wait") || 0) + 1;
+  if (waits > 15) return hangupXml();
+  const base = getRequestBaseUrlFromRequest(req);
+  const url = new URL(`${incoming.pathname}${incoming.search}`, base || incoming.origin);
+  url.searchParams.set("wait", String(waits));
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="2"/>
+  <Redirect method="POST">${escapeXmlAttr(url.toString())}</Redirect>
+</Response>`;
+}
+
 /**
- * Synchronous AMD posts AnsweredBy here after the customer answers.
- * Only a human is placed in the conference. The bot stays silent until that result is saved.
+ * Runs when the customer answers. Machine speech also makes the call in-progress,
+ * so an empty result waits. Only AnsweredBy=human joins the conference.
  */
 export async function POST(req) {
   const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const callId = Number(url.searchParams.get("callId") || form?.get("callId"));
-  const answeredBy = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
+  const postedAnswer = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
 
   if (!Number.isInteger(callId) || callId <= 0) {
     return twimlResponse(hangupXml());
@@ -37,12 +59,13 @@ export async function POST(req) {
   }).catch(() => null);
   if (!call) return twimlResponse(hangupXml());
 
-  if (answeredBy) {
-    await call.update({ answeredBy: answeredBy.slice(0, 32) }).catch((err) => {
+  if (postedAnswer) {
+    await call.update({ answeredBy: postedAnswer.slice(0, 32) }).catch((err) => {
       console.error("[sales-bot] customer-join answeredBy save failed:", err?.message || err);
     });
   }
 
+  const answeredBy = postedAnswer || String(call.answeredBy || "").trim().toLowerCase();
   const conferenceName = String(call.conferenceName || "").trim();
   if (answeredBy === "human" && conferenceName) {
     return twimlResponse(
@@ -53,8 +76,11 @@ export async function POST(req) {
       }),
     );
   }
+  if (answeredBy === "fax" || answeredBy.startsWith("machine")) {
+    return twimlResponse(hangupXml());
+  }
 
-  return twimlResponse(hangupXml());
+  return twimlResponse(waitXml(req));
 }
 
 export async function GET(req) {

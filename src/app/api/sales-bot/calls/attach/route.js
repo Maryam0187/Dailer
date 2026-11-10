@@ -239,12 +239,14 @@ export async function POST(req) {
       participantStatus === "ringing" ||
       participantStatus === "queued" ||
       participantStatus === "connecting";
+    const normalizedAnswer = String(answeredBy || "").trim().toLowerCase();
+    // in-progress also happens while a machine greeting is playing. Speak only for a human.
     const humanAnswered = isHumanAnsweredBy(answeredBy);
 
-    if (String(answeredBy || "").trim().toLowerCase() === "fax") {
+    if (normalizedAnswer === "fax" || normalizedAnswer.startsWith("machine")) {
       return NextResponse.json(
         {
-          error: "Fax answered. The bot did not speak.",
+          error: "A machine answered. The bot did not speak.",
           phase: "machine",
           answeredBy,
           retryable: false,

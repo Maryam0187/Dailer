@@ -117,9 +117,8 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
 }
 
 /**
- * Dial the customer with synchronous AMD. Twilio posts AnsweredBy to customer-join
- * after it decides. Only a human is then placed in the conference. Conference
- * participant AMD left answeredBy null while the leg was already in-progress.
+ * Dial the customer. The join URL runs when they answer and puts them in the
+ * conference. AMD is async so a missing AnsweredBy label cannot hold the call open in silence.
  */
 export async function dialSalesBotCustomer({
   client,
@@ -130,6 +129,7 @@ export async function dialSalesBotCustomer({
 }) {
   const base = String(origin || "").replace(/\/$/, "");
   const joinUrl = `${base}/api/twilio/sales-bot/customer-join?callId=${encodeURIComponent(String(callId))}`;
+  const amdUrl = `${base}/api/twilio/sales-bot/amd?callId=${encodeURIComponent(String(callId))}`;
   const statusUrl = `${base}/api/twilio/customer-leg-status?callId=${encodeURIComponent(String(callId))}`;
   const created = await client.calls.create({
     to: toNumber,
@@ -138,7 +138,9 @@ export async function dialSalesBotCustomer({
     method: "POST",
     machineDetection: "DetectMessageEnd",
     machineDetectionTimeout: 30,
-    asyncAmd: false,
+    asyncAmd: true,
+    asyncAmdStatusCallback: amdUrl,
+    asyncAmdStatusCallbackMethod: "POST",
     statusCallback: statusUrl,
     statusCallbackMethod: "POST",
     statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
