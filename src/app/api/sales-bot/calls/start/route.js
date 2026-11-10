@@ -176,9 +176,13 @@ export async function POST(req) {
       const callIdForSpeech = call.id;
       void (async () => {
         for (let i = 0; i < 90; i++) {
-          const cust = await client.calls(customerSid).fetch().catch(() => null);
-          const st = String(cust?.status || "").toLowerCase();
-          if (st === "in-progress") {
+          const row = await db.CallLog.findByPk(callIdForSpeech, {
+            attributes: ["id", "answeredBy"],
+          }).catch(() => null);
+          const st = String(
+            (await client.calls(customerSid).fetch().catch(() => null))?.status || "",
+          ).toLowerCase();
+          if (String(row?.answeredBy || "").trim().toLowerCase() === "human") {
             await beginSalesBotSpeech({ callId: callIdForSpeech }).catch((err) => {
               console.error("[sales-bot] begin speech failed:", err?.message || err);
             });

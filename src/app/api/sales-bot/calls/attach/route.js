@@ -6,6 +6,7 @@ import {
   addSpeakingSalesBot,
   findLabeledParticipant,
   removeLabeledParticipant,
+  setLabeledParticipantMuted,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
 import { isHumanAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
@@ -50,8 +51,9 @@ async function findSalesBotConference(client, conferenceName) {
 }
 
 /**
- * The bot joins the conference while the customer phone is still ringing and stays silent.
- * Speech starts only after that leg is answered (in-progress). Ringing polls return 200.
+ * The bot joins the conference while the phone is ringing and stays muted.
+ * Speech starts only when Twilio AMD reports AnsweredBy=human (DetectMessageEnd).
+ * Call status in-progress is not a human answer.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -94,6 +96,7 @@ export async function POST(req) {
       "twilioSid",
       "customerCallSid",
       "answeredBy",
+      "customerAnsweredAt",
     ],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -109,11 +112,11 @@ export async function POST(req) {
     );
   }
 
-  if (String(call.twilioSid || "").trim()) {
+  const presetConference = String(call.conferenceName || "").trim();
+  // Sales Bot already stored the customer leg. Do not replace it with another in-progress call.
+  if (!presetConference && String(call.twilioSid || "").trim()) {
     await syncCustomerLegFromTwilio(call).catch(() => {});
   }
-
-  const presetConference = String(call.conferenceName || "").trim();
   const customerStatus = String(call.customerCallSid || "").trim()
     ? await fetchCustomerLegStatus(call)
     : null;
@@ -206,10 +209,20 @@ export async function POST(req) {
     const sessionWaitMs = botParticipant?.callSid ? 1500 : 8000;
     let session = await waitForSalesBotSession(callId, sessionWaitMs);
 
-    await call.reload({ attributes: ["answeredBy", "customerCallSid"] }).catch(() => {});
+    await call.reload({ attributes: ["answeredBy", "customerCallSid", "customerAnsweredAt"] }).catch(() => {});
     answeredBy = String(call.answeredBy || answeredBy || "").trim();
     const freshStatus = (await fetchCustomerLegStatus(call)) || customerStatus;
-    const customerAnswered = LIVE_CUSTOMER.has(String(freshStatus || ""));
+    const customerParticipant = conference?.sid
+      ? await findLabeledParticipant(client, conference.sid, "customer")
+      : null;
+    const participantStatus = String(customerParticipant?.status || "").toLowerCase();
+    const stillRinging =
+      !freshStatus ||
+      RINGING_CUSTOMER.has(freshStatus) ||
+      participantStatus === "ringing" ||
+      participantStatus === "queued" ||
+      participantStatus === "connecting";
+    const humanAnswered = isHumanAnsweredBy(answeredBy);
 
     if (String(answeredBy || "").trim().toLowerCase() === "fax") {
       return NextResponse.json(
@@ -223,10 +236,10 @@ export async function POST(req) {
       );
     }
 
-    if (!customerAnswered) {
+    if (!humanAnswered) {
       return waiting({
-        error: "Bot is on the call and silent until the customer answers.",
-        phase: "ringing",
+        error: "Bot is on the call and silent until a person answers.",
+        phase: stillRinging ? "ringing" : "detecting",
         botAttached: Boolean(botParticipant?.callSid || session?.beginSpeaking),
         speaking: false,
         answeredBy: answeredBy || null,
@@ -258,6 +271,11 @@ export async function POST(req) {
       });
     }
 
+    if (conference?.sid) {
+      await setLabeledParticipantMuted(client, conference.sid, SALES_BOT_LABEL, false).catch((err) => {
+        console.error("[sales-bot] unmute before speech failed:", err?.message || err);
+      });
+    }
     const spoken = await beginSalesBotSpeech({ callId });
     if (!spoken?.ok) {
       return waiting({
@@ -274,7 +292,7 @@ export async function POST(req) {
       attached: true,
       botAttached: true,
       speaking: true,
-      phase: isHumanAnsweredBy(answeredBy) ? "human" : "answered",
+      phase: "human",
       answeredBy: answeredBy || null,
       conferenceName,
       callMode: "conference",

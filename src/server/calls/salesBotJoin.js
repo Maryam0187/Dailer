@@ -39,6 +39,15 @@ export async function findLabeledParticipant(client, conferenceSid, label) {
   return participants.find((p) => String(p.label || "").trim().toLowerCase() === wanted) || null;
 }
 
+export async function setLabeledParticipantMuted(client, conferenceSid, label, muted) {
+  const match = await findLabeledParticipant(client, conferenceSid, label);
+  if (!match?.callSid || !conferenceSid) return false;
+  await client.conferences(conferenceSid).participants(match.callSid).update({
+    muted: Boolean(muted),
+  });
+  return true;
+}
+
 export async function removeLabeledParticipant(client, conferenceSid, label) {
   const match = await findLabeledParticipant(client, conferenceSid, label);
   if (!match?.callSid) return;
@@ -79,7 +88,7 @@ export async function ensureSalesBotTwimlApp(client, origin) {
   return created.sid;
 }
 
-/** Add AI bot unmuted so it can speak from the start of the call. */
+/** Add the bot muted. It stays in the conference during ringing and is unmuted only after the customer answers. */
 export async function addSpeakingSalesBot({ client, conferenceSid, origin, callId }) {
   const appSid = await ensureSalesBotTwimlApp(client, origin);
   const to = `app:${appSid}?${new URLSearchParams({
@@ -93,7 +102,7 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
       From: await getTwilioFromNumber(),
       To: to,
       Label: SALES_BOT_LABEL,
-      Muted: "false",
+      Muted: "true",
       EarlyMedia: "false",
       StartConferenceOnEnter: "true",
       EndConferenceOnExit: "false",

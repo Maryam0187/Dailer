@@ -24,6 +24,7 @@ export async function POST(req) {
   const form = await req.formData();
   const callSid = String(form.get("CallSid") || "").trim();
   const callStatus = String(form.get("CallStatus") || "").trim();
+  const callbackEvent = String(form.get("StatusCallbackEvent") || "").trim().toLowerCase();
   const callDuration = form.get("CallDuration");
 
   if (!Number.isInteger(callId) || callId <= 0 || !callSid) {
@@ -40,6 +41,18 @@ export async function POST(req) {
     status: callStatus || undefined,
     durationSeconds: parseDurationSeconds(callDuration),
   });
+
+  // "answered" is the pickup event. Call status in-progress can arrive while the handset is still ringing.
+  if (callbackEvent === "answered") {
+    try {
+      await call.reload({ attributes: ["id", "customerAnsweredAt"] });
+      if (!call.customerAnsweredAt) {
+        await call.update({ customerAnsweredAt: new Date() });
+      }
+    } catch (err) {
+      console.error("[customer-leg] answered stamp failed:", err?.message || err);
+    }
+  }
 
   const normalized = String(callStatus || "").toLowerCase();
   const pendingUpgrade = String(call.pendingConferenceName || "").trim();
