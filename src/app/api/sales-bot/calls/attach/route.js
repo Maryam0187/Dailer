@@ -24,13 +24,16 @@ function waiting(body) {
   return NextResponse.json({ waiting: true, retryable: true, ...body }, { status: 200 });
 }
 
-async function fetchCustomerLegStatus(call) {
+async function fetchCustomerLeg(call) {
   const sid = String(call?.customerCallSid || "").trim();
   if (!sid) return null;
   try {
     const { client } = await getTwilioContextForUserId(call.userId);
     const remote = await client.calls(sid).fetch();
-    return String(remote?.status || "").toLowerCase() || null;
+    return {
+      status: String(remote?.status || "").toLowerCase() || null,
+      answeredBy: String(remote?.answeredBy || "").trim().toLowerCase(),
+    };
   } catch {
     return null;
   }
@@ -96,7 +99,6 @@ export async function POST(req) {
       "twilioSid",
       "customerCallSid",
       "answeredBy",
-      "customerAnsweredAt",
     ],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
@@ -117,9 +119,17 @@ export async function POST(req) {
   if (!presetConference && String(call.twilioSid || "").trim()) {
     await syncCustomerLegFromTwilio(call).catch(() => {});
   }
-  const customerStatus = String(call.customerCallSid || "").trim()
-    ? await fetchCustomerLegStatus(call)
+  const customerLeg = String(call.customerCallSid || "").trim()
+    ? await fetchCustomerLeg(call)
     : null;
+  const customerStatus = customerLeg?.status || null;
+  if (customerLeg?.answeredBy) {
+    const stored = String(call.answeredBy || "").trim().toLowerCase();
+    if (customerLeg.answeredBy !== stored) {
+      await call.update({ answeredBy: customerLeg.answeredBy.slice(0, 32) }).catch(() => {});
+      call.answeredBy = customerLeg.answeredBy;
+    }
+  }
   const customerLive = LIVE_CUSTOMER.has(String(customerStatus || ""));
 
   if (!presetConference && !String(call.customerCallSid || "").trim()) {
@@ -209,9 +219,16 @@ export async function POST(req) {
     const sessionWaitMs = botParticipant?.callSid ? 1500 : 8000;
     let session = await waitForSalesBotSession(callId, sessionWaitMs);
 
-    await call.reload({ attributes: ["answeredBy", "customerCallSid", "customerAnsweredAt"] }).catch(() => {});
-    answeredBy = String(call.answeredBy || answeredBy || "").trim();
-    const freshStatus = (await fetchCustomerLegStatus(call)) || customerStatus;
+    await call.reload({ attributes: ["answeredBy", "customerCallSid"] }).catch(() => {});
+    const freshLeg = await fetchCustomerLeg(call);
+    if (freshLeg?.answeredBy) {
+      const stored = String(call.answeredBy || "").trim().toLowerCase();
+      if (freshLeg.answeredBy !== stored) {
+        await call.update({ answeredBy: freshLeg.answeredBy.slice(0, 32) }).catch(() => {});
+      }
+    }
+    answeredBy = String(freshLeg?.answeredBy || call.answeredBy || answeredBy || "").trim();
+    const freshStatus = freshLeg?.status || customerStatus;
     const customerParticipant = conference?.sid
       ? await findLabeledParticipant(client, conference.sid, "customer")
       : null;

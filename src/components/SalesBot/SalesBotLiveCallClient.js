@@ -129,8 +129,14 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
       if (json?.waiting || res.status === 409 || json?.retryable) {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
-        if (phase === "ringing" || phase === "detecting") {
-          setInfo("Bot is on the call and silent. It speaks when the customer answers.");
+        if (phase === "ringing") {
+          setInfo("Bot is on the call and silent. It speaks when a person answers.");
+        } else if (phase === "detecting") {
+          setInfo(
+            json?.answeredBy
+              ? `Bot is silent. Twilio has not reported a person yet (${json.answeredBy}).`
+              : "Person may be on the line. Waiting for Twilio to confirm a human.",
+          );
         } else if (phase === "connecting") {
           setInfo("Customer answered. The bot is about to speak…");
         } else {
