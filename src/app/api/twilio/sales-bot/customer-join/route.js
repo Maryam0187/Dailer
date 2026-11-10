@@ -19,14 +19,14 @@ function hangupXml() {
 }
 
 /**
- * Runs when the customer answers. They join the conference immediately so a
- * machine greeting is audible. The bot stays muted until AMD reports human.
+ * Synchronous AMD posts AnsweredBy here after the customer answers.
+ * Only a human is placed in the conference. The bot stays silent until that result is saved.
  */
 export async function POST(req) {
   const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const callId = Number(url.searchParams.get("callId") || form?.get("callId"));
-  const postedAnswer = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
+  const answeredBy = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
 
   if (!Number.isInteger(callId) || callId <= 0) {
     return twimlResponse(hangupXml());
@@ -37,28 +37,24 @@ export async function POST(req) {
   }).catch(() => null);
   if (!call) return twimlResponse(hangupXml());
 
-  if (postedAnswer) {
-    await call.update({ answeredBy: postedAnswer.slice(0, 32) }).catch((err) => {
+  if (answeredBy) {
+    await call.update({ answeredBy: answeredBy.slice(0, 32) }).catch((err) => {
       console.error("[sales-bot] customer-join answeredBy save failed:", err?.message || err);
     });
   }
 
-  const answeredBy = postedAnswer || String(call.answeredBy || "").trim().toLowerCase();
-  if (answeredBy === "fax" || answeredBy.startsWith("machine")) {
-    return twimlResponse(hangupXml());
+  const conferenceName = String(call.conferenceName || "").trim();
+  if (answeredBy === "human" && conferenceName) {
+    return twimlResponse(
+      buildConferenceTwiMl({
+        conferenceName,
+        participant: "customer",
+        callerId: call.fromNumber,
+      }),
+    );
   }
 
-  const conferenceName = String(call.conferenceName || "").trim();
-  if (!conferenceName) return twimlResponse(hangupXml());
-
-  return twimlResponse(
-    buildConferenceTwiMl({
-      conferenceName,
-      participant: "customer",
-      callerId: call.fromNumber,
-      startConferenceOnEnter: true,
-    }),
-  );
+  return twimlResponse(hangupXml());
 }
 
 export async function GET(req) {

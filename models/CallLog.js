@@ -100,11 +100,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(32),
         allowNull: true,
       },
-      /** Set when Twilio sends StatusCallbackEvent=answered for the customer leg. */
-      customerAnsweredAt: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
       leadId: {
         type: DataTypes.INTEGER,
         allowNull: true,

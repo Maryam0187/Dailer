@@ -101,6 +101,7 @@ export async function POST(req) {
         const { client } = await getTwilioContextForUserId(callLog.userId);
         const customer = await dialSalesBotCustomer({
           client,
+          conferenceSid: salesConference,
           toNumber: customerNumber,
           fromNumber: callerId,
           callId,

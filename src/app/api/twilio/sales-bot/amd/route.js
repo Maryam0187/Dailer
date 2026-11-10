@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
+import { buildConferenceTwiMl } from "@/server/calls/conferenceVoice";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -20,7 +22,16 @@ export async function POST(req) {
 
   try {
     const call = await db.CallLog.findByPk(callId, {
-      attributes: ["id", "callKind", "dialMode", "answeredBy", "customerCallSid"],
+      attributes: [
+        "id",
+        "userId",
+        "fromNumber",
+        "conferenceName",
+        "callKind",
+        "dialMode",
+        "answeredBy",
+        "customerCallSid",
+      ],
     });
     if (!call) return new NextResponse("OK", { status: 200 });
 
@@ -29,6 +40,28 @@ export async function POST(req) {
     if (callSid && !call.customerCallSid) updates.customerCallSid = callSid;
     if (Object.keys(updates).length) {
       await call.update(updates);
+    }
+
+    const sid = callSid || String(call.customerCallSid || "").trim();
+    const conferenceName = String(call.conferenceName || "").trim();
+    const machineOrFax = answeredBy === "fax" || answeredBy.startsWith("machine");
+    if (sid && (answeredBy === "human" || machineOrFax)) {
+      try {
+        const { client } = await getTwilioContextForUserId(call.userId);
+        if (answeredBy === "human" && conferenceName) {
+          await client.calls(sid).update({
+            twiml: buildConferenceTwiMl({
+              conferenceName,
+              participant: "customer",
+              callerId: call.fromNumber,
+            }),
+          });
+        } else if (machineOrFax) {
+          await client.calls(sid).update({ status: "completed" });
+        }
+      } catch (err) {
+        console.error("[sales-bot] amd call update failed:", err?.message || err);
+      }
     }
   } catch (err) {
     console.error("[sales-bot] amd callback failed:", err?.message || err);

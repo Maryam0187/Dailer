@@ -39,15 +39,6 @@ export async function findLabeledParticipant(client, conferenceSid, label) {
   return participants.find((p) => String(p.label || "").trim().toLowerCase() === wanted) || null;
 }
 
-export async function setLabeledParticipantMuted(client, conferenceSid, label, muted) {
-  const match = await findLabeledParticipant(client, conferenceSid, label);
-  if (!match?.callSid || !conferenceSid) return false;
-  await client.conferences(conferenceSid).participants(match.callSid).update({
-    muted: Boolean(muted),
-  });
-  return true;
-}
-
 export async function removeLabeledParticipant(client, conferenceSid, label) {
   const match = await findLabeledParticipant(client, conferenceSid, label);
   if (!match?.callSid) return;
@@ -88,7 +79,7 @@ export async function ensureSalesBotTwimlApp(client, origin) {
   return created.sid;
 }
 
-/** Add the bot muted. It stays in the conference during ringing and is unmuted only after the customer answers. */
+/** Add AI bot unmuted so it can speak from the start of the call. */
 export async function addSpeakingSalesBot({ client, conferenceSid, origin, callId }) {
   const appSid = await ensureSalesBotTwimlApp(client, origin);
   const to = `app:${appSid}?${new URLSearchParams({
@@ -102,7 +93,7 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
       From: await getTwilioFromNumber(),
       To: to,
       Label: SALES_BOT_LABEL,
-      Muted: "true",
+      Muted: "false",
       EarlyMedia: "false",
       StartConferenceOnEnter: "true",
       EndConferenceOnExit: "false",
@@ -116,44 +107,43 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
   };
 }
 
-/**
- * Dial the customer. When they answer they join the conference so a greeting is audible.
- * AMD reports human or machine in the background. The bot speaks only for human.
- */
+/** Dial the customer into the conference. They join when they answer. The bot is already in the room and stays silent until then. */
 export async function dialSalesBotCustomer({
   client,
+  conferenceSid,
   toNumber,
   fromNumber,
   callId,
   origin,
 }) {
   const base = String(origin || "").replace(/\/$/, "");
-  const joinUrl = `${base}/api/twilio/sales-bot/customer-join?callId=${encodeURIComponent(String(callId))}`;
   const amdUrl = `${base}/api/twilio/sales-bot/amd?callId=${encodeURIComponent(String(callId))}`;
   const statusUrl = `${base}/api/twilio/customer-leg-status?callId=${encodeURIComponent(String(callId))}`;
-  const created = await client.calls.create({
-    to: toNumber,
-    from: fromNumber,
-    url: joinUrl,
-    method: "POST",
-    // Enable returns human as soon as a person is recognized. DetectMessageEnd was
-    // labeling a quiet person as machine_end_silence, so the bot never spoke.
-    machineDetection: "Enable",
-    machineDetectionTimeout: 30,
-    machineDetectionSpeechThreshold: 5000,
-    machineDetectionSpeechEndThreshold: 500,
-    machineDetectionSilenceTimeout: 2000,
-    asyncAmd: true,
-    asyncAmdStatusCallback: amdUrl,
-    asyncAmdStatusCallbackMethod: "POST",
-    statusCallback: statusUrl,
-    statusCallbackMethod: "POST",
-    statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
-    timeout: 25,
-  });
+  const json = await twilioFormPost(
+    client,
+    `/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`,
+    {
+      From: fromNumber,
+      To: toNumber,
+      Label: "customer",
+      Muted: "false",
+      EarlyMedia: "false",
+      StartConferenceOnEnter: "true",
+      EndConferenceOnExit: "true",
+      Beep: "false",
+      Timeout: "25",
+      MachineDetection: "DetectMessageEnd",
+      AmdStatusCallback: amdUrl,
+      AmdStatusCallbackMethod: "POST",
+      StatusCallback: statusUrl,
+      StatusCallbackMethod: "POST",
+      StatusCallbackEvent: "initiated ringing answered completed",
+    },
+  );
 
   return {
-    callSid: created?.sid || null,
+    callSid: json.call_sid || json.callSid || null,
+    ...json,
   };
 }
 

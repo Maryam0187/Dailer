@@ -13,7 +13,7 @@ import {
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 import { createConferenceName } from "@/server/calls/conferenceVoice";
-import { dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
+import { addSpeakingSalesBot, dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -121,8 +121,19 @@ export async function POST(req) {
       const conferenceName = createConferenceName({ userId: authedUser.id });
       await call.update({ conferenceName });
       try {
+        await addSpeakingSalesBot({
+          client,
+          conferenceSid: conferenceName,
+          origin: fallbackBaseUrl,
+          callId: call.id,
+        });
+      } catch (err) {
+        console.error("[sales-bot] attach at start failed:", err?.message || err);
+      }
+      try {
         const customer = await dialSalesBotCustomer({
           client,
+          conferenceSid: conferenceName,
           toNumber: normalizedToNumber,
           fromNumber,
           callId: call.id,
