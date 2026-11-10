@@ -25,6 +25,7 @@ export async function POST(req) {
   const callSid = String(form.get("CallSid") || "").trim();
   const callStatus = String(form.get("CallStatus") || "").trim();
   const callbackEvent = String(form.get("StatusCallbackEvent") || "").trim().toLowerCase();
+  const answeredBy = String(form.get("AnsweredBy") || "").trim().toLowerCase();
   const callDuration = form.get("CallDuration");
 
   if (!Number.isInteger(callId) || callId <= 0 || !callSid) {
@@ -41,6 +42,12 @@ export async function POST(req) {
     status: callStatus || undefined,
     durationSeconds: parseDurationSeconds(callDuration),
   });
+
+  if (answeredBy) {
+    await call.update({ answeredBy: answeredBy.slice(0, 32) }).catch((err) => {
+      console.error("[customer-leg] answeredBy save failed:", err?.message || err);
+    });
+  }
 
   // "answered" is the pickup event. Call status in-progress can arrive while the handset is still ringing.
   if (callbackEvent === "answered") {

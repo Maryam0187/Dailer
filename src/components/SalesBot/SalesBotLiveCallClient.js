@@ -129,8 +129,10 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
       if (json?.waiting || res.status === 409 || json?.retryable) {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
-        if (phase === "ringing" || phase === "detecting") {
-          setInfo("Bot is on the call and silent. It speaks when the customer answers.");
+        if (phase === "ringing") {
+          setInfo("Calling the customer. The bot is not on the call yet.");
+        } else if (phase === "detecting") {
+          setInfo("You can hear the line. The bot joins when a person is confirmed.");
         } else if (phase === "connecting") {
           setInfo("Customer answered. The bot is about to speak…");
         } else {
@@ -207,7 +209,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Calling the customer. The bot is connected and will speak when a person answers.");
+      setInfo("Calling the customer. The bot joins only after a person is confirmed.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -260,7 +262,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        The bot joins while the phone is ringing and stays silent. It speaks only after the customer answers.
+        Start dials the customer. The bot is not added yet. It joins and speaks only after a person is confirmed.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

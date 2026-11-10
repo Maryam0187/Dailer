@@ -6,9 +6,9 @@ import {
   addSpeakingSalesBot,
   findLabeledParticipant,
   removeLabeledParticipant,
+  setLabeledParticipantMuted,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import { isHumanAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -23,13 +23,16 @@ function waiting(body) {
   return NextResponse.json({ waiting: true, retryable: true, ...body }, { status: 200 });
 }
 
-async function fetchCustomerLegStatus(call) {
+async function fetchCustomerLeg(call) {
   const sid = String(call?.customerCallSid || "").trim();
   if (!sid) return null;
   try {
     const { client } = await getTwilioContextForUserId(call.userId);
     const remote = await client.calls(sid).fetch();
-    return String(remote?.status || "").toLowerCase() || null;
+    return {
+      status: String(remote?.status || "").toLowerCase() || null,
+      answeredBy: String(remote?.answeredBy || "").trim().toLowerCase(),
+    };
   } catch {
     return null;
   }
@@ -50,8 +53,8 @@ async function findSalesBotConference(client, conferenceName) {
 }
 
 /**
- * The bot joins the conference while the customer phone is still ringing and stays silent.
- * Speech starts only after that leg is answered (in-progress). Ringing polls return 200.
+ * The bot is not added when Start is clicked. It joins only after Twilio reports
+ * a person (human or unknown). A machine greeting does not attach the bot.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -109,14 +112,22 @@ export async function POST(req) {
     );
   }
 
-  if (String(call.twilioSid || "").trim()) {
+  const presetConference = String(call.conferenceName || "").trim();
+  // Sales Bot already stored the customer leg. Do not replace it with another in-progress call.
+  if (!presetConference && String(call.twilioSid || "").trim()) {
     await syncCustomerLegFromTwilio(call).catch(() => {});
   }
-
-  const presetConference = String(call.conferenceName || "").trim();
-  const customerStatus = String(call.customerCallSid || "").trim()
-    ? await fetchCustomerLegStatus(call)
+  const customerLeg = String(call.customerCallSid || "").trim()
+    ? await fetchCustomerLeg(call)
     : null;
+  const customerStatus = customerLeg?.status || null;
+  if (customerLeg?.answeredBy) {
+    const stored = String(call.answeredBy || "").trim().toLowerCase();
+    if (customerLeg.answeredBy !== stored) {
+      await call.update({ answeredBy: customerLeg.answeredBy.slice(0, 32) }).catch(() => {});
+      call.answeredBy = customerLeg.answeredBy;
+    }
+  }
   const customerLive = LIVE_CUSTOMER.has(String(customerStatus || ""));
 
   if (!presetConference && !String(call.customerCallSid || "").trim()) {
@@ -186,35 +197,39 @@ export async function POST(req) {
       });
     }
 
-    const roomSid = conference?.sid || conferenceName;
     let botParticipant = conference?.sid
       ? await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL)
       : null;
-    if (!botParticipant?.callSid) {
-      await addSpeakingSalesBot({
-        client,
-        conferenceSid: roomSid,
-        origin,
-        callId,
-      });
-      conference = (await findSalesBotConference(client, conferenceName)) || conference;
-      if (conference?.sid) {
-        botParticipant = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
-      }
-    }
-
-    const sessionWaitMs = botParticipant?.callSid ? 1500 : 8000;
-    let session = await waitForSalesBotSession(callId, sessionWaitMs);
 
     await call.reload({ attributes: ["answeredBy", "customerCallSid"] }).catch(() => {});
-    answeredBy = String(call.answeredBy || answeredBy || "").trim();
-    const freshStatus = (await fetchCustomerLegStatus(call)) || customerStatus;
-    const customerAnswered = LIVE_CUSTOMER.has(String(freshStatus || ""));
+    const freshLeg = await fetchCustomerLeg(call);
+    if (freshLeg?.answeredBy) {
+      const stored = String(call.answeredBy || "").trim().toLowerCase();
+      if (freshLeg.answeredBy !== stored) {
+        await call.update({ answeredBy: freshLeg.answeredBy.slice(0, 32) }).catch(() => {});
+      }
+    }
+    answeredBy = String(freshLeg?.answeredBy || call.answeredBy || answeredBy || "").trim();
+    const freshStatus = freshLeg?.status || customerStatus;
+    const customerParticipant = conference?.sid
+      ? await findLabeledParticipant(client, conference.sid, "customer")
+      : null;
+    const participantStatus = String(customerParticipant?.status || "").toLowerCase();
+    const stillRinging =
+      !freshStatus ||
+      RINGING_CUSTOMER.has(freshStatus) ||
+      participantStatus === "ringing" ||
+      participantStatus === "queued" ||
+      participantStatus === "connecting";
+    const normalizedAnswer = String(answeredBy || "").trim().toLowerCase();
+    // unknown means Twilio heard a pickup but not a long greeting. A quiet person
+    // was previously returned as machine_end_silence and the bot never spoke.
+    const humanAnswered = normalizedAnswer === "human" || normalizedAnswer === "unknown";
 
-    if (String(answeredBy || "").trim().toLowerCase() === "fax") {
+    if (normalizedAnswer === "fax" || normalizedAnswer.startsWith("machine")) {
       return NextResponse.json(
         {
-          error: "Fax answered. The bot did not speak.",
+          error: `A machine answered (${normalizedAnswer}). The bot did not speak.`,
           phase: "machine",
           answeredBy,
           retryable: false,
@@ -223,11 +238,11 @@ export async function POST(req) {
       );
     }
 
-    if (!customerAnswered) {
+    if (!humanAnswered) {
       return waiting({
-        error: "Bot is on the call and silent until the customer answers.",
-        phase: "ringing",
-        botAttached: Boolean(botParticipant?.callSid || session?.beginSpeaking),
+        error: "The bot is not on the call yet. It joins when a person is confirmed.",
+        phase: stillRinging ? "ringing" : "detecting",
+        botAttached: Boolean(botParticipant?.callSid),
         speaking: false,
         answeredBy: answeredBy || null,
         customerStatus: freshStatus || null,
@@ -235,6 +250,7 @@ export async function POST(req) {
       });
     }
 
+    let session = botParticipant?.callSid ? await waitForSalesBotSession(callId, 1500) : null;
     if (!session?.beginSpeaking) {
       if (conference?.sid) {
         await removeLabeledParticipant(client, conference.sid, SALES_BOT_LABEL).catch(() => {});
@@ -258,6 +274,11 @@ export async function POST(req) {
       });
     }
 
+    if (conference?.sid) {
+      await setLabeledParticipantMuted(client, conference.sid, SALES_BOT_LABEL, false).catch((err) => {
+        console.error("[sales-bot] unmute before speech failed:", err?.message || err);
+      });
+    }
     const spoken = await beginSalesBotSpeech({ callId });
     if (!spoken?.ok) {
       return waiting({
@@ -274,7 +295,7 @@ export async function POST(req) {
       attached: true,
       botAttached: true,
       speaking: true,
-      phase: isHumanAnsweredBy(answeredBy) ? "human" : "answered",
+      phase: "human",
       answeredBy: answeredBy || null,
       conferenceName,
       callMode: "conference",

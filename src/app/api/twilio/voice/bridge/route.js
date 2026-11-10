@@ -90,7 +90,7 @@ export async function POST(req) {
     ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : "";
 
-  // Sales Bot: agent joins the conference the bot already entered at Start. Customer is dialed here.
+  // Sales Bot: agent joins the conference. The bot is added later, only after a person is confirmed.
   const isSalesBot =
     String(callLog.callKind || "").trim() === "sales_bot" ||
     String(callLog.dialMode || "").trim() === "sales_bot";
@@ -101,7 +101,6 @@ export async function POST(req) {
         const { client } = await getTwilioContextForUserId(callLog.userId);
         const customer = await dialSalesBotCustomer({
           client,
-          conferenceSid: salesConference,
           toNumber: customerNumber,
           fromNumber: callerId,
           callId,
