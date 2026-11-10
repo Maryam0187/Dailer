@@ -56,6 +56,7 @@ export async function POST(req) {
       conferenceName,
       participant: "customer",
       callerId: call.fromNumber,
+      startConferenceOnEnter: true,
     }),
   );
 }

@@ -130,11 +130,9 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
         if (phase === "ringing") {
-          setInfo("Bot is on the call and silent. It speaks when a person answers.");
+          setInfo("Calling. The bot is not on the call yet.");
         } else if (phase === "detecting") {
-          setInfo(
-            "You can hear the line. The bot stays silent until Twilio confirms a person.",
-          );
+          setInfo("You can hear the line. The bot joins when Twilio confirms a person.");
         } else if (phase === "connecting") {
           setInfo("Customer answered. The bot is about to speak…");
         } else {
@@ -211,7 +209,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Calling the customer. The bot is connected and will speak when a person answers.");
+      setInfo("Calling the customer. The bot joins only after a person answers.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -264,7 +262,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        The bot joins while the phone is ringing and stays silent. It speaks only after the customer answers.
+        Start places the call. The bot stays off the line until Twilio confirms a person, then it joins and speaks.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

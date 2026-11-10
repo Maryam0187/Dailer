@@ -9,7 +9,6 @@ import {
   setLabeledParticipantMuted,
 } from "@/server/calls/salesBotJoin";
 import { SALES_BOT_LABEL } from "@/server/calls/salesBot";
-import { isHumanAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { syncCustomerLegFromTwilio } from "@/server/calls/callLegs";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -54,9 +53,8 @@ async function findSalesBotConference(client, conferenceName) {
 }
 
 /**
- * The bot joins the conference while the phone is ringing and stays muted.
- * Speech starts only when Twilio AMD reports AnsweredBy=human (DetectMessageEnd).
- * Call status in-progress is not a human answer.
+ * Start does not add the bot. This route adds it only after Twilio reports a person
+ * (human or unknown), then the bot speaks. A machine greeting does not attach the bot.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -199,26 +197,6 @@ export async function POST(req) {
       });
     }
 
-    const roomSid = conference?.sid || conferenceName;
-    let botParticipant = conference?.sid
-      ? await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL)
-      : null;
-    if (!botParticipant?.callSid) {
-      await addSpeakingSalesBot({
-        client,
-        conferenceSid: roomSid,
-        origin,
-        callId,
-      });
-      conference = (await findSalesBotConference(client, conferenceName)) || conference;
-      if (conference?.sid) {
-        botParticipant = await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL);
-      }
-    }
-
-    const sessionWaitMs = botParticipant?.callSid ? 1500 : 8000;
-    let session = await waitForSalesBotSession(callId, sessionWaitMs);
-
     await call.reload({ attributes: ["answeredBy", "customerCallSid"] }).catch(() => {});
     const freshLeg = await fetchCustomerLeg(call);
     if (freshLeg?.answeredBy) {
@@ -240,13 +218,14 @@ export async function POST(req) {
       participantStatus === "queued" ||
       participantStatus === "connecting";
     const normalizedAnswer = String(answeredBy || "").trim().toLowerCase();
-    // in-progress also happens while a machine greeting is playing. Speak only for a human.
-    const humanAnswered = isHumanAnsweredBy(answeredBy);
+    // unknown means Twilio heard a pickup but not a long greeting. A quiet person
+    // was previously returned as machine_end_silence and the bot never spoke.
+    const humanAnswered = normalizedAnswer === "human" || normalizedAnswer === "unknown";
 
     if (normalizedAnswer === "fax" || normalizedAnswer.startsWith("machine")) {
       return NextResponse.json(
         {
-          error: "A machine answered. The bot did not speak.",
+          error: `A machine answered (${normalizedAnswer}). The bot did not speak.`,
           phase: "machine",
           answeredBy,
           retryable: false,
@@ -257,15 +236,22 @@ export async function POST(req) {
 
     if (!humanAnswered) {
       return waiting({
-        error: "Bot is on the call and silent until a person answers.",
+        error: "The bot is not on the call yet. It joins when a person answers.",
         phase: stillRinging ? "ringing" : "detecting",
-        botAttached: Boolean(botParticipant?.callSid || session?.beginSpeaking),
+        botAttached: false,
         speaking: false,
         answeredBy: answeredBy || null,
         customerStatus: freshStatus || null,
         conferenceName,
       });
     }
+
+    let session = conference?.sid
+      ? await waitForSalesBotSession(
+          callId,
+          (await findLabeledParticipant(client, conference.sid, SALES_BOT_LABEL))?.callSid ? 1500 : 0,
+        )
+      : null;
 
     if (!session?.beginSpeaking) {
       if (conference?.sid) {

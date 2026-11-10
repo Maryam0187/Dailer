@@ -136,8 +136,13 @@ export async function dialSalesBotCustomer({
     from: fromNumber,
     url: joinUrl,
     method: "POST",
-    machineDetection: "DetectMessageEnd",
+    // Enable returns human as soon as a person is recognized. DetectMessageEnd was
+    // labeling a quiet person as machine_end_silence, so the bot never spoke.
+    machineDetection: "Enable",
     machineDetectionTimeout: 30,
+    machineDetectionSpeechThreshold: 5000,
+    machineDetectionSpeechEndThreshold: 500,
+    machineDetectionSilenceTimeout: 2000,
     asyncAmd: true,
     asyncAmdStatusCallback: amdUrl,
     asyncAmdStatusCallbackMethod: "POST",

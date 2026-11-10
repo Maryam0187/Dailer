@@ -73,7 +73,14 @@ export function buildConferenceTwiMl(opts) {
   if (!conferenceName) throw new Error("conferenceName is required");
 
   const callerIdAttr = callerId ? ` callerId="${escapeXmlAttr(callerId)}"` : "";
-  const startConferenceOnEnter = participant === "agent" || participant === "transfer" ? "true" : "false";
+  const startConferenceOnEnter =
+    opts.startConferenceOnEnter != null
+      ? opts.startConferenceOnEnter
+        ? "true"
+        : "false"
+      : participant === "agent" || participant === "transfer"
+        ? "true"
+        : "false";
   const endConferenceOnExit = participant === "customer" ? "true" : "false";
   const muted = muteOnEntry ? "true" : "false";
 
