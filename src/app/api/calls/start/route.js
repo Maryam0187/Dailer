@@ -133,7 +133,6 @@ export async function POST(req) {
       try {
         const customer = await dialSalesBotCustomer({
           client,
-          conferenceSid: conferenceName,
           toNumber: normalizedToNumber,
           fromNumber,
           callId: call.id,

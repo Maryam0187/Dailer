@@ -116,43 +116,37 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
   };
 }
 
-/** Dial the customer into the conference. They join when they answer. The bot is already in the room and stays silent until then. */
+/**
+ * Dial the customer with synchronous AMD. Twilio posts AnsweredBy to customer-join
+ * after it decides. Only a human is then placed in the conference. Conference
+ * participant AMD left answeredBy null while the leg was already in-progress.
+ */
 export async function dialSalesBotCustomer({
   client,
-  conferenceSid,
   toNumber,
   fromNumber,
   callId,
   origin,
 }) {
   const base = String(origin || "").replace(/\/$/, "");
-  const amdUrl = `${base}/api/twilio/sales-bot/amd?callId=${encodeURIComponent(String(callId))}`;
+  const joinUrl = `${base}/api/twilio/sales-bot/customer-join?callId=${encodeURIComponent(String(callId))}`;
   const statusUrl = `${base}/api/twilio/customer-leg-status?callId=${encodeURIComponent(String(callId))}`;
-  const json = await twilioFormPost(
-    client,
-    `/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`,
-    {
-      From: fromNumber,
-      To: toNumber,
-      Label: "customer",
-      Muted: "false",
-      EarlyMedia: "false",
-      StartConferenceOnEnter: "true",
-      EndConferenceOnExit: "true",
-      Beep: "false",
-      Timeout: "25",
-      MachineDetection: "DetectMessageEnd",
-      AmdStatusCallback: amdUrl,
-      AmdStatusCallbackMethod: "POST",
-      StatusCallback: statusUrl,
-      StatusCallbackMethod: "POST",
-      StatusCallbackEvent: "initiated ringing answered completed",
-    },
-  );
+  const created = await client.calls.create({
+    to: toNumber,
+    from: fromNumber,
+    url: joinUrl,
+    method: "POST",
+    machineDetection: "DetectMessageEnd",
+    machineDetectionTimeout: 30,
+    asyncAmd: false,
+    statusCallback: statusUrl,
+    statusCallbackMethod: "POST",
+    statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
+    timeout: 25,
+  });
 
   return {
-    callSid: json.call_sid || json.callSid || null,
-    ...json,
+    callSid: created?.sid || null,
   };
 }
 
