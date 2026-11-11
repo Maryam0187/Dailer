@@ -84,7 +84,6 @@ function attachSalesBotRelay(server) {
       abort: null,
       closed: false,
       speaking: false,
-      /** While true, ignore prompt/interrupt so the greeting is not cut off. */
       openingInProgress: false,
       openingTimer: null,
     };
@@ -107,9 +106,8 @@ function attachSalesBotRelay(server) {
       session.abort = null;
     }
 
-    /** Stop TTS immediately (hold / connecting tone). Greeting can start again on human. */
-    session.stopSpeakingForHold = () => {
-      if (session.closed) return { ok: false };
+    /** Stop TTS now so the bot can listen (customer barge-in or hold). */
+    function stopAndListen() {
       abortInflight();
       clearOpeningGuard();
       try {
@@ -117,6 +115,12 @@ function attachSalesBotRelay(server) {
       } catch {
         /* ignore */
       }
+    }
+
+    /** Stop TTS for hold / connecting tone. Greeting can start again on human. */
+    session.stopSpeakingForHold = () => {
+      if (session.closed) return { ok: false };
+      stopAndListen();
       session.greetingStarted = false;
       session.speaking = false;
       return { ok: true };
@@ -141,7 +145,6 @@ function attachSalesBotRelay(server) {
       }
       applyTurnState(session, started);
 
-      // Opening only after human AMD — not during hold / connecting tone.
       const opening = wrapPlainTextForTts(
         String(started.opening || started.reply || "").trim(),
       );
@@ -158,11 +161,12 @@ function attachSalesBotRelay(server) {
     };
 
     async function replyToPrompt(voicePrompt) {
-      if (!session.speaking || session.openingInProgress) return;
+      if (!session.speaking) return;
       const userText = String(voicePrompt || "").trim();
       if (!userText) return;
 
-      abortInflight();
+      // Customer spoke — stop current TTS and listen, then reply.
+      stopAndListen();
       session.abort = new AbortController();
 
       const result = await continueSalesBotTurn({
@@ -193,15 +197,13 @@ function attachSalesBotRelay(server) {
         return;
       }
       if (type === "prompt") {
-        // Do not let customer speech kill / replace the opening greeting.
-        if (session.openingInProgress) return;
         const text = msg.voicePrompt || msg.prompt || msg.transcript || "";
         void replyToPrompt(text);
         return;
       }
       if (type === "interrupt") {
-        if (session.openingInProgress) return;
-        abortInflight();
+        // Customer started talking — stop the bot immediately and listen.
+        stopAndListen();
       }
     });
 

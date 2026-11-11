@@ -73,8 +73,7 @@ function escapeXmlAttr(value) {
 }
 
 /**
- * Sales Bot ConversationRelay: opening is not barge-in interruptible.
- * Later turns stay interruptible so the customer can talk over replies.
+ * Sales Bot ConversationRelay: customer speech interrupts the bot at any time.
  */
 function buildSalesConversationRelayTwiml({ relayUrl, welcomeGreeting, voice } = {}) {
   const provider = getTtsProvider();
@@ -88,10 +87,10 @@ function buildSalesConversationRelayTwiml({ relayUrl, welcomeGreeting, voice } =
   <Connect>
     <ConversationRelay
       url="${escapeXmlAttr(relayUrl)}"${greetingAttr}
-      welcomeGreetingInterruptible="none"
-      interruptible="speech"
-      interruptSensitivity="low"
-      ignoreBackchannel="true"${elevenLabsAttr}
+      welcomeGreetingInterruptible="any"
+      interruptible="any"
+      interruptSensitivity="high"
+      ignoreBackchannel="false"${elevenLabsAttr}
       ttsProvider="${escapeXmlAttr(provider)}"
       voice="${ttsVoice}"
       language="en-US"
