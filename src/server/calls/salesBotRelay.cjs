@@ -174,18 +174,32 @@ function attachSalesBotRelay(server) {
       const userText = String(voicePrompt || "").trim();
       if (!userText) return;
 
-      // Customer picked up or spoke mid-intro — stop, listen, then restart intro if needed.
+      // Customer joined/spoke mid-intro — stop, replay the full opening, then answer them.
       const restartIntro = Boolean(session.openingInProgress || session.openingInterrupted);
       stopAndListen({ fromOpening: restartIntro });
       session.openingInterrupted = false;
       session.abort = new AbortController();
+
+      if (restartIntro && session.openingText) {
+        session.openingInProgress = true;
+        sendTextTokens(ws, session.openingText);
+        const ms = estimateSpeakMs(session.openingText);
+        session.openingTimer = setTimeout(() => {
+          session.openingInProgress = false;
+          session.openingTimer = null;
+        }, ms);
+        // Short greeting-only pickup (hi/hello): just replay intro, wait for next turn.
+        if (/^(hi|hello|hey|yeah|yes|ok|okay|mm+|uh+huh)\b[.!?]*$/i.test(userText)) {
+          return;
+        }
+      }
 
       const result = await continueSalesBotTurn({
         userText,
         state: { messages: session.messages },
         signal: session.abort.signal,
         botKey: session.botKey,
-        restartIntro,
+        restartIntro: false,
       });
 
       if (result?.aborted || session.closed) return;

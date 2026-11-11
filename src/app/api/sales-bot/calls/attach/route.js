@@ -17,7 +17,6 @@ import {
 import {
   canAttachSalesBot,
   isFinishedMachineAnsweredBy,
-  isHumanAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -28,9 +27,6 @@ export const runtime = "nodejs";
 const RINGING_CUSTOMER = new Set(["queued", "ringing", "initiated"]);
 const TERMINAL = new Set(["completed", "failed", "busy", "no-answer", "canceled", "cancelled"]);
 
-/** Wait this long after pickup before attaching when AMD is empty or machine_start. */
-const AMD_GRACE_MS = 4500;
-
 function waiting(body) {
   return NextResponse.json({ waiting: true, retryable: true, ...body }, { status: 200 });
 }
@@ -38,13 +34,6 @@ function waiting(body) {
 function machineMessage(answeredBy) {
   const label = String(answeredBy || "machine").trim() || "machine";
   return `A machine answered (${label}). The bot was not added.`;
-}
-
-function msSince(dateLike) {
-  if (!dateLike) return null;
-  const t = new Date(dateLike).getTime();
-  if (!Number.isFinite(t)) return null;
-  return Math.max(0, Date.now() - t);
 }
 
 async function silenceBotIfPresent(call) {
@@ -81,8 +70,11 @@ async function fetchCustomerLeg(call) {
 }
 
 /**
- * Softphone + Dial AMD first. Conference + bot only when we should speak.
- * If Twilio never returns AnsweredBy while the line is live, attach after a short grace.
+ * Softphone + Dial AMD (DetectMessageEnd).
+ * Speak only when BOTH are true:
+ * 1) customer pickup stamped (customerAnsweredAt / live leg)
+ * 2) AnsweredBy === "human"
+ * No presumeLive timer — that caused the bot to introduce before the customer joined.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -166,22 +158,6 @@ export async function POST(req) {
   const customerStatus = customerLeg?.status || null;
   const liveCustomer = customerStatus === "in-progress" || customerStatus === "answered";
 
-  // Stamp pickup time so the AMD grace period has a real clock (status alone is not enough).
-  if (liveCustomer && !call.customerAnsweredAt) {
-    const now = new Date();
-    await call.update({ customerAnsweredAt: now }).catch(() => {});
-    call.customerAnsweredAt = now;
-  }
-
-  const answeredAgeMs = msSince(call.customerAnsweredAt);
-  const graceElapsed = liveCustomer && answeredAgeMs != null && answeredAgeMs >= AMD_GRACE_MS;
-  // No AMD / only machine_start during hold — after grace, attach so we never stick on null.
-  const presumeLive =
-    liveCustomer &&
-    graceElapsed &&
-    !isFinishedMachineAnsweredBy(answeredBy) &&
-    !isHumanAnsweredBy(answeredBy);
-
   if (isFinishedMachineAnsweredBy(answeredBy)) {
     await silenceBotIfPresent(call);
     return NextResponse.json({
@@ -196,6 +172,7 @@ export async function POST(req) {
   }
 
   if (!String(call.customerCallSid || "").trim() || !customerStatus || RINGING_CUSTOMER.has(customerStatus)) {
+    await silenceBotIfPresent(call);
     return waiting({
       error: "Phone is ringing. Softphone is connected. Waiting for the customer.",
       phase: "ringing",
@@ -206,23 +183,40 @@ export async function POST(req) {
     });
   }
 
-  if (!canAttachSalesBot(answeredBy, { presumeLive })) {
-    if (answeredBy === "machine_start" || String(call.conferenceName || "").trim()) {
-      await silenceBotIfPresent(call);
-    }
-    const waitMs =
-      answeredAgeMs == null ? AMD_GRACE_MS : Math.max(0, AMD_GRACE_MS - answeredAgeMs);
+  // Live line but not a confirmed person yet (hold / tone / AMD still running).
+  if (!canAttachSalesBot(answeredBy)) {
+    await silenceBotIfPresent(call);
     return waiting({
       error:
         answeredBy === "machine_start"
-          ? "Hold or connecting tone. Bot stays silent briefly, then joins if the line stays live."
-          : `Line is live. Waiting up to ${Math.ceil(waitMs / 1000)}s for Twilio AMD, then the bot will join.`,
+          ? "Hold or connecting tone. Bot stays silent until a person is confirmed."
+          : "Line may be live. Bot stays silent until Twilio confirms a person (AnsweredBy=human).",
       phase: "detecting",
       botAttached: false,
       speaking: false,
       answeredBy: answeredBy || null,
       customerStatus,
     });
+  }
+
+  // Human AMD without a live customer leg should not speak.
+  if (!liveCustomer) {
+    await silenceBotIfPresent(call);
+    return waiting({
+      error: "Person detected, waiting for the customer line to be live.",
+      phase: "connecting",
+      botAttached: false,
+      speaking: false,
+      answeredBy,
+      customerStatus,
+    });
+  }
+
+  // Stamp pickup if missing (status answered/in-progress already proven live).
+  if (!call.customerAnsweredAt) {
+    const now = new Date();
+    await call.update({ customerAnsweredAt: now }).catch(() => {});
+    call.customerAnsweredAt = now;
   }
 
   try {
@@ -236,7 +230,7 @@ export async function POST(req) {
         error: upgraded.error || "Moving the call so the bot can join…",
         phase: stillRinging ? "ringing" : "connecting",
         twilioHint: upgraded.twilioHint,
-        answeredBy: answeredBy || null,
+        answeredBy,
       });
     }
 
@@ -245,9 +239,9 @@ export async function POST(req) {
     const conference = await waitForInProgressConference(client, conferenceName);
     if (!conference?.sid) {
       return waiting({
-        error: "Opening the room for the bot…",
+        error: "Person confirmed. Opening the room for the bot…",
         phase: "connecting",
-        answeredBy: answeredBy || null,
+        answeredBy,
         conferenceName,
       });
     }
@@ -267,11 +261,11 @@ export async function POST(req) {
     const session = await waitForSalesBotSession(callId, 8000);
     if (!session?.beginSpeaking) {
       return waiting({
-        error: "Connecting the bot…",
+        error: "Person confirmed. Connecting the bot…",
         phase: "connecting",
         botAttached: Boolean(bot?.callSid),
         speaking: false,
-        answeredBy: answeredBy || null,
+        answeredBy,
         conferenceName,
       });
     }
@@ -280,11 +274,11 @@ export async function POST(req) {
     const spoken = await beginSalesBotSpeech({ callId });
     if (!spoken?.ok) {
       return waiting({
-        error: spoken?.error || "The bot is about to speak…",
+        error: spoken?.error || "Person confirmed. The bot is about to speak…",
         phase: "connecting",
         botAttached: true,
         speaking: false,
-        answeredBy: answeredBy || null,
+        answeredBy,
         conferenceName,
       });
     }
@@ -296,10 +290,9 @@ export async function POST(req) {
       botAttached: true,
       speaking: true,
       phase: "human",
-      answeredBy: answeredBy || (presumeLive ? "presumed_live" : null),
+      answeredBy,
       conferenceName,
       callMode: "conference",
-      presumedLive: Boolean(presumeLive),
     });
   } catch (err) {
     console.error("[sales-bot] attach failed:", err?.message || err);

@@ -105,17 +105,16 @@ export async function POST(req) {
     );
   }
 
-  // Sales Bot: AMD on Dial <Number> (conference participants cannot detect human).
-  // Enable returns human / machine_start quickly. Attach waits a short grace period
-  // so hold tones do not get the bot immediately; then attaches if still live.
+  // Sales Bot: AMD on Dial <Number>. DetectMessageEnd waits through hold/tones, then
+  // human or machine_end_*. Attach speaks only on human (no timed presumeLive).
   const amdAttr =
     isSalesBot && baseUrl
       ? [
-          ` machineDetection="Enable"`,
-          ` machineDetectionTimeout="5"`,
+          ` machineDetection="DetectMessageEnd"`,
+          ` machineDetectionTimeout="30"`,
           ` machineDetectionSpeechThreshold="2400"`,
           ` machineDetectionSpeechEndThreshold="1200"`,
-          ` machineDetectionSilenceTimeout="3000"`,
+          ` machineDetectionSilenceTimeout="5000"`,
           ` amdStatusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/sales-bot/amd?callId=${callId}`)}"`,
           ` amdStatusCallbackMethod="POST"`,
         ].join("")

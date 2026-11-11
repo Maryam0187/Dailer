@@ -1,13 +1,10 @@
 /**
- * Twilio AMD helpers for Sales Bot (Dial <Number>, not conference participants).
+ * Twilio AMD helpers for Sales Bot.
+ * Detection runs on Dial <Number> with DetectMessageEnd (not conference participants).
  *
- * Enable: human | machine_start | fax | unknown (machine_start is often final).
- * DetectMessageEnd: human | machine_end_* | fax (can stay empty while listening).
- *
- * Attach when:
- * - human, OR
- * - AMD never arrives / machine_start hold has lasted long enough (presumeLive).
- * Never attach on finished machine_end_* / fax.
+ * Speak only on exact "human".
+ * Stay silent on empty / unknown / machine_start (hold, tone, still listening).
+ * Never speak on machine_end_* / fax.
  */
 
 export function isFinishedMachineAnsweredBy(answeredBy) {
@@ -39,23 +36,21 @@ export function isPendingAnsweredBy(answeredBy) {
   return !v || v === "unknown" || v === "machine_start";
 }
 
-/**
- * @param {string} answeredBy
- * @param {{ presumeLive?: boolean }} [opts]
- */
-export function canAttachSalesBot(answeredBy, opts = {}) {
-  if (isFinishedMachineAnsweredBy(answeredBy)) return false;
-  if (isHumanAnsweredBy(answeredBy)) return true;
-  // Twilio never sent a final AMD result, or only machine_start during hold.
-  return Boolean(opts.presumeLive);
+/** No timed fallback — only a confirmed person. */
+export function canAttachSalesBot(answeredBy) {
+  return isHumanAnsweredBy(answeredBy);
 }
 
 export async function waitForAnsweredBy(callRow, { attempts = 12, delayMs = 500 } = {}) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let current = callRow;
   for (let i = 0; i < attempts; i++) {
-    const answeredBy = String(current?.answeredBy || "").trim();
-    if (answeredBy && answeredBy.toLowerCase() !== "machine_start") return answeredBy;
+    const answeredBy = String(current?.answeredBy || "")
+      .trim()
+      .toLowerCase();
+    if (answeredBy && answeredBy !== "machine_start" && answeredBy !== "unknown") {
+      return answeredBy;
+    }
     await sleep(delayMs);
     if (current?.reload) {
       await current.reload({ attributes: ["id", "answeredBy"] }).catch(() => {});
