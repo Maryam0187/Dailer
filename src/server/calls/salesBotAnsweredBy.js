@@ -1,39 +1,56 @@
 /**
  * Helpers for Twilio AMD AnsweredBy on Sales Bot calls.
+ *
+ * With MachineDetection=Enable:
+ * - human: person confirmed
+ * - machine_start: speech/greeting started (often a real person; final result)
+ * - unknown: inconclusive
+ * - machine_end_* / fax: finished voicemail or fax — do not attach
  */
 
-export function isMachineAnsweredBy(answeredBy) {
+export function isFinishedMachineAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
     .trim()
     .toLowerCase();
   if (!v) return false;
-  if (v === "human") return false;
-  if (v === "unknown") return false;
-  // machine_start | machine_end_beep | machine_end_silence | machine_end_other | fax
-  return v.startsWith("machine") || v === "fax";
+  if (v === "fax") return true;
+  return v.startsWith("machine_end");
+}
+
+/** @deprecated Prefer isFinishedMachineAnsweredBy — machine_start must not block the bot. */
+export function isMachineAnsweredBy(answeredBy) {
+  return isFinishedMachineAnsweredBy(answeredBy);
 }
 
 /**
- * AMD has not decided yet. machine_start is final for MachineDetection=Enable
- * (the direct sales-bot dial), so it is not pending.
+ * Attach the bot when someone is on the line.
+ * machine_start is included because Enable often labels a talking person that way.
  */
+export function canAttachSalesBot(answeredBy) {
+  const v = String(answeredBy || "")
+    .trim()
+    .toLowerCase();
+  return v === "human" || v === "machine_start" || v === "unknown";
+}
+
 export function isPendingAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
     .trim()
     .toLowerCase();
-  return !v || v === "unknown";
+  return !v;
 }
 
 export function isHumanAnsweredBy(answeredBy) {
-  return String(answeredBy || "")
-    .trim()
-    .toLowerCase() === "human";
+  return (
+    String(answeredBy || "")
+      .trim()
+      .toLowerCase() === "human"
+  );
 }
 
 /**
  * Wait for Twilio AMD after the customer leg is live.
- * Returns null if still unknown — callers must not speak until human (or decide to skip).
- * @returns {Promise<string|null>} AnsweredBy or null if still unknown
+ * @returns {Promise<string|null>} AnsweredBy or null if still empty
  */
 export async function waitForAnsweredBy(callRow, { attempts = 12, delayMs = 500 } = {}) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

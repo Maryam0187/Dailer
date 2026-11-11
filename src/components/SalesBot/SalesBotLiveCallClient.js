@@ -99,9 +99,12 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
 
       const answeredBy = String(json?.answeredBy || "").trim().toLowerCase();
       const phase = String(json?.phase || "");
-      const machine =
-        phase === "machine" || answeredBy === "fax" || answeredBy.startsWith("machine");
-      if (machine) {
+      // machine_start often means a person spoke — only finished voicemail / fax stop the bot.
+      const finishedMachine =
+        phase === "machine" ||
+        answeredBy === "fax" ||
+        answeredBy.startsWith("machine_end");
+      if (finishedMachine) {
         setBotStatus("");
         setInfo(json?.error || "A machine answered. The bot was not added.");
         return;

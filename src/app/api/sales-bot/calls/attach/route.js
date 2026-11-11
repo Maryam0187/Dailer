@@ -14,8 +14,8 @@ import {
   setLabeledParticipantMuted,
 } from "@/server/calls/salesBotJoin";
 import {
-  isHumanAnsweredBy,
-  isMachineAnsweredBy,
+  canAttachSalesBot,
+  isFinishedMachineAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -102,7 +102,7 @@ export async function POST(req) {
   const status = String(call.status || "").toLowerCase();
   if (TERMINAL.has(status)) {
     const answeredBy = String(call.answeredBy || "").trim().toLowerCase();
-    if (isMachineAnsweredBy(answeredBy)) {
+    if (isFinishedMachineAnsweredBy(answeredBy)) {
       return NextResponse.json({
         stop: true,
         error: machineMessage(answeredBy),
@@ -134,7 +134,8 @@ export async function POST(req) {
   const answeredBy = String(customerLeg?.answeredBy || call.answeredBy || "").trim().toLowerCase();
   const customerStatus = customerLeg?.status || null;
 
-  if (isMachineAnsweredBy(answeredBy)) {
+  // Only finished voicemail / fax block the bot. machine_start often means a person spoke.
+  if (isFinishedMachineAnsweredBy(answeredBy)) {
     return NextResponse.json({
       stop: true,
       error: machineMessage(answeredBy),
@@ -157,9 +158,9 @@ export async function POST(req) {
     });
   }
 
-  if (!isHumanAnsweredBy(answeredBy)) {
+  if (!canAttachSalesBot(answeredBy)) {
     return waiting({
-      error: "You can hear the line. The bot joins only after Twilio confirms a person.",
+      error: "You can hear the line. Waiting for Twilio to confirm someone is speaking.",
       phase: "detecting",
       botAttached: false,
       speaking: false,
