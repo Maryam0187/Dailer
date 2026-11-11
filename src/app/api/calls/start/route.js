@@ -12,7 +12,6 @@ import {
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
-import { createConferenceName } from "@/server/calls/conferenceVoice";
 import { dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
@@ -118,22 +117,31 @@ export async function POST(req) {
   try {
     const client = ctx.client;
     if (isSalesBot) {
-      const conferenceName = createConferenceName({ userId: authedUser.id });
-      await call.update({ conferenceName });
-      try {
-        const customer = await dialSalesBotCustomer({
-          client,
-          toNumber: normalizedToNumber,
-          fromNumber,
-          callId: call.id,
-          origin: fallbackBaseUrl,
-        });
-        if (customer.callSid) {
-          await call.update({ customerCallSid: customer.callSid });
-        }
-      } catch (err) {
-        console.error("[sales-bot] customer dial at start failed:", err?.message || err);
+      const customer = await dialSalesBotCustomer({
+        client,
+        toNumber: normalizedToNumber,
+        fromNumber,
+        callId: call.id,
+        origin: fallbackBaseUrl,
+      });
+      if (!customer.callSid) {
+        throw new Error("Customer call did not start");
       }
+      await call.update({
+        customerCallSid: customer.callSid,
+        twilioSid: customer.callSid,
+        status: "initiated",
+      });
+      const refreshed = await call.reload();
+      return NextResponse.json(
+        {
+          ok: true,
+          call: refreshed,
+          callMode: "direct",
+          dialMode: "sales_bot",
+        },
+        { status: 201 },
+      );
     }
     const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);

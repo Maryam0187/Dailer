@@ -17,14 +17,7 @@ function sleep(ms) {
 
 export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
   const { beginSession, session, endCall, patchSession } = useActiveCall();
-  const {
-    ensureRegistered,
-    expectOutgoingIncomingLeg,
-    registered,
-    sdkInitializing,
-    setCallMuted,
-    voiceConnected,
-  } = useTwilioVoice();
+  const { setCallMuted, voiceConnected } = useTwilioVoice();
 
   const [toNumber, setToNumber] = useState("");
   const [busy, setBusy] = useState(false);
@@ -97,6 +90,12 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
 
       const json = await res.json().catch(() => ({}));
 
+      if (json?.phase === "machine") {
+        setBotStatus("waiting");
+        setInfo(json?.error || "A machine answered. The bot did not speak.");
+        return;
+      }
+
       if (json?.stop) {
         setBotStatus("failed");
         setError(json?.error || "Call ended before the bot could speak.");
@@ -130,9 +129,9 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         const phase = String(json?.phase || "");
         setBotStatus("waiting");
         if (phase === "ringing") {
-          setInfo("Calling the customer. The bot is not on the call yet.");
+          setInfo("Phone is ringing. The bot is not on the call.");
         } else if (phase === "detecting") {
-          setInfo("You can hear the line. The bot joins when a person is confirmed.");
+          setInfo("Listening for a person. The bot stays off until a human speaks.");
         } else if (phase === "connecting") {
           setInfo("Customer answered. The bot is about to speak…");
         } else {
@@ -168,14 +167,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         throw new Error("Enter a valid phone number");
       }
 
-      // Exact current dialer flow (Quick Dial) — unchanged /api/calls/start.
-      expectOutgoingIncomingLeg(45000);
-      if (!registered || sdkInitializing) {
-        const ok = await ensureRegistered();
-        if (!ok) throw new Error("Dialer is not ready. Open the Dialer page and try again.");
-      }
-
-      // Tag sales_bot at create so bridge enables AMD before customer dial.
+      // Direct customer call. No softphone ring and no conference.
       const result = await startOutgoingCall({
         toNumber: toDigits,
         intent: "sales_bot",
@@ -209,7 +201,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Calling the customer. The bot joins only after a person is confirmed.");
+      setInfo("Direct call. The bot joins only after a person speaks.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -229,12 +221,10 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     setBusy(true);
     setError(null);
     const callId = Number(salesBotCallIdRef.current || session?.callId);
-    const wasAttached = Boolean(session?.salesBotAttached);
     const conferenceName = session?.conferenceName || "";
     clearSalesBotCallTracking();
     try {
-      // Only tear down via sales-bot stop when AI actually attached (conference).
-      if (Number.isInteger(callId) && callId > 0 && wasAttached) {
+      if (Number.isInteger(callId) && callId > 0) {
         await fetch("/api/sales-bot/calls/stop", {
           method: "POST",
           credentials: "include",
@@ -262,7 +252,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Start dials the customer. The bot is not added yet. It joins and speaks only after a person is confirmed.
+        Start places a direct call. There is no conference. The bot joins only after a person speaks.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
+import { buildSalesBotConnectTwiml } from "@/server/calls/salesBot";
+import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -20,7 +23,7 @@ export async function POST(req) {
 
   try {
     const call = await db.CallLog.findByPk(callId, {
-      attributes: ["id", "callKind", "dialMode", "answeredBy", "customerCallSid"],
+      attributes: ["id", "userId", "callKind", "dialMode", "answeredBy", "customerCallSid", "twilioSid"],
     });
     if (!call) return new NextResponse("OK", { status: 200 });
 
@@ -29,6 +32,26 @@ export async function POST(req) {
     if (callSid && !call.customerCallSid) updates.customerCallSid = callSid;
     if (Object.keys(updates).length) {
       await call.update(updates);
+    }
+
+    const sid = callSid || String(call.customerCallSid || call.twilioSid || "").trim();
+    const origin = getRequestBaseUrlFromRequest(req);
+    if (sid && origin && answeredBy === "human") {
+      try {
+        const { client } = await getTwilioContextForUserId(call.userId);
+        await client.calls(sid).update({
+          twiml: buildSalesBotConnectTwiml({ origin, callId }),
+        });
+      } catch (err) {
+        console.error("[sales-bot] direct bot connect failed:", err?.message || err);
+      }
+    } else if (sid && (answeredBy === "fax" || answeredBy.startsWith("machine_end"))) {
+      try {
+        const { client } = await getTwilioContextForUserId(call.userId);
+        await client.calls(sid).update({ status: "completed" });
+      } catch (err) {
+        console.error("[sales-bot] machine hangup failed:", err?.message || err);
+      }
     }
   } catch (err) {
     console.error("[sales-bot] amd callback failed:", err?.message || err);

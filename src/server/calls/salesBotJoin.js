@@ -117,8 +117,8 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
 }
 
 /**
- * Dial the customer. When they answer they join the conference so a greeting is audible.
- * AMD reports human or machine in the background. The bot speaks only for human.
+ * Direct customer call. No conference. AMD listens on this call.
+ * The bot is connected later only when AnsweredBy is human.
  */
 export async function dialSalesBotCustomer({
   client,
