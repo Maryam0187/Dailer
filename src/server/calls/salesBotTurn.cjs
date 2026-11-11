@@ -70,7 +70,13 @@ async function startSalesBotTurn(botKey) {
   };
 }
 
-async function continueSalesBotTurn({ userText, state: rawState, signal, botKey }) {
+async function continueSalesBotTurn({
+  userText,
+  state: rawState,
+  signal,
+  botKey,
+  restartIntro = false,
+}) {
   const key = normalizeSalesBotKey(botKey);
   const user = String(userText || "").trim();
   if (!user) {
@@ -82,6 +88,16 @@ async function continueSalesBotTurn({ userText, state: rawState, signal, botKey 
     const started = await startSalesBotTurn(key);
     if (!started.ok) return started;
     state = parseState(started.state);
+  }
+
+  if (restartIntro) {
+    state.messages.push({
+      role: "system",
+      content:
+        "The prospect joined or spoke while your opening was still playing, so they may have missed the start. " +
+        "Briefly restart your full introduction from the beginning, then respond to what they just said. " +
+        "Do not apologize at length. Keep it natural and short.",
+    });
   }
 
   state.messages.push({ role: "user", content: user });

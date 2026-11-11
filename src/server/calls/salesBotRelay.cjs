@@ -85,7 +85,9 @@ function attachSalesBotRelay(server) {
       closed: false,
       speaking: false,
       openingInProgress: false,
+      openingInterrupted: false,
       openingTimer: null,
+      openingText: "",
     };
 
     function clearOpeningGuard() {
@@ -107,7 +109,10 @@ function attachSalesBotRelay(server) {
     }
 
     /** Stop TTS now so the bot can listen (customer barge-in or hold). */
-    function stopAndListen() {
+    function stopAndListen({ fromOpening = false } = {}) {
+      if (fromOpening || session.openingInProgress) {
+        session.openingInterrupted = true;
+      }
       abortInflight();
       clearOpeningGuard();
       try {
@@ -120,9 +125,11 @@ function attachSalesBotRelay(server) {
     /** Stop TTS for hold / connecting tone. Greeting can start again on human. */
     session.stopSpeakingForHold = () => {
       if (session.closed) return { ok: false };
-      stopAndListen();
+      stopAndListen({ fromOpening: true });
       session.greetingStarted = false;
       session.speaking = false;
+      session.openingInterrupted = false;
+      session.openingText = "";
       return { ok: true };
     };
 
@@ -132,6 +139,7 @@ function attachSalesBotRelay(server) {
       }
       if (session.greetingStarted) return { ok: true, already: true };
       session.greetingStarted = true;
+      session.openingInterrupted = false;
       abortInflight();
       clearOpeningGuard();
       session.speaking = true;
@@ -148,6 +156,7 @@ function attachSalesBotRelay(server) {
       const opening = wrapPlainTextForTts(
         String(started.opening || started.reply || "").trim(),
       );
+      session.openingText = opening;
       if (!session.closed && opening) {
         session.openingInProgress = true;
         sendTextTokens(ws, opening);
@@ -165,8 +174,10 @@ function attachSalesBotRelay(server) {
       const userText = String(voicePrompt || "").trim();
       if (!userText) return;
 
-      // Customer spoke — stop current TTS and listen, then reply.
-      stopAndListen();
+      // Customer picked up or spoke mid-intro — stop, listen, then restart intro if needed.
+      const restartIntro = Boolean(session.openingInProgress || session.openingInterrupted);
+      stopAndListen({ fromOpening: restartIntro });
+      session.openingInterrupted = false;
       session.abort = new AbortController();
 
       const result = await continueSalesBotTurn({
@@ -174,6 +185,7 @@ function attachSalesBotRelay(server) {
         state: { messages: session.messages },
         signal: session.abort.signal,
         botKey: session.botKey,
+        restartIntro,
       });
 
       if (result?.aborted || session.closed) return;
@@ -202,8 +214,8 @@ function attachSalesBotRelay(server) {
         return;
       }
       if (type === "interrupt") {
-        // Customer started talking — stop the bot immediately and listen.
-        stopAndListen();
+        // Customer started talking mid-AI — stop now; next prompt restarts the intro.
+        stopAndListen({ fromOpening: session.openingInProgress });
       }
     });
 
