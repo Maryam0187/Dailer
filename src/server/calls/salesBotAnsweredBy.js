@@ -1,11 +1,20 @@
 /**
- * Twilio AMD helpers for Sales Bot.
- * Detection runs on Dial <Number> with DetectMessageEnd (not conference participants).
+ * Twilio AMD helpers for Sales Bot (Dial DetectMessageEnd).
  *
- * Speak only on exact "human".
- * Stay silent on empty / unknown / machine_start (hold, tone, still listening).
- * Never speak on machine_end_* / fax.
+ * - human → attach
+ * - machine_end_* while the customer leg is still live → attach
+ *   (AMD often labels a real person as beep/silence; agent softphone is still on the line)
+ * - fax → never attach
+ * - machine_start / empty / unknown → wait (hold / still detecting)
  */
+
+export function isFaxAnsweredBy(answeredBy) {
+  return (
+    String(answeredBy || "")
+      .trim()
+      .toLowerCase() === "fax"
+  );
+}
 
 export function isFinishedMachineAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
@@ -16,7 +25,15 @@ export function isFinishedMachineAnsweredBy(answeredBy) {
   return v.startsWith("machine_end");
 }
 
-/** @deprecated Prefer isFinishedMachineAnsweredBy */
+/** Voicemail-end labels that can be false positives while the line is still live. */
+export function isMachineEndAnsweredBy(answeredBy) {
+  return String(answeredBy || "")
+    .trim()
+    .toLowerCase()
+    .startsWith("machine_end");
+}
+
+/** @deprecated Prefer isFinishedMachineAnsweredBy / isFaxAnsweredBy */
 export function isMachineAnsweredBy(answeredBy) {
   return isFinishedMachineAnsweredBy(answeredBy);
 }
@@ -36,9 +53,16 @@ export function isPendingAnsweredBy(answeredBy) {
   return !v || v === "unknown" || v === "machine_start";
 }
 
-/** No timed fallback — only a confirmed person. */
-export function canAttachSalesBot(answeredBy) {
-  return isHumanAnsweredBy(answeredBy);
+/**
+ * @param {string} answeredBy
+ * @param {{ liveCustomer?: boolean }} [opts]
+ */
+export function canAttachSalesBot(answeredBy, opts = {}) {
+  if (isFaxAnsweredBy(answeredBy)) return false;
+  if (isHumanAnsweredBy(answeredBy)) return true;
+  // Live softphone line after machine_end_* — often a person, not a finished voicemail.
+  if (opts.liveCustomer && isMachineEndAnsweredBy(answeredBy)) return true;
+  return false;
 }
 
 export async function waitForAnsweredBy(callRow, { attempts = 12, delayMs = 500 } = {}) {

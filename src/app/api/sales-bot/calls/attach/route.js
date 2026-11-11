@@ -16,7 +16,9 @@ import {
 } from "@/server/calls/salesBotJoin";
 import {
   canAttachSalesBot,
+  isFaxAnsweredBy,
   isFinishedMachineAnsweredBy,
+  isMachineEndAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
@@ -158,7 +160,8 @@ export async function POST(req) {
   const customerStatus = customerLeg?.status || null;
   const liveCustomer = customerStatus === "in-progress" || customerStatus === "answered";
 
-  if (isFinishedMachineAnsweredBy(answeredBy)) {
+  // Fax always stops. machine_end_* only stops if the customer leg is already dead.
+  if (isFaxAnsweredBy(answeredBy) || (isFinishedMachineAnsweredBy(answeredBy) && !liveCustomer)) {
     await silenceBotIfPresent(call);
     return NextResponse.json({
       stop: true,
@@ -183,8 +186,8 @@ export async function POST(req) {
     });
   }
 
-  // Live line but not a confirmed person yet (hold / tone / AMD still running).
-  if (!canAttachSalesBot(answeredBy)) {
+  // Hold / tone / AMD still running — stay silent.
+  if (!canAttachSalesBot(answeredBy, { liveCustomer })) {
     await silenceBotIfPresent(call);
     return waiting({
       error:
@@ -199,11 +202,10 @@ export async function POST(req) {
     });
   }
 
-  // Human AMD without a live customer leg should not speak.
   if (!liveCustomer) {
     await silenceBotIfPresent(call);
     return waiting({
-      error: "Person detected, waiting for the customer line to be live.",
+      error: "Waiting for the customer line to be live.",
       phase: "connecting",
       botAttached: false,
       speaking: false,
@@ -293,6 +295,8 @@ export async function POST(req) {
       answeredBy,
       conferenceName,
       callMode: "conference",
+      // machine_end_* on a still-live leg is treated as a person (AMD false positive).
+      amdOverride: isMachineEndAnsweredBy(answeredBy) || undefined,
     });
   } catch (err) {
     console.error("[sales-bot] attach failed:", err?.message || err);

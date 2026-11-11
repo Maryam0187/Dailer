@@ -99,12 +99,9 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
 
       const answeredBy = String(json?.answeredBy || "").trim().toLowerCase();
       const phase = String(json?.phase || "");
-      // machine_start often means a person spoke — only finished voicemail / fax stop the bot.
-      const finishedMachine =
-        phase === "machine" ||
-        answeredBy === "fax" ||
-        answeredBy.startsWith("machine_end");
-      if (finishedMachine) {
+      // Only hard-stop when the server says machine/fax is final (dead line or fax).
+      // machine_end_* on a live line may still attach (AMD false positive).
+      if (phase === "machine" || answeredBy === "fax") {
         setBotStatus("");
         setInfo(json?.error || "A machine answered. The bot was not added.");
         return;
