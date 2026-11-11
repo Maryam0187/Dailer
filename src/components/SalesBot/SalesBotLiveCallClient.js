@@ -17,7 +17,14 @@ function sleep(ms) {
 
 export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
   const { beginSession, session, endCall, patchSession } = useActiveCall();
-  const { setCallMuted, voiceConnected } = useTwilioVoice();
+  const {
+    ensureRegistered,
+    expectOutgoingIncomingLeg,
+    registered,
+    sdkInitializing,
+    setCallMuted,
+    voiceConnected,
+  } = useTwilioVoice();
 
   const [toNumber, setToNumber] = useState("");
   const [busy, setBusy] = useState(false);
@@ -114,7 +121,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
             return {
               ...current,
               conferenceName: json.conferenceName,
-              callMode: json.callMode || "direct",
+              callMode: json.callMode || "conference",
               dialMode: "sales_bot",
               salesBotAttached: true,
               salesBotIntent: true,
@@ -123,23 +130,23 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         }
         if (setCallMuted) setCallMuted(true);
         setBotStatus("live");
-        setInfo("A person answered. The bot is speaking.");
+        setInfo("Person confirmed — AI is speaking. You are muted; unmute to jump in.");
         return;
       }
 
       if (json?.waiting || res.status === 409 || json?.retryable) {
-        const phase = String(json?.phase || "");
+        const waitPhase = String(json?.phase || "");
         setBotStatus("waiting");
-        if (phase === "ringing") {
-          setInfo("Phone is ringing. The bot is not on the call.");
-        } else if (phase === "detecting") {
-          setInfo("Twilio is checking who answered. The bot stays off until a person is confirmed.");
-        } else if (phase === "connecting") {
-          setInfo("A person answered. The bot is connecting.");
+        if (waitPhase === "ringing") {
+          setInfo("Your softphone is connected. Customer is ringing. Bot is not on the call yet.");
+        } else if (waitPhase === "detecting") {
+          setInfo("You can hear the line. Bot joins only after Twilio confirms a person.");
+        } else if (waitPhase === "connecting") {
+          setInfo("Person confirmed. Moving the call and connecting the bot…");
         } else {
           setInfo(json?.error || "Waiting for the customer to answer…");
         }
-        await sleep(phase === "ringing" ? 700 : 400);
+        await sleep(waitPhase === "ringing" ? 700 : 400);
         continue;
       }
 
@@ -169,7 +176,13 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         throw new Error("Enter a valid phone number");
       }
 
-      // Direct customer call. No softphone ring and no conference.
+      // Same softphone path as Quick Dial. Softphone auto-accepts, then Dial + AMD.
+      expectOutgoingIncomingLeg(45000);
+      if (!registered || sdkInitializing) {
+        const ok = await ensureRegistered();
+        if (!ok) throw new Error("Dialer is not ready. Open the Dialer page and try again.");
+      }
+
       const result = await startOutgoingCall({
         toNumber: toDigits,
         intent: "sales_bot",
@@ -182,7 +195,6 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
       salesBotCallIdRef.current = callId;
       setSalesBotCallId(callId);
 
-      // Keep mark as a safety net if start ignored intent.
       await fetch("/api/sales-bot/calls/mark", {
         method: "POST",
         credentials: "include",
@@ -203,7 +215,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Calling. The bot joins only if Twilio confirms a person.");
+      setInfo("Softphone connecting. Customer will be dialed. Bot joins only after a person is confirmed.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -254,7 +266,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Start places one direct call. There is no conference. The bot joins only when Twilio confirms a person.
+        Same softphone flow as the dialer. Human detection runs on Dial. The bot joins a conference only after a person is confirmed.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

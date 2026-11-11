@@ -5,8 +5,6 @@ import {
   buildConferenceStatusCallbackUrl,
   getRequestBaseUrlFromRequest,
 } from "@/server/calls/conferenceVoice";
-import { dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
-import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
@@ -26,8 +24,8 @@ function escapeXmlAttr(value) {
 }
 
 /**
- * Outbound 1:1 bridge: when the agent answers their Client leg, Twilio fetches this
- * URL and we <Dial> the customer (no Conference — avoids conference participant billing).
+ * Softphone answered. Sales Bot stays on Dial (with AMD) until a person is confirmed.
+ * After upgrade, conferenceName is set and the agent rejoins the conference.
  */
 export async function POST(req) {
   const url = new URL(req.url);
@@ -52,7 +50,6 @@ export async function POST(req) {
       "callKind",
       "dialMode",
       "conferenceName",
-      "customerCallSid",
     ],
   });
 
@@ -90,29 +87,13 @@ export async function POST(req) {
     ? ` statusCallback="${escapeXmlAttr(`${baseUrl}/api/twilio/customer-leg-status?callId=${callId}`)}" statusCallbackMethod="POST" statusCallbackEvent="initiated ringing answered completed"`
     : "";
 
-  // Sales Bot: agent joins the conference. The bot is added later, only after a person is confirmed.
   const isSalesBot =
     String(callLog.callKind || "").trim() === "sales_bot" ||
     String(callLog.dialMode || "").trim() === "sales_bot";
   const salesConference = String(callLog.conferenceName || "").trim();
+
+  // After human confirmation the call was upgraded. Softphone rejoins the conference.
   if (isSalesBot && salesConference) {
-    if (!String(callLog.customerCallSid || "").trim() && callerId && baseUrl) {
-      try {
-        const { client } = await getTwilioContextForUserId(callLog.userId);
-        const customer = await dialSalesBotCustomer({
-          client,
-          toNumber: customerNumber,
-          fromNumber: callerId,
-          callId,
-          origin: baseUrl,
-        });
-        if (customer.callSid) {
-          await callLog.update({ customerCallSid: customer.callSid }).catch(() => {});
-        }
-      } catch (err) {
-        console.error("[sales-bot] customer dial failed:", err?.message || err);
-      }
-    }
     const statusUrl = baseUrl ? buildConferenceStatusCallbackUrl(baseUrl) : "";
     return twimlResponse(
       buildConferenceTwiMl({
@@ -124,9 +105,10 @@ export async function POST(req) {
     );
   }
 
+  // Sales Bot: Dial the customer with AMD. Human detection works here (not on conference participants).
   const amdAttr =
     isSalesBot && baseUrl
-      ? ` machineDetection="DetectMessageEnd" amdStatusCallback="${escapeXmlAttr(
+      ? ` machineDetection="Enable" amdStatusCallback="${escapeXmlAttr(
           `${baseUrl}/api/twilio/sales-bot/amd?callId=${callId}`,
         )}" amdStatusCallbackMethod="POST"`
       : "";

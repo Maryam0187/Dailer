@@ -174,8 +174,7 @@ function attachSalesBotRelay(server) {
       }
       const type = String(msg?.type || "").toLowerCase();
       if (type === "setup") {
-        // This websocket exists only after Twilio reported a human.
-        void session.beginSpeaking();
+        // Greeting is started by attach after the bot is unmuted in conference.
         return;
       }
       if (type === "prompt") {

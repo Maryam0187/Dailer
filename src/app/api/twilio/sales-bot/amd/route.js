@@ -4,8 +4,8 @@ import db from "@/server/db";
 export const runtime = "nodejs";
 
 /**
- * Optional AMD callback. The sales-bot dial uses synchronous AMD, so the voice
- * URL is the decision. This only records AnsweredBy if Twilio posts it.
+ * AMD callback for Sales Bot Dial <Number>.
+ * Saves AnsweredBy only. Attach upgrades to conference after human.
  */
 export async function POST(req) {
   const url = new URL(req.url);

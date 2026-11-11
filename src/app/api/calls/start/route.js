@@ -12,7 +12,6 @@ import {
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
-import { dialSalesBotCustomer } from "@/server/calls/salesBotJoin";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -116,33 +115,8 @@ export async function POST(req) {
   let agentLeg = null;
   try {
     const client = ctx.client;
-    if (isSalesBot) {
-      const customer = await dialSalesBotCustomer({
-        client,
-        toNumber: normalizedToNumber,
-        fromNumber,
-        callId: call.id,
-        origin: fallbackBaseUrl,
-      });
-      if (!customer.callSid) {
-        throw new Error("Customer call did not start");
-      }
-      await call.update({
-        customerCallSid: customer.callSid,
-        twilioSid: customer.callSid,
-        status: "initiated",
-      });
-      const refreshed = await call.reload();
-      return NextResponse.json(
-        {
-          ok: true,
-          call: refreshed,
-          callMode: "direct",
-          dialMode: "sales_bot",
-        },
-        { status: 201 },
-      );
-    }
+    // Sales Bot uses the same softphone-first path as Quick Dial so AMD can run on
+    // <Dial><Number>. Conference + bot are added later only after a human is confirmed.
     const clientIdentity = getAgentClientIdentity(authedUser.id, authedUser.username);
     const bridgeVoiceUrl = buildBridgeVoiceUrl(fallbackBaseUrl, call.id);
     const callbackParams = getTwilioStatusCallbackParamsWithFallback({ fallbackBaseUrl });
