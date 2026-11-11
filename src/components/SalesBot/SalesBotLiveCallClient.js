@@ -143,7 +143,9 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         if (waitPhase === "ringing") {
           setInfo("Your softphone is connected. Customer is ringing. Bot is not on the call yet.");
         } else if (waitPhase === "detecting") {
-          setInfo("You can hear the line. Bot joins only after Twilio confirms a person.");
+          setInfo(
+            "Hold or connecting tone — bot stopped. It speaks again when a person is confirmed.",
+          );
         } else if (waitPhase === "connecting") {
           setInfo("Person confirmed. Moving the call and connecting the bot…");
         } else {

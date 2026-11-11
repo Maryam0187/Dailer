@@ -107,6 +107,21 @@ function attachSalesBotRelay(server) {
       session.abort = null;
     }
 
+    /** Stop TTS immediately (hold / connecting tone). Greeting can start again on human. */
+    session.stopSpeakingForHold = () => {
+      if (session.closed) return { ok: false };
+      abortInflight();
+      clearOpeningGuard();
+      try {
+        sendJson(ws, { type: "clear" });
+      } catch {
+        /* ignore */
+      }
+      session.greetingStarted = false;
+      session.speaking = false;
+      return { ok: true };
+    };
+
     session.beginSpeaking = async () => {
       if (session.closed) {
         return { ok: false, error: "Sales bot disconnected." };
@@ -126,7 +141,7 @@ function attachSalesBotRelay(server) {
       }
       applyTurnState(session, started);
 
-      // One protected opening: greeting only (after human AMD).
+      // Opening only after human AMD — not during hold / connecting tone.
       const opening = wrapPlainTextForTts(
         String(started.opening || started.reply || "").trim(),
       );

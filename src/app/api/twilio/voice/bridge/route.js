@@ -105,10 +105,12 @@ export async function POST(req) {
     );
   }
 
-  // Sales Bot: Dial the customer with AMD. Human detection works here (not on conference participants).
+  // Sales Bot: AMD on Dial (not conference). DetectMessageEnd waits through hold
+  // messages / connecting tones, then returns human or machine_end_*. Enable's
+  // machine_start fires during "please hold…" and made the bot speak too early.
   const amdAttr =
     isSalesBot && baseUrl
-      ? ` machineDetection="Enable" amdStatusCallback="${escapeXmlAttr(
+      ? ` machineDetection="DetectMessageEnd" amdStatusCallback="${escapeXmlAttr(
           `${baseUrl}/api/twilio/sales-bot/amd?callId=${callId}`,
         )}" amdStatusCallbackMethod="POST"`
       : "";

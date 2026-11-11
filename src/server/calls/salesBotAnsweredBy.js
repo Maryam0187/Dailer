@@ -1,11 +1,12 @@
 /**
  * Helpers for Twilio AMD AnsweredBy on Sales Bot calls.
  *
- * With MachineDetection=Enable:
- * - human: person confirmed
- * - machine_start: speech/greeting started (often a real person; final result)
- * - unknown: inconclusive
- * - machine_end_* / fax: finished voicemail or fax — do not attach
+ * With MachineDetection=DetectMessageEnd on Dial:
+ * - human: person confirmed (often after hold/greeting ends)
+ * - machine_end_*: finished voicemail / announcement — do not attach
+ * - fax: do not attach
+ * - machine_start: early signal only; wait for the final result
+ * - unknown / empty: still waiting
  */
 
 export function isFinishedMachineAnsweredBy(answeredBy) {
@@ -17,35 +18,30 @@ export function isFinishedMachineAnsweredBy(answeredBy) {
   return v.startsWith("machine_end");
 }
 
-/** @deprecated Prefer isFinishedMachineAnsweredBy — machine_start must not block the bot. */
+/** @deprecated Prefer isFinishedMachineAnsweredBy */
 export function isMachineAnsweredBy(answeredBy) {
   return isFinishedMachineAnsweredBy(answeredBy);
 }
 
-/**
- * Attach the bot when someone is on the line.
- * machine_start is included because Enable often labels a talking person that way.
- */
+/** Bot attaches only after Twilio confirms a person — not during hold/tone. */
 export function canAttachSalesBot(answeredBy) {
-  const v = String(answeredBy || "")
-    .trim()
-    .toLowerCase();
-  return v === "human" || v === "machine_start" || v === "unknown";
+  return (
+    String(answeredBy || "")
+      .trim()
+      .toLowerCase() === "human"
+  );
 }
 
 export function isPendingAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
     .trim()
     .toLowerCase();
-  return !v;
+  // machine_start is not final with DetectMessageEnd — keep waiting.
+  return !v || v === "unknown" || v === "machine_start";
 }
 
 export function isHumanAnsweredBy(answeredBy) {
-  return (
-    String(answeredBy || "")
-      .trim()
-      .toLowerCase() === "human"
-  );
+  return canAttachSalesBot(answeredBy);
 }
 
 /**
@@ -57,7 +53,7 @@ export async function waitForAnsweredBy(callRow, { attempts = 12, delayMs = 500 
   let current = callRow;
   for (let i = 0; i < attempts; i++) {
     const answeredBy = String(current?.answeredBy || "").trim();
-    if (answeredBy) return answeredBy;
+    if (answeredBy && answeredBy.toLowerCase() !== "machine_start") return answeredBy;
     await sleep(delayMs);
     if (current?.reload) {
       await current.reload({ attributes: ["id", "answeredBy"] }).catch(() => {});

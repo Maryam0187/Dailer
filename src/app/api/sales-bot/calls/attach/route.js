@@ -4,6 +4,7 @@ import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
 import {
   beginSalesBotSpeech,
   getOpenAiApiKey,
+  pauseSalesBotSpeechForHold,
   SALES_BOT_LABEL,
   waitForSalesBotSession,
 } from "@/server/calls/salesBot";
@@ -16,10 +17,29 @@ import {
 import {
   canAttachSalesBot,
   isFinishedMachineAnsweredBy,
+  isPendingAnsweredBy,
 } from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
 import { upgradeCallToConference, waitForInProgressConference } from "@/server/calls/upgradeToConference";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
+
+async function silenceBotIfPresent(call) {
+  const callId = Number(call?.id);
+  const conferenceName = String(call?.conferenceName || "").trim();
+  pauseSalesBotSpeechForHold(callId);
+  if (!conferenceName || !Number.isInteger(callId) || callId <= 0) return;
+  try {
+    const { client } = await getTwilioContextForUserId(call.userId);
+    const conference = await waitForInProgressConference(client, conferenceName, {
+      attempts: 3,
+      delayMs: 200,
+    });
+    if (!conference?.sid) return;
+    await setLabeledParticipantMuted(client, conference.sid, SALES_BOT_LABEL, true).catch(() => {});
+  } catch {
+    /* best-effort silence */
+  }
+}
 
 export const runtime = "nodejs";
 
@@ -134,8 +154,9 @@ export async function POST(req) {
   const answeredBy = String(customerLeg?.answeredBy || call.answeredBy || "").trim().toLowerCase();
   const customerStatus = customerLeg?.status || null;
 
-  // Only finished voicemail / fax block the bot. machine_start often means a person spoke.
+  // Finished voicemail / fax — silence bot and stop.
   if (isFinishedMachineAnsweredBy(answeredBy)) {
+    await silenceBotIfPresent(call);
     return NextResponse.json({
       stop: true,
       error: machineMessage(answeredBy),
@@ -158,9 +179,16 @@ export async function POST(req) {
     });
   }
 
-  if (!canAttachSalesBot(answeredBy)) {
+  // Hold / connecting tone (machine_start) or still waiting: stop bot speech, wait for human.
+  if (!canAttachSalesBot(answeredBy) || isPendingAnsweredBy(answeredBy)) {
+    if (answeredBy === "machine_start" || String(call.conferenceName || "").trim()) {
+      await silenceBotIfPresent(call);
+    }
     return waiting({
-      error: "You can hear the line. Waiting for Twilio to confirm someone is speaking.",
+      error:
+        answeredBy === "machine_start"
+          ? "Hold or connecting tone detected. Bot stopped. It will speak again when a person is confirmed."
+          : "You can hear the line. Waiting for Twilio to confirm a person.",
       phase: "detecting",
       botAttached: false,
       speaking: false,

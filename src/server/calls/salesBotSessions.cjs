@@ -48,10 +48,18 @@ async function beginSalesBotSpeech({ callId }) {
   return session.beginSpeaking();
 }
 
+/** Mute hold / connecting tone: stop TTS and allow a fresh greeting on human. */
+function pauseSalesBotSpeechForHold(callId) {
+  const session = getSalesBotSession(callId);
+  if (!session?.stopSpeakingForHold) return { ok: false, paused: false };
+  return { ...session.stopSpeakingForHold(), paused: true };
+}
+
 module.exports = {
   registerSalesBotSession,
   unregisterSalesBotSession,
   getSalesBotSession,
   waitForSalesBotSession,
   beginSalesBotSpeech,
+  pauseSalesBotSpeechForHold,
 };

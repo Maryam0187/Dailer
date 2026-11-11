@@ -31,6 +31,10 @@ export function beginSalesBotSpeech(opts) {
   return sessions.beginSalesBotSpeech(opts);
 }
 
+export function pauseSalesBotSpeechForHold(callId) {
+  return sessions.pauseSalesBotSpeechForHold(callId);
+}
+
 export const MAX_TRAIN_AUDIO_BYTES = core.MAX_TRAIN_AUDIO_BYTES;
 export const isAllowedTrainAudioType = core.isAllowedTrainAudioType;
 export const transcribeCustomerAudio = core.transcribeCustomerAudio;
