@@ -91,17 +91,18 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
       const json = await res.json().catch(() => ({}));
 
       const answeredBy = String(json?.answeredBy || "").trim().toLowerCase();
+      const phase = String(json?.phase || "");
       const machine =
-        json?.phase === "machine" || answeredBy === "fax" || answeredBy.startsWith("machine");
+        phase === "machine" || answeredBy === "fax" || answeredBy.startsWith("machine");
       if (machine) {
         setBotStatus("");
-        setInfo(json?.error || "A machine answered. The bot did not speak.");
+        setInfo(json?.error || "A machine answered. The bot was not added.");
         return;
       }
 
       if (json?.stop) {
-        setBotStatus("failed");
-        setError(json?.error || "Call ended before the bot could speak.");
+        setBotStatus("");
+        setInfo(json?.error || "Call ended.");
         return;
       }
 
@@ -113,7 +114,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
             return {
               ...current,
               conferenceName: json.conferenceName,
-              callMode: json.callMode || "conference",
+              callMode: json.callMode || "direct",
               dialMode: "sales_bot",
               salesBotAttached: true,
               salesBotIntent: true,
@@ -122,9 +123,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         }
         if (setCallMuted) setCallMuted(true);
         setBotStatus("live");
-        setInfo(
-          "Customer answered — AI is speaking. You are muted; unmute to jump in.",
-        );
+        setInfo("A person answered. The bot is speaking.");
         return;
       }
 
@@ -134,9 +133,9 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         if (phase === "ringing") {
           setInfo("Phone is ringing. The bot is not on the call.");
         } else if (phase === "detecting") {
-          setInfo("Listening for a person. The bot stays off until a human speaks.");
+          setInfo("Twilio is checking who answered. The bot stays off until a person is confirmed.");
         } else if (phase === "connecting") {
-          setInfo("Customer answered. The bot is about to speak…");
+          setInfo("A person answered. The bot is connecting.");
         } else {
           setInfo(json?.error || "Waiting for the customer to answer…");
         }
@@ -204,7 +203,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         salesBotIntent: true,
       });
 
-      setInfo("Direct call. The bot joins only after a person speaks.");
+      setInfo("Calling. The bot joins only if Twilio confirms a person.");
 
       const generation = ++attachGenRef.current;
       void attachSalesBotWhenCustomerAnswers(callId, generation).catch((err) => {
@@ -255,7 +254,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Live call — Start AI Bot</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Start places a direct call. There is no conference. The bot joins only after a person speaks.
+        Start places one direct call. There is no conference. The bot joins only when Twilio confirms a person.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

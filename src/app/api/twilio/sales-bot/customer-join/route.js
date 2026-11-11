@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { buildSalesBotConnectTwiml } from "@/server/calls/salesBot";
+import { isHumanAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
-import { isMachineAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 
 export const runtime = "nodejs";
 
@@ -20,62 +20,31 @@ function hangupXml() {
 </Response>`;
 }
 
-function escapeXmlAttr(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function waitXml(req) {
-  const incoming = new URL(req.url);
-  const waits = Number(incoming.searchParams.get("wait") || 0) + 1;
-  if (waits > 20) return hangupXml();
-  const base = getRequestBaseUrlFromRequest(req);
-  const url = new URL(`${incoming.pathname}${incoming.search}`, base || incoming.origin);
-  url.searchParams.set("wait", String(waits));
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Pause length="2"/>
-  <Redirect method="POST">${escapeXmlAttr(url.toString())}</Redirect>
-</Response>`;
-}
-
 /**
- * Direct customer call. No conference. The bot TwiML is returned only when a person has spoken.
+ * Twilio requests this only after synchronous AMD.
+ * A person gets the bot on this same call. Anything else hangs up.
  */
 export async function POST(req) {
   const url = new URL(req.url);
   const form = await req.formData().catch(() => null);
   const callId = Number(url.searchParams.get("callId") || form?.get("callId"));
-  const postedAnswer = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
+  const answeredBy = String(form?.get("AnsweredBy") || "").trim().toLowerCase();
   const origin = getRequestBaseUrlFromRequest(req);
 
-  if (!Number.isInteger(callId) || callId <= 0 || !origin) {
-    return twimlResponse(hangupXml());
-  }
-
-  const call = await db.CallLog.findByPk(callId, {
-    attributes: ["id", "answeredBy"],
-  }).catch(() => null);
-  if (!call) return twimlResponse(hangupXml());
-
-  if (postedAnswer) {
-    await call.update({ answeredBy: postedAnswer.slice(0, 32) }).catch((err) => {
+  if (Number.isInteger(callId) && callId > 0 && answeredBy) {
+    await db.CallLog.update(
+      { answeredBy: answeredBy.slice(0, 32) },
+      { where: { id: callId } },
+    ).catch((err) => {
       console.error("[sales-bot] customer-join answeredBy save failed:", err?.message || err);
     });
   }
 
-  const answeredBy = postedAnswer || String(call.answeredBy || "").trim().toLowerCase();
-  if (answeredBy === "human") {
+  if (isHumanAnsweredBy(answeredBy) && origin && Number.isInteger(callId) && callId > 0) {
     return twimlResponse(buildSalesBotConnectTwiml({ origin, callId }));
   }
-  if (isMachineAnsweredBy(answeredBy)) {
-    return twimlResponse(hangupXml());
-  }
 
-  return twimlResponse(waitXml(req));
+  return twimlResponse(hangupXml());
 }
 
 export async function GET(req) {

@@ -1,22 +1,40 @@
 import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { requireSalesBotTrainer } from "@/server/auth/requireSalesBotTrainer";
+import { getOpenAiApiKey, waitForSalesBotSession } from "@/server/calls/salesBot";
 import {
-  beginSalesBotSpeech,
-  buildSalesBotConnectTwiml,
-  getOpenAiApiKey,
-  waitForSalesBotSession,
-} from "@/server/calls/salesBot";
-import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
-import { isMachineAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
+  isHumanAnsweredBy,
+  isMachineAnsweredBy,
+} from "@/server/calls/salesBotAnsweredBy";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
 
 const RINGING_CUSTOMER = new Set(["queued", "ringing", "initiated"]);
+const TERMINAL = new Set(["completed", "failed", "busy", "no-answer", "canceled", "cancelled"]);
 
 function waiting(body) {
   return NextResponse.json({ waiting: true, retryable: true, ...body }, { status: 200 });
+}
+
+function machineMessage(answeredBy) {
+  const label = String(answeredBy || "machine").trim() || "machine";
+  return `A machine answered (${label}). The bot was not added.`;
+}
+
+function endedMessage(status, answeredBy) {
+  if (isMachineAnsweredBy(answeredBy)) return machineMessage(answeredBy);
+  if (answeredBy === "unknown") {
+    return "Twilio could not tell who answered. The bot was not added.";
+  }
+  if (status === "no-answer") return "No answer. The bot was not added.";
+  if (status === "busy") return "The line was busy. The bot was not added.";
+  if (status === "failed") return "The call failed. The bot was not added.";
+  if (status === "canceled" || status === "cancelled") {
+    return "The call was canceled. The bot was not added.";
+  }
+  if (isHumanAnsweredBy(answeredBy)) return "Call ended.";
+  return "Call ended before a person was confirmed.";
 }
 
 async function fetchCustomerLeg(call) {
@@ -28,7 +46,6 @@ async function fetchCustomerLeg(call) {
     return {
       status: String(remote?.status || "").toLowerCase() || null,
       answeredBy: String(remote?.answeredBy || "").trim().toLowerCase(),
-      sid,
     };
   } catch {
     return null;
@@ -36,8 +53,8 @@ async function fetchCustomerLeg(call) {
 }
 
 /**
- * Direct call. The bot is not attached at Start and there is no conference.
- * It is connected only after Twilio reports AnsweredBy=human (a person spoke).
+ * Status watch for the direct sales-bot call.
+ * customer-join connects the bot. This route does not change the call.
  */
 export async function POST(req) {
   const { authedUser, errorResponse } = await requireSalesBotTrainer();
@@ -59,39 +76,13 @@ export async function POST(req) {
     return NextResponse.json({ error: "callId must be a positive integer" }, { status: 400 });
   }
 
-  const origin = getRequestBaseUrlFromRequest(req);
-  if (!origin) {
-    return NextResponse.json(
-      { error: "Could not determine public app URL for the sales bot." },
-      { status: 500 },
-    );
-  }
-
   const call = await db.CallLog.findOne({
     where: { id: callId },
-    attributes: [
-      "id",
-      "userId",
-      "toNumber",
-      "fromNumber",
-      "callKind",
-      "status",
-      "twilioSid",
-      "customerCallSid",
-      "answeredBy",
-    ],
+    attributes: ["id", "userId", "status", "twilioSid", "customerCallSid", "answeredBy"],
   });
   if (!call) return NextResponse.json({ error: "Call not found" }, { status: 404 });
   if (call.userId !== authedUser.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const status = String(call.status || "").toLowerCase();
-  if (["completed", "failed", "busy", "no-answer", "canceled", "cancelled"].includes(status)) {
-    return NextResponse.json(
-      { stop: true, error: "Call already ended.", retryable: false },
-      { status: 200 },
-    );
   }
 
   const customerLeg = await fetchCustomerLeg(call);
@@ -104,35 +95,42 @@ export async function POST(req) {
   }
 
   const answeredBy = String(customerLeg?.answeredBy || call.answeredBy || "").trim().toLowerCase();
-  const customerStatus = customerLeg?.status || null;
-  const stillRinging = !customerStatus || RINGING_CUSTOMER.has(customerStatus);
+  const customerStatus = customerLeg?.status || String(call.status || "").toLowerCase();
+  const terminal = TERMINAL.has(customerStatus) || TERMINAL.has(String(call.status || "").toLowerCase());
 
   if (isMachineAnsweredBy(answeredBy)) {
-    const sid = String(customerLeg?.sid || call.customerCallSid || call.twilioSid || "").trim();
-    if (sid && customerStatus && !["completed", "canceled", "cancelled", "failed", "busy", "no-answer"].includes(customerStatus)) {
-      try {
-        const { client } = await getTwilioContextForUserId(call.userId);
-        await client.calls(sid).update({ status: "completed" });
-      } catch (err) {
-        console.error("[sales-bot] machine hangup failed:", err?.message || err);
-      }
-    }
     return NextResponse.json({
       stop: true,
-      error: `A machine answered (${answeredBy}). The bot was not attached.`,
+      error: machineMessage(answeredBy),
       phase: "machine",
       answeredBy,
       botAttached: false,
       speaking: false,
-      waiting: false,
       retryable: false,
     });
   }
 
-  if (answeredBy !== "human") {
+  if (terminal) {
+    const status = TERMINAL.has(customerStatus)
+      ? customerStatus
+      : String(call.status || "").toLowerCase();
+    const phase =
+      status === "no-answer" || status === "busy" || status === "failed" ? status : "ended";
+    return NextResponse.json({
+      stop: true,
+      error: endedMessage(status, answeredBy),
+      phase,
+      answeredBy: answeredBy || null,
+      botAttached: isHumanAnsweredBy(answeredBy),
+      speaking: false,
+      retryable: false,
+    });
+  }
+
+  if (!customerStatus || RINGING_CUSTOMER.has(customerStatus)) {
     return waiting({
-      error: "Direct call. The bot attaches only after a person speaks.",
-      phase: stillRinging ? "ringing" : "detecting",
+      error: "Phone is ringing. The bot is not on the call.",
+      phase: "ringing",
       botAttached: false,
       speaking: false,
       answeredBy: answeredBy || null,
@@ -140,53 +138,38 @@ export async function POST(req) {
     });
   }
 
-  try {
-    let session = await waitForSalesBotSession(callId, 800);
-    const sid = String(customerLeg?.sid || call.customerCallSid || call.twilioSid || "").trim();
-    if (!session?.beginSpeaking && sid) {
-      const { client } = await getTwilioContextForUserId(call.userId);
-      await client.calls(sid).update({
-        twiml: buildSalesBotConnectTwiml({ origin, callId }),
-      });
-      session = await waitForSalesBotSession(callId, 8000);
-    }
+  if (!isHumanAnsweredBy(answeredBy)) {
+    return waiting({
+      error: "Twilio is checking who answered. The bot stays off until a person is confirmed.",
+      phase: "detecting",
+      botAttached: false,
+      speaking: false,
+      answeredBy: answeredBy || null,
+      customerStatus,
+    });
+  }
 
-    if (!session?.beginSpeaking) {
-      return waiting({
-        error: "A person spoke. Connecting the bot on the direct call…",
-        phase: "connecting",
-        botAttached: false,
-        speaking: false,
-        answeredBy,
-      });
-    }
-
-    const spoken = await beginSalesBotSpeech({ callId });
-    if (!spoken?.ok) {
-      return waiting({
-        error: spoken?.error || "A person spoke. Connecting the bot…",
-        phase: "connecting",
-        botAttached: true,
-        speaking: false,
-        answeredBy,
-      });
-    }
-
-    await call.update({ callKind: "sales_bot", dialMode: "sales_bot" }).catch(() => {});
-    return NextResponse.json({
-      ok: true,
-      attached: true,
-      botAttached: true,
-      speaking: true,
-      phase: "human",
+  const session = await waitForSalesBotSession(callId, 800);
+  const speaking = Boolean(session?.speaking || session?.greetingStarted);
+  if (!speaking) {
+    return waiting({
+      error: "A person answered. The bot is connecting.",
+      phase: "connecting",
+      botAttached: false,
+      speaking: false,
       answeredBy,
+      customerStatus,
       callMode: "direct",
     });
-  } catch (err) {
-    console.error("[sales-bot] attach failed:", err?.message || err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to attach sales bot" },
-      { status: 502 },
-    );
   }
+
+  return NextResponse.json({
+    ok: true,
+    attached: true,
+    botAttached: true,
+    speaking: true,
+    phase: "human",
+    answeredBy,
+    callMode: "direct",
+  });
 }

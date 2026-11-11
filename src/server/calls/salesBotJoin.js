@@ -117,8 +117,8 @@ export async function addSpeakingSalesBot({ client, conferenceSid, origin, callI
 }
 
 /**
- * Direct customer call. No conference. AMD listens on this call.
- * The bot is connected later only when AnsweredBy is human.
+ * One direct customer call. No conference.
+ * Synchronous AMD: Twilio requests the voice URL only after it decides who answered.
  */
 export async function dialSalesBotCustomer({
   client,
@@ -129,23 +129,18 @@ export async function dialSalesBotCustomer({
 }) {
   const base = String(origin || "").replace(/\/$/, "");
   const joinUrl = `${base}/api/twilio/sales-bot/customer-join?callId=${encodeURIComponent(String(callId))}`;
-  const amdUrl = `${base}/api/twilio/sales-bot/amd?callId=${encodeURIComponent(String(callId))}`;
   const statusUrl = `${base}/api/twilio/customer-leg-status?callId=${encodeURIComponent(String(callId))}`;
   const created = await client.calls.create({
     to: toNumber,
     from: fromNumber,
     url: joinUrl,
     method: "POST",
-    // Enable returns human as soon as a person is recognized. DetectMessageEnd was
-    // labeling a quiet person as machine_end_silence, so the bot never spoke.
     machineDetection: "Enable",
     machineDetectionTimeout: 30,
     machineDetectionSpeechThreshold: 5000,
     machineDetectionSpeechEndThreshold: 500,
     machineDetectionSilenceTimeout: 2000,
-    asyncAmd: true,
-    asyncAmdStatusCallback: amdUrl,
-    asyncAmdStatusCallbackMethod: "POST",
+    asyncAmd: false,
     statusCallback: statusUrl,
     statusCallbackMethod: "POST",
     statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
