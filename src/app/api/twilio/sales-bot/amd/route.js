@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 /**
  * AMD callback for Sales Bot Dial <Number>.
- * Saves AnsweredBy only. Attach upgrades to conference after human.
+ * Persists AnsweredBy so attach can decide. Does not speak or hang up.
  */
 export async function POST(req) {
   const url = new URL(req.url);
@@ -30,6 +30,7 @@ export async function POST(req) {
     if (Object.keys(updates).length) {
       await call.update(updates);
     }
+    console.info("[sales-bot] amd", { callId, answeredBy: answeredBy || null, callSid: callSid || null });
   } catch (err) {
     console.error("[sales-bot] amd callback failed:", err?.message || err);
   }

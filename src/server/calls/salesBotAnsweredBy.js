@@ -1,12 +1,13 @@
 /**
- * Helpers for Twilio AMD AnsweredBy on Sales Bot calls.
+ * Twilio AMD helpers for Sales Bot (Dial <Number>, not conference participants).
  *
- * With MachineDetection=DetectMessageEnd on Dial:
- * - human: person confirmed (often after hold/greeting ends)
- * - machine_end_*: finished voicemail / announcement — do not attach
- * - fax: do not attach
- * - machine_start: early signal only; wait for the final result
- * - unknown / empty: still waiting
+ * Enable: human | machine_start | fax | unknown (machine_start is often final).
+ * DetectMessageEnd: human | machine_end_* | fax (can stay empty while listening).
+ *
+ * Attach when:
+ * - human, OR
+ * - AMD never arrives / machine_start hold has lasted long enough (presumeLive).
+ * Never attach on finished machine_end_* / fax.
  */
 
 export function isFinishedMachineAnsweredBy(answeredBy) {
@@ -23,8 +24,7 @@ export function isMachineAnsweredBy(answeredBy) {
   return isFinishedMachineAnsweredBy(answeredBy);
 }
 
-/** Bot attaches only after Twilio confirms a person — not during hold/tone. */
-export function canAttachSalesBot(answeredBy) {
+export function isHumanAnsweredBy(answeredBy) {
   return (
     String(answeredBy || "")
       .trim()
@@ -36,18 +36,20 @@ export function isPendingAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
     .trim()
     .toLowerCase();
-  // machine_start is not final with DetectMessageEnd — keep waiting.
   return !v || v === "unknown" || v === "machine_start";
 }
 
-export function isHumanAnsweredBy(answeredBy) {
-  return canAttachSalesBot(answeredBy);
+/**
+ * @param {string} answeredBy
+ * @param {{ presumeLive?: boolean }} [opts]
+ */
+export function canAttachSalesBot(answeredBy, opts = {}) {
+  if (isFinishedMachineAnsweredBy(answeredBy)) return false;
+  if (isHumanAnsweredBy(answeredBy)) return true;
+  // Twilio never sent a final AMD result, or only machine_start during hold.
+  return Boolean(opts.presumeLive);
 }
 
-/**
- * Wait for Twilio AMD after the customer leg is live.
- * @returns {Promise<string|null>} AnsweredBy or null if still empty
- */
 export async function waitForAnsweredBy(callRow, { attempts = 12, delayMs = 500 } = {}) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let current = callRow;
