@@ -8,6 +8,7 @@ import {
   waitForSalesBotSession,
 } from "@/server/calls/salesBot";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { isMachineAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
@@ -105,14 +106,25 @@ export async function POST(req) {
   const answeredBy = String(customerLeg?.answeredBy || call.answeredBy || "").trim().toLowerCase();
   const customerStatus = customerLeg?.status || null;
   const stillRinging = !customerStatus || RINGING_CUSTOMER.has(customerStatus);
-  const finishedMachine = answeredBy === "fax" || answeredBy.startsWith("machine_end");
 
-  if (finishedMachine) {
+  if (isMachineAnsweredBy(answeredBy)) {
+    const sid = String(customerLeg?.sid || call.customerCallSid || call.twilioSid || "").trim();
+    if (sid && customerStatus && !["completed", "canceled", "cancelled", "failed", "busy", "no-answer"].includes(customerStatus)) {
+      try {
+        const { client } = await getTwilioContextForUserId(call.userId);
+        await client.calls(sid).update({ status: "completed" });
+      } catch (err) {
+        console.error("[sales-bot] machine hangup failed:", err?.message || err);
+      }
+    }
     return NextResponse.json({
       stop: true,
       error: `A machine answered (${answeredBy}). The bot was not attached.`,
       phase: "machine",
       answeredBy,
+      botAttached: false,
+      speaking: false,
+      waiting: false,
       retryable: false,
     });
   }

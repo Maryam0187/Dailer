@@ -13,12 +13,15 @@ export function isMachineAnsweredBy(answeredBy) {
   return v.startsWith("machine") || v === "fax";
 }
 
-/** No AMD result yet, or only the early machine_start signal. */
+/**
+ * AMD has not decided yet. machine_start is final for MachineDetection=Enable
+ * (the direct sales-bot dial), so it is not pending.
+ */
 export function isPendingAnsweredBy(answeredBy) {
   const v = String(answeredBy || "")
     .trim()
     .toLowerCase();
-  return !v || v === "machine_start";
+  return !v || v === "unknown";
 }
 
 export function isHumanAnsweredBy(answeredBy) {

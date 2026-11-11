@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { buildSalesBotConnectTwiml } from "@/server/calls/salesBot";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { isMachineAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 
 export const runtime = "nodejs";
 
@@ -70,7 +71,7 @@ export async function POST(req) {
   if (answeredBy === "human") {
     return twimlResponse(buildSalesBotConnectTwiml({ origin, callId }));
   }
-  if (answeredBy === "fax" || answeredBy.startsWith("machine_end")) {
+  if (isMachineAnsweredBy(answeredBy)) {
     return twimlResponse(hangupXml());
   }
 

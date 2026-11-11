@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import db from "@/server/db";
 import { buildSalesBotConnectTwiml } from "@/server/calls/salesBot";
 import { getRequestBaseUrlFromRequest } from "@/server/calls/conferenceVoice";
+import { isMachineAnsweredBy } from "@/server/calls/salesBotAnsweredBy";
 import { getTwilioContextForUserId } from "@/server/twilio/callOwnerTwilio";
 
 export const runtime = "nodejs";
@@ -45,7 +46,7 @@ export async function POST(req) {
       } catch (err) {
         console.error("[sales-bot] direct bot connect failed:", err?.message || err);
       }
-    } else if (sid && (answeredBy === "fax" || answeredBy.startsWith("machine_end"))) {
+    } else if (sid && isMachineAnsweredBy(answeredBy)) {
       try {
         const { client } = await getTwilioContextForUserId(call.userId);
         await client.calls(sid).update({ status: "completed" });

@@ -90,8 +90,11 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
 
       const json = await res.json().catch(() => ({}));
 
-      if (json?.phase === "machine") {
-        setBotStatus("waiting");
+      const answeredBy = String(json?.answeredBy || "").trim().toLowerCase();
+      const machine =
+        json?.phase === "machine" || answeredBy === "fax" || answeredBy.startsWith("machine");
+      if (machine) {
+        setBotStatus("");
         setInfo(json?.error || "A machine answered. The bot did not speak.");
         return;
       }
