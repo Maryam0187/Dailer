@@ -28,7 +28,12 @@ export async function startOutgoingCall(params) {
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: json?.error || "Dial failed" };
+  if (!res.ok) {
+    const { unavailableDialResult } = await import("@/lib/personUnavailable");
+    const unavailable = await unavailableDialResult(json);
+    if (unavailable) return unavailable;
+    return { ok: false, error: json?.error || "Dial failed" };
+  }
   return {
     ok: true,
     call: json.call,

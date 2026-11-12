@@ -23,6 +23,7 @@ import {
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
 import { waitForInProgressConference } from "@/server/calls/upgradeToConference";
+import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,15 @@ export async function POST(req) {
       { status: 400 },
     );
   }
+
+  const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
+    userId: authedUser.id,
+    leadId: null,
+    fromNumber,
+    callKind: "sales_bot",
+    dialMode: "sales_bot",
+  });
+  if (blockedResponse) return blockedResponse;
 
   const conferenceName = createConferenceName({ userId: authedUser.id });
   const call = await db.CallLog.create({

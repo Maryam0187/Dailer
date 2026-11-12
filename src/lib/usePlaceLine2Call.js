@@ -41,7 +41,10 @@ export function usePlaceLine2Call() {
       Number.isInteger(leadId) && leadId > 0
         ? await startOutgoingCallLine2({ leadId })
         : await startOutgoingCallLine2({ toNumber });
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      if (result.unavailable) return { ok: false, unavailable: true };
+      throw new Error(result.error);
+    }
     beginSession({
       callId: result.call.id,
       callOwnedByMe: true,

@@ -108,11 +108,12 @@ export default function QuickDialPanel() {
     setLoadingLine2(true);
     setError(null);
     try {
-      await placeLine2Call({
+      const placed = await placeLine2Call({
         toNumber: toDigits,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,
       });
+      if (placed?.unavailable) return;
       setPhone("");
       setName("");
       setValidation({ isValid: true, message: "" });
@@ -137,6 +138,7 @@ export default function QuickDialPanel() {
       }
 
       const result = await startOutgoingCall(toDigits);
+      if (result.unavailable) return;
       if (!result.ok) throw new Error(result.error);
       beginSession({
         callId: result.call.id,

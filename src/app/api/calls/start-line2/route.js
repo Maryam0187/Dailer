@@ -13,6 +13,7 @@ import {
   getTeamTwilioContext,
   resolveFromNumberLine2,
 } from "@/server/twilio/callOwnerTwilio";
+import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -50,9 +51,6 @@ export async function POST(req) {
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
-    if (lead.status === "dnc") {
-      return NextResponse.json({ error: "Lead is marked Do Not Call" }, { status: 400 });
-    }
     toNumber = lead.phone;
   }
 
@@ -89,6 +87,20 @@ export async function POST(req) {
       { status: 500 },
     );
   }
+
+  const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
+    userId: authedUser.id,
+    leadId: lead?.id || null,
+    fromNumber,
+    callKind: lead ? "lead" : null,
+    dialMode: "agent_first",
+    dialerIndex: 2,
+    contactName: lead?.fullName?.trim() || null,
+    city: lead?.city || null,
+    state: lead?.state || null,
+    zipCode: lead?.zipCode || null,
+  });
+  if (blockedResponse) return blockedResponse;
 
   const call = await db.CallLog.create({
     userId: authedUser.id,

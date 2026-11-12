@@ -46,6 +46,7 @@ const attendancePointLogModelFactory = require("./AttendancePointLog");
 const userAttendanceBadgeModelFactory = require("./UserAttendanceBadge");
 const attendanceDailyRecordModelFactory = require("./AttendanceDailyRecord");
 const callDailyMetricModelFactory = require("./CallDailyMetric");
+const blockedNumberModelFactory = require("./BlockedNumber");
 
 const env = process.env.NODE_ENV || "development";
 const dbConfig = config[env];
@@ -138,6 +139,7 @@ db.AttendancePointLog = attendancePointLogModelFactory(sequelize, Sequelize.Data
 db.UserAttendanceBadge = userAttendanceBadgeModelFactory(sequelize, Sequelize.DataTypes);
 db.AttendanceDailyRecord = attendanceDailyRecordModelFactory(sequelize, Sequelize.DataTypes);
 db.CallDailyMetric = callDailyMetricModelFactory(sequelize, Sequelize.DataTypes);
+db.BlockedNumber = blockedNumberModelFactory(sequelize, Sequelize.DataTypes);
 
 for (const modelName of Object.keys(db)) {
   const model = db[modelName];

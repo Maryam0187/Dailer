@@ -97,6 +97,11 @@ function buildAdminDropdownItems(pathname) {
       active: pathname === "/numbers",
     },
     {
+      href: "/blocked-numbers",
+      label: "Blocked numbers",
+      active: pathname === "/blocked-numbers",
+    },
+    {
       href: "/chargeflow/alerts",
       label: "CF alerts",
       active: pathname === "/chargeflow/alerts" || pathname?.startsWith("/chargeflow/"),

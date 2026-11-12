@@ -107,7 +107,7 @@ export default function LeadPageClient({
   }, [isAdmin]);
 
   async function onCallLead(target) {
-    if (phonesRedacted || session || target.status === "dnc" || target.leadPhase === "cancelled") return;
+    if (phonesRedacted || session || target.leadPhase === "cancelled") return;
     setCallingId(target.id);
     setError(null);
     try {
@@ -115,6 +115,7 @@ export default function LeadPageClient({
       if (!registered || sdkInitializing) await ensureRegistered();
 
       const result = await startOutgoingCall({ leadId: target.id });
+      if (result.unavailable) return;
       if (!result.ok) throw new Error(result.error);
 
       beginSession({
@@ -136,7 +137,7 @@ export default function LeadPageClient({
   }
 
   async function onCallLeadLine2(target) {
-    if (phonesRedacted || line2Session || target.status === "dnc" || target.leadPhase === "cancelled") return;
+    if (phonesRedacted || line2Session || target.leadPhase === "cancelled") return;
     setCallingLine2Id(target.id);
     setError(null);
     try {

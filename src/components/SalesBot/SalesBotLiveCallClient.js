@@ -191,6 +191,7 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         dialMode: "sales_bot",
         salesBotKey,
       });
+      if (result.unavailable) return;
       if (!result.ok) throw new Error(result.error || "Dial failed");
 
       const callId = result.call.id;

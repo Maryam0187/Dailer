@@ -12,6 +12,7 @@ import {
   resolveFromNumberLine1,
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
+import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -38,9 +39,6 @@ export async function POST(req) {
     lead = await db.Lead.findByPk(leadId);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
-    }
-    if (lead.status === "dnc") {
-      return NextResponse.json({ error: "Lead is marked Do Not Call" }, { status: 400 });
     }
     toNumber = lead.phone;
   }
@@ -85,6 +83,21 @@ export async function POST(req) {
   const isSalesBot =
     String(body?.intent || "").trim() === "sales_bot" ||
     String(body?.dialMode || "").trim() === "sales_bot";
+
+  const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
+    userId: authedUser.id,
+    leadId: lead?.id || null,
+    fromNumber,
+    callKind: isSalesBot ? "sales_bot" : lead ? "lead" : null,
+    dialMode: isSalesBot ? "sales_bot" : "agent_first",
+    salesBotKey: isSalesBot ? normalizeSalesBotKey(body?.salesBotKey) : null,
+    contactName: lead?.fullName?.trim() || null,
+    city: lead?.city || null,
+    state: lead?.state || null,
+    zipCode: lead?.zipCode || null,
+  });
+  if (blockedResponse) return blockedResponse;
+
   const call = await db.CallLog.create({
     userId: authedUser.id,
     leadId: lead?.id || null,

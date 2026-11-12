@@ -25,9 +25,16 @@ export default function ZoomCallButton({
       setStatus("Enter a phone number");
       return;
     }
-    const ok = await makeCall(number, { autoDial: true });
-    if (ok) {
+    setStatus("Calling…");
+    const result = await makeCall(number, { autoDial: true });
+    if (result?.unavailable) {
+      setStatus(null);
+      return;
+    }
+    if (result?.ok) {
       setStatus("Dialing via Zoom…");
+    } else if (result?.error) {
+      setStatus(result.error);
     } else if (!ready) {
       setStatus("Zoom Phone is loading… try again in a moment");
     } else {

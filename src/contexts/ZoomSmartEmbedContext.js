@@ -17,7 +17,7 @@ const ZoomSmartEmbedContext = createContext({
   enabled: false,
   ready: false,
   lastEvent: null,
-  makeCall: async () => false,
+  makeCall: async () => ({ ok: false }),
   inputSms: () => false,
   onIframeLoad: () => {},
 });
@@ -166,14 +166,14 @@ export function ZoomSmartEmbedProvider({ children }) {
 
   const makeCall = useCallback(
     async (number, opts) => {
-      if (!enabled) return false;
+      if (!enabled) return { ok: false };
       if (getZoomIframe()?.contentWindow) markReady();
 
       const trimmed = String(number || "").trim();
-      if (!trimmed) return false;
+      if (!trimmed) return { ok: false, error: "Enter a phone number" };
 
-      // Gate only — no CallLog. Soft Embed may fail even with Zoom enabled (no Phone
-      // license / not signed in). CallLogs + Live Status come from Soft Embed events.
+      // Gate only — a normal Zoom dial still writes CallLogs from Soft Embed events.
+      // A blocked number is saved as no-answer inside /api/calls/zoom/start.
       try {
         const res = await fetch("/api/calls/zoom/start", {
           method: "POST",
@@ -183,15 +183,20 @@ export function ZoomSmartEmbedProvider({ children }) {
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          console.warn("[zoom] dial blocked", json?.error || res.status);
-          return false;
+          const { unavailableDialResult } = await import("@/lib/personUnavailable");
+          const unavailable = await unavailableDialResult(json);
+          if (unavailable) return unavailable;
+          const error = json?.error || "Zoom call failed";
+          console.warn("[zoom] dial blocked", error);
+          return { ok: false, error };
         }
       } catch (err) {
         console.warn("[zoom] dial blocked", err);
-        return false;
+        return { ok: false, error: "Zoom call failed" };
       }
 
-      return zoomMakeCall(trimmed, opts);
+      const placed = zoomMakeCall(trimmed, opts);
+      return placed ? { ok: true } : { ok: false };
     },
     [enabled, markReady],
   );

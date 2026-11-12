@@ -1098,7 +1098,7 @@ export default function LeadsClient({
   }
 
   async function onCallLead(lead) {
-    if (phonesRedacted || session || lead.status === "dnc" || lead.leadPhase === "cancelled") return;
+    if (phonesRedacted || session || lead.leadPhase === "cancelled") return;
     setCallingId(lead.id);
     setError(null);
     try {
@@ -1106,6 +1106,7 @@ export default function LeadsClient({
       if (!registered || sdkInitializing) await ensureRegistered();
 
       const result = await startOutgoingCall({ leadId: lead.id });
+      if (result.unavailable) return;
       if (!result.ok) throw new Error(result.error);
 
       beginSession({
@@ -1127,7 +1128,7 @@ export default function LeadsClient({
   }
 
   async function onCallLeadLine2(lead) {
-    if (phonesRedacted || line2Session || lead.status === "dnc" || lead.leadPhase === "cancelled") return;
+    if (phonesRedacted || line2Session || lead.leadPhase === "cancelled") return;
     setCallingLine2Id(lead.id);
     setError(null);
     try {
@@ -2403,7 +2404,7 @@ export default function LeadsClient({
                             Boolean(session) ||
                             callingId === lead.id ||
                             !canStartCall ||
-                            lead.status === "dnc" || lead.leadPhase === "cancelled"
+                            lead.leadPhase === "cancelled"
                           }
                           onClick={() => void onCallLead(lead)}
                         >
@@ -2418,7 +2419,7 @@ export default function LeadsClient({
                             Boolean(line2Session) ||
                             callingLine2Id === lead.id ||
                             !canStartLine2 ||
-                            lead.status === "dnc" || lead.leadPhase === "cancelled"
+                            lead.leadPhase === "cancelled"
                           }
                           onClick={() => void onCallLeadLine2(lead)}
                         >

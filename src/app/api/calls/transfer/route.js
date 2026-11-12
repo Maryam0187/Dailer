@@ -5,6 +5,7 @@ import {
   getTwilioFromNumber,
   getTwilioStatusCallbackParamsWithFallback,
 } from "@/server/twilio";
+import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
 
 function getRequestBaseUrl(req) {
   const xfProto = req.headers.get("x-forwarded-proto");
@@ -67,11 +68,22 @@ export async function POST(req) {
 
   const callLog = await db.CallLog.findOne({
     where: { id: callId, userId: authedUser.id },
-    attributes: ["id", "userId", "fromNumber"],
+    attributes: ["id", "userId", "fromNumber", "leadId", "contactName", "city", "state", "zipCode"],
   });
   if (!callLog) {
     return NextResponse.json({ error: "Call not found" }, { status: 404 });
   }
+
+  const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
+    userId: authedUser.id,
+    leadId: callLog.leadId || null,
+    fromNumber: callLog.fromNumber || null,
+    contactName: callLog.contactName || null,
+    city: callLog.city || null,
+    state: callLog.state || null,
+    zipCode: callLog.zipCode || null,
+  });
+  if (blockedResponse) return blockedResponse;
 
   const fallbackBaseUrl = getRequestBaseUrl(req);
   if (!fallbackBaseUrl) {

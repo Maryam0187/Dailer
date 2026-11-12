@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { ZOOM_SMART_EMBED_ENABLED } from "@/lib/zoomSmartEmbedFlag";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
+import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
 
 /**
  * Permission gate before Soft Embed zp-make-call.
- * Does NOT create a CallLog — Soft Embed may fail (no Zoom Phone license / not signed in)
- * even when canUseZoomPhone is true. Live Status + minutes only come from /zoom/event
- * when Soft Embed actually rings/connects.
+ * A blocked number is saved here as no-answer and the dial stops.
+ * Other Zoom calls still get CallLogs from /zoom/event when Soft Embed rings.
  */
 export async function POST(req) {
   const authedUser = await getAuthedUser();
@@ -23,6 +23,16 @@ export async function POST(req) {
 
   if (!normalizedToNumber) {
     return NextResponse.json({ error: "toNumber is required" }, { status: 400 });
+  }
+
+  const e164 = normalizeToE164(rawTo);
+  if (e164) {
+    const blockedResponse = await rejectIfOutboundBlocked(e164, {
+      userId: authedUser.id,
+      fromNumber: null,
+      voiceProvider: "zoom",
+    });
+    if (blockedResponse) return blockedResponse;
   }
 
   return NextResponse.json({

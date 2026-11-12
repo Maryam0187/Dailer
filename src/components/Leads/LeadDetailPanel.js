@@ -876,7 +876,6 @@ export default function LeadDetailPanel({
                   calling ||
                   !canCall ||
                   hasActiveCall ||
-                  lead.status === "dnc" ||
                   lead.leadPhase === "cancelled"
                 }
                 onClick={async () => {
@@ -895,7 +894,6 @@ export default function LeadDetailPanel({
                   callingLine2 ||
                   !canCallLine2 ||
                   hasActiveLine2Call ||
-                  lead.status === "dnc" ||
                   lead.leadPhase === "cancelled"
                 }
                 onClick={async () => {

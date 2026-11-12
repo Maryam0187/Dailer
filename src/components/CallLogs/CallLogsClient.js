@@ -261,12 +261,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       setError(null);
       setCallingId(id);
       try {
-        const ok = await zoomMakeCall(toNumber, { autoDial: true });
-        if (!ok) {
+        const result = await zoomMakeCall(toNumber, { autoDial: true });
+        if (result?.unavailable) return;
+        if (!result?.ok) {
           throw new Error(
-            zoomReady
-              ? "Zoom call blocked — check Zoom Phone access or sign in to Zoom"
-              : "Zoom Phone is not ready — open the Zoom softphone and try again",
+            result?.error ||
+              (zoomReady
+                ? "Zoom call blocked — check Zoom Phone access or sign in to Zoom"
+                : "Zoom Phone is not ready — open the Zoom softphone and try again"),
           );
         }
       } catch (e) {
@@ -330,6 +332,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         ? await startOutgoingCall({ leadId: call.leadId })
         : await startOutgoingCall({ toNumber });
 
+      if (result.unavailable) return;
       if (!result.ok) throw new Error(result.error);
 
       beginSession({
