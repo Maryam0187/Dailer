@@ -91,8 +91,9 @@ export default function BlockedNumbersClient() {
       >
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Add a number</h2>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Twilio and Zoom both refuse this destination. The call window opens, the agent hears
-          “The person is not available,” and the call then ends. The log shows no-answer.
+          Twilio and Zoom both refuse this destination. The agent hears a ring for 10 seconds, then
+          “The person you are trying to reach is not available right now.”
+          Twilio shows the call window. Zoom does not. The log shows no-answer.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="block min-w-[16rem] flex-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">

@@ -768,7 +768,7 @@ function ActiveCallPanel({ session, endCall, patchSession, recentJoinedAgent, pr
   );
 }
 
-export default function GlobalWebCallInterface({ userRole = null, showDevPreview = true }) {
+export default function GlobalWebCallInterface({ userRole = null }) {
   const { session, endCall, patchSession } = useActiveCall();
   const {
     incomingInvite,
@@ -999,7 +999,7 @@ export default function GlobalWebCallInterface({ userRole = null, showDevPreview
 
   if (inviteToast) return inviteToast;
   // Non-admins must never see IVR Answer/Decline; ignore a stray IVR invite state.
-  if (!isDev || !showDevPreview) return null;
+  if (!isDev) return null;
 
   const devPreviewSession = {
     callId: "dev-preview-call",

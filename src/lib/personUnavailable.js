@@ -1,10 +1,12 @@
-const AUDIO_URL = "/audio/person-unavailable.mp3";
-const DELAY_MS = 10000;
+const RING_URL = "/audio/ringback.mp3";
+const MESSAGE_URL = "/audio/person-unavailable.mp3";
+const SPOKEN_MESSAGE =
+  "The person you are trying to reach is not available right now.";
 
 export const PERSON_UNAVAILABLE_ERROR = "The person is not available";
 
 let audioCtx = null;
-let cachedBuffer = null;
+const cachedBuffers = new Map();
 let timer = null;
 let token = 0;
 let playing = null;
@@ -38,13 +40,15 @@ export function unavailableDialResult(json) {
   return { ok: false, unavailable: true, call: json.call || null };
 }
 
-async function loadBuffer(ctx) {
-  if (cachedBuffer) return cachedBuffer;
-  const res = await fetch(AUDIO_URL);
+async function loadBuffer(ctx, url) {
+  const cached = cachedBuffers.get(url);
+  if (cached) return cached;
+  const res = await fetch(url);
   if (!res.ok) throw new Error("unavailable audio missing");
   const raw = await res.arrayBuffer();
-  cachedBuffer = await ctx.decodeAudioData(raw);
-  return cachedBuffer;
+  const decoded = await ctx.decodeAudioData(raw.slice(0));
+  cachedBuffers.set(url, decoded);
+  return decoded;
 }
 
 function stopPlayback() {
@@ -103,13 +107,13 @@ function playBuffer(ctx, buffer, generation) {
   });
 }
 
-function playElement(generation) {
+function playElement(url, generation) {
   return new Promise((resolve) => {
     if (generation !== token) {
       resolve(false);
       return;
     }
-    const audio = new Audio(AUDIO_URL);
+    const audio = new Audio(url);
     htmlAudio = audio;
     let settled = false;
     const done = (played) => {
@@ -130,7 +134,7 @@ function speakFallback(generation) {
       resolve();
       return;
     }
-    const utter = new SpeechSynthesisUtterance(PERSON_UNAVAILABLE_ERROR);
+    const utter = new SpeechSynthesisUtterance(SPOKEN_MESSAGE);
     utter.lang = "en-US";
     utter.onend = () => resolve();
     utter.onerror = () => resolve();
@@ -139,7 +143,18 @@ function speakFallback(generation) {
   });
 }
 
-/** Wait 10 seconds, play the prompt, and resolve when the audio finishes. */
+async function playClip(ctx, url, generation) {
+  if (generation !== token) return false;
+  if (ctx) {
+    const buffer = await loadBuffer(ctx, url);
+    if (generation !== token) return false;
+    await playBuffer(ctx, buffer, generation);
+    return generation === token;
+  }
+  return playElement(url, generation);
+}
+
+/** Ring for 10 seconds, then play the spoken message. Resolves when the message ends. */
 export function playPersonUnavailableAfterDelay() {
   const generation = ++token;
   stopPlayback();
@@ -147,27 +162,21 @@ export function playPersonUnavailableAfterDelay() {
 
   return new Promise((resolve) => {
     finishActive = resolve;
-    timer = setTimeout(() => {
-      timer = null;
-      void (async () => {
+    void (async () => {
+      if (generation !== token) return;
+      try {
+        const ctx = getContext();
+        if (ctx && ctx.state === "suspended") await ctx.resume();
+        const rang = await playClip(ctx, RING_URL, generation).catch(() => false);
         if (generation !== token) return;
-        try {
-          const ctx = getContext();
-          if (ctx && ctx.state === "suspended") await ctx.resume();
-          const buffer = ctx ? await loadBuffer(ctx).catch(() => null) : null;
-          if (generation !== token) return;
-          if (ctx && buffer) {
-            await playBuffer(ctx, buffer, generation);
-          } else {
-            const played = await playElement(generation);
-            if (!played && generation === token) await speakFallback(generation);
-          }
-        } catch {
-          if (generation === token) await speakFallback(generation);
-        }
-        if (generation === token) finishPlayback();
-      })();
-    }, DELAY_MS);
+        const spoke = await playClip(ctx, MESSAGE_URL, generation).catch(() => false);
+        if (!rang && !spoke && generation === token) await speakFallback(generation);
+        else if (!spoke && generation === token) await speakFallback(generation);
+      } catch {
+        if (generation === token) await speakFallback(generation);
+      }
+      if (generation === token) finishPlayback();
+    })();
   });
 }
 

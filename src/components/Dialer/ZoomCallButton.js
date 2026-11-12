@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useZoomSmartEmbed } from "@/contexts/ZoomSmartEmbedContext";
-import { useActiveCall } from "@/contexts/ActiveCallContext";
-import { presentUnavailableCall } from "@/lib/personUnavailable";
+import { playPersonUnavailableAfterDelay } from "@/lib/personUnavailable";
 import { digitsOnly } from "@/lib/phoneFormat";
 
 export default function ZoomCallButton({
@@ -13,7 +12,6 @@ export default function ZoomCallButton({
   disabled = false,
 }) {
   const { enabled, ready, makeCall } = useZoomSmartEmbed();
-  const { beginSession, endCall } = useActiveCall();
   const [status, setStatus] = useState(null);
 
   if (!enabled) return null;
@@ -30,16 +28,8 @@ export default function ZoomCallButton({
     }
     const result = await makeCall(number, { autoDial: true });
     if (result?.unavailable) {
-      await presentUnavailableCall({
-        beginSession,
-        endCall,
-        call: result.call,
-        session: {
-          dialMode: "agent_first",
-          phoneLabel: number,
-          voiceProvider: "zoom",
-        },
-      });
+      setStatus("Calling…");
+      await playPersonUnavailableAfterDelay();
       setStatus(null);
       return;
     }

@@ -11,7 +11,7 @@ import { formatDuration } from "@/lib/formatDuration";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { formatLandline } from "@/lib/phoneFormat";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
-import { presentUnavailableCall } from "@/lib/personUnavailable";
+import { playPersonUnavailableAfterDelay, presentUnavailableCall } from "@/lib/personUnavailable";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 
 const inputClass =
@@ -264,18 +264,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       try {
         const result = await zoomMakeCall(toNumber, { autoDial: true });
         if (result?.unavailable) {
-          await presentUnavailableCall({
-            beginSession,
-            endCall,
-            call: result.call,
-            session: {
-              dialMode: "agent_first",
-              toNumber,
-              phoneLabel: toNumber,
-              customerName: call.leadName || call.contactName || undefined,
-              voiceProvider: "zoom",
-            },
-          });
+          await playPersonUnavailableAfterDelay();
           return;
         }
         if (!result?.ok) {

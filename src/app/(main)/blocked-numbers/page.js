@@ -15,8 +15,8 @@ export default async function BlockedNumbersPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           Numbers here are blocked for outbound Twilio and Zoom calls. Agents are not told the
-          number is blocked. The call window opens, they hear “The person is not available,” and
-          the call ends.
+          number is blocked. The agent hears a ring, then a short message that the person is not
+          available. Twilio opens the call window. Zoom does not.
         </p>
       </div>
       <BlockedNumbersClient />
