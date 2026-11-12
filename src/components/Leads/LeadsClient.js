@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { presentUnavailableCall } from "@/lib/personUnavailable";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
@@ -238,7 +239,7 @@ export default function LeadsClient({
   canReceiveSharedLeads = false,
   selectsLeadSupervisor = false,
 }) {
-  const { session, beginSession } = useActiveCall();
+  const { session, beginSession, endCall } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
     ensureRegistered,
@@ -1106,7 +1107,21 @@ export default function LeadsClient({
       if (!registered || sdkInitializing) await ensureRegistered();
 
       const result = await startOutgoingCall({ leadId: lead.id });
-      if (result.unavailable) return;
+      if (result.unavailable) {
+        await presentUnavailableCall({
+          beginSession,
+          endCall,
+          call: result.call,
+          session: {
+            callKind: "lead",
+            dialMode: "agent_first",
+            phoneLabel: formatLeadPhoneDisplay(lead.phone, phonesRedacted || lead.phonesRedacted),
+            customerName: formatLeadName(lead),
+            leadId: lead.id,
+          },
+        });
+        return;
+      }
       if (!result.ok) throw new Error(result.error);
 
       beginSession({

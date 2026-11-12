@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { presentUnavailableCall } from "@/lib/personUnavailable";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
@@ -11,7 +12,7 @@ import ZoomCallButton from "@/components/Dialer/ZoomCallButton";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
 
 export default function QuickDialPanel() {
-  const { session, beginSession } = useActiveCall();
+  const { session, beginSession, endCall } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
   const { ready: zoomReady } = useZoomSmartEmbed();
@@ -138,7 +139,20 @@ export default function QuickDialPanel() {
       }
 
       const result = await startOutgoingCall(toDigits);
-      if (result.unavailable) return;
+      if (result.unavailable) {
+        await presentUnavailableCall({
+          beginSession,
+          endCall,
+          call: result.call,
+          session: {
+            callMode: "direct",
+            dialMode: "agent_first",
+            phoneLabel: phone.trim() || formatLandline(toDigits),
+            customerName: name.trim() || undefined,
+          },
+        });
+        return;
+      }
       if (!result.ok) throw new Error(result.error);
       beginSession({
         callId: result.call.id,

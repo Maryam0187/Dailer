@@ -10,6 +10,7 @@ import {
   zoomMakeCall,
   ZOOM_PHONE_ORIGIN,
 } from "@/lib/zoomSmartEmbed";
+import { unavailableDialResult } from "@/lib/personUnavailable";
 import { ZOOM_SMART_EMBED_ENABLED } from "@/lib/zoomSmartEmbedFlag";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 
@@ -183,8 +184,7 @@ export function ZoomSmartEmbedProvider({ children }) {
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          const { unavailableDialResult } = await import("@/lib/personUnavailable");
-          const unavailable = await unavailableDialResult(json);
+          const unavailable = unavailableDialResult(json);
           if (unavailable) return unavailable;
           const error = json?.error || "Zoom call failed";
           console.warn("[zoom] dial blocked", error);

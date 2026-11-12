@@ -11,6 +11,7 @@ import { formatDuration } from "@/lib/formatDuration";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { formatLandline } from "@/lib/phoneFormat";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { presentUnavailableCall } from "@/lib/personUnavailable";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
 
 const inputClass =
@@ -102,7 +103,7 @@ function DownloadIcon({ className = "h-4 w-4" }) {
 
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
   const isAdmin = userRole === "admin";
-  const { session, beginSession } = useActiveCall();
+  const { session, beginSession, endCall } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
   const { makeCall: zoomMakeCall, ready: zoomReady } = useZoomSmartEmbed();
@@ -262,7 +263,21 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       setCallingId(id);
       try {
         const result = await zoomMakeCall(toNumber, { autoDial: true });
-        if (result?.unavailable) return;
+        if (result?.unavailable) {
+          await presentUnavailableCall({
+            beginSession,
+            endCall,
+            call: result.call,
+            session: {
+              dialMode: "agent_first",
+              toNumber,
+              phoneLabel: toNumber,
+              customerName: call.leadName || call.contactName || undefined,
+              voiceProvider: "zoom",
+            },
+          });
+          return;
+        }
         if (!result?.ok) {
           throw new Error(
             result?.error ||
@@ -332,7 +347,26 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
         ? await startOutgoingCall({ leadId: call.leadId })
         : await startOutgoingCall({ toNumber });
 
-      if (result.unavailable) return;
+      if (result.unavailable) {
+        await presentUnavailableCall({
+          beginSession,
+          endCall,
+          call: result.call,
+          session: {
+            callMode: "direct",
+            callKind: call.callKind || (call.leadId ? "lead" : null),
+            dialMode: "agent_first",
+            toNumber: result.call?.toNumber || toNumber,
+            phoneLabel: toNumber,
+            customerName: call.leadName || call.contactName || undefined,
+            city: call.city || undefined,
+            state: call.state || undefined,
+            zipCode: call.zipCode || undefined,
+            leadId: call.leadId || undefined,
+          },
+        });
+        return;
+      }
       if (!result.ok) throw new Error(result.error);
 
       beginSession({

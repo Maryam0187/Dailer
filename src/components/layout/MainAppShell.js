@@ -31,7 +31,9 @@ function VoiceProviderChrome({ userRole = null, outsideManager = false }) {
   return (
     <>
       {!outsideManager ? <IvrStaffAlert userRole={userRole} /> : null}
-      {canUseTwilioDialer ? <GlobalWebCallInterface userRole={userRole} /> : null}
+      {canUseTwilioDialer || canUseZoomPhone ? (
+        <GlobalWebCallInterface userRole={userRole} showDevPreview={Boolean(canUseTwilioDialer)} />
+      ) : null}
       {canUseTwilioDialer ? <Line2CallInterface /> : null}
       {canUseZoomPhone ? <ZoomSmartEmbed /> : null}
     </>

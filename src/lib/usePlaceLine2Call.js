@@ -1,6 +1,7 @@
 "use client";
 
 import { startOutgoingCallLine2 } from "@/lib/startOutgoingCallLine2";
+import { presentUnavailableCall } from "@/lib/personUnavailable";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { useLine2Call } from "@/contexts/Line2CallContext";
 import { useTwilioVoiceLine2 } from "@/contexts/TwilioVoiceLine2Context";
@@ -8,7 +9,7 @@ import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 
 export function usePlaceLine2Call() {
   const { canUseDialer2 } = useDialerCapabilities();
-  const { session, beginSession } = useLine2Call();
+  const { session, beginSession, endCall } = useLine2Call();
   const { isPrimaryTab } = useTwilioVoice();
   const {
     ensureRegistered,
@@ -42,7 +43,25 @@ export function usePlaceLine2Call() {
         ? await startOutgoingCallLine2({ leadId })
         : await startOutgoingCallLine2({ toNumber });
     if (!result.ok) {
-      if (result.unavailable) return { ok: false, unavailable: true };
+      if (result.unavailable) {
+        await presentUnavailableCall({
+          beginSession,
+          endCall,
+          call: result.call,
+          session: {
+            callMode: "direct",
+            callKind: callKind || (result.lead ? "lead" : null),
+            dialMode: "agent_first",
+            dialerIndex: 2,
+            toNumber: result.call?.toNumber || toNumber,
+            phoneLabel: phoneLabel || result.call?.toNumber || toNumber,
+            customerName,
+            leadId: result.lead?.id || leadId || undefined,
+            ...extra,
+          },
+        });
+        return { ok: false, unavailable: true };
+      }
       throw new Error(result.error);
     }
     beginSession({

@@ -1,3 +1,5 @@
+import { unavailableDialResult } from "@/lib/personUnavailable";
+
 /**
  * POST /api/calls/start-line2 — outbound Line 2 (sidecar). Does not use /api/calls/start.
  * @param {{ leadId?: number, toNumber?: string }} params
@@ -24,8 +26,7 @@ export async function startOutgoingCallLine2(params) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const { unavailableDialResult } = await import("@/lib/personUnavailable");
-    const unavailable = await unavailableDialResult(json);
+    const unavailable = unavailableDialResult(json);
     if (unavailable) return unavailable;
     return { ok: false, error: json?.error || "Line 2 dial failed" };
   }

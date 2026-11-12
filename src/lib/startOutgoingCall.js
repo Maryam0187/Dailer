@@ -1,3 +1,5 @@
+import { unavailableDialResult } from "@/lib/personUnavailable";
+
 /**
  * POST /api/calls/start — agent-first lead dial (or legacy toNumber).
  * @param {{ leadId?: number, toNumber?: string, intent?: string, dialMode?: string, salesBotKey?: string }} params
@@ -29,8 +31,7 @@ export async function startOutgoingCall(params) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const { unavailableDialResult } = await import("@/lib/personUnavailable");
-    const unavailable = await unavailableDialResult(json);
+    const unavailable = unavailableDialResult(json);
     if (unavailable) return unavailable;
     return { ok: false, error: json?.error || "Dial failed" };
   }

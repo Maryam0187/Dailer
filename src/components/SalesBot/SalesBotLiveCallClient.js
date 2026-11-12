@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
+import { presentUnavailableCall } from "@/lib/personUnavailable";
 import { digitsOnly, formatLandline } from "@/lib/phoneFormat";
 
 const inputClass =
@@ -191,7 +192,20 @@ export default function SalesBotLiveCallClient({ salesBotKey = "primary" }) {
         dialMode: "sales_bot",
         salesBotKey,
       });
-      if (result.unavailable) return;
+      if (result.unavailable) {
+        await presentUnavailableCall({
+          beginSession,
+          endCall,
+          call: result.call,
+          session: {
+            callMode: "direct",
+            dialMode: "sales_bot",
+            phoneLabel: raw || formatLandline(toDigits),
+            customerName: "Sales Bot call",
+          },
+        });
+        return;
+      }
       if (!result.ok) throw new Error(result.error || "Dial failed");
 
       const callId = result.call.id;
