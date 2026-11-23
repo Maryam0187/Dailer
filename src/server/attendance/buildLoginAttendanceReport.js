@@ -41,6 +41,13 @@ function applyHalfLeaveStatus(status, onlineMs, hasLogin) {
   return "half_leave";
 }
 
+/** Phone/session online time with no login is not attendance. */
+function applyNoLoginStatus(status, hasLogin) {
+  if (hasLogin) return status;
+  if (status === "present" || status === "half_leave") return "absent";
+  return status;
+}
+
 const STATUS_OVERRIDE_SET = new Set(["present", "absent", "on_leave", "half_leave"]);
 
 function statusOverrideField(record) {
@@ -353,6 +360,7 @@ function buildDayRow(
     if (autoStatus === "exempt") {
       autoStatus = hasLogin ? "present" : "absent";
     }
+    autoStatus = applyNoLoginStatus(autoStatus, hasLogin);
     if (autoStatus === "present" || autoStatus === "half_leave") {
       autoStatus = applyHalfLeaveStatus("present", record.onlineMs, hasLogin);
     }
