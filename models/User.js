@@ -167,6 +167,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: false,
       },
+      /** Countries this user may work: USA, Canada, or both. Admins always have both. */
+      countryAccess: {
+        type: DataTypes.ENUM("usa", "canada", "both"),
+        allowNull: false,
+        defaultValue: "usa",
+      },
       /** Assigned Twilio From for Line 1 (E.164). */
       twilioFromNumber: {
         type: DataTypes.STRING(32),

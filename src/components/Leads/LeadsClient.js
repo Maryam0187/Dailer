@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
@@ -26,14 +26,18 @@ import {
 } from "@/lib/workflowTagLabels";
 import { canUseLeadFilters, canViewLeadStats, hasFullLeadAccess, canAssignLeadsLikeLeadSupervisor } from "@/lib/leadRoles";
 import { formatLeadPhoneDisplay, shouldRedactLeadPhones } from "@/lib/maskPhone";
-import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
-import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import { CANADA_SERVICE_OPTIONS, formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { CA_PROVINCES } from "@/lib/caProvinces";
 import { US_STATES } from "@/lib/usStates";
+import UsaLeadForm from "@/components/Leads/UsaLeadForm";
+import CanadaLeadForm from "@/components/Leads/CanadaLeadForm";
+import { useCountry } from "@/contexts/CountryContext";
+import { COUNTRY_CANADA, COUNTRY_USA } from "@/lib/countries";
+import { validateCanadianPostal } from "@/lib/caProvinces";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import IconTooltipButton, { CallIcon, EditIcon, ExpandIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
-import RichTextField from "@/components/Leads/RichTextField";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
 import WorkflowStatusLegend from "@/components/Leads/WorkflowStatusLegend";
@@ -191,11 +195,6 @@ const tableHeadClass = "whitespace-nowrap px-2.5 py-2.5 text-[11px] font-semibol
 const tableCellClass = "px-2.5 py-2.5 text-xs";
 const fieldErrorClass = "mt-1 text-xs font-medium text-red-600 dark:text-red-400";
 
-function inputClassForValidation(baseClass, isValid) {
-  if (isValid) return baseClass;
-  return `${baseClass} border-red-400 focus:border-red-500 focus:ring-red-500/25 dark:border-red-500/70`;
-}
-
 function StatusPill({ lead, workflowTagLookup, preferShortLabels }) {
   const indicators = collectLeadWorkflowIndicators(lead, workflowTagLookup, preferShortLabels);
   const summary = formatLeadWorkflowTooltipSummary(lead, workflowTagLookup, preferShortLabels);
@@ -239,6 +238,19 @@ export default function LeadsClient({
   canReceiveSharedLeads = false,
   selectsLeadSupervisor = false,
 }) {
+  const { country } = useCountry();
+  const canadaTheme = country === COUNTRY_CANADA;
+  const accentChip = canadaTheme
+    ? "border-red-600 bg-red-100 text-red-950 dark:border-red-500 dark:bg-red-950/40 dark:text-red-100"
+    : FILTER_CHIP_ACTIVE_CLASS;
+  const accentSolid = canadaTheme ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700";
+  const fieldClass = canadaTheme ? inputClass.replaceAll("emerald", "red") : inputClass;
+  const dateFieldClass = canadaTheme
+    ? "h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-red-500/80 focus:ring-2 focus:ring-red-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+    : "h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
+  function chipClass(active) {
+    return `rounded-lg border px-3 py-1.5 text-sm font-semibold ${active ? accentChip : FILTER_CHIP_CLASS}`;
+  }
   const { session, beginSession, endCall } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const {
@@ -354,7 +366,8 @@ export default function LeadsClient({
 
   const showLeadStats = canViewLeadStats(userRole);
   const isAdmin = userRole === "admin";
-  const showSharedWithMeTab = isAdmin || Boolean(canReceiveSharedLeads);
+  const showSharedWithMeTab =
+    country !== COUNTRY_CANADA && (isAdmin || Boolean(canReceiveSharedLeads));
   const isManager = userRole === "manager";
   const canFilterByShift = isAdmin || isManager;
   const preferShortLabels = resolvePreferShortLabels(isAdmin, adminShortLabels);
@@ -364,10 +377,10 @@ export default function LeadsClient({
   const isProcessor = userRole === "processor";
   const phonesRedacted = shouldRedactLeadPhones(userRole);
   const showAgentColumn = showLeadFilters || isProcessor;
-  const showSharedViewerColumn = isAdmin;
-  const onSharedWithMeTab = leadsListTab === "shared_with_me";
+  const showSharedViewerColumn = isAdmin && country !== COUNTRY_CANADA;
+  const onSharedWithMeTab = showSharedWithMeTab && leadsListTab === "shared_with_me";
   const showShareStatusColumn = onSharedWithMeTab;
-  const showBulkShareView = isAdmin && leadsListTab === "leads";
+  const showBulkShareView = isAdmin && country !== COUNTRY_CANADA && leadsListTab === "leads";
   const showBulkRevokeShare = isAdmin && onSharedWithMeTab;
   const showShareSelection = showBulkShareView || showBulkRevokeShare;
   const colSpan =
@@ -445,12 +458,15 @@ export default function LeadsClient({
   const addLeadValidation = useMemo(() => {
     const phoneCheck = validatePhone(phone);
     const cellCheck = cellNumber.trim() ? validatePhone(cellNumber) : { isValid: true, message: "" };
+    const postalCheck =
+      country === COUNTRY_CANADA ? validateCanadianPostal(zipCode) : { isValid: true, message: "" };
     return {
       phoneCheck,
       cellCheck,
-      canSave: phoneCheck.isValid && cellCheck.isValid && Boolean(fullName.trim()),
+      postalCheck,
+      canSave: phoneCheck.isValid && cellCheck.isValid && postalCheck.isValid && Boolean(fullName.trim()),
     };
-  }, [phone, cellNumber, fullName]);
+  }, [phone, cellNumber, fullName, zipCode, country]);
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId) || null;
   const editingLead = leads.find((l) => l.id === editingLeadId) || null;
@@ -465,7 +481,8 @@ export default function LeadsClient({
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (leadsListTab === "shared_with_me") {
+      const sharedList = country !== COUNTRY_CANADA && leadsListTab === "shared_with_me";
+      if (sharedList) {
         params.set("sharedScope", isAdmin ? "all" : "mine");
         if (isAdmin) {
           if (supervisorFilter && supervisorFilter !== "all") {
@@ -497,6 +514,7 @@ export default function LeadsClient({
         if (canFilterByShift && shiftFilter && shiftFilter !== "all") {
           params.set("shiftKey", shiftFilter);
         }
+        params.set("country", country);
       }
       if (leadPhaseFilter && leadPhaseFilter !== "all") params.set("leadPhase", leadPhaseFilter);
       if (leadProgressTagFilter && leadProgressTagFilter !== "all") {
@@ -505,13 +523,13 @@ export default function LeadsClient({
       if (leadContactTagFilter && leadContactTagFilter !== "all") {
         params.set("leadContactTag", leadContactTagFilter);
       }
-      if (leadsListTab === "shared_with_me" && shareStatusFilter && shareStatusFilter !== "all") {
+      if (sharedList && shareStatusFilter && shareStatusFilter !== "all") {
         params.set("sharedViewerStatus", shareStatusFilter);
       }
       if (stateFilter && stateFilter !== "all") {
         params.set("state", stateFilter);
       }
-      if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all" && leadsListTab !== "shared_with_me") {
+      if (isAdmin && serviceTypeFilter && serviceTypeFilter !== "all" && !sharedList) {
         params.set("serviceType", serviceTypeFilter);
       }
       if (selectsLeadSupervisor && unassignedSupervisorFilter) {
@@ -586,6 +604,7 @@ export default function LeadsClient({
     leadsListTab,
     selectsLeadSupervisor,
     unassignedSupervisorFilter,
+    country,
   ]);
 
   useEffect(() => {
@@ -704,6 +723,8 @@ export default function LeadsClient({
     if (!showSharedWithMeTab && leadsListTab === "shared_with_me") {
       setLeadsListTab("leads");
       setSortBy((prev) => (prev === "sharedViewerAt" ? "updatedAt" : prev));
+      setSelectedLeadId(null);
+      setEditingLeadId(null);
       setPage(1);
     }
   }, [showSharedWithMeTab, leadsListTab]);
@@ -1050,6 +1071,29 @@ export default function LeadsClient({
     setSaveError(null);
   }
 
+  const countryRef = useRef(country);
+  useEffect(() => {
+    if (countryRef.current === country) return;
+    countryRef.current = country;
+    setShowForm(false);
+    setPhone("");
+    setFullName("");
+    setCellNumber("");
+    setCity("");
+    setState("");
+    setZipCode("");
+    setServiceType("");
+    setCableName("");
+    setStreamName("");
+    setBreakdown("");
+    setNotes("");
+    setFormSupervisorId("");
+    setSaveError(null);
+    setStateFilter("all");
+    setServiceTypeFilter("all");
+    setPage(1);
+  }, [country]);
+
   function handleLeadUpdated(updated) {
     setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
   }
@@ -1073,6 +1117,7 @@ export default function LeadsClient({
         breakdown: breakdown.trim() || undefined,
         notes: notes.trim() || undefined,
         source: "manual",
+        country,
       };
       if (selectsLeadSupervisor && formSupervisorId) {
         payload.assignedUserId = Number(formSupervisorId);
@@ -1170,7 +1215,7 @@ export default function LeadsClient({
             onClick={() => setActiveView("list")}
             className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
               activeView === "list"
-                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                ? accentChip
                 : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
           >
@@ -1181,7 +1226,7 @@ export default function LeadsClient({
             onClick={() => setActiveView("stats")}
             className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
               activeView === "stats"
-                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                ? accentChip
                 : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
           >
@@ -1192,7 +1237,7 @@ export default function LeadsClient({
             onClick={() => setActiveView("tags")}
             className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
               activeView === "tags"
-                ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                ? accentChip
                 : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
           >
@@ -1208,7 +1253,7 @@ export default function LeadsClient({
                 <button
                   type="button"
                   onClick={() => setAdminLabelPreference(false)}
-                  className={filterChipClass(!adminShortLabels)}
+                  className={chipClass(!adminShortLabels)}
                   aria-pressed={!adminShortLabels}
                 >
                   Full
@@ -1216,7 +1261,7 @@ export default function LeadsClient({
                 <button
                   type="button"
                   onClick={() => setAdminLabelPreference(true)}
-                  className={filterChipClass(adminShortLabels)}
+                  className={chipClass(adminShortLabels)}
                   aria-pressed={adminShortLabels}
                 >
                   Short
@@ -1242,7 +1287,13 @@ export default function LeadsClient({
         <>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">Your leads</h2>
+          <h2
+            className={`text-lg font-semibold ${
+              canadaTheme ? "text-red-800 dark:text-red-200" : "text-zinc-950 dark:text-zinc-50"
+            }`}
+          >
+            {canadaTheme ? "Canada leads" : "Your leads"}
+          </h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Click a lead to update status, add notes, and view activity.
           </p>
@@ -1278,185 +1329,78 @@ export default function LeadsClient({
             setError(null);
             setSaveError(null);
           }}
-          className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+          className={`rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${accentSolid}`}
         >
           {showForm ? "Cancel" : "+ Add lead"}
         </button>
       </div>
 
-      {showForm ? (
-        <form
+      {showForm && country === COUNTRY_USA ? (
+        <UsaLeadForm
+          selectsLeadSupervisor={selectsLeadSupervisor}
+          formSupervisorId={formSupervisorId}
+          setFormSupervisorId={setFormSupervisorId}
+          sameShiftSupervisors={sameShiftSupervisors}
+          serviceType={serviceType}
+          setServiceType={setServiceType}
+          cableName={cableName}
+          setCableName={setCableName}
+          streamName={streamName}
+          setStreamName={setStreamName}
+          phone={phone}
+          setPhone={setPhone}
+          fullName={fullName}
+          setFullName={setFullName}
+          cellNumber={cellNumber}
+          setCellNumber={setCellNumber}
+          state={state}
+          setState={setState}
+          city={city}
+          setCity={setCity}
+          zipCode={zipCode}
+          setZipCode={setZipCode}
+          breakdown={breakdown}
+          setBreakdown={setBreakdown}
+          notes={notes}
+          setNotes={setNotes}
+          saving={saving}
+          saveError={saveError}
+          setSaveError={setSaveError}
+          validation={addLeadValidation}
           onSubmit={onAddLead}
-          className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"
-        >
-          <h3 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">New lead</h3>
-          <div className="grid gap-4">
-            {selectsLeadSupervisor ? (
-              <div>
-                <label className={labelClass}>Supervisor (optional)</label>
-                <select
-                  value={formSupervisorId}
-                  onChange={(e) => setFormSupervisorId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Unassigned — pick later</option>
-                  {sameShiftSupervisors.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.username}
-                      {s.role === "lead_supervisor" ? " (Lead supervisor)" : " (Supervisor)"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Service</label>
-                <select
-                  value={serviceType}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setServiceType(next);
-                    if (next !== "cable") setCableName("");
-                    if (next !== "streams") setStreamName("");
-                  }}
-                  className={inputClass}
-                >
-                  <option value="">Select service</option>
-                  {SERVICE_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {serviceType === "cable" ? (
-                <div>
-                  <label className={labelClass}>Cable name</label>
-                  <input
-                    type="text"
-                    value={cableName}
-                    onChange={(e) => setCableName(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              ) : null}
-              {serviceType === "streams" ? (
-                <div>
-                  <label className={labelClass}>Stream name</label>
-                  <input
-                    type="text"
-                    value={streamName}
-                    onChange={(e) => setStreamName(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              ) : null}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Phone *</label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => {
-                    const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
-                    setPhone(formatted);
-                    setSaveError(null);
-                  }}
-                  className={inputClassForValidation(
-                    inputClass,
-                    !phone.trim() || addLeadValidation.phoneCheck.isValid,
-                  )}
-                  aria-invalid={Boolean(phone.trim()) && !addLeadValidation.phoneCheck.isValid}
-                />
-                {phone.trim() && !addLeadValidation.phoneCheck.isValid ? (
-                  <p className={fieldErrorClass}>{addLeadValidation.phoneCheck.message}</p>
-                ) : null}
-              </div>
-              <div>
-                <label className={labelClass}>Full name *</label>
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => {
-                    setFullName(e.target.value);
-                    setSaveError(null);
-                  }}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Cell number</label>
-                <input
-                  type="tel"
-                  value={cellNumber}
-                  onChange={(e) => {
-                    const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
-                    setCellNumber(formatted);
-                    setSaveError(null);
-                  }}
-                  className={inputClassForValidation(
-                    inputClass,
-                    !cellNumber.trim() || addLeadValidation.cellCheck.isValid,
-                  )}
-                  aria-invalid={Boolean(cellNumber.trim()) && !addLeadValidation.cellCheck.isValid}
-                />
-                {cellNumber.trim() && !addLeadValidation.cellCheck.isValid ? (
-                  <p className={fieldErrorClass}>{addLeadValidation.cellCheck.message}</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <StateSelectField value={state} onChange={setState} disabled={saving} showLocalTime={false} />
-              <div>
-                <label className={labelClass}>City</label>
-                <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <label className={labelClass}>Zip code</label>
-                <input
-                  type="text"
-                  value={zipCode}
-                  onChange={(e) => setZipCode(e.target.value)}
-                  className={inputClass}
-                  maxLength={16}
-                />
-              </div>
-            </div>
-            <div className="mt-1">
-              <StateLocalTime stateCode={state} />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <RichTextField
-                label="Breakdown / Processing Notes"
-                labelClass={labelClass}
-                value={breakdown}
-                onChange={setBreakdown}
-                disabled={saving}
-                placeholder="Add breakdown details…"
-              />
-              <RichTextField
-                label="Note"
-                labelClass={labelClass}
-                value={notes}
-                onChange={setNotes}
-                disabled={saving}
-                placeholder="Add a note…"
-              />
-            </div>
-          </div>
-          {saveError ? <p className={`mt-4 ${fieldErrorClass}`}>{saveError}</p> : null}
-          <button
-            type="submit"
-            disabled={saving || !addLeadValidation.canSave}
-            className="mt-4 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save lead"}
-          </button>
-        </form>
+        />
+      ) : null}
+
+      {showForm && country === COUNTRY_CANADA ? (
+        <CanadaLeadForm
+          selectsLeadSupervisor={selectsLeadSupervisor}
+          formSupervisorId={formSupervisorId}
+          setFormSupervisorId={setFormSupervisorId}
+          sameShiftSupervisors={sameShiftSupervisors}
+          serviceType={serviceType}
+          setServiceType={setServiceType}
+          phone={phone}
+          setPhone={setPhone}
+          fullName={fullName}
+          setFullName={setFullName}
+          cellNumber={cellNumber}
+          setCellNumber={setCellNumber}
+          province={state}
+          setProvince={setState}
+          city={city}
+          setCity={setCity}
+          postalCode={zipCode}
+          setPostalCode={setZipCode}
+          breakdown={breakdown}
+          setBreakdown={setBreakdown}
+          notes={notes}
+          setNotes={setNotes}
+          saving={saving}
+          saveError={saveError}
+          setSaveError={setSaveError}
+          validation={addLeadValidation}
+          onSubmit={onAddLead}
+        />
       ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -1481,7 +1425,7 @@ export default function LeadsClient({
                   setPage(1);
                 }
               }}
-              className={inputClass}
+              className={fieldClass}
             >
               {SEARCH_BY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -1514,7 +1458,7 @@ export default function LeadsClient({
                 }
                 if (searchError) setSearchError(null);
               }}
-              className={inputClass}
+              className={fieldClass}
               placeholder={
                 SEARCH_BY_OPTIONS.find((opt) => opt.value === searchBy)?.placeholder || "Search"
               }
@@ -1541,7 +1485,7 @@ export default function LeadsClient({
                 setLeadPhaseFilter(e.target.value);
                 setPage(1);
               }}
-              className={inputClass}
+              className={fieldClass}
               aria-label="Filter by sale status"
             >
               {phaseFilterOptions.map((option) => (
@@ -1563,7 +1507,7 @@ export default function LeadsClient({
                   setShareStatusFilter(e.target.value);
                   setPage(1);
                 }}
-                className={inputClass}
+                className={fieldClass}
                 aria-label="Filter by share status"
               >
                 {shareStatusFilterOptions.map((option) => (
@@ -1592,7 +1536,7 @@ export default function LeadsClient({
                   setAgentFilter("all");
                   setPage(1);
                 }}
-                className={inputClass}
+                className={fieldClass}
                 aria-label="Filter by day or night shift"
               >
                 <option value="all">Combined (all)</option>
@@ -1612,7 +1556,7 @@ export default function LeadsClient({
                 setLeadProgressTagFilter(e.target.value);
                 setPage(1);
               }}
-              className={inputClass}
+              className={fieldClass}
               aria-label="Filter by progress"
             >
               {progressFilterOptions
@@ -1644,7 +1588,7 @@ export default function LeadsClient({
                 setLeadContactTagFilter(e.target.value);
                 setPage(1);
               }}
-              className={inputClass}
+              className={fieldClass}
               aria-label="Filter by call outcome"
             >
               {contactFilterOptions.map((option) => (
@@ -1656,7 +1600,7 @@ export default function LeadsClient({
           </div>
           <div className="w-full sm:min-w-[160px] sm:flex-1">
             <label htmlFor="leads-state-filter" className={labelClass}>
-              State
+              {country === COUNTRY_CANADA && leadsListTab !== "shared_with_me" ? "Province" : "State"}
             </label>
             <select
               id="leads-state-filter"
@@ -1665,15 +1609,23 @@ export default function LeadsClient({
                 setStateFilter(e.target.value);
                 setPage(1);
               }}
-              className={inputClass}
-              aria-label="Filter by state"
+              className={fieldClass}
+              aria-label={
+                country === COUNTRY_CANADA && leadsListTab !== "shared_with_me"
+                  ? "Filter by province"
+                  : "Filter by state"
+              }
             >
-              <option value="all">All states</option>
-              {US_STATES.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.name} ({s.code})
-                </option>
-              ))}
+              <option value="all">
+                {country === COUNTRY_CANADA && leadsListTab !== "shared_with_me" ? "All provinces" : "All states"}
+              </option>
+              {(country === COUNTRY_CANADA && leadsListTab !== "shared_with_me" ? CA_PROVINCES : US_STATES).map(
+                (region) => (
+                  <option key={region.code} value={region.code}>
+                    {region.name} ({region.code})
+                  </option>
+                ),
+              )}
             </select>
           </div>
           {isAdmin ? (
@@ -1688,11 +1640,14 @@ export default function LeadsClient({
                   setServiceTypeFilter(e.target.value);
                   setPage(1);
                 }}
-                className={inputClass}
+                className={fieldClass}
                 aria-label="Filter by service"
               >
                 <option value="all">All services</option>
-                {SERVICE_TYPE_OPTIONS.map((option) => (
+                {(country === COUNTRY_CANADA && leadsListTab !== "shared_with_me"
+                  ? CANADA_SERVICE_OPTIONS
+                  : SERVICE_TYPE_OPTIONS
+                ).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -1703,7 +1658,7 @@ export default function LeadsClient({
           <button
             type="submit"
             disabled={loading}
-            className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            className={`h-11 rounded-xl px-5 text-sm font-semibold text-white disabled:opacity-50 ${accentSolid}`}
           >
             Search
           </button>
@@ -1732,7 +1687,7 @@ export default function LeadsClient({
                   onClick={() => applyRangePreset(p.id)}
                   className={`h-9 rounded-lg border px-3 text-sm font-semibold ${
                     rangePreset === p.id
-                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      ? accentChip
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
                 >
@@ -1746,7 +1701,7 @@ export default function LeadsClient({
                     type="date"
                     aria-label="From date"
                     title="From date"
-                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    className={dateFieldClass}
                     value={rangeFrom}
                     onChange={(e) => {
                       setRangePreset("custom");
@@ -1759,7 +1714,7 @@ export default function LeadsClient({
                     type="date"
                     aria-label="To date"
                     title="To date"
-                    className="h-9 w-[9.5rem] rounded-lg border border-zinc-200 bg-white px-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                    className={dateFieldClass}
                     value={rangeTo}
                     onChange={(e) => {
                       setRangePreset("custom");
@@ -1769,7 +1724,7 @@ export default function LeadsClient({
                   <button
                     type="submit"
                     disabled={loading}
-                    className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    className={`h-9 rounded-lg px-3 text-sm font-semibold text-white disabled:opacity-50 ${accentSolid}`}
                   >
                     Apply
                   </button>
@@ -1838,7 +1793,7 @@ export default function LeadsClient({
                 <select
                   value={supervisorFilter}
                   onChange={(e) => onSupervisorFilterChange(e.target.value)}
-                  className={inputClass}
+                  className={fieldClass}
                 >
                   <option value="all">All supervisors</option>
                   {filteredSupervisors.map((s) => (
@@ -1864,7 +1819,7 @@ export default function LeadsClient({
                     setAgentFilter(e.target.value);
                     setPage(1);
                   }}
-                  className={inputClass}
+                  className={fieldClass}
                 >
                   <option value="all">
                     {onSharedWithMeTab
@@ -1893,7 +1848,7 @@ export default function LeadsClient({
                     setProcessorFilter(e.target.value);
                     setPage(1);
                   }}
-                  className={inputClass}
+                  className={fieldClass}
                   aria-label="Filter by processor assignment"
                 >
                   <option value="all">All leads</option>
@@ -1922,7 +1877,7 @@ export default function LeadsClient({
                     if (next !== "all") setAgentFilter("all");
                     setPage(1);
                   }}
-                  className={inputClass}
+                  className={fieldClass}
                 >
                   <option value="all">All my leads</option>
                   <option value="other_team">Assigned (other team)</option>
@@ -1940,7 +1895,7 @@ export default function LeadsClient({
                     if (next !== "all") setAgentFilter("all");
                     setPage(1);
                   }}
-                  className={inputClass}
+                  className={fieldClass}
                 >
                   <option value="all">Team + assigned</option>
                   <option value="other_team">Assigned (other team)</option>
@@ -1970,7 +1925,7 @@ export default function LeadsClient({
                     }}
                     className={`h-11 rounded-xl border px-4 text-sm font-semibold ${
                       sortBy === option.id
-                        ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                        ? accentChip
                         : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     }`}
                     aria-pressed={sortBy === option.id}
@@ -1986,7 +1941,7 @@ export default function LeadsClient({
                   }}
                   className={`flex h-11 w-11 items-center justify-center rounded-xl border ${
                     sortDir === "asc"
-                      ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      ? accentChip
                       : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
                   aria-pressed={sortDir === "asc"}
@@ -2038,7 +1993,11 @@ export default function LeadsClient({
             type="button"
             onClick={onRefresh}
             disabled={loading || refreshing}
-            className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-zinc-800"
+            className={`rounded-lg border bg-white px-3 py-1.5 text-sm font-semibold disabled:opacity-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 ${
+              canadaTheme
+                ? "border-red-300 text-red-900 hover:bg-red-50 dark:border-red-700 dark:text-red-200"
+                : "border-emerald-300 text-emerald-900 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-200"
+            }`}
           >
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
@@ -2080,7 +2039,7 @@ export default function LeadsClient({
               }}
               className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
                 processorScopeFilter === option.id
-                  ? "border-emerald-600 bg-emerald-100 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100"
+                  ? accentChip
                   : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
               }`}
               aria-pressed={processorScopeFilter === option.id}
@@ -2282,7 +2241,9 @@ export default function LeadsClient({
                   key={lead.id}
                   className={`text-zinc-800 dark:text-zinc-200 ${
                     selectedLeadId === lead.id
-                      ? "bg-emerald-50/60 dark:bg-emerald-950/20"
+                      ? (canadaTheme
+                        ? "bg-red-50/70 dark:bg-red-950/30"
+                        : "bg-emerald-50/60 dark:bg-emerald-950/20")
                       : selectedShareLeadIds.has(lead.id)
                         ? "bg-sky-50/50 dark:bg-sky-950/20"
                         : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"

@@ -11,6 +11,7 @@ import {
   hasStoredAfterShiftGrant,
   isAfterShiftGrantExpired,
 } from "@/server/auth/afterShiftGrant.cjs";
+import { parseCountryAccess } from "@/lib/countries";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -194,6 +195,7 @@ async function resolveAuthedUser() {
       canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
       selectsLeadSupervisor:
         user.role === "agent" ? Boolean(user.selectsLeadSupervisor) : false,
+      countryAccess: user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa",
     },
     logoutReason: null,
   };

@@ -19,6 +19,7 @@ import {
 } from "@/server/calls/aggregateMetrics";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
+import { resolveUserCountry } from "@/lib/countries";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -171,6 +172,12 @@ export async function GET(req) {
   where = andWhere(where, numberSearchWhere);
   // Sales Bot dials belong only on /sales-bot, not the main dialer call log.
   where = excludeSalesBotFromWhere(where);
+
+  const countryCheck = resolveUserCountry(authedUser, searchParams.get("country"));
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+  where = andWhere(where, { country: countryCheck.country });
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,

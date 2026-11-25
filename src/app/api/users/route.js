@@ -9,6 +9,7 @@ import { derivePresence } from "@/server/auth/presence";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
+import { parseCountryAccess } from "@/lib/countries";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -37,6 +38,7 @@ const LIST_ATTRIBUTES = [
   "canTrainSalesBot",
   "canReceiveSharedLeads",
   "selectsLeadSupervisor",
+  "countryAccess",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -84,6 +86,7 @@ function serializeUserRow(
     isOutside: Boolean(row.isOutside),
     shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
     selectsLeadSupervisor: row.role === "agent" ? Boolean(row.selectsLeadSupervisor) : false,
+    countryAccess: row.role === "admin" ? "both" : parseCountryAccess(row.countryAccess) || "usa",
     ...(includeShiftAccess
       ? {
           loginWindowExempt: Boolean(row.loginWindowExempt),
@@ -406,6 +409,14 @@ export async function POST(req) {
     authedUser.role === "admin" ? Boolean(body?.canReceiveSharedLeads) : false;
   const selectsLeadSupervisorToSet =
     role === "agent" ? Boolean(body?.selectsLeadSupervisor) : false;
+  let countryAccessToSet = role === "admin" ? "both" : "usa";
+  if (role !== "admin" && body?.countryAccess !== undefined) {
+    const parsedCountryAccess = parseCountryAccess(body.countryAccess);
+    if (!parsedCountryAccess) {
+      return NextResponse.json({ error: "Invalid countryAccess" }, { status: 400 });
+    }
+    countryAccessToSet = parsedCountryAccess;
+  }
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -417,6 +428,7 @@ export async function POST(req) {
       isOutside: isOutsideToSet,
       canReceiveSharedLeads: canReceiveSharedLeadsToSet,
       selectsLeadSupervisor: selectsLeadSupervisorToSet,
+      countryAccess: countryAccessToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -432,6 +444,7 @@ export async function POST(req) {
           isOutside: Boolean(user.isOutside),
           canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
           selectsLeadSupervisor: Boolean(user.selectsLeadSupervisor),
+          countryAccess: user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa",
         },
       },
       { status: 201 },

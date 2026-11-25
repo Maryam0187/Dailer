@@ -13,6 +13,7 @@ import {
 } from "@/server/twilio/callOwnerTwilio";
 import { normalizeSalesBotKey } from "@/server/calls/salesBotTraining";
 import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
+import { resolveCallCountry } from "@/server/calls/callCountry";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -84,9 +85,15 @@ export async function POST(req) {
     String(body?.intent || "").trim() === "sales_bot" ||
     String(body?.dialMode || "").trim() === "sales_bot";
 
+  const countryCheck = resolveCallCountry(authedUser, { lead, raw: body?.country });
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+
   const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
     userId: authedUser.id,
     leadId: lead?.id || null,
+    country: countryCheck.country,
     fromNumber,
     callKind: isSalesBot ? "sales_bot" : lead ? "lead" : null,
     dialMode: isSalesBot ? "sales_bot" : "agent_first",
@@ -101,6 +108,7 @@ export async function POST(req) {
   const call = await db.CallLog.create({
     userId: authedUser.id,
     leadId: lead?.id || null,
+    country: countryCheck.country,
     fromNumber,
     toNumber: normalizedToNumber,
     direction: "outbound",

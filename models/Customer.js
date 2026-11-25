@@ -38,6 +38,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(16),
         allowNull: true,
       },
+      /** Sales country. Existing rows stay the USA campaign. */
+      country: {
+        type: DataTypes.ENUM("usa", "canada"),
+        allowNull: false,
+        defaultValue: "usa",
+      },
       accountNumber: {
         type: DataTypes.STRING(32),
         allowNull: true,
@@ -52,7 +58,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       serviceType: {
-        type: DataTypes.ENUM("dish", "direct", "cable", "streams"),
+        type: DataTypes.ENUM("dish", "direct", "cable", "streams", "bell_tv", "shaw_direct"),
         allowNull: true,
       },
       cableName: {
@@ -86,6 +92,7 @@ module.exports = (sequelize, DataTypes) => {
       indexes: [
         { unique: true, fields: ["phone"] },
         { fields: ["isOutside"] },
+        { fields: ["country"] },
         { fields: ["managerId"] },
         { fields: ["agentId"] },
       ],

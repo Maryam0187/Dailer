@@ -116,6 +116,7 @@ export function serializeLead(
     city: lead.city,
     state: lead.state,
     zipCode: lead.zipCode,
+    country: lead.country === "canada" ? "canada" : "usa",
     serviceType: lead.serviceType,
     cableName: lead.cableName,
     streamName: lead.streamName,

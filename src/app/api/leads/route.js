@@ -28,6 +28,9 @@ import {
 import { Op, Sequelize } from "sequelize";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
+import { getProvinceByCode } from "@/lib/caProvinces";
+import { ALL_SERVICE_TYPES, serviceMatchesCountry } from "@/lib/leadService";
+import { COUNTRY_CANADA, COUNTRY_USA, resolveUserCountry } from "@/lib/countries";
 import { SHARE_VIEWER_STATUS_VALUES } from "@/lib/shareViewerStatus";
 import { syncLeadCustomer } from "@/server/customers/syncCustomer";
 
@@ -117,7 +120,7 @@ function buildLeadSearchWhere(q, searchBy) {
   return { [Op.or]: or };
 }
 
-const SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
+const SERVICE_TYPES = ALL_SERVICE_TYPES;
 
 function parseServiceType(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -383,9 +386,21 @@ export async function GET(req) {
     where = andWhereClause(where, searchWhere);
   }
 
+  let listCountry = COUNTRY_USA;
+  if (!onSharedTab) {
+    const countryCheck = resolveUserCountry(authedUser, searchParams.get("country"));
+    if (countryCheck.error) {
+      return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+    }
+    listCountry = countryCheck.country;
+  }
+  where = andWhereClause(where, { country: listCountry });
+
   const stateRaw = String(searchParams.get("state") || "").trim().toUpperCase();
   if (stateRaw) {
-    if (!getStateByCode(stateRaw)) {
+    const region =
+      listCountry === COUNTRY_CANADA ? getProvinceByCode(stateRaw) : getStateByCode(stateRaw);
+    if (!region) {
       return NextResponse.json({ error: "Invalid state" }, { status: 400 });
     }
     where.state = stateRaw;
@@ -397,7 +412,7 @@ export async function GET(req) {
       return NextResponse.json({ error: "Invalid serviceType" }, { status: 403 });
     }
     const serviceType = parseServiceType(serviceTypeRaw);
-    if (serviceType === undefined) {
+    if (serviceType === undefined || (serviceType && !serviceMatchesCountry(serviceType, listCountry))) {
       return NextResponse.json({ error: "Invalid serviceType" }, { status: 400 });
     }
     if (serviceType) {
@@ -447,8 +462,14 @@ export async function POST(req) {
     return NextResponse.json({ error: "Valid cell number is required" }, { status: 400 });
   }
 
+  const countryCheck = resolveUserCountry(authedUser, body?.country);
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+  const country = countryCheck.country;
+
   const serviceType = parseServiceType(body?.serviceType);
-  if (serviceType === undefined) {
+  if (serviceType === undefined || !serviceMatchesCountry(serviceType, country)) {
     return NextResponse.json({ error: "Invalid service type" }, { status: 400 });
   }
   const cableName = serviceType === "cable" ? trimField(body?.cableName, 128) : null;
@@ -514,6 +535,7 @@ export async function POST(req) {
     city: trimField(body?.city, 128),
     state: trimField(body?.state, 32),
     zipCode: trimField(body?.zipCode, 16),
+    country,
     serviceType,
     cableName,
     streamName,
@@ -531,7 +553,7 @@ export async function POST(req) {
 
   if (createdFromCallLogId) {
     const [linked] = await db.CallLog.update(
-      { leadId: lead.id },
+      { leadId: lead.id, country: lead.country === "canada" ? "canada" : "usa" },
       { where: { id: createdFromCallLogId, leadId: null } },
     );
     if (linked) {

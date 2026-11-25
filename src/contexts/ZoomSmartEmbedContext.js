@@ -152,6 +152,10 @@ export function ZoomSmartEmbedProvider({ children }) {
             id: payload.id ?? null,
             type,
             data: payload.data || {},
+            country:
+              typeof sessionStorage !== "undefined"
+                ? sessionStorage.getItem("dialer-active-country")
+                : null,
           }),
         });
       } catch {

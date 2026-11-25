@@ -20,6 +20,8 @@ import { hasLeadWorkflowPatch } from "@/lib/leadWorkflow";
 import { initialSharedViewerStatus } from "@/lib/shareViewerStatus";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
 import { syncLeadCustomer } from "@/server/customers/syncCustomer";
+import { ALL_SERVICE_TYPES, serviceMatchesCountry } from "@/lib/leadService";
+import { formatCanadianPostal, getProvinceByCode, validateCanadianPostal } from "@/lib/caProvinces";
 
 const CUSTOMER_SYNC_FIELDS = new Set([
   "phone",
@@ -39,7 +41,7 @@ function trimField(value, maxLen) {
 }
 
 const ALLOWED_STATUSES = new Set(["new", "contacted", "callback", "qualified", "closed", "dnc"]);
-const ALLOWED_SERVICE_TYPES = new Set(["dish", "direct", "cable", "streams"]);
+const ALLOWED_SERVICE_TYPES = ALL_SERVICE_TYPES;
 
 export async function GET(_req, { params }) {
   const { authedUser, errorResponse } = await getAuthedUserRequiringFullAccess();
@@ -112,16 +114,42 @@ export async function PATCH(req, { params }) {
   }
   if (body?.company !== undefined) update.company = trimField(body.company, 255);
   if (body?.email !== undefined) update.email = trimField(body.email, 255);
+  const leadCountry = lead.country === "canada" ? "canada" : "usa";
   if (body?.city !== undefined) update.city = trimField(body.city, 128);
-  if (body?.state !== undefined) update.state = trimField(body.state, 32);
-  if (body?.zipCode !== undefined) update.zipCode = trimField(body.zipCode, 16);
+  if (body?.state !== undefined) {
+    const rawState = trimField(body.state, 32);
+    if (!rawState) {
+      update.state = null;
+    } else if (leadCountry === "canada") {
+      const province = getProvinceByCode(rawState);
+      if (!province) return NextResponse.json({ error: "Invalid province" }, { status: 400 });
+      update.state = province.code;
+    } else {
+      update.state = rawState;
+    }
+  }
+  if (body?.zipCode !== undefined) {
+    const rawZip = trimField(body.zipCode, 16);
+    if (!rawZip) {
+      update.zipCode = null;
+    } else if (leadCountry === "canada") {
+      const postal = formatCanadianPostal(rawZip);
+      const postalCheck = validateCanadianPostal(postal);
+      if (!postalCheck.isValid) {
+        return NextResponse.json({ error: postalCheck.message }, { status: 400 });
+      }
+      update.zipCode = postal;
+    } else {
+      update.zipCode = rawZip;
+    }
+  }
 
   if (body?.serviceType !== undefined) {
     if (body.serviceType === null || body.serviceType === "") {
       update.serviceType = null;
     } else {
       const serviceType = String(body.serviceType).trim().toLowerCase();
-      if (!ALLOWED_SERVICE_TYPES.has(serviceType)) {
+      if (!ALLOWED_SERVICE_TYPES.has(serviceType) || !serviceMatchesCountry(serviceType, leadCountry)) {
         return NextResponse.json({ error: "Invalid service type" }, { status: 400 });
       }
       update.serviceType = serviceType;

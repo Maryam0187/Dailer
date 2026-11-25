@@ -17,6 +17,9 @@ export async function startOutgoingCallLine2(params) {
   if (Number.isInteger(leadId) && leadId > 0) body.leadId = leadId;
   else if (trimmed) body.toNumber = trimmed;
   else return { ok: false, error: "leadId or toNumber is required" };
+  if (typeof params === "object" && params != null && params.country) {
+    body.country = String(params.country).trim();
+  }
 
   const res = await fetch("/api/calls/start-line2", {
     method: "POST",

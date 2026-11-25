@@ -17,6 +17,8 @@ import {
 import { LEAD_PAYMENT_CHARGE_STATUS_VALUES, LEAD_PHASE_VALUES } from "@/lib/leadWorkflow";
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { getStateByCode } from "@/lib/usStates";
+import { getProvinceByCode } from "@/lib/caProvinces";
+import { COUNTRY_CANADA, resolveUserCountry } from "@/lib/countries";
 import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 
 const SEARCH_BY_VALUES = new Set(["all", "phone", "name", "last7", "last4"]);
@@ -97,21 +99,22 @@ function leadDateBetweenSql(dateField, fromDate, toDate) {
   );
 }
 
-function leadCountOrderLiteral(isOutsideList) {
+function leadCountOrderLiteral(isOutsideList, country) {
   const sourceClause = isOutsideList
     ? `\`lc\`.\`source\` = ${db.sequelize.escape(OUTSIDE_SALE_SOURCE)}`
     : `\`lc\`.\`source\` <> ${db.sequelize.escape(OUTSIDE_SALE_SOURCE)}`;
+  const countryClause = `\`lc\`.\`country\` = ${db.sequelize.escape(country)}`;
   return db.sequelize.literal(
-    `(SELECT COUNT(*) FROM \`Leads\` AS \`lc\` WHERE \`lc\`.\`customerId\` = \`Customer\`.\`id\` AND ${sourceClause})`,
+    `(SELECT COUNT(*) FROM \`Leads\` AS \`lc\` WHERE \`lc\`.\`customerId\` = \`Customer\`.\`id\` AND ${sourceClause} AND ${countryClause})`,
   );
 }
 
-function parseCustomersOrder(searchParams, { isOutsideList, dateField }) {
+function parseCustomersOrder(searchParams, { isOutsideList, dateField, country }) {
   const sortBy = String(searchParams.get("sortBy") || "").trim();
   const sortDir = searchParams.get("sortDir") === "asc" ? "ASC" : "DESC";
 
   if (sortBy === "leadCount") {
-    return [[leadCountOrderLiteral(isOutsideList), sortDir], ["id", "DESC"]];
+    return [[leadCountOrderLiteral(isOutsideList, country), sortDir], ["id", "DESC"]];
   }
 
   const sortColumn = leadDateColumn(dateField);
@@ -121,7 +124,7 @@ function parseCustomersOrder(searchParams, { isOutsideList, dateField }) {
   return [
     [
       db.sequelize.literal(
-        `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\`)`,
+        `(SELECT MAX(\`ol\`.\`${sortColumn}\`) FROM \`Leads\` AS \`ol\` WHERE \`ol\`.\`customerId\` = \`Customer\`.\`id\` AND \`ol\`.\`country\` = ${db.sequelize.escape(country)})`,
       ),
       "DESC",
     ],
@@ -129,11 +132,30 @@ function parseCustomersOrder(searchParams, { isOutsideList, dateField }) {
   ];
 }
 
+/** A customer belongs to a country when they have a lead there, or no leads and that stored country. */
+function customerMatchesCountryLiteral(country) {
+  const esc = db.sequelize.escape(country);
+  return db.sequelize.literal(`(
+    EXISTS (
+      SELECT 1 FROM \`Leads\` AS \`lc\`
+      WHERE \`lc\`.\`customerId\` = \`Customer\`.\`id\`
+        AND \`lc\`.\`country\` = ${esc}
+    )
+    OR (
+      \`Customer\`.\`country\` = ${esc}
+      AND NOT EXISTS (
+        SELECT 1 FROM \`Leads\` AS \`lc0\`
+        WHERE \`lc0\`.\`customerId\` = \`Customer\`.\`id\`
+      )
+    )
+  )`);
+}
+
 /**
  * Build one EXISTS so sale status, payment type, charge status, and date range
  * apply to the same lead when those filters are combined.
  */
-function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate, dateField }) {
+function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate, toDate, dateField, country }) {
   const hasSale = Boolean(salePhase && LEAD_PHASE_VALUES.has(salePhase));
   const hasPay = Boolean(paymentType && PAYMENT_FILTER_VALUES.has(paymentType));
   const hasCharge = Boolean(chargeStatus && LEAD_PAYMENT_CHARGE_STATUS_VALUES.has(chargeStatus));
@@ -149,6 +171,7 @@ function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate
         LEFT JOIN \`CustomerPaymentMethods\` AS \`pm\`
           ON \`pm\`.\`id\` = \`l\`.\`customerPaymentMethodId\`
         WHERE \`l\`.\`customerId\` = \`Customer\`.\`id\`
+          AND \`l\`.\`country\` = ${db.sequelize.escape(country)}
           AND (
             \`l\`.\`leadPaymentMethod\` = ${payEsc}
             OR \`pm\`.\`type\` = ${payEsc}
@@ -162,7 +185,10 @@ function buildLeadFilterLiteral({ salePhase, paymentType, chargeStatus, fromDate
     )`);
   }
 
-  const clauses = ["`l`.`customerId` = `Customer`.`id`"];
+  const clauses = [
+    "`l`.`customerId` = `Customer`.`id`",
+    `\`l\`.\`country\` = ${db.sequelize.escape(country)}`,
+  ];
   let needsPmJoin = false;
 
   if (hasSale) {
@@ -226,9 +252,21 @@ export async function GET(req) {
   const dateField = normalizeDateFieldKey(dateFieldRaw);
   const fromDate = parseDateOnly(searchParams.get("fromDate"));
   const toDate = parseDateOnly(searchParams.get("toDate"));
+  const countryCheck = resolveUserCountry(authedUser, searchParams.get("country"));
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+  const listCountry = countryCheck.country;
 
-  if (stateRaw && !getStateByCode(stateRaw)) {
-    return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+  if (stateRaw) {
+    const region =
+      listCountry === COUNTRY_CANADA ? getProvinceByCode(stateRaw) : getStateByCode(stateRaw);
+    if (!region) {
+      return NextResponse.json(
+        { error: listCountry === COUNTRY_CANADA ? "Invalid province" : "Invalid state" },
+        { status: 400 },
+      );
+    }
   }
 
   if ((fromDate && !toDate) || (!fromDate && toDate)) {
@@ -260,6 +298,8 @@ export async function GET(req) {
       ],
     });
   }
+
+  pushAnd(where, customerMatchesCountryLiteral(listCountry));
 
   if (q) {
     const check = validateListSearchQuery(searchBy, q);
@@ -432,30 +472,34 @@ export async function GET(req) {
       fromDate,
       toDate,
       dateField,
+      country: listCountry,
     });
     if (leadFilter) pushAnd(where, leadFilter);
 
     if (shiftKey) {
       // Customers with at least one lead created by a user on this shift.
+      const countrySql = db.sequelize.escape(listCountry);
       const shiftLiteral =
         shiftKey === "night"
           ? `EXISTS (
               SELECT 1 FROM \`Leads\` AS \`sl\`
               INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
               WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+                AND \`sl\`.\`country\` = ${countrySql}
                 AND \`su\`.\`shiftKey\` = 'night'
             )`
           : `EXISTS (
               SELECT 1 FROM \`Leads\` AS \`sl\`
               INNER JOIN \`Users\` AS \`su\` ON \`su\`.\`id\` = \`sl\`.\`createdByUserId\`
               WHERE \`sl\`.\`customerId\` = \`Customer\`.\`id\`
+                AND \`sl\`.\`country\` = ${countrySql}
                 AND (\`su\`.\`shiftKey\` IS NULL OR \`su\`.\`shiftKey\` <> 'night')
             )`;
       pushAnd(where, db.sequelize.literal(shiftLiteral));
     }
   }
 
-  const order = parseCustomersOrder(searchParams, { isOutsideList, dateField });
+  const order = parseCustomersOrder(searchParams, { isOutsideList, dateField, country: listCountry });
 
   const { rows, count } = await db.Customer.findAndCountAll({
     where,
@@ -466,7 +510,7 @@ export async function GET(req) {
   });
 
   const customerIds = rows.map((r) => r.id);
-  const leadStatsWhere = { customerId: { [Op.in]: customerIds } };
+  const leadStatsWhere = { customerId: { [Op.in]: customerIds }, country: listCountry };
   if (isOutsideList) {
     leadStatsWhere.source = OUTSIDE_SALE_SOURCE;
   } else {
@@ -517,6 +561,7 @@ export async function GET(req) {
           where: {
             customerId: { [Op.in]: customerIds },
             source: { [Op.ne]: OUTSIDE_SALE_SOURCE },
+            country: listCountry,
           },
           group: ["customerId"],
           raw: true,
@@ -602,6 +647,10 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => null);
   const payload = body && typeof body === "object" ? { ...body } : {};
+  const countryCheck = resolveUserCountry(authedUser, payload.country);
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
   if (isOutsideManager(authedUser)) {
     payload.managerId = authedUser.id;
   }
@@ -609,6 +658,7 @@ export async function POST(req) {
     requireName: true,
     requirePhone: true,
     requireManager: true,
+    country: countryCheck.country,
   });
   if (errors.length) {
     return NextResponse.json({ error: errors[0] }, { status: 400 });
@@ -807,6 +857,7 @@ export async function POST(req) {
     const customer = await db.Customer.create({
       ...data,
       isOutside: true,
+      country: countryCheck.country,
     });
     return NextResponse.json(
       {

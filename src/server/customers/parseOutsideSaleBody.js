@@ -1,8 +1,6 @@
-import { SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { serviceMatchesCountry } from "@/lib/leadService";
 import { normalizeLeadPaymentChargeAmount } from "@/lib/leadWorkflow";
 import { trimCustomerField, resolveCustomerStaffIds } from "@/server/customers/parseCustomerBody";
-
-const SERVICE_TYPES = new Set(SERVICE_TYPE_OPTIONS.map((o) => o.value));
 
 function parseOptionalUserId(raw) {
   if (raw === null || raw === undefined || raw === "") return null;
@@ -15,7 +13,7 @@ function parseOptionalUserId(raw) {
  * Parse per-sale fields (service, account, manager, agent, notes, charge amount).
  * Pass `allowedKeys` to limit which fields are read from the body.
  */
-export function parseOutsideSaleBody(body, { allowedKeys = null } = {}) {
+export function parseOutsideSaleBody(body, { allowedKeys = null, country = "usa" } = {}) {
   const errors = [];
   const data = {};
   const src = body && typeof body === "object" ? body : {};
@@ -28,7 +26,7 @@ export function parseOutsideSaleBody(body, { allowedKeys = null } = {}) {
       data.serviceType = null;
       data.cableName = null;
       data.streamName = null;
-    } else if (!SERVICE_TYPES.has(raw)) {
+    } else if (!serviceMatchesCountry(raw, country)) {
       errors.push("Invalid service");
     } else {
       data.serviceType = raw;

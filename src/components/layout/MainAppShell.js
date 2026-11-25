@@ -18,6 +18,7 @@ import ActivityTracker from "@/components/layout/ActivityTracker";
 import OnlineTimeHeartbeat from "@/components/layout/OnlineTimeHeartbeat";
 import OneSignalProvider from "@/components/push/OneSignalProvider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { CountryProvider } from "@/contexts/CountryContext";
 
 function VoiceLockChrome({ outsideManager = false }) {
   const { canUseTwilioDialer } = useDialerCapabilities();
@@ -47,6 +48,7 @@ export default function MainAppShell({
   canUseDialer2 = false,
   canUseTwilioDialer = true,
   canUseZoomPhone = false,
+  countryAccess = "usa",
 }) {
   const outsideManager = userRole === "manager" && isOutside;
 
@@ -63,14 +65,16 @@ export default function MainAppShell({
               <ZoomSmartEmbedProvider>
                 <MessagingProvider>
                   <ThemeProvider>
-                    <OneSignalProvider userId={currentUserId} username={currentUsername} />
-                    {outsideManager ? null : <ActivityTracker />}
-                    <OnlineTimeHeartbeat />
-                    {outsideManager ? null : <ShiftLogoutGuard />}
-                    <VoiceLockChrome outsideManager={outsideManager} />
-                    {children}
-                    <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
-                    <VoiceProviderChrome userRole={userRole} outsideManager={outsideManager} />
+                    <CountryProvider userId={currentUserId} userRole={userRole} countryAccess={countryAccess}>
+                      <OneSignalProvider userId={currentUserId} username={currentUsername} />
+                      {outsideManager ? null : <ActivityTracker />}
+                      <OnlineTimeHeartbeat />
+                      {outsideManager ? null : <ShiftLogoutGuard />}
+                      <VoiceLockChrome outsideManager={outsideManager} />
+                      {children}
+                      <MessagingSlideOver currentUserId={currentUserId} userRole={userRole} />
+                      <VoiceProviderChrome userRole={userRole} outsideManager={outsideManager} />
+                    </CountryProvider>
                   </ThemeProvider>
                 </MessagingProvider>
               </ZoomSmartEmbedProvider>

@@ -14,6 +14,7 @@ import {
   resolveFromNumberLine2,
 } from "@/server/twilio/callOwnerTwilio";
 import { rejectIfOutboundBlocked } from "@/server/calls/blockedNumbers";
+import { resolveCallCountry } from "@/server/calls/callCountry";
 
 function buildBridgeVoiceUrl(baseUrl, callId) {
   const qs = new URLSearchParams({ callId: String(callId) });
@@ -88,9 +89,15 @@ export async function POST(req) {
     );
   }
 
+  const countryCheck = resolveCallCountry(authedUser, { lead, raw: body?.country });
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+
   const blockedResponse = await rejectIfOutboundBlocked(normalizedToNumber, {
     userId: authedUser.id,
     leadId: lead?.id || null,
+    country: countryCheck.country,
     fromNumber,
     callKind: lead ? "lead" : null,
     dialMode: "agent_first",
@@ -105,6 +112,7 @@ export async function POST(req) {
   const call = await db.CallLog.create({
     userId: authedUser.id,
     leadId: lead?.id || null,
+    country: countryCheck.country,
     fromNumber,
     toNumber: normalizedToNumber,
     direction: "outbound",

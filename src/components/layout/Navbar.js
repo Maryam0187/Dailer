@@ -10,6 +10,9 @@ import DialerPhoneIcon from "@/components/brand/DialerPhoneIcon";
 import ShiftStatusBadge from "@/components/layout/ShiftStatusBadge";
 import NavbarMessagingButton from "@/components/Messaging/NavbarMessagingButton";
 import NavbarInboundBell from "@/components/layout/NavbarInboundBell";
+import NavbarCountrySwitch from "@/components/layout/NavbarCountrySwitch";
+import { useCountry } from "@/contexts/CountryContext";
+import { COUNTRY_CANADA } from "@/lib/countries";
 
 const PALETTES = {
   dialer: {
@@ -487,6 +490,8 @@ export default function Navbar({
   canTrainSalesBot = false,
 }) {
   const pathname = usePathname();
+  const { country, canSwitchCountry } = useCountry();
+  const canadaNav = country === COUNTRY_CANADA;
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
   const [upcomingCount, setUpcomingCount] = useState(null);
@@ -497,7 +502,7 @@ export default function Navbar({
 
     async function loadUpcomingCount() {
       try {
-        const res = await fetch("/api/leads/appointments?countOnly=1", {
+        const res = await fetch(`/api/leads/appointments?countOnly=1&country=${country}`, {
           credentials: "include",
           cache: "no-store",
         });
@@ -518,7 +523,7 @@ export default function Navbar({
       window.removeEventListener("focus", loadUpcomingCount);
       window.removeEventListener("appointments:changed", loadUpcomingCount);
     };
-  }, [pathname, accessMode]);
+  }, [pathname, accessMode, country]);
 
   const navItems = buildNavItems(
     role,
@@ -557,10 +562,21 @@ export default function Navbar({
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 overflow-visible border-b-2 border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 backdrop-blur-md dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
+    <header
+      className={`sticky top-0 z-50 overflow-visible border-b-2 backdrop-blur-md ${
+        canadaNav
+          ? "border-red-500/40 bg-gradient-to-r from-red-100 via-red-50 to-white dark:border-red-500/50 dark:from-red-950 dark:via-zinc-950 dark:to-zinc-950"
+          : "border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950"
+      }`}
+    >
+      <div className="pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center sm:right-3">
+        <div className="pointer-events-auto">
+          <NavbarCountrySwitch />
+        </div>
+      </div>
       <div className="relative mx-auto max-w-6xl overflow-visible px-3 sm:px-4">
         <div className="flex h-14 items-center gap-2 overflow-visible sm:h-16 sm:gap-3">
-          <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-visible lg:flex lg:gap-3">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none] lg:flex lg:gap-3 [&::-webkit-scrollbar]:hidden">
             {navItems.map((item) =>
               item.type === "dropdown" ? (
                 <AdminDropdown key={item.id} item={item} onNavigate={closeMenu} />
@@ -596,7 +612,7 @@ export default function Navbar({
             </button>
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3">
+          <div className={`relative z-10 ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3 ${canSwitchCountry ? "max-[1560px]:mr-40" : ""}`}>
             {role === "admin" ? (
               <span className="hidden sm:inline-flex">
                 <ShiftStatusBadge initialShiftStatus={shiftStatus} />
@@ -619,7 +635,11 @@ export default function Navbar({
             />
             <nav
               id="mobile-nav-menu"
-              className="absolute left-0 right-0 top-full z-50 max-h-[calc(100dvh-3.5rem)] overflow-y-auto border-t border-sky-500/15 bg-white/98 px-3 py-3 shadow-lg backdrop-blur-md sm:max-h-[calc(100dvh-4rem)] dark:border-sky-500/20 dark:bg-zinc-950/98 lg:hidden"
+              className={`absolute left-0 right-0 top-full z-50 max-h-[calc(100dvh-3.5rem)] overflow-y-auto border-t px-3 py-3 shadow-lg backdrop-blur-md sm:max-h-[calc(100dvh-4rem)] lg:hidden ${
+                canadaNav
+                  ? "border-red-500/25 bg-red-50/98 dark:border-red-500/30 dark:bg-zinc-950/98"
+                  : "border-sky-500/15 bg-white/98 dark:border-sky-500/20 dark:bg-zinc-950/98"
+              }`}
             >
               {role === "admin" ? (
                 <div className="mb-3 sm:hidden">

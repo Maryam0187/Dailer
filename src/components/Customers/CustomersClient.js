@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { digitsOnly, formatLandline, formatCellNumber, validatePhone, validateOptionalCell } from "@/lib/phoneFormat";
+import { digitsOnly, formatCanadaPhone, formatLandline, formatCellNumber, validatePhone, validateOptionalCell } from "@/lib/phoneFormat";
 import {
   detectCardBrand,
   formatCardNumberInput,
@@ -15,7 +15,10 @@ import {
 import { validateListSearchQuery } from "@/lib/listSearchValidation";
 import { trackCopyActivity } from "@/lib/clientActivity";
 import { US_STATES } from "@/lib/usStates";
-import { formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { CA_PROVINCES, formatCanadianPostal, validateCanadianPostal } from "@/lib/caProvinces";
+import { COUNTRY_CANADA } from "@/lib/countries";
+import { useCountry } from "@/contexts/CountryContext";
+import { CANADA_SERVICE_OPTIONS, formatLeadService, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import { isOutsideSaleSource } from "@/lib/outsideSale";
 import {
   formatLeadPaymentChargeAmount,
@@ -201,18 +204,25 @@ function emptyOutsideForm(managerId = "") {
   };
 }
 
-function emptyLeadForm(customer, { lockedManagerId = "" } = {}) {
+function emptyLeadForm(customer, { lockedManagerId = "", country = "usa" } = {}) {
+  const isCanada = country === COUNTRY_CANADA;
+  const formatPhone = isCanada ? formatCanadaPhone : formatLandline;
+  const formatCell = isCanada ? formatCanadaPhone : formatCellNumber;
+  const serviceOptions = isCanada ? CANADA_SERVICE_OPTIONS : SERVICE_TYPE_OPTIONS;
+  const serviceType = serviceOptions.some((option) => option.value === customer?.serviceType)
+    ? customer.serviceType
+    : "";
   return {
-    phone: customer?.phone ? formatLandline(customer.phone) : "",
+    phone: customer?.phone ? formatPhone(customer.phone) : "",
     fullName: customer?.fullName?.trim() || customer?.displayName?.trim() || "",
-    cellNumber: customer?.cellNumber ? formatCellNumber(customer.cellNumber) : "",
+    cellNumber: customer?.cellNumber ? formatCell(customer.cellNumber) : "",
     address: customer?.address || "",
     city: customer?.city || "",
     state: customer?.state || "",
-    zipCode: customer?.zipCode || "",
-    serviceType: customer?.serviceType || "",
-    cableName: customer?.cableName || "",
-    streamName: customer?.streamName || "",
+    zipCode: isCanada ? formatCanadianPostal(customer?.zipCode) : customer?.zipCode || "",
+    serviceType,
+    cableName: serviceType === "cable" ? customer?.cableName || "" : "",
+    streamName: serviceType === "streams" ? customer?.streamName || "" : "",
     accountNumber: customer?.accountNumber || "",
     notes: "",
     breakdown: "",
@@ -257,10 +267,11 @@ function saleDetailsPayload(form) {
   };
 }
 
-function outsideLeadRequestPayload(form, customer = null) {
+function outsideLeadRequestPayload(form, customer = null, country) {
   const cellRaw = customer?.cellNumber || form.cellNumber;
   return {
     ...(customer?.id ? { customerId: customer.id } : {}),
+    country,
     phone: digitsOnly(customer?.phone || form.phone),
     fullName: (customer?.fullName || customer?.displayName || form.fullName || "").trim(),
     cellNumber: cellRaw && String(cellRaw).trim() ? digitsOnly(cellRaw) : undefined,
@@ -449,6 +460,9 @@ export default function CustomersClient({
   viewerId = null,
   viewerUsername = "",
 }) {
+  const { country } = useCountry();
+  const regionOptions = country === COUNTRY_CANADA ? CA_PROVINCES : US_STATES;
+  const regionLabel = country === COUNTRY_CANADA ? "Province" : "State";
   const lockedManagerId = isAdmin ? "" : viewerId != null ? String(viewerId) : "";
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState({
@@ -599,7 +613,10 @@ export default function CustomersClient({
         if (kind !== "outside" && sale && sale !== "all") params.set("saleFilter", sale);
         if (payment && payment !== "all") params.set("paymentFilter", payment);
         if (charge && charge !== "all") params.set("chargeFilter", charge);
-        if (state && state !== "all") params.set("state", state);
+        const stateOptions = country === COUNTRY_CANADA ? CA_PROVINCES : US_STATES;
+        if (state && state !== "all" && stateOptions.some((s) => s.code === state)) {
+          params.set("state", state);
+        }
         if (kind !== "outside" && shift && shift !== "all") params.set("shiftKey", shift);
         params.set("dateField", field || "updated");
         // Date range applies only when not doing a targeted search
@@ -611,6 +628,7 @@ export default function CustomersClient({
           params.set("sortBy", "leadCount");
           params.set("sortDir", dir === "asc" ? "asc" : "desc");
         }
+        params.set("country", country);
         const res = await fetch(`/api/customers?${params}`, {
           credentials: "include",
           cache: "no-store",
@@ -656,6 +674,7 @@ export default function CustomersClient({
       isOutsideView,
       sortBy,
       sortDir,
+      country,
     ],
   );
 
@@ -715,6 +734,18 @@ export default function CustomersClient({
     sortDir,
     loadCustomers,
   ]);
+
+  const countryRef = useRef(country);
+  useEffect(() => {
+    if (countryRef.current === country) return;
+    countryRef.current = country;
+    setStateFilter("all");
+    setSelectedId(null);
+    setShowOutsideLeadForm(false);
+    setShowAddLeadForm(false);
+    setEditingHistoryLeadId(null);
+    setEditingProfile(false);
+  }, [country]);
 
   useEffect(() => {
     let cancelled = false;
@@ -858,6 +889,13 @@ export default function CustomersClient({
       else setError(msg);
       return;
     }
+    if (!ctxCustomer && country === COUNTRY_CANADA) {
+      const postalCheck = validateCanadianPostal(newLeadForm.zipCode);
+      if (!postalCheck.isValid) {
+        setError(postalCheck.message);
+        return;
+      }
+    }
     if (!managerOnly && !newLeadForm.managerId) {
       const msg = "Manager is required";
       if (ctxCustomer) setPaymentError(msg);
@@ -872,13 +910,13 @@ export default function CustomersClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(outsideLeadRequestPayload(newLeadForm, ctxCustomer)),
+        body: JSON.stringify(outsideLeadRequestPayload(newLeadForm, ctxCustomer, country)),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to add lead");
       setShowOutsideLeadForm(false);
       setShowAddLeadForm(false);
-      setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+      setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "", country }));
       setSelectedId(json.customer?.id || ctxCustomer?.id || null);
       await loadCustomers(1);
       if (json.customer?.id || ctxCustomer?.id) {
@@ -924,12 +962,13 @@ export default function CustomersClient({
           breakdown: newLeadForm.breakdown.trim() || undefined,
           notes: newLeadForm.notes.trim() || undefined,
           source: "manual",
+          country,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Failed to add lead");
       setShowAddLeadForm(false);
-      setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+      setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "", country }));
       await loadDetail(selectedId);
       await loadCustomers(pagination.page);
     } catch (err) {
@@ -940,7 +979,7 @@ export default function CustomersClient({
   }
 
   function openAddLeadForm() {
-    setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+    setNewLeadForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "", country }));
     setShowAddLeadForm(true);
     setShowOutsideLeadForm(false);
     setEditingHistoryLeadId(null);
@@ -948,7 +987,7 @@ export default function CustomersClient({
   }
 
   function openOutsideListLeadForm() {
-    setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+    setNewLeadForm(emptyLeadForm(null, { lockedManagerId: managerOnly ? lockedManagerId : "", country }));
     setShowOutsideLeadForm(true);
     setShowAddLeadForm(false);
     setEditingHistoryLeadId(null);
@@ -964,7 +1003,7 @@ export default function CustomersClient({
 
   function cancelEditLead() {
     setEditingHistoryLeadId(null);
-    setLeadEditForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "" }));
+    setLeadEditForm(emptyLeadForm(customer, { lockedManagerId: managerOnly ? lockedManagerId : "", country }));
   }
 
   async function saveLeadDetails(leadId, form) {
@@ -1434,15 +1473,18 @@ export default function CustomersClient({
 
   function startEditProfile() {
     const c = detail?.customer;
+    const profileIsCanada = c?.country === COUNTRY_CANADA;
+    const formatPhone = profileIsCanada ? formatCanadaPhone : formatLandline;
+    const formatCell = profileIsCanada ? formatCanadaPhone : formatCellNumber;
     setProfileForm({
       fullName: c?.fullName || c?.displayName || "",
-      phone: formatLandline(c?.phone) || c?.phone || "",
-      cellNumber: formatCellNumber(c?.cellNumber) || c?.cellNumber || "",
+      phone: formatPhone(c?.phone) || c?.phone || "",
+      cellNumber: formatCell(c?.cellNumber) || c?.cellNumber || "",
       accountNumber: c?.accountNumber || "",
       address: c?.address || "",
       city: c?.city || "",
       state: c?.state || "",
-      zipCode: c?.zipCode || "",
+      zipCode: profileIsCanada ? formatCanadianPostal(c?.zipCode) : c?.zipCode || "",
       notes: c?.notes || "",
       serviceType: c?.serviceType || "",
       cableName: c?.cableName || "",
@@ -1471,6 +1513,13 @@ export default function CustomersClient({
     if (!cellCheck.isValid) {
       setPaymentError(cellCheck.message);
       return;
+    }
+    if (detail?.customer?.country === COUNTRY_CANADA) {
+      const postalCheck = validateCanadianPostal(profileForm.zipCode);
+      if (!postalCheck.isValid) {
+        setPaymentError(postalCheck.message);
+        return;
+      }
     }
     const editingOutside = isOutsideView;
     if (editingOutside && !profileForm.managerId) {
@@ -1673,14 +1722,24 @@ export default function CustomersClient({
   function renderLeadDetailsFields(
     form,
     setForm,
-    { managerLocked = false, showStaff = isOutsideView, showContactFields = false } = {},
+    { managerLocked = false, showStaff = isOutsideView, showContactFields = false, country: formCountry = country } = {},
   ) {
+    const isCanada = formCountry === COUNTRY_CANADA;
+    const formatPhone = isCanada ? formatCanadaPhone : formatLandline;
+    const formatCell = isCanada ? formatCanadaPhone : formatCellNumber;
+    const serviceOptions = isCanada ? CANADA_SERVICE_OPTIONS : SERVICE_TYPE_OPTIONS;
     const agentOptions = staffSelectOptions(staffUsers, "agent", {
       managerId: form.managerId,
       includeId: form.agentId,
     });
     return (
-      <div className="mt-3 grid gap-3 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 dark:border-indigo-800 dark:bg-indigo-950/20 sm:grid-cols-2">
+      <div
+        className={`mt-3 grid gap-3 rounded-xl border p-3 sm:grid-cols-2 ${
+          isCanada
+            ? "border-red-200 bg-red-50/40 dark:border-red-900 dark:bg-red-950/20"
+            : "border-indigo-200 bg-indigo-50/30 dark:border-indigo-800 dark:bg-indigo-950/20"
+        }`}
+      >
         {showContactFields ? (
           <>
             <label className={labelClass}>
@@ -1689,7 +1748,7 @@ export default function CustomersClient({
                 className={inputClass}
                 value={form.phone}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, phone: formatLandline(e.target.value) }))
+                  setForm((prev) => ({ ...prev, phone: formatPhone(e.target.value) }))
                 }
                 inputMode="numeric"
                 maxLength={12}
@@ -1711,7 +1770,7 @@ export default function CustomersClient({
                 className={inputClass}
                 value={form.cellNumber}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, cellNumber: formatCellNumber(e.target.value) }))
+                  setForm((prev) => ({ ...prev, cellNumber: formatCell(e.target.value) }))
                 }
                 inputMode="numeric"
                 maxLength={12}
@@ -1727,12 +1786,30 @@ export default function CustomersClient({
                 placeholder="Street address"
               />
             </label>
-            <StateSelectField
-              id="outside-lead-state"
-              value={form.state}
-              onChange={(next) => setForm((prev) => ({ ...prev, state: next }))}
-              showLocalTime={false}
-            />
+            {isCanada ? (
+              <label className={labelClass}>
+                Province
+                <select
+                  className={inputClass}
+                  value={form.state}
+                  onChange={(e) => setForm((prev) => ({ ...prev, state: e.target.value }))}
+                >
+                  <option value="">Select province…</option>
+                  {CA_PROVINCES.map((province) => (
+                    <option key={province.code} value={province.code}>
+                      {province.name} ({province.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <StateSelectField
+                id="outside-lead-state"
+                value={form.state}
+                onChange={(next) => setForm((prev) => ({ ...prev, state: next }))}
+                showLocalTime={false}
+              />
+            )}
             <label className={labelClass}>
               City
               <input
@@ -1742,12 +1819,18 @@ export default function CustomersClient({
               />
             </label>
             <label className={labelClass}>
-              Zip
+              {isCanada ? "Postal code" : "Zip"}
               <input
                 className={inputClass}
                 value={form.zipCode}
-                onChange={(e) => setForm((prev) => ({ ...prev, zipCode: e.target.value }))}
-                maxLength={16}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    zipCode: isCanada ? formatCanadianPostal(e.target.value) : e.target.value,
+                  }))
+                }
+                maxLength={isCanada ? 7 : 16}
+                placeholder={isCanada ? "A1A 1A1" : undefined}
               />
             </label>
           </>
@@ -1768,14 +1851,14 @@ export default function CustomersClient({
             }}
           >
             <option value="">Select service</option>
-            {SERVICE_TYPE_OPTIONS.map((option) => (
+            {serviceOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
         </label>
-        {form.serviceType === "cable" ? (
+        {!isCanada && form.serviceType === "cable" ? (
           <label className={labelClass}>
             Cable name
             <input
@@ -1785,7 +1868,7 @@ export default function CustomersClient({
             />
           </label>
         ) : null}
-        {form.serviceType === "streams" ? (
+        {!isCanada && form.serviceType === "streams" ? (
           <label className={labelClass}>
             Stream name
             <input
@@ -2150,7 +2233,7 @@ export default function CustomersClient({
           </div>
           <div className="w-36 shrink-0">
             <label htmlFor="customer-state-filter" className={labelClass}>
-              State
+              {regionLabel}
             </label>
             <select
               id="customer-state-filter"
@@ -2161,8 +2244,10 @@ export default function CustomersClient({
               }}
               className={inputClass}
             >
-              <option value="all">All states</option>
-              {US_STATES.map((s) => (
+              <option value="all">
+                {country === COUNTRY_CANADA ? "All provinces" : "All states"}
+              </option>
+              {regionOptions.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.name} ({s.code})
                 </option>
@@ -2506,7 +2591,9 @@ export default function CustomersClient({
                         onChange={(e) =>
                           setProfileForm((prev) => ({
                             ...prev,
-                            phone: formatLandline(e.target.value),
+                            phone: (detail?.customer?.country === COUNTRY_CANADA
+                              ? formatCanadaPhone
+                              : formatLandline)(e.target.value),
                           }))
                         }
                         inputMode="numeric"
@@ -2522,7 +2609,9 @@ export default function CustomersClient({
                         onChange={(e) =>
                           setProfileForm((prev) => ({
                             ...prev,
-                            cellNumber: formatCellNumber(e.target.value),
+                            cellNumber: (detail?.customer?.country === COUNTRY_CANADA
+                              ? formatCanadaPhone
+                              : formatCellNumber)(e.target.value),
                           }))
                         }
                         inputMode="numeric"
@@ -2567,7 +2656,7 @@ export default function CustomersClient({
                       />
                     </label>
                     <label className={labelClass}>
-                      State
+                      {detail?.customer?.country === COUNTRY_CANADA ? "Province" : "State"}
                       <select
                         className={inputClass}
                         value={profileForm.state}
@@ -2575,22 +2664,36 @@ export default function CustomersClient({
                           setProfileForm((prev) => ({ ...prev, state: e.target.value }))
                         }
                       >
-                        <option value="">Select state…</option>
-                        {US_STATES.map((s) => (
-                          <option key={s.code} value={s.code}>
-                            {s.name} ({s.code})
-                          </option>
-                        ))}
+                        <option value="">
+                          {detail?.customer?.country === COUNTRY_CANADA
+                            ? "Select province…"
+                            : "Select state…"}
+                        </option>
+                        {(detail?.customer?.country === COUNTRY_CANADA ? CA_PROVINCES : US_STATES).map(
+                          (s) => (
+                            <option key={s.code} value={s.code}>
+                              {s.name} ({s.code})
+                            </option>
+                          ),
+                        )}
                       </select>
                     </label>
                     <label className={labelClass}>
-                      ZIP
+                      {detail?.customer?.country === COUNTRY_CANADA ? "Postal code" : "ZIP"}
                       <input
                         className={inputClass}
                         value={profileForm.zipCode}
                         onChange={(e) =>
-                          setProfileForm((prev) => ({ ...prev, zipCode: e.target.value }))
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            zipCode:
+                              detail?.customer?.country === COUNTRY_CANADA
+                                ? formatCanadianPostal(e.target.value)
+                                : e.target.value,
+                          }))
                         }
+                        maxLength={detail?.customer?.country === COUNTRY_CANADA ? 7 : 16}
+                        placeholder={detail?.customer?.country === COUNTRY_CANADA ? "A1A 1A1" : undefined}
                       />
                     </label>
                     {isOutsideView ? (
@@ -2611,14 +2714,17 @@ export default function CustomersClient({
                         }}
                       >
                         <option value="">Select service</option>
-                        {SERVICE_TYPE_OPTIONS.map((option) => (
+                        { (detail?.customer?.country === COUNTRY_CANADA
+                          ? CANADA_SERVICE_OPTIONS
+                          : SERVICE_TYPE_OPTIONS
+                        ).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>
                         ))}
                       </select>
                     </label>
-                    {profileForm.serviceType === "cable" ? (
+                    {detail?.customer?.country !== COUNTRY_CANADA && profileForm.serviceType === "cable" ? (
                       <label className={labelClass}>
                         Cable name
                         <input
@@ -2630,7 +2736,7 @@ export default function CustomersClient({
                         />
                       </label>
                     ) : null}
-                    {profileForm.serviceType === "streams" ? (
+                    {detail?.customer?.country !== COUNTRY_CANADA && profileForm.serviceType === "streams" ? (
                       <label className={labelClass}>
                         Stream name
                         <input
@@ -3464,6 +3570,7 @@ export default function CustomersClient({
                               {renderLeadDetailsFields(leadEditForm, setLeadEditForm, {
                                 managerLocked: managerOnly,
                                 showStaff: true,
+                                country: lead.country === COUNTRY_CANADA ? COUNTRY_CANADA : "usa",
                               })}
                               <div className="mt-2 flex flex-wrap gap-2">
                                 <button

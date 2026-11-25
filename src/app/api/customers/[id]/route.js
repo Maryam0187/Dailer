@@ -142,6 +142,7 @@ export async function PATCH(req, { params }) {
   const { data, errors } = parseCustomerProfile(body, {
     requireName: false,
     requirePhone: false,
+    country: customer.country === "canada" ? "canada" : "usa",
   });
   if (errors.length) {
     return NextResponse.json({ error: errors[0] }, { status: 400 });

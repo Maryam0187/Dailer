@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCountry } from "@/contexts/CountryContext";
+import { COUNTRY_CANADA, COUNTRY_USA } from "@/lib/countries";
 import UserNameLabel from "@/components/UserNameLabel";
 import EtTimeWithTooltip from "@/components/EtTimeWithTooltip";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
@@ -281,11 +283,22 @@ function mergeLeadsById(createdRows, updatedRows) {
     });
 }
 
+function countLeadsByCountry(leads) {
+  let usa = 0;
+  let canada = 0;
+  for (const lead of leads || []) {
+    if (lead?.country === "canada") canada += 1;
+    else usa += 1;
+  }
+  return { usa, canada };
+}
+
 async function fetchCreatedLeads({ userId, fromDate, toDate, signal }) {
   const qs = new URLSearchParams({
     agentId: String(userId),
     page: "1",
     pageSize: String(LEADS_FETCH_SIZE),
+    country: "all",
   });
   if (fromDate && toDate) {
     qs.set("fromDate", fromDate);
@@ -422,6 +435,8 @@ export default function UserReportDetail({
   initialDate,
 }) {
   const isAdmin = viewerRole === "admin";
+  const { country: navbarCountry } = useCountry();
+  const callsCountryTouched = useRef(false);
   const roleFilterOptions = isAdmin ? ROLE_FILTER_OPTIONS_ADMIN : ROLE_FILTER_OPTIONS_MANAGER;
   const isSelf = user?.id === currentUserId;
 
@@ -448,6 +463,7 @@ export default function UserReportDetail({
   const [refreshing, setRefreshing] = useState(false);
   const [callsFilter, setCallsFilter] = useState("all");
   const [callsLineFilter, setCallsLineFilter] = useState("all");
+  const [callsCountry, setCallsCountry] = useState(navbarCountry);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -490,6 +506,7 @@ export default function UserReportDetail({
   // Range overview (always for selected user + range)
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewLeadsTotal, setOverviewLeadsTotal] = useState(null);
+  const [overviewLeadsByCountry, setOverviewLeadsByCountry] = useState(null);
 
   // User list filters
   const [userSearch, setUserSearch] = useState("");
@@ -530,6 +547,11 @@ export default function UserReportDetail({
   }, [initialDate]);
 
   useEffect(() => {
+    if (!isAdmin || callsCountryTouched.current) return;
+    setCallsCountry(navbarCountry === COUNTRY_CANADA ? COUNTRY_CANADA : COUNTRY_USA);
+  }, [isAdmin, navbarCountry]);
+
+  useEffect(() => {
     setCallsFilter("all");
     setCallsLineFilter("all");
     setMetricsScope("all");
@@ -545,6 +567,7 @@ export default function UserReportDetail({
     setExpandedAttendanceDate(null);
     setAttendanceLoginCache({});
     setOverviewLeadsTotal(null);
+    setOverviewLeadsByCountry(null);
     setExpandedActivityId(null);
     setActivityDetailCache({});
     setActivityDetailLoadingId(null);
@@ -679,6 +702,7 @@ export default function UserReportDetail({
         if (filter === "recording") qs.set("hasRecording", "true");
         if (filter === "conference") qs.set("scope", "conference");
         if (line === "1" || line === "2") qs.set("dialerIndex", line);
+        if (isAdmin) qs.set("country", callsCountry);
 
         const res = await fetch(`/api/users/${user.id}/calls?${qs.toString()}`, {
           credentials: "include",
@@ -700,7 +724,7 @@ export default function UserReportDetail({
         else setCallsLoading(false);
       }
     },
-    [user?.id, callsFilter, callsLineFilter, appliedFrom, appliedTo],
+    [user?.id, callsFilter, callsLineFilter, appliedFrom, appliedTo, isAdmin, callsCountry],
   );
 
   const loadMetrics = useCallback(
@@ -752,12 +776,14 @@ export default function UserReportDetail({
         const merged = mergeLeadsById(createdRows, updatedRows);
         setAllLeads(merged);
         setOverviewLeadsTotal(merged.length);
+        setOverviewLeadsByCountry(countLeadsByCountry(merged));
         setLeadsPage(1);
       } catch (err) {
         if (err.name === "AbortError") return;
         setLeadsError(err.message || "Failed to load leads");
         setAllLeads([]);
         setOverviewLeadsTotal(0);
+        setOverviewLeadsByCountry({ usa: 0, canada: 0 });
       } finally {
         setLeadsLoading(false);
       }
@@ -852,6 +878,7 @@ export default function UserReportDetail({
         ]);
         setAttendance(att);
         setOverviewLeadsTotal(mergedLeads.length);
+        setOverviewLeadsByCountry(countLeadsByCountry(mergedLeads));
         if (isAdmin && metricsInfo) setMetrics(metricsInfo);
       } catch (err) {
         if (err.name === "AbortError") return;
@@ -882,7 +909,7 @@ export default function UserReportDetail({
     const controller = new AbortController();
     loadCalls(controller.signal, page, callsFilter, appliedFrom, appliedTo);
     return () => controller.abort();
-  }, [activeTab, user?.id, callsFilter, callsLineFilter, appliedFrom, appliedTo, page, loadCalls]);
+  }, [activeTab, user?.id, callsFilter, callsLineFilter, appliedFrom, appliedTo, page, loadCalls, callsCountry]);
 
   useEffect(() => {
     if (!isAdmin || activeTab !== "metrics") return undefined;
@@ -1443,7 +1470,16 @@ export default function UserReportDetail({
             value={`${formatOnlineMs(totalDesktopMs)} / ${formatOnlineMs(totalMobileMs)}`}
           />
           {isAdmin ? (
-            <MetricStat label="Calls" value={metrics?.total ?? (overviewLoading ? "…" : 0)} />
+            <MetricStat
+              label="USA calls"
+              value={metrics?.usaCalls ?? (overviewLoading ? "…" : 0)}
+            />
+          ) : null}
+          {isAdmin ? (
+            <MetricStat
+              label="Canada calls"
+              value={metrics?.canadaCalls ?? (overviewLoading ? "…" : 0)}
+            />
           ) : null}
           {isAdmin ? (
             <MetricStat
@@ -1457,11 +1493,42 @@ export default function UserReportDetail({
               value={`${formatDuration(metrics?.twilioDurationSeconds)} / ${formatDuration(metrics?.zoomDurationSeconds)}`}
             />
           ) : null}
+          {isAdmin ? (
+            <MetricStat
+              label="USA leads"
+              value={
+                overviewLeadsByCountry == null
+                  ? overviewLoading
+                    ? "…"
+                    : "—"
+                  : overviewLeadsByCountry.usa
+              }
+            />
+          ) : (
             <MetricStat
               label="Leads (created/updated)"
               value={overviewLeadsTotal == null ? (overviewLoading ? "…" : "—") : overviewLeadsTotal}
             />
+          )}
+          {isAdmin ? (
+            <MetricStat
+              label="Canada leads"
+              value={
+                overviewLeadsByCountry == null
+                  ? overviewLoading
+                    ? "…"
+                    : "—"
+                  : overviewLeadsByCountry.canada
+              }
+            />
+          ) : null}
         </div>
+        {isAdmin ? (
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+            Canada calls are calls on a Canada lead. Calls with no lead count as USA. Lead counts
+            are leads this user created or edited in the range.
+          </p>
+        ) : null}
         {attendanceError ? (
           <p className="mt-2 text-xs text-red-600 dark:text-red-300">{attendanceError}</p>
         ) : null}
@@ -1865,6 +1932,8 @@ export default function UserReportDetail({
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <MetricStat label="Total calls" value={metrics?.total ?? 0} />
+              <MetricStat label="USA calls" value={metrics?.usaCalls ?? 0} />
+              <MetricStat label="Canada calls" value={metrics?.canadaCalls ?? 0} />
               <MetricStat label="Completed" value={metrics?.completed ?? 0} />
               <MetricStat label="No answer" value={metrics?.noAnswer ?? 0} />
               <MetricStat label="Failed/Canceled" value={metrics?.failedOrCanceled ?? 0} />
@@ -1928,6 +1997,25 @@ export default function UserReportDetail({
                     </button>
                   ))}
                 </div>
+                {isAdmin ? (
+                  <label className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Country
+                    </span>
+                    <select
+                      value={callsCountry === COUNTRY_CANADA ? COUNTRY_CANADA : COUNTRY_USA}
+                      onChange={(e) => {
+                        callsCountryTouched.current = true;
+                        setCallsCountry(e.target.value === COUNTRY_CANADA ? COUNTRY_CANADA : COUNTRY_USA);
+                        setPage(1);
+                      }}
+                      className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs font-semibold text-zinc-900 outline-none focus:border-emerald-500/80 focus:ring-2 focus:ring-emerald-500/25 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-emerald-400/70"
+                    >
+                      <option value={COUNTRY_USA}>USA</option>
+                      <option value={COUNTRY_CANADA}>Canada</option>
+                    </select>
+                  </label>
+                ) : null}
                 {callsFilter === "conference" ? (
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                     Invites via “Add agent”, or conferences this user joined.
@@ -1981,7 +2069,9 @@ export default function UserReportDetail({
                     ? "No Line 2 calls for this user in this date range."
                     : callsLineFilter === "1"
                       ? "No Line 1 calls for this user in this date range."
-                      : "No call logs for this user in this date range."}
+                      : isAdmin
+                        ? `No ${callsCountry === COUNTRY_CANADA ? "Canada" : "USA"} call logs for this user in this date range.`
+                        : "No call logs for this user in this date range."}
             </p>
           ) : (
             <>
@@ -2163,6 +2253,7 @@ export default function UserReportDetail({
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
                     <th className="px-2.5 py-2">Name</th>
+                    <th className="px-2.5 py-2">Country</th>
                     <th className="px-2.5 py-2">Phone</th>
                     <th className="px-2.5 py-2">Phase</th>
                     <th className="px-2.5 py-2">In range</th>
@@ -2185,6 +2276,9 @@ export default function UserReportDetail({
                             ? "Loading…"
                             : lead.fullName || `Lead #${lead.id}`}
                         </button>
+                      </td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-zinc-700 dark:text-zinc-200">
+                        {lead.country === "canada" ? "Canada" : "USA"}
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">
                         {lead.phone || "—"}

@@ -1,5 +1,7 @@
 import db from "@/server/db";
 import { getStateByCode } from "@/lib/usStates";
+import { getProvinceByCode, formatCanadianPostal, validateCanadianPostal } from "@/lib/caProvinces";
+import { resolveUserCountry } from "@/lib/countries";
 import { OUTSIDE_SALE_SOURCE } from "@/lib/outsideSale";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import { isOutsideManager } from "@/server/customers/customerAccess";
@@ -41,7 +43,7 @@ function fillEmptyCustomerFields(target, source, keys) {
   }
 }
 
-async function resolveOutsideCustomer(authedUser, { phone, fullName, profile, staff }) {
+async function resolveOutsideCustomer(authedUser, { phone, fullName, profile, staff, country }) {
   const existing = await findCustomerByPhone(phone);
   const fillKeys = [
     "fullName",
@@ -64,7 +66,7 @@ async function resolveOutsideCustomer(authedUser, { phone, fullName, profile, st
         err.statusCode = 409;
         throw err;
       }
-      const touch = { updatedAt: new Date() };
+      const touch = { country, updatedAt: new Date() };
       fillEmptyCustomerFields(touch, profile, fillKeys);
       if (!isOutsideManager(authedUser)) {
         touch.managerId = staff.manager?.id ?? profile.managerId ?? existing.managerId;
@@ -104,6 +106,7 @@ async function resolveOutsideCustomer(authedUser, { phone, fullName, profile, st
     agentId: staff.agent?.id ?? profile.agentId ?? null,
     ...profile,
     fullName: fullName || profile.fullName || "Customer",
+    country,
   });
 }
 
@@ -144,19 +147,39 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
     throw err;
   }
 
+  const countryCheck = resolveUserCountry(authedUser, src.country);
+  if (countryCheck.error) {
+    const err = new Error(countryCheck.error);
+    err.statusCode = 403;
+    throw err;
+  }
+  const country = countryCheck.country;
+
   const stateRaw = trimCustomerField(knownCustomer?.state ?? src.state, 32);
   let state = null;
   if (stateRaw) {
-    const resolved = getStateByCode(stateRaw);
+    const resolved = country === "canada" ? getProvinceByCode(stateRaw) : getStateByCode(stateRaw);
     if (!resolved) {
-      const err = new Error("Invalid state");
+      const err = new Error(country === "canada" ? "Invalid province" : "Invalid state");
       err.statusCode = 400;
       throw err;
     }
     state = resolved.code;
   }
 
-  const { data: saleData, errors } = parseOutsideSaleBody(src, {});
+  const zipRaw = trimCustomerField(knownCustomer?.zipCode ?? src.zipCode, 16);
+  let zipCode = zipRaw;
+  if (country === "canada" && zipRaw) {
+    zipCode = formatCanadianPostal(zipRaw);
+    const postalCheck = validateCanadianPostal(zipCode);
+    if (!postalCheck.isValid) {
+      const err = new Error(postalCheck.message);
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const { data: saleData, errors } = parseOutsideSaleBody(src, { country });
   if (errors.length) {
     const err = new Error(errors[0]);
     err.statusCode = 400;
@@ -181,7 +204,7 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
       address: trimCustomerField(knownCustomer?.address ?? src.address, 255),
       city: trimCustomerField(knownCustomer?.city ?? src.city, 128),
       state,
-      zipCode: trimCustomerField(knownCustomer?.zipCode ?? src.zipCode, 16),
+      zipCode,
     },
     fullName,
   );
@@ -190,7 +213,7 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
 
   const customer =
     knownCustomer ||
-    (await resolveOutsideCustomer(authedUser, { phone, fullName, profile, staff }));
+    (await resolveOutsideCustomer(authedUser, { phone, fullName, profile, staff, country }));
 
   const lead = await db.Lead.create({
     phone: customer.phone,
@@ -199,6 +222,7 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
     city: profile.city,
     state: profile.state,
     zipCode: profile.zipCode,
+    country,
     serviceType: saleData.serviceType ?? null,
     cableName: saleData.cableName ?? null,
     streamName: saleData.streamName ?? null,
@@ -215,7 +239,7 @@ export async function createOutsideLead(authedUser, body, { customer: knownCusto
     createdByUserId: authedUser.id,
   });
 
-  await db.Customer.update({ updatedAt: new Date() }, { where: { id: customer.id } });
+  await db.Customer.update({ country, updatedAt: new Date() }, { where: { id: customer.id } });
 
   await createLeadUpdate({
     leadId: lead.id,

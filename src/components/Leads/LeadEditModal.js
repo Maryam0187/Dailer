@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { digitsOnly, formatCanadaPhone, formatLandline, validatePhone } from "@/lib/phoneFormat";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
-import { SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { CANADA_SERVICE_OPTIONS, SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
 import StateSelectField, { StateLocalTime } from "@/components/Leads/StateSelectField";
+import { CA_PROVINCES, formatCanadianPostal, getProvinceByCode, validateCanadianPostal } from "@/lib/caProvinces";
+import { formatStateLocalTime } from "@/lib/usStates";
 
 const labelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 const inputClass =
@@ -19,17 +21,39 @@ function inputClassForValidation(baseClass, isValid) {
 }
 
 function leadToForm(lead, phonesRedacted) {
+  const isCanada = lead?.country === "canada";
+  const formatPhone = isCanada ? formatCanadaPhone : formatLandline;
   return {
     fullName: lead?.fullName || "",
-    cellNumber:
-      lead?.cellNumber && !phonesRedacted ? formatLandline(lead.cellNumber) : "",
+    cellNumber: lead?.cellNumber && !phonesRedacted ? formatPhone(lead.cellNumber) : "",
     city: lead?.city || "",
     state: lead?.state || "",
-    zipCode: lead?.zipCode || "",
+    zipCode: isCanada ? formatCanadianPostal(lead?.zipCode) : lead?.zipCode || "",
     serviceType: lead?.serviceType || "",
     cableName: lead?.cableName || "",
     streamName: lead?.streamName || "",
   };
+}
+
+function ProvinceLocalTime({ provinceCode }) {
+  const [now, setNow] = useState(() => new Date());
+  const selected = useMemo(() => getProvinceByCode(provinceCode), [provinceCode]);
+
+  useEffect(() => {
+    if (!selected?.timeZone) return undefined;
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [selected?.timeZone]);
+
+  if (!selected) {
+    return <p className="text-xs text-zinc-500 dark:text-zinc-400">Select a province to see local time.</p>;
+  }
+
+  return (
+    <p className="text-xs font-medium text-red-700 dark:text-red-300" aria-live="polite">
+      Local time in {selected.name}: {formatStateLocalTime(selected.timeZone, now)}
+    </p>
+  );
 }
 
 export default function LeadEditModal({ lead, phonesRedacted = false, onClose, onSaved }) {
@@ -42,13 +66,18 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
     setSaveError(null);
   }, [lead?.id, lead?.updatedAt, phonesRedacted]);
 
+  const isCanada = lead?.country === "canada";
+  const serviceOptions = isCanada ? CANADA_SERVICE_OPTIONS : SERVICE_TYPE_OPTIONS;
+
   const validation = useMemo(() => {
     const cellCheck = form.cellNumber.trim() ? validatePhone(form.cellNumber) : { isValid: true, message: "" };
+    const postalCheck = isCanada ? validateCanadianPostal(form.zipCode) : { isValid: true, message: "" };
     return {
       cellCheck,
-      canSave: cellCheck.isValid && Boolean(form.fullName.trim()),
+      postalCheck,
+      canSave: cellCheck.isValid && postalCheck.isValid && Boolean(form.fullName.trim()),
     };
-  }, [form.cellNumber, form.fullName]);
+  }, [form.cellNumber, form.fullName, form.zipCode, isCanada]);
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -65,7 +94,9 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
         fullName: form.fullName.trim(),
         city: form.city.trim() || null,
         state: form.state.trim() || null,
-        zipCode: form.zipCode.trim() || null,
+        zipCode: isCanada
+          ? formatCanadianPostal(form.zipCode).trim() || null
+          : form.zipCode.trim() || null,
         serviceType: form.serviceType || null,
         cableName: form.serviceType === "cable" ? form.cableName.trim() || null : null,
         streamName: form.serviceType === "streams" ? form.streamName.trim() || null : null,
@@ -107,7 +138,7 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
         >
           <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
             <h2 id="edit-lead-title" className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-              Edit lead
+              {isCanada ? "Edit Canada lead" : "Edit lead"}
             </h2>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Phone number cannot be changed.</p>
           </div>
@@ -132,14 +163,14 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
                     className={inputClass}
                   >
                     <option value="">Select service</option>
-                    {SERVICE_TYPE_OPTIONS.map((option) => (
+                    {serviceOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
                 </div>
-                {form.serviceType === "cable" ? (
+                {form.serviceType === "cable" && !isCanada ? (
                   <div>
                     <label className={labelClass}>Cable name</label>
                     <input
@@ -150,7 +181,7 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
                     />
                   </div>
                 ) : null}
-                {form.serviceType === "streams" ? (
+                {form.serviceType === "streams" && !isCanada ? (
                   <div>
                     <label className={labelClass}>Stream name</label>
                     <input
@@ -189,7 +220,9 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
                       type="tel"
                       value={form.cellNumber}
                       onChange={(e) => {
-                        const formatted = formatLandline(e.target.value.replace(/[^\d*#+\-() ]/g, ""));
+                      const formatted = (isCanada ? formatCanadaPhone : formatLandline)(
+                        e.target.value.replace(/[^\d*#+\-() ]/g, ""),
+                      );
                         setField("cellNumber", formatted);
                       }}
                       className={inputClassForValidation(
@@ -206,12 +239,31 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
               ) : null}
 
               <div className="grid gap-4 sm:grid-cols-3">
-                <StateSelectField
-                  value={form.state}
-                  onChange={(value) => setField("state", value)}
-                  disabled={saving}
-                  showLocalTime={false}
-                />
+                {isCanada ? (
+                  <div>
+                    <label className={labelClass}>Province</label>
+                    <select
+                      value={form.state}
+                      onChange={(e) => setField("state", e.target.value)}
+                      disabled={saving}
+                      className={inputClass}
+                    >
+                      <option value="">Select province…</option>
+                      {CA_PROVINCES.map((province) => (
+                        <option key={province.code} value={province.code}>
+                          {province.name} ({province.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <StateSelectField
+                    value={form.state}
+                    onChange={(value) => setField("state", value)}
+                    disabled={saving}
+                    showLocalTime={false}
+                  />
+                )}
                 <div>
                   <label className={labelClass}>City</label>
                   <input
@@ -222,18 +274,31 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Zip code</label>
+                  <label className={labelClass}>{isCanada ? "Postal code" : "Zip code"}</label>
                   <input
                     type="text"
                     value={form.zipCode}
-                    onChange={(e) => setField("zipCode", e.target.value)}
-                    className={inputClass}
-                    maxLength={16}
+                    onChange={(e) =>
+                      setField(
+                        "zipCode",
+                        isCanada ? formatCanadianPostal(e.target.value) : e.target.value,
+                      )
+                    }
+                    className={inputClassForValidation(
+                      inputClass,
+                      !isCanada || validation.postalCheck.isValid,
+                    )}
+                    maxLength={isCanada ? 7 : 16}
+                    placeholder={isCanada ? "A1A 1A1" : undefined}
+                    aria-invalid={isCanada && !validation.postalCheck.isValid}
                   />
+                  {isCanada && form.zipCode.trim() && !validation.postalCheck.isValid ? (
+                    <p className={fieldErrorClass}>{validation.postalCheck.message}</p>
+                  ) : null}
                 </div>
               </div>
               <div className="-mt-2">
-                <StateLocalTime stateCode={form.state} />
+                {isCanada ? <ProvinceLocalTime provinceCode={form.state} /> : <StateLocalTime stateCode={form.state} />}
               </div>
             </div>
 
@@ -251,7 +316,9 @@ export default function LeadEditModal({ lead, phonesRedacted = false, onClose, o
               <button
                 type="submit"
                 disabled={saving || !validation.canSave}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                  isCanada ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
               >
                 {saving ? "Saving…" : "Save changes"}
               </button>

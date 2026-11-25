@@ -110,6 +110,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "Leads", key: "id" },
       },
+      /** Sales country of this call. Existing logs stay USA. */
+      country: {
+        type: DataTypes.ENUM("usa", "canada"),
+        allowNull: false,
+        defaultValue: "usa",
+      },
       disposition: {
         type: DataTypes.STRING(32),
         allowNull: true,
@@ -190,6 +196,7 @@ module.exports = (sequelize, DataTypes) => {
         { fields: ["recordingSid"] },
         { fields: ["callKind"] },
         { fields: ["leadId"] },
+        { fields: ["country"] },
         { fields: ["createdAt"] },
         { fields: ["userId", "createdAt"] },
         { fields: ["toNumber", "createdAt"] },

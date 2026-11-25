@@ -32,6 +32,7 @@ export default async function MainLayout({ children }) {
       canUseDialer2={Boolean(authedUser.canUseDialer2)}
       canUseTwilioDialer={authedUser.canUseTwilioDialer !== false}
       canUseZoomPhone={Boolean(authedUser.canUseZoomPhone)}
+      countryAccess={authedUser.countryAccess || "usa"}
     >
       <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-black">
         <Navbar

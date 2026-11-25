@@ -13,6 +13,14 @@ export function formatLandline(value) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+/** Canada display. Same 10-digit shape today, separate from the US formatter. */
+export function formatCanadaPhone(value) {
+  const digits = nationalUsDigits(value);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 /** CRM call-logs style validation. */
 export function validatePhone(v) {
   if (!v?.trim()) return { isValid: false, message: "Phone number is required" };

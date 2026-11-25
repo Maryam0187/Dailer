@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io as ioClient } from "socket.io-client";
 import { sortUsersForDisplay } from "@/lib/sortUsers";
+import {
+  countryAccessFromFlags,
+  countryAccessLabel,
+  flagsFromCountryAccess,
+  parseCountryAccess,
+} from "@/lib/countries";
 import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 import UserNameLabel from "@/components/UserNameLabel";
@@ -99,6 +105,61 @@ function RoleBadge({ value }) {
     <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${palette}`}>
       {roleLabel(value)}
     </span>
+  );
+}
+
+function CountryAccessBadge({ access }) {
+  const value = access === "canada" || access === "both" ? access : "usa";
+  const styles = {
+    usa: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+    canada: "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200",
+    both: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
+  };
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles[value]}`}>
+      {countryAccessLabel(value)}
+    </span>
+  );
+}
+
+function CountryAccessFields({ usa, canada, onUsaChange, onCanadaChange, idPrefix }) {
+  const onlyOne = usa !== canada;
+  return (
+    <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/30">
+      <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+        Countries
+        <span className="ml-1 font-normal text-zinc-500">(USA, Canada, or both)</span>
+      </p>
+      <div className="flex items-center gap-3">
+        <input
+          id={`${idPrefix}-usa`}
+          type="checkbox"
+          checked={usa}
+          disabled={usa && !canada}
+          onChange={(e) => onUsaChange(e.target.checked)}
+          className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+        />
+        <label htmlFor={`${idPrefix}-usa`} className="text-sm text-zinc-800 dark:text-zinc-200">
+          USA
+        </label>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          id={`${idPrefix}-canada`}
+          type="checkbox"
+          checked={canada}
+          disabled={!usa && canada}
+          onChange={(e) => onCanadaChange(e.target.checked)}
+          className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+        />
+        <label htmlFor={`${idPrefix}-canada`} className="text-sm text-zinc-800 dark:text-zinc-200">
+          Canada
+        </label>
+      </div>
+      {onlyOne ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">At least one country is required.</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -579,6 +640,11 @@ function EditUserModal({
   const [selectsLeadSupervisor, setSelectsLeadSupervisor] = useState(
     Boolean(user.selectsLeadSupervisor),
   );
+  const initialCountryFlags = flagsFromCountryAccess(
+    user.role === "admin" ? "both" : user.countryAccess,
+  );
+  const [allowUsa, setAllowUsa] = useState(initialCountryFlags.usa);
+  const [allowCanada, setAllowCanada] = useState(initialCountryFlags.canada);
   const [loginWindowExempt, setLoginWindowExempt] = useState(Boolean(user.loginWindowExempt));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
@@ -614,6 +680,9 @@ function EditUserModal({
     setCanTrainSalesBot(Boolean(user.canTrainSalesBot));
     setCanReceiveSharedLeads(Boolean(user.canReceiveSharedLeads));
     setSelectsLeadSupervisor(Boolean(user.selectsLeadSupervisor));
+    const nextCountryFlags = flagsFromCountryAccess(user.role === "admin" ? "both" : user.countryAccess);
+    setAllowUsa(nextCountryFlags.usa);
+    setAllowCanada(nextCountryFlags.canada);
     setLoginWindowExempt(Boolean(user.loginWindowExempt));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
@@ -742,6 +811,14 @@ function EditUserModal({
       }
       if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
         payload.canReceiveSharedLeads = canReceiveSharedLeads;
+      }
+      if (isAdmin) {
+        const nextCountryAccess =
+          editRole === "admin" ? "both" : countryAccessFromFlags(allowUsa, allowCanada);
+        const prevCountryAccess = user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa";
+        if (nextCountryAccess && nextCountryAccess !== prevCountryAccess) {
+          payload.countryAccess = nextCountryAccess;
+        }
       }
       if (
         (isAdmin || isManager) &&
@@ -1178,6 +1255,22 @@ function EditUserModal({
             </div>
           ) : null}
 
+          {isAdmin && editRole !== "admin" ? (
+            <CountryAccessFields
+              usa={allowUsa}
+              canada={allowCanada}
+              onUsaChange={(checked) => {
+                if (!checked && !allowCanada) return;
+                setAllowUsa(checked);
+              }}
+              onCanadaChange={(checked) => {
+                if (!checked && !allowUsa) return;
+                setAllowCanada(checked);
+              }}
+              idPrefix="edit-country"
+            />
+          ) : null}
+
           {isAdmin ? (
             <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-800 dark:bg-sky-950/30">
               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
@@ -1456,6 +1549,7 @@ function normalizeUsersList(list) {
     canTrainSalesBot: Boolean(u.canTrainSalesBot),
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
     selectsLeadSupervisor: u.role === "agent" ? Boolean(u.selectsLeadSupervisor) : false,
+    countryAccess: u.role === "admin" ? "both" : parseCountryAccess(u.countryAccess) || "usa",
     loginWindowExempt: Boolean(u.loginWindowExempt),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
@@ -1483,6 +1577,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [createShiftKey, setCreateShiftKey] = useState("day");
   const [createIsOutside, setCreateIsOutside] = useState(false);
   const [createCanReceiveSharedLeads, setCreateCanReceiveSharedLeads] = useState(false);
+  const [createAllowUsa, setCreateAllowUsa] = useState(true);
+  const [createAllowCanada, setCreateAllowCanada] = useState(false);
   const [createSelectsLeadSupervisor, setCreateSelectsLeadSupervisor] = useState(false);
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
@@ -1735,6 +1831,12 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (role === "admin" && createCanReceiveSharedLeads) {
           payload.canReceiveSharedLeads = true;
         }
+        if (role === "admin") {
+          payload.countryAccess =
+            createRole === "admin"
+              ? "both"
+              : countryAccessFromFlags(createAllowUsa, createAllowCanada) || "usa";
+        }
         if (createRole === "agent" && createSelectsLeadSupervisor) {
           payload.selectsLeadSupervisor = true;
         }
@@ -1763,6 +1865,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       setCreateIsOutside(false);
       setCreateCanReceiveSharedLeads(false);
       setCreateSelectsLeadSupervisor(false);
+      setCreateAllowUsa(true);
+      setCreateAllowCanada(false);
       await loadUsers();
     } catch (err) {
       setError(err.message || "Failed to create user");
@@ -2089,6 +2193,21 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                       </span>
                     </label>
                   </div>
+                ) : null}
+                {role === "admin" && createRole !== "admin" ? (
+                  <CountryAccessFields
+                    usa={createAllowUsa}
+                    canada={createAllowCanada}
+                    onUsaChange={(checked) => {
+                      if (!checked && !createAllowCanada) return;
+                      setCreateAllowUsa(checked);
+                    }}
+                    onCanadaChange={(checked) => {
+                      if (!checked && !createAllowUsa) return;
+                      setCreateAllowCanada(checked);
+                    }}
+                    idPrefix="new-country"
+                  />
                 ) : null}
                 {role === "admin" ? (
                   <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 dark:border-teal-800 dark:bg-teal-950/30">
@@ -2423,12 +2542,15 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                           </button>
                         </td>
                         <td className="px-3 py-2.5">
-                          <RoleBadge value={u.role} />
-                          {u.isOutside ? (
-                            <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                              Outside
-                            </span>
-                          ) : null}
+                          <span className="inline-flex flex-wrap items-center gap-1.5">
+                            <RoleBadge value={u.role} />
+                            <CountryAccessBadge access={u.role === "admin" ? "both" : u.countryAccess} />
+                            {u.isOutside ? (
+                              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                                Outside
+                              </span>
+                            ) : null}
+                          </span>
                         </td>
                         {showShiftColumn ? (
                           <td className="px-3 py-2.5 text-zinc-700 dark:text-zinc-300">

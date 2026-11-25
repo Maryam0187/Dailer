@@ -1,11 +1,10 @@
 import { Op } from "sequelize";
 import { getStateByCode } from "@/lib/usStates";
-import { SERVICE_TYPE_OPTIONS } from "@/lib/leadService";
+import { getProvinceByCode, formatCanadianPostal, validateCanadianPostal } from "@/lib/caProvinces";
+import { serviceMatchesCountry } from "@/lib/leadService";
 import { normalizeLeadPaymentChargeAmount } from "@/lib/leadWorkflow";
 import { normalizeToE164 } from "@/server/calls/normalizePhone";
 import db from "@/server/db";
-
-const CUSTOMER_SERVICE_TYPES = new Set(SERVICE_TYPE_OPTIONS.map((o) => o.value));
 
 export function trimCustomerField(value, maxLen) {
   if (value == null) return null;
@@ -53,7 +52,7 @@ export async function findCustomerByPhone(phone, { transaction } = {}) {
  */
 export function parseCustomerProfile(
   body,
-  { requireName = false, requirePhone = false, requireManager = false } = {},
+  { requireName = false, requirePhone = false, requireManager = false, country = "usa" } = {},
 ) {
   const errors = [];
   const data = {};
@@ -74,18 +73,32 @@ export function parseCustomerProfile(
   if (src.address !== undefined) data.address = trimCustomerField(src.address, 255);
   if (src.city !== undefined) data.city = trimCustomerField(src.city, 128);
 
+  const isCanada = country === "canada";
+
   if (src.state !== undefined) {
     const raw = trimCustomerField(src.state, 32);
     if (raw) {
-      const state = getStateByCode(raw);
-      if (!state) errors.push("Invalid state");
-      else data.state = state.code;
+      const region = isCanada ? getProvinceByCode(raw) : getStateByCode(raw);
+      if (!region) errors.push(isCanada ? "Invalid province" : "Invalid state");
+      else data.state = region.code;
     } else {
       data.state = null;
     }
   }
 
-  if (src.zipCode !== undefined) data.zipCode = trimCustomerField(src.zipCode, 16);
+  if (src.zipCode !== undefined) {
+    const raw = trimCustomerField(src.zipCode, 16);
+    if (!raw) {
+      data.zipCode = null;
+    } else if (isCanada) {
+      const postal = formatCanadianPostal(raw);
+      const postalCheck = validateCanadianPostal(postal);
+      if (!postalCheck.isValid) errors.push(postalCheck.message);
+      else data.zipCode = postal;
+    } else {
+      data.zipCode = raw;
+    }
+  }
   if (src.notes !== undefined) data.notes = trimCustomerField(src.notes, 65535);
 
   if (src.cellNumber !== undefined) {
@@ -121,7 +134,7 @@ export function parseCustomerProfile(
       data.serviceType = null;
       data.cableName = null;
       data.streamName = null;
-    } else if (!CUSTOMER_SERVICE_TYPES.has(raw)) {
+    } else if (!serviceMatchesCountry(raw, country)) {
       errors.push("Invalid service");
     } else {
       data.serviceType = raw;

@@ -40,8 +40,8 @@ export function usePlaceLine2Call() {
     if (!registered || sdkInitializing) await ensureRegistered();
     const result =
       Number.isInteger(leadId) && leadId > 0
-        ? await startOutgoingCallLine2({ leadId })
-        : await startOutgoingCallLine2({ toNumber });
+        ? await startOutgoingCallLine2({ leadId, country: extra.country })
+        : await startOutgoingCallLine2({ toNumber, country: extra.country });
     if (!result.ok) {
       if (result.unavailable) {
         await presentUnavailableCall({

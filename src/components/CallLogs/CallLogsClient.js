@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveCall } from "@/contexts/ActiveCallContext";
 import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { useTwilioVoice } from "@/contexts/TwilioVoiceContext";
@@ -13,6 +13,7 @@ import { formatLandline } from "@/lib/phoneFormat";
 import { startOutgoingCall } from "@/lib/startOutgoingCall";
 import { playPersonUnavailableAfterDelay, presentUnavailableCall } from "@/lib/personUnavailable";
 import { usePlaceLine2Call } from "@/lib/usePlaceLine2Call";
+import { useCountry } from "@/contexts/CountryContext";
 
 const inputClass =
   "h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -103,6 +104,7 @@ function DownloadIcon({ className = "h-4 w-4" }) {
 
 export default function CallLogsClient({ initialScope = "all", userRole = "agent" }) {
   const isAdmin = userRole === "admin";
+  const { country } = useCountry();
   const { session, beginSession, endCall } = useActiveCall();
   const { placeLine2Call, canStartLine2, line2Session, canUseDialer2 } = usePlaceLine2Call();
   const { canUseTwilioDialer, canUseZoomPhone } = useDialerCapabilities();
@@ -221,6 +223,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       if (isAdmin && resolvedQ) {
         qs.set("q", resolvedQ);
       }
+      qs.set("country", country);
       const res = await fetch(`/api/calls?${qs.toString()}`, {
         method: "GET",
         credentials: "include",
@@ -245,7 +248,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       }
     }
   },
-    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, providerFilter, q, isAdmin],
+    [page, appliedFrom, appliedTo, listScope, logAudience, lineFilter, providerFilter, q, isAdmin, country],
   );
 
   function shouldRedialWithZoom(call) {
@@ -302,6 +305,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
           customerName: call.leadName || call.contactName || undefined,
           callKind: call.callKind || (call.leadId ? "lead" : null),
           extra: {
+            country,
             city: call.city || undefined,
             state: call.state || undefined,
             zipCode: call.zipCode || undefined,
@@ -334,7 +338,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
 
       const result = call.leadId
         ? await startOutgoingCall({ leadId: call.leadId })
-        : await startOutgoingCall({ toNumber });
+        : await startOutgoingCall({ toNumber, country });
 
       if (result.unavailable) {
         await presentUnavailableCall({
@@ -394,6 +398,13 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
       controller.abort();
     };
   }, [loadCalls, page, appliedFrom, appliedTo, q]);
+
+  const countryRef = useRef(country);
+  useEffect(() => {
+    if (countryRef.current === country) return;
+    countryRef.current = country;
+    setPage(1);
+  }, [country]);
 
   function applyPreset(preset) {
     setRangePreset(preset);
@@ -524,7 +535,9 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                 ? "Conference call logs"
                 : listScope === "recording"
                   ? "Calls with recording"
-                  : "Call logs"}
+                  : country === "canada"
+                    ? "Canada call logs"
+                    : "Call logs"}
             </h2>
             <p className="text-sm text-sky-800/80 dark:text-sky-300/90">
               {logAudience === "all"

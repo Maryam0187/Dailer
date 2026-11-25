@@ -4,13 +4,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { formatZonedDateTime } from "@/lib/leadWorkflow";
 import { getStateByCode } from "@/lib/usStates";
+import { getProvinceByCode } from "@/lib/caProvinces";
+import { useCountry } from "@/contexts/CountryContext";
 
 const PAGE_SIZE = 25;
 
 function formatWhen(iso, agentTimeZone, stateCode) {
   if (!iso) return "—";
   const localWhen = formatZonedDateTime(iso, agentTimeZone);
-  const customerTimeZone = getStateByCode(stateCode)?.timeZone;
+  const customerTimeZone = getStateByCode(stateCode)?.timeZone || getProvinceByCode(stateCode)?.timeZone;
   if (!customerTimeZone) return localWhen || "—";
   const customerWhen = formatZonedDateTime(iso, customerTimeZone);
   if (!customerWhen || customerWhen === localWhen) return localWhen || "—";
@@ -24,6 +26,7 @@ function phaseLabel(phase) {
 }
 
 export default function AppointmentsClient() {
+  const { country } = useCountry();
   const [scope, setScope] = useState("upcoming");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState([]);
@@ -47,6 +50,7 @@ export default function AppointmentsClient() {
         scope,
         page: String(page),
         pageSize: String(PAGE_SIZE),
+        country,
       });
       const res = await fetch(`/api/leads/appointments?${params.toString()}`, {
         credentials: "include",
@@ -73,7 +77,11 @@ export default function AppointmentsClient() {
     } finally {
       setLoading(false);
     }
-  }, [scope, page]);
+  }, [scope, page, country]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [country]);
 
   useEffect(() => {
     void load();

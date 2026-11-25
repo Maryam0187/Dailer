@@ -206,7 +206,52 @@ export async function aggregateCallMetricsFromDaily({
     conferenceOnly,
   });
 
-  return { ...mapMetricsRow(row), ...providerDuration };
+  const byCountry = await callCountsByCountry({
+    userId,
+    fromDate,
+    toDate,
+    conferenceOnly,
+  });
+
+  return {
+    ...mapMetricsRow(row),
+    ...providerDuration,
+    usaCalls: byCountry.usa,
+    canadaCalls: byCountry.canada,
+  };
+}
+
+/**
+ * Calls on a Canada lead count as Canada. Calls with no lead, or a USA lead, count as USA.
+ * Same CallLog set as the daily rollup: this user's logs in the Eastern date range.
+ */
+async function callCountsByCountry({ userId, fromDate, toDate, conferenceOnly = false }) {
+  const id = Number(userId);
+  const bounds = calendarDateRangeBounds(fromDate, toDate);
+  if (!Number.isInteger(id) || id < 1 || !bounds) return { usa: 0, canada: 0 };
+
+  const conferenceSql = conferenceOnly
+    ? "AND EXISTS (SELECT 1 FROM InviteDialLegs idl WHERE idl.callLogId = cl.id)"
+    : "";
+  const rows = await db.sequelize.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN l.country = 'canada' THEN 1 ELSE 0 END), 0) AS canada,
+       COALESCE(SUM(CASE WHEN l.country = 'canada' THEN 0 ELSE 1 END), 0) AS usa
+     FROM CallLogs cl
+     LEFT JOIN Leads l ON l.id = cl.leadId
+     WHERE cl.userId = :userId
+       AND cl.createdAt >= :after
+       AND cl.createdAt < :before
+       ${conferenceSql}`,
+    {
+      replacements: { userId: id, after: bounds.after, before: bounds.before },
+      type: QueryTypes.SELECT,
+    },
+  );
+  return {
+    usa: toInt(rows[0]?.usa),
+    canada: toInt(rows[0]?.canada),
+  };
 }
 
 const MAX_PROFILE_DAY_ROWS = 93;

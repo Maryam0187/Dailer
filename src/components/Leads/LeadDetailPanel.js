@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatLeadPhoneDisplay } from "@/lib/maskPhone";
 import { formatLeadService } from "@/lib/leadService";
+import { COUNTRY_CANADA } from "@/lib/countries";
+import { useCountry } from "@/contexts/CountryContext";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import IconTooltipButton, { CallIcon, CloseIcon, EditIcon, ExpandIcon } from "@/components/Leads/IconTooltipButton";
 import RichTextField from "@/components/Leads/RichTextField";
@@ -301,8 +303,10 @@ export default function LeadDetailPanel({
   const [linkedError, setLinkedError] = useState(null);
   const [linkedLoadedForId, setLinkedLoadedForId] = useState(null);
 
+  const { country } = useCountry();
+  const canadaTheme = country === COUNTRY_CANADA;
   const viewOnlyShare = Boolean(lead?.viewOnlyShare);
-  const canManageShareView = userRole === "admin";
+  const canManageShareView = userRole === "admin" && country !== COUNTRY_CANADA;
   const agentPicksSupervisor = Boolean(selectsLeadSupervisor) && userRole === "agent";
   const canLoadAssignableUsers = canAssignLead || canManageShareView;
 
@@ -716,11 +720,25 @@ export default function LeadDetailPanel({
         />
       ) : null}
       <Shell className={shellClass}>
-        <div className="border-b border-zinc-200 bg-gradient-to-r from-emerald-50/80 to-white px-5 py-4 dark:border-zinc-800 dark:from-emerald-950/30 dark:to-zinc-950">
+        <div
+          className={`border-b px-5 py-4 ${
+            canadaTheme
+              ? "border-red-200 bg-gradient-to-r from-red-50 to-white dark:border-red-900/60 dark:from-red-950/40 dark:to-zinc-950"
+              : "border-zinc-200 bg-gradient-to-r from-emerald-50/80 to-white dark:border-zinc-800 dark:from-emerald-950/30 dark:to-zinc-950"
+          }`}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                {isPendingLegacyImport ? "Imported sale (review)" : "Lead details"}
+              <p
+                className={`text-xs font-semibold uppercase tracking-wide ${
+                  canadaTheme ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"
+                }`}
+              >
+                {isPendingLegacyImport
+                  ? "Imported sale (review)"
+                  : canadaTheme
+                    ? "Canada lead"
+                    : "Lead details"}
                 <span className="ml-2 font-mono normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
                   #{lead.id}
                 </span>
@@ -1226,7 +1244,9 @@ export default function LeadDetailPanel({
               <button
                 type="submit"
                 disabled={postingComment || !comment.trim()}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${
+                  canadaTheme ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
               >
                 {postingComment ? "Posting…" : "Post comment"}
               </button>

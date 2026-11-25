@@ -17,6 +17,7 @@ import {
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 import { clearTotpFields } from "@/server/auth/totp";
 import { finalizeUserActiveZoomCalls } from "@/server/calls/zoomCallLog";
+import { parseCountryAccess } from "@/lib/countries";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -57,6 +58,7 @@ export async function GET(_req, { params }) {
       "canTrainSalesBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
+      "countryAccess",
     ],
     include: [
       {
@@ -126,6 +128,7 @@ export async function GET(_req, { params }) {
         authedUser.role === "admin" ? Boolean(target.canReceiveSharedLeads) : undefined,
       selectsLeadSupervisor:
         target.role === "agent" ? Boolean(target.selectsLeadSupervisor) : false,
+      countryAccess: target.role === "admin" ? "both" : parseCountryAccess(target.countryAccess) || "usa",
     },
   });
 }
@@ -313,6 +316,18 @@ export async function PATCH(req, { params }) {
 
   if (isAdmin && body.canReceiveSharedLeads !== undefined) {
     updates.canReceiveSharedLeads = Boolean(body.canReceiveSharedLeads);
+  }
+
+  if (isAdmin && (body.countryAccess !== undefined || updates.role === "admin")) {
+    if (effectiveRole === "admin") {
+      updates.countryAccess = "both";
+    } else if (body.countryAccess !== undefined) {
+      const parsedCountryAccess = parseCountryAccess(body.countryAccess);
+      if (!parsedCountryAccess) {
+        return NextResponse.json({ error: "Invalid countryAccess" }, { status: 400 });
+      }
+      updates.countryAccess = parsedCountryAccess;
+    }
   }
 
   if (body.selectsLeadSupervisor !== undefined) {
@@ -553,6 +568,7 @@ export async function PATCH(req, { params }) {
       "canTrainSalesBot",
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
+      "countryAccess",
     ],
     include: [
       {
@@ -570,6 +586,7 @@ export async function PATCH(req, { params }) {
           afterShiftLimitedFileName: fresh.afterShiftLimitedFile?.name ?? null,
           selectsLeadSupervisor:
             fresh.role === "agent" ? Boolean(fresh.selectsLeadSupervisor) : false,
+          countryAccess: fresh.role === "admin" ? "both" : parseCountryAccess(fresh.countryAccess) || "usa",
           canUseTwilioDialer: fresh.canUseTwilioDialer !== false,
           canUseZoomPhone: Boolean(fresh.canUseZoomPhone),
         }

@@ -5,6 +5,7 @@ import { getShiftSettings } from "@/server/auth/shiftSettings";
 import db from "@/server/db";
 import { andWhereClause, resolveLeadsListWhere } from "@/server/leads/leadAccess";
 import { leadListIncludes, serializeLead } from "@/server/leads/serializeLead";
+import { resolveUserCountry } from "@/lib/countries";
 
 function parsePositiveInt(raw, fallback) {
   const n = Number(raw);
@@ -56,6 +57,11 @@ export async function GET(request) {
   const shiftKey = authedUser.shiftKey === "night" ? "night" : "day";
   const { timezone } = getShiftSettings(shiftKey);
 
+  const countryCheck = resolveUserCountry(authedUser, searchParams.get("country"));
+  if (countryCheck.error) {
+    return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+  }
+
   const accessWhere = await resolveAppointmentAccessWhere(authedUser);
   if (!accessWhere) {
     if (searchParams.get("countOnly") === "1") {
@@ -66,6 +72,7 @@ export async function GET(request) {
 
   const now = new Date();
   const allWhere = andWhereClause(accessWhere, {
+    country: countryCheck.country,
     leadContactTag: "appointment",
     leadAppointmentAt: { [Op.ne]: null },
   });

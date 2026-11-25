@@ -29,6 +29,9 @@ export async function findOrCreateCustomerForLead(phone, leadFields, { transacti
   if (!phone) return null;
 
   const profile = customerProfileFromLeadFields(leadFields || {});
+  if (leadFields?.country === "canada" || leadFields?.country === "usa") {
+    profile.country = leadFields.country;
+  }
   // Don't wipe an existing name if this update has no fullName
   const updatePayload = { ...profile };
   if (updatePayload.fullName == null) {
@@ -70,6 +73,7 @@ export async function syncLeadCustomer(lead, changedFields = {}, { transaction }
       changedFields.serviceType !== undefined ? changedFields.serviceType : lead.serviceType,
     cableName: changedFields.cableName !== undefined ? changedFields.cableName : lead.cableName,
     streamName: changedFields.streamName !== undefined ? changedFields.streamName : lead.streamName,
+    country: changedFields.country !== undefined ? changedFields.country : lead.country,
   };
 
   const customer = await findOrCreateCustomerForLead(phone, merged, { transaction });

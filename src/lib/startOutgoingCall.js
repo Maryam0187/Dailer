@@ -21,6 +21,7 @@ export async function startOutgoingCall(params) {
     if (params.intent) body.intent = String(params.intent).trim();
     if (params.dialMode) body.dialMode = String(params.dialMode).trim();
     if (params.salesBotKey) body.salesBotKey = String(params.salesBotKey).trim();
+    if (params.country) body.country = String(params.country).trim();
   }
 
   const res = await fetch("/api/calls/start", {

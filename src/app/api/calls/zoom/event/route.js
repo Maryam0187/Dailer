@@ -15,6 +15,7 @@ import {
   parseZoomEventDate,
 } from "@/server/calls/zoomCallLog";
 import { notifyZoomInboundCallbackOnce } from "@/server/ivr/notifyAdmins";
+import { resolveCallCountry } from "@/server/calls/callCountry";
 
 const HANDLED = new Set([
   "zp-call-ringing-event",
@@ -174,6 +175,7 @@ export async function POST(req) {
       zoomPhoneNumber: ourLine.zoomPhoneNumber,
       zoomDisplayName: ourLine.zoomDisplayName,
       zoomConnectedAt: type === "zp-call-connected-event" ? eventAt : null,
+      country: resolveCallCountry(authedUser, { raw: body?.country }).country || "usa",
     };
 
     if (type === "zp-call-ended-event") {

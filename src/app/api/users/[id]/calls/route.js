@@ -13,6 +13,7 @@ import {
   dateRangeWhere,
   invitedConferenceCallIds,
 } from "@/server/calls/aggregateMetrics";
+import { normalizeCountry, resolveUserCountry } from "@/lib/countries";
 
 function parsePositiveInt(value, fallback) {
   const n = Number(value);
@@ -111,6 +112,18 @@ export async function GET(req, { params }) {
   }
   where = applyDialerIndexToWhere(where, dialerIndexFilter);
   where = excludeSalesBotFromWhere(where);
+
+  const rawCountry = searchParams.get("country");
+  if (rawCountry != null && String(rawCountry).trim() !== "") {
+    if (!normalizeCountry(rawCountry)) {
+      return NextResponse.json({ error: "Invalid country" }, { status: 400 });
+    }
+    const countryCheck = resolveUserCountry(authedUser, rawCountry);
+    if (countryCheck.error) {
+      return NextResponse.json({ error: countryCheck.error }, { status: 403 });
+    }
+    where = { ...where, country: countryCheck.country };
+  }
 
   const { rows, count } = await db.CallLog.findAndCountAll({
     where,

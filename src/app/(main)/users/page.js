@@ -11,6 +11,7 @@ import UsersClient from "@/components/Users/UsersClient";
 import SignedInAs from "@/components/layout/SignedInAs";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
+import { parseCountryAccess } from "@/lib/countries";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
@@ -47,6 +48,7 @@ export default async function UsersPage() {
     "canTrainSalesBot",
     "canReceiveSharedLeads",
     "selectsLeadSupervisor",
+    "countryAccess",
   ];
 
   const listInclude = [
@@ -117,6 +119,7 @@ export default async function UsersPage() {
       isOutside: Boolean(r.isOutside),
       shiftKey: r.shiftKey === "night" ? "night" : "day",
       selectsLeadSupervisor: r.role === "agent" ? Boolean(r.selectsLeadSupervisor) : false,
+      countryAccess: r.role === "admin" ? "both" : parseCountryAccess(r.countryAccess) || "usa",
       ...(authedUser.role === "admin"
         ? {
             loginWindowExempt: Boolean(r.loginWindowExempt),

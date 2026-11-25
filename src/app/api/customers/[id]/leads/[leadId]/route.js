@@ -138,7 +138,9 @@ export async function PATCH(req, { params }) {
         { status: 409 },
       );
     }
-    const { data, errors } = parseOutsideSaleBody(body, {});
+    const { data, errors } = parseOutsideSaleBody(body, {
+      country: lead.country === "canada" ? "canada" : "usa",
+    });
     if (errors.length) {
       return NextResponse.json({ error: errors[0] }, { status: 400 });
     }

@@ -10,6 +10,7 @@ import { useDialerCapabilities } from "@/contexts/DialerCapabilitiesContext";
 import { useZoomSmartEmbed } from "@/contexts/ZoomSmartEmbedContext";
 import ZoomCallButton from "@/components/Dialer/ZoomCallButton";
 import { digitsOnly, formatLandline, validatePhone } from "@/lib/phoneFormat";
+import { useCountry } from "@/contexts/CountryContext";
 
 export default function QuickDialPanel() {
   const { session, beginSession, endCall } = useActiveCall();
@@ -26,6 +27,7 @@ export default function QuickDialPanel() {
     isPrimaryTab,
     expectOutgoingIncomingLeg,
   } = useTwilioVoice();
+  const { country } = useCountry();
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [validation, setValidation] = useState({ isValid: true, message: "" });
@@ -113,6 +115,7 @@ export default function QuickDialPanel() {
         toNumber: toDigits,
         phoneLabel: phone.trim() || formatLandline(toDigits),
         customerName: name.trim() || undefined,
+        extra: { country },
       });
       if (placed?.unavailable) return;
       setPhone("");
@@ -138,7 +141,7 @@ export default function QuickDialPanel() {
         await ensureRegistered();
       }
 
-      const result = await startOutgoingCall(toDigits);
+      const result = await startOutgoingCall({ toNumber: toDigits, country });
       if (result.unavailable) {
         await presentUnavailableCall({
           beginSession,
