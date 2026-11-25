@@ -41,9 +41,11 @@ export function validateOptionalCell(v) {
   return { isValid: false, message: "Enter a valid 7 or 10-digit cell number" };
 }
 
-/** Display/input for cell: XXX-XXXX (7) or XXX-XXX-XXXX (10). */
+/** Display/input for cell: XXX-XXXX (7) or XXX-XXX-XXXX (10). Drops a leading country code 1. */
 export function formatCellNumber(value) {
-  const digits = String(value || "").replace(/\D/g, "").slice(0, 10);
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.length >= 11 && digits.startsWith("1")) digits = digits.slice(1);
+  digits = digits.slice(0, 10);
   if (!digits) return "";
   if (digits.length <= 3) return digits;
   if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
