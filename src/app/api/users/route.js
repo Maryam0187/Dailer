@@ -10,6 +10,7 @@ import { sortUsersForDisplay } from "@/lib/sortUsers";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 import { parseCountryAccess } from "@/lib/countries";
+import { normalizeCampaign, parseCampaign } from "@/lib/campaigns";
 const LIST_ATTRIBUTES = [
   "id",
   "username",
@@ -39,6 +40,7 @@ const LIST_ATTRIBUTES = [
   "canReceiveSharedLeads",
   "selectsLeadSupervisor",
   "countryAccess",
+  "campaign",
 ];
 
 function normalizeUserShiftKey(value, role) {
@@ -87,6 +89,7 @@ function serializeUserRow(
     shiftKey: normalizeUserShiftKey(row.shiftKey, row.role),
     selectsLeadSupervisor: row.role === "agent" ? Boolean(row.selectsLeadSupervisor) : false,
     countryAccess: row.role === "admin" ? "both" : parseCountryAccess(row.countryAccess) || "usa",
+    campaign: normalizeCampaign(row.campaign),
     ...(includeShiftAccess
       ? {
           loginWindowExempt: Boolean(row.loginWindowExempt),
@@ -282,6 +285,7 @@ export async function POST(req) {
         supervisorId: role === "agent" ? supervisorIdToSet : null,
         shiftKey: shiftKeyToSet,
         selectsLeadSupervisor: selectsLeadSupervisorToSet,
+        campaign: normalizeCampaign(authedUser.campaign),
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -295,6 +299,7 @@ export async function POST(req) {
             shiftKey: user.shiftKey,
             isActive: user.isActive,
             selectsLeadSupervisor: Boolean(user.selectsLeadSupervisor),
+            campaign: normalizeCampaign(user.campaign),
           },
         },
         { status: 201 },
@@ -331,6 +336,7 @@ export async function POST(req) {
         supervisorId: authedUser.id,
         shiftKey: supervisorShiftKey,
         isOutside: false,
+        campaign: normalizeCampaign(authedUser.campaign),
         createdBy: authedUser.id,
       });
       return NextResponse.json(
@@ -417,6 +423,18 @@ export async function POST(req) {
     }
     countryAccessToSet = parsedCountryAccess;
   }
+  let campaignToSet = "tv";
+  if (role !== "admin") {
+    if (body?.campaign === undefined) {
+      campaignToSet = "tv";
+    } else {
+      const parsedCampaign = parseCampaign(body.campaign);
+      if (!parsedCampaign) {
+        return NextResponse.json({ error: "Invalid campaign" }, { status: 400 });
+      }
+      campaignToSet = parsedCampaign;
+    }
+  }
   try {
     const user = await db.User.create({
       username: username.trim(),
@@ -429,6 +447,7 @@ export async function POST(req) {
       canReceiveSharedLeads: canReceiveSharedLeadsToSet,
       selectsLeadSupervisor: selectsLeadSupervisorToSet,
       countryAccess: countryAccessToSet,
+      campaign: campaignToSet,
       createdBy: authedUser.id,
     });
     return NextResponse.json(
@@ -445,6 +464,7 @@ export async function POST(req) {
           canReceiveSharedLeads: Boolean(user.canReceiveSharedLeads),
           selectsLeadSupervisor: Boolean(user.selectsLeadSupervisor),
           countryAccess: user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa",
+          campaign: normalizeCampaign(user.campaign),
         },
       },
       { status: 201 },

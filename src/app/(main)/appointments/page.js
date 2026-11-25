@@ -18,7 +18,7 @@ export default async function AppointmentsPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           {authedUser.role === "admin"
-            ? "Upcoming is every user’s appointment that is still ahead. All includes past appointments too."
+            ? "Lead appointments follow the USA/Canada switch. Software appointments are on their own tab."
             : "Upcoming is your appointments that are still ahead. All includes your past appointments too."}{" "}
           <SignedInAs
             username={authedUser.username}
@@ -27,7 +27,7 @@ export default async function AppointmentsPage() {
           />
         </p>
       </div>
-      <AppointmentsClient />
+      <AppointmentsClient isAdmin={authedUser.role === "admin"} />
     </>
   );
 }

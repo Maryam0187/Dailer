@@ -173,6 +173,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: "usa",
       },
+      /** One sale only. Admins are not locked to a campaign. Existing accounts stay on TV. */
+      campaign: {
+        type: DataTypes.ENUM("tv", "software"),
+        allowNull: false,
+        defaultValue: "tv",
+      },
       /** Assigned Twilio From for Line 1 (E.164). */
       twilioFromNumber: {
         type: DataTypes.STRING(32),

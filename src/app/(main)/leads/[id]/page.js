@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { CAMPAIGN_SOFTWARE, normalizeCampaign } from "@/lib/campaigns";
 import LeadPageClient from "@/components/Leads/LeadPageClient";
 
 export default async function LeadPage({ params }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   if (authedUser.accessMode === "limited") redirect("/");
+  if (authedUser.role !== "admin" && normalizeCampaign(authedUser.campaign) === CAMPAIGN_SOFTWARE) {
+    redirect("/software-leads");
+  }
 
   const { id: rawId } = await params;
   const leadId = Number(rawId);

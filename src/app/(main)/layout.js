@@ -42,6 +42,7 @@ export default async function MainLayout({ children }) {
           isOutside={Boolean(authedUser.isOutside)}
           canTrainAddressBot={Boolean(authedUser.canTrainAddressBot)}
           canTrainSalesBot={Boolean(authedUser.canTrainSalesBot)}
+          campaign={authedUser.campaign || "tv"}
         />
         {authedUser.role !== "admin" && !(authedUser.role === "manager" && authedUser.isOutside) ? (
           <ShiftEndingSoonBanner />

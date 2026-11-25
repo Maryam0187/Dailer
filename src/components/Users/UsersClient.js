@@ -10,6 +10,7 @@ import {
   flagsFromCountryAccess,
   parseCountryAccess,
 } from "@/lib/countries";
+import { CAMPAIGN_SOFTWARE, CAMPAIGN_TV, campaignLabel, normalizeCampaign } from "@/lib/campaigns";
 import { isLeadSupervisor } from "@/lib/leadRoles";
 import { useMessaging } from "@/contexts/MessagingContext";
 import UserNameLabel from "@/components/UserNameLabel";
@@ -119,6 +120,49 @@ function CountryAccessBadge({ access }) {
     <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles[value]}`}>
       {countryAccessLabel(value)}
     </span>
+  );
+}
+
+function CampaignBadge({ campaign }) {
+  const value = campaign === CAMPAIGN_SOFTWARE ? CAMPAIGN_SOFTWARE : CAMPAIGN_TV;
+  const styles = {
+    tv: "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+    software: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
+  };
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles[value]}`}>
+      {campaignLabel(value)}
+    </span>
+  );
+}
+
+function CampaignFields({ campaign, onChange, idPrefix }) {
+  return (
+    <div className="space-y-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 dark:border-violet-800 dark:bg-violet-950/30">
+      <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+        Campaign
+        <span className="ml-1 font-normal text-zinc-500">(one campaign only)</span>
+      </p>
+      {[
+        { value: CAMPAIGN_TV, label: "TV", hint: "USA and Canada sales" },
+        { value: CAMPAIGN_SOFTWARE, label: "Software", hint: "Software telemarketing" },
+      ].map((option) => (
+        <div key={option.value} className="flex items-center gap-3">
+          <input
+            id={`${idPrefix}-${option.value}`}
+            type="radio"
+            name={idPrefix}
+            checked={campaign === option.value}
+            onChange={() => onChange(option.value)}
+            className="h-4 w-4 border-zinc-300 text-violet-600 focus:ring-violet-500"
+          />
+          <label htmlFor={`${idPrefix}-${option.value}`} className="text-sm text-zinc-800 dark:text-zinc-200">
+            {option.label}
+            <span className="ml-1 font-normal text-zinc-500">({option.hint})</span>
+          </label>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -645,6 +689,7 @@ function EditUserModal({
   );
   const [allowUsa, setAllowUsa] = useState(initialCountryFlags.usa);
   const [allowCanada, setAllowCanada] = useState(initialCountryFlags.canada);
+  const [campaign, setCampaign] = useState(normalizeCampaign(user.campaign));
   const [loginWindowExempt, setLoginWindowExempt] = useState(Boolean(user.loginWindowExempt));
   const [afterShiftAccess, setAfterShiftAccess] = useState(user.afterShiftAccess || "none");
   const [grantDurationMinutes, setGrantDurationMinutes] = useState(
@@ -683,6 +728,7 @@ function EditUserModal({
     const nextCountryFlags = flagsFromCountryAccess(user.role === "admin" ? "both" : user.countryAccess);
     setAllowUsa(nextCountryFlags.usa);
     setAllowCanada(nextCountryFlags.canada);
+    setCampaign(normalizeCampaign(user.campaign));
     setLoginWindowExempt(Boolean(user.loginWindowExempt));
     setAfterShiftAccess(user.afterShiftAccess || "none");
     setGrantDurationMinutes(user.afterShiftGrantDurationMinutes ?? 120);
@@ -812,12 +858,18 @@ function EditUserModal({
       if (isAdmin && Boolean(canReceiveSharedLeads) !== Boolean(user.canReceiveSharedLeads)) {
         payload.canReceiveSharedLeads = canReceiveSharedLeads;
       }
-      if (isAdmin) {
-        const nextCountryAccess =
-          editRole === "admin" ? "both" : countryAccessFromFlags(allowUsa, allowCanada);
-        const prevCountryAccess = user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa";
-        if (nextCountryAccess && nextCountryAccess !== prevCountryAccess) {
-          payload.countryAccess = nextCountryAccess;
+      if (isAdmin && editRole !== "admin") {
+        const nextCampaign = normalizeCampaign(campaign);
+        const prevCampaign = normalizeCampaign(user.campaign);
+        if (nextCampaign !== prevCampaign) {
+          payload.campaign = nextCampaign;
+        }
+        if (nextCampaign === CAMPAIGN_TV) {
+          const nextCountryAccess = countryAccessFromFlags(allowUsa, allowCanada);
+          const prevCountryAccess = parseCountryAccess(user.countryAccess) || "usa";
+          if (nextCountryAccess && nextCountryAccess !== prevCountryAccess) {
+            payload.countryAccess = nextCountryAccess;
+          }
         }
       }
       if (
@@ -1256,6 +1308,10 @@ function EditUserModal({
           ) : null}
 
           {isAdmin && editRole !== "admin" ? (
+            <CampaignFields campaign={campaign} onChange={setCampaign} idPrefix="edit-campaign" />
+          ) : null}
+
+          {isAdmin && editRole !== "admin" && campaign === CAMPAIGN_TV ? (
             <CountryAccessFields
               usa={allowUsa}
               canada={allowCanada}
@@ -1550,6 +1606,7 @@ function normalizeUsersList(list) {
     canReceiveSharedLeads: Boolean(u.canReceiveSharedLeads),
     selectsLeadSupervisor: u.role === "agent" ? Boolean(u.selectsLeadSupervisor) : false,
     countryAccess: u.role === "admin" ? "both" : parseCountryAccess(u.countryAccess) || "usa",
+    campaign: normalizeCampaign(u.campaign),
     loginWindowExempt: Boolean(u.loginWindowExempt),
     shiftKey: u.shiftKey === "night" ? "night" : "day",
     afterShiftAccess: u.afterShiftAccess || "none",
@@ -1579,6 +1636,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [createCanReceiveSharedLeads, setCreateCanReceiveSharedLeads] = useState(false);
   const [createAllowUsa, setCreateAllowUsa] = useState(true);
   const [createAllowCanada, setCreateAllowCanada] = useState(false);
+  const [createCampaign, setCreateCampaign] = useState(CAMPAIGN_TV);
   const [createSelectsLeadSupervisor, setCreateSelectsLeadSupervisor] = useState(false);
   const [managerId, setManagerId] = useState(managers[0]?.id ?? null);
   const [supervisorId, setSupervisorId] = useState(null);
@@ -1594,6 +1652,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
   const [listShiftFilter, setListShiftFilter] = useState("day");
   const [listOutsideFilter, setListOutsideFilter] = useState("inhouse");
   const [listActiveFilter, setListActiveFilter] = useState("active");
+  const [listCampaignFilter, setListCampaignFilter] = useState("all");
+  const [listCountryFilter, setListCountryFilter] = useState("all");
   const [listNameSearch, setListNameSearch] = useState("");
   const createPasswordOptional = role === "admin" && createRole === "agent" && createIsOutside;
 
@@ -1628,6 +1688,20 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       sortedUsers = sortedUsers.filter((u) => !u.isOutside);
     }
 
+    if (listCampaignFilter === CAMPAIGN_TV || listCampaignFilter === CAMPAIGN_SOFTWARE) {
+      sortedUsers = sortedUsers.filter(
+        (u) => normalizeCampaign(u.campaign) === listCampaignFilter,
+      );
+    }
+
+    if (listCountryFilter === "usa" || listCountryFilter === "canada") {
+      sortedUsers = sortedUsers.filter((u) => {
+        if (u.role !== "admin" && normalizeCampaign(u.campaign) !== CAMPAIGN_TV) return false;
+        const access = u.role === "admin" ? "both" : u.countryAccess;
+        return access === "both" || access === listCountryFilter;
+      });
+    }
+
     if (role !== "admin" || !listSupervisorFilter) return sortedUsers;
 
     const supervisorId = Number(listSupervisorFilter);
@@ -1641,6 +1715,8 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
     listShiftFilter,
     listOutsideFilter,
     listActiveFilter,
+    listCampaignFilter,
+    listCountryFilter,
     listNameSearch,
   ]);
 
@@ -1831,11 +1907,11 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
         if (role === "admin" && createCanReceiveSharedLeads) {
           payload.canReceiveSharedLeads = true;
         }
-        if (role === "admin") {
-          payload.countryAccess =
-            createRole === "admin"
-              ? "both"
-              : countryAccessFromFlags(createAllowUsa, createAllowCanada) || "usa";
+        if (role === "admin" && createRole !== "admin") {
+          payload.campaign = createCampaign === CAMPAIGN_SOFTWARE ? CAMPAIGN_SOFTWARE : CAMPAIGN_TV;
+          if (payload.campaign === CAMPAIGN_TV) {
+            payload.countryAccess = countryAccessFromFlags(createAllowUsa, createAllowCanada) || "usa";
+          }
         }
         if (createRole === "agent" && createSelectsLeadSupervisor) {
           payload.selectsLeadSupervisor = true;
@@ -1867,6 +1943,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
       setCreateSelectsLeadSupervisor(false);
       setCreateAllowUsa(true);
       setCreateAllowCanada(false);
+      setCreateCampaign(CAMPAIGN_TV);
       await loadUsers();
     } catch (err) {
       setError(err.message || "Failed to create user");
@@ -2195,6 +2272,13 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   </div>
                 ) : null}
                 {role === "admin" && createRole !== "admin" ? (
+                  <CampaignFields
+                    campaign={createCampaign}
+                    onChange={setCreateCampaign}
+                    idPrefix="new-campaign"
+                  />
+                ) : null}
+                {role === "admin" && createRole !== "admin" && createCampaign === CAMPAIGN_TV ? (
                   <CountryAccessFields
                     usa={createAllowUsa}
                     canada={createAllowCanada}
@@ -2382,6 +2466,38 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                   </select>
                 </div>
                 <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                  <label htmlFor="users-campaign-filter" className={compactFilterLabelClass}>
+                    Campaign
+                  </label>
+                  <select
+                    id="users-campaign-filter"
+                    className={compactFilterSelectClass}
+                    value={listCampaignFilter}
+                    onChange={(e) => setListCampaignFilter(e.target.value)}
+                    aria-label="Filter by campaign"
+                  >
+                    <option value="all">Combined (all)</option>
+                    <option value="tv">TV</option>
+                    <option value="software">Software</option>
+                  </select>
+                </div>
+                <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
+                  <label htmlFor="users-country-filter" className={compactFilterLabelClass}>
+                    Country
+                  </label>
+                  <select
+                    id="users-country-filter"
+                    className={compactFilterSelectClass}
+                    value={listCountryFilter}
+                    onChange={(e) => setListCountryFilter(e.target.value)}
+                    aria-label="Filter by country"
+                  >
+                    <option value="all">Combined (all)</option>
+                    <option value="usa">USA</option>
+                    <option value="canada">Canada</option>
+                  </select>
+                </div>
+                <div className="w-full min-w-0 sm:min-w-[11rem] sm:w-auto">
                   <label htmlFor="users-active-filter" className={compactFilterLabelClass}>
                     Status
                   </label>
@@ -2479,7 +2595,7 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
               <p className="mt-1 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
                 {users.length === 0
                   ? "Use the form above to create the first account."
-                  : "Try a different name search, shift, outside, or status filter."}
+                  : "Try a different name search, campaign, country, shift, outside, or status filter."}
               </p>
             </div>
           ) : (
@@ -2544,7 +2660,10 @@ export default function UsersClient({ role, managers, supervisors, initialUsers,
                         <td className="px-3 py-2.5">
                           <span className="inline-flex flex-wrap items-center gap-1.5">
                             <RoleBadge value={u.role} />
-                            <CountryAccessBadge access={u.role === "admin" ? "both" : u.countryAccess} />
+                            {u.role !== "admin" ? <CampaignBadge campaign={u.campaign} /> : null}
+                            {u.role === "admin" || normalizeCampaign(u.campaign) === CAMPAIGN_TV ? (
+                              <CountryAccessBadge access={u.role === "admin" ? "both" : u.countryAccess} />
+                            ) : null}
                             {u.isOutside ? (
                               <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
                                 Outside

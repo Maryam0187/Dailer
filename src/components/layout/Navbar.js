@@ -160,6 +160,7 @@ function buildNavItems(
   isOutside = false,
   canTrainAddressBot = false,
   canTrainSalesBot = false,
+  campaign = "tv",
 ) {
   const items = [
     {
@@ -171,11 +172,12 @@ function buildNavItems(
     },
   ];
 
+  const softwareUser = campaign === "software" && role !== "admin";
   if (accessMode !== "limited") {
     items.push({
-      href: "/leads",
+      href: softwareUser ? "/software-leads" : "/leads",
       label: "Leads",
-      active: pathname === "/leads",
+      active: softwareUser ? pathname.startsWith("/software-leads") : pathname === "/leads",
       palette: "emerald",
     });
     items.push({
@@ -488,6 +490,7 @@ export default function Navbar({
   isOutside = false,
   canTrainAddressBot = false,
   canTrainSalesBot = false,
+  campaign = "tv",
 }) {
   const pathname = usePathname();
   const { country, canSwitchCountry } = useCountry();
@@ -532,6 +535,7 @@ export default function Navbar({
     isOutside,
     canTrainAddressBot,
     canTrainSalesBot,
+    campaign,
   ).map((item) =>
     item.showUpcomingCount ? { ...item, upcomingCount } : item,
   );

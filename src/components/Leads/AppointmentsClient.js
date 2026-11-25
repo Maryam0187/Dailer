@@ -25,8 +25,9 @@ function phaseLabel(phase) {
   return "Active";
 }
 
-export default function AppointmentsClient() {
+export default function AppointmentsClient({ isAdmin = false }) {
   const { country } = useCountry();
+  const [campaign, setCampaign] = useState("tv");
   const [scope, setScope] = useState("upcoming");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState([]);
@@ -52,6 +53,7 @@ export default function AppointmentsClient() {
         pageSize: String(PAGE_SIZE),
         country,
       });
+      if (isAdmin) params.set("campaign", campaign);
       const res = await fetch(`/api/leads/appointments?${params.toString()}`, {
         credentials: "include",
         cache: "no-store",
@@ -77,11 +79,11 @@ export default function AppointmentsClient() {
     } finally {
       setLoading(false);
     }
-  }, [scope, page, country]);
+  }, [scope, page, country, campaign, isAdmin]);
 
   useEffect(() => {
     setPage(1);
-  }, [country]);
+  }, [country, campaign]);
 
   useEffect(() => {
     void load();
@@ -89,6 +91,11 @@ export default function AppointmentsClient() {
 
   function selectScope(next) {
     setScope(next);
+    setPage(1);
+  }
+
+  function selectCampaign(next) {
+    setCampaign(next);
     setPage(1);
   }
 
@@ -101,6 +108,28 @@ export default function AppointmentsClient() {
 
   return (
     <div className="space-y-4">
+      {isAdmin ? (
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Appointment campaign">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={campaign === "tv"}
+            className={tabClass(campaign === "tv")}
+            onClick={() => selectCampaign("tv")}
+          >
+            Lead appointments
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={campaign === "software"}
+            className={tabClass(campaign === "software")}
+            onClick={() => selectCampaign("software")}
+          >
+            Software appointments
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={tabClass(scope === "upcoming")} onClick={() => selectScope("upcoming")}>
           Upcoming ({counts.upcoming})
@@ -141,8 +170,12 @@ export default function AppointmentsClient() {
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center text-sm text-zinc-500">
                     {scope === "upcoming"
-                      ? "No upcoming appointments."
-                      : "No appointments saved on leads yet."}
+                      ? campaign === "software" && isAdmin
+                        ? "No upcoming software appointments."
+                        : "No upcoming appointments."
+                      : campaign === "software" && isAdmin
+                        ? "No software appointments saved yet."
+                        : "No appointments saved on leads yet."}
                   </td>
                 </tr>
               ) : null}
@@ -150,7 +183,7 @@ export default function AppointmentsClient() {
                 const at = lead.leadAppointmentAt ? new Date(lead.leadAppointmentAt) : null;
                 const isUpcoming = at && !Number.isNaN(at.getTime()) && at.getTime() >= Date.now();
                 return (
-                  <tr key={lead.id} className="border-t border-zinc-100 dark:border-zinc-800/80">
+                  <tr key={lead.appointmentKey || lead.id} className="border-t border-zinc-100 dark:border-zinc-800/80">
                     <td className="px-3 py-3 align-top text-zinc-800 dark:text-zinc-100">
                       <div className="font-medium">{formatWhen(lead.leadAppointmentAt, timezone, lead.state)}</div>
                       <div className="mt-1">
@@ -167,7 +200,7 @@ export default function AppointmentsClient() {
                     </td>
                     <td className="px-3 py-3 align-top">
                       <Link
-                        href={`/leads/${lead.id}`}
+                        href={lead.href || `/leads/${lead.id}`}
                         className="font-semibold text-zinc-950 hover:underline dark:text-zinc-50"
                       >
                         {lead.fullName?.trim() || "—"}
@@ -190,7 +223,7 @@ export default function AppointmentsClient() {
                         {phaseLabel(lead.leadPhase)}
                       </div>
                       <Link
-                        href={`/leads/${lead.id}`}
+                        href={lead.href || `/leads/${lead.id}`}
                         className="mt-1 inline-block text-xs font-semibold text-sky-700 hover:underline dark:text-sky-300"
                       >
                         Open lead

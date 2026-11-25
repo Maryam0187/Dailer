@@ -12,6 +12,7 @@ import SignedInAs from "@/components/layout/SignedInAs";
 import { getLastIpAddressesByUserId } from "@/server/activity/getLastIpAddressesByUserId";
 import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 import { parseCountryAccess } from "@/lib/countries";
+import { normalizeCampaign } from "@/lib/campaigns";
 
 export default async function UsersPage() {
   const authedUser = await getAuthedUser();
@@ -49,6 +50,7 @@ export default async function UsersPage() {
     "canReceiveSharedLeads",
     "selectsLeadSupervisor",
     "countryAccess",
+    "campaign",
   ];
 
   const listInclude = [
@@ -120,6 +122,7 @@ export default async function UsersPage() {
       shiftKey: r.shiftKey === "night" ? "night" : "day",
       selectsLeadSupervisor: r.role === "agent" ? Boolean(r.selectsLeadSupervisor) : false,
       countryAccess: r.role === "admin" ? "both" : parseCountryAccess(r.countryAccess) || "usa",
+      campaign: normalizeCampaign(r.campaign),
       ...(authedUser.role === "admin"
         ? {
             loginWindowExempt: Boolean(r.loginWindowExempt),

@@ -37,6 +37,7 @@ import { validateCanadianPostal } from "@/lib/caProvinces";
 import CopyPhoneButton from "@/components/Leads/CopyPhoneButton";
 import IconTooltipButton, { CallIcon, EditIcon, ExpandIcon, ViewIcon } from "@/components/Leads/IconTooltipButton";
 import LeadDetailPanel from "@/components/Leads/LeadDetailPanel";
+import SoftwareLeadsClient from "@/components/SoftwareLeads/SoftwareLeadsClient";
 import LeadEditModal from "@/components/Leads/LeadEditModal";
 import LeadsStatsPanel from "@/components/Leads/LeadsStatsPanel";
 import WorkflowTagsAdminPanel from "@/components/Leads/WorkflowTagsAdminPanel";
@@ -379,6 +380,8 @@ export default function LeadsClient({
   const showAgentColumn = showLeadFilters || isProcessor;
   const showSharedViewerColumn = isAdmin && country !== COUNTRY_CANADA;
   const onSharedWithMeTab = showSharedWithMeTab && leadsListTab === "shared_with_me";
+  const onSoftwareLeadsTab = isAdmin && leadsListTab === "software";
+  const showLeadListTabs = isAdmin || showSharedWithMeTab;
   const showShareStatusColumn = onSharedWithMeTab;
   const showBulkShareView = isAdmin && country !== COUNTRY_CANADA && leadsListTab === "leads";
   const showBulkRevokeShare = isAdmin && onSharedWithMeTab;
@@ -472,6 +475,11 @@ export default function LeadsClient({
   const editingLead = leads.find((l) => l.id === editingLeadId) || null;
 
   const loadLeads = useCallback(async (targetPage, { silent = false } = {}) => {
+    if (leadsListTab === "software") {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     const resolvedPage = targetPage ?? page;
     if (silent) {
       setRefreshing(true);
@@ -1207,6 +1215,51 @@ export default function LeadsClient({
 
   return (
     <div className="flex flex-col gap-6">
+      {isAdmin ? (
+        <div className="flex justify-center">
+          <div
+            className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-900"
+            role="group"
+            aria-label="Campaign"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setLeadsListTab("leads");
+                if (sortBy === "sharedViewerAt") setSortBy("updatedAt");
+                setPage(1);
+              }}
+              className={`rounded-full px-5 py-1.5 text-sm font-semibold transition-colors ${
+                !onSoftwareLeadsTab
+                  ? "bg-sky-600 text-white shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              }`}
+              aria-pressed={!onSoftwareLeadsTab}
+            >
+              Leads
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLeadsListTab("software");
+                setPage(1);
+              }}
+              className={`rounded-full px-5 py-1.5 text-sm font-semibold transition-colors ${
+                onSoftwareLeadsTab
+                  ? "bg-teal-600 text-white shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
+              }`}
+              aria-pressed={onSoftwareLeadsTab}
+            >
+              Software leads
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {onSoftwareLeadsTab ? (
+        <SoftwareLeadsClient />
+      ) : (
+        <>
       {showLeadStats ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
@@ -2050,11 +2103,13 @@ export default function LeadsClient({
         </div>
       ) : null}
 
-      {showSharedWithMeTab ? (
+      {showLeadListTabs ? (
         <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Lead list tabs">
           {[
             { id: "leads", label: "Leads" },
-            { id: "shared_with_me", label: isAdmin ? "Shared leads" : "Shared with me" },
+            ...(showSharedWithMeTab
+              ? [{ id: "shared_with_me", label: isAdmin ? "Shared leads" : "Shared with me" }]
+              : []),
           ].map((option) => (
             <button
               key={option.id}
@@ -2562,6 +2617,8 @@ export default function LeadsClient({
       ) : null}
         </>
       ) : null}
+        </>
+      )}
     </div>
   );
 }

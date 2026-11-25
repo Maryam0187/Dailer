@@ -18,6 +18,7 @@ import { getCurrentApprovedLeaveByUserIds } from "@/server/leave/userLeave";
 import { clearTotpFields } from "@/server/auth/totp";
 import { finalizeUserActiveZoomCalls } from "@/server/calls/zoomCallLog";
 import { parseCountryAccess } from "@/lib/countries";
+import { normalizeCampaign, parseCampaign } from "@/lib/campaigns";
 
 export async function GET(_req, { params }) {
   const { id: rawId } = await params;
@@ -59,6 +60,7 @@ export async function GET(_req, { params }) {
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
       "countryAccess",
+      "campaign",
     ],
     include: [
       {
@@ -129,6 +131,7 @@ export async function GET(_req, { params }) {
       selectsLeadSupervisor:
         target.role === "agent" ? Boolean(target.selectsLeadSupervisor) : false,
       countryAccess: target.role === "admin" ? "both" : parseCountryAccess(target.countryAccess) || "usa",
+      campaign: normalizeCampaign(target.campaign),
     },
   });
 }
@@ -327,6 +330,18 @@ export async function PATCH(req, { params }) {
         return NextResponse.json({ error: "Invalid countryAccess" }, { status: 400 });
       }
       updates.countryAccess = parsedCountryAccess;
+    }
+  }
+
+  if (isAdmin && (body.campaign !== undefined || updates.role === "admin")) {
+    if (effectiveRole === "admin") {
+      updates.campaign = "tv";
+    } else if (body.campaign !== undefined) {
+      const parsedCampaign = parseCampaign(body.campaign);
+      if (!parsedCampaign) {
+        return NextResponse.json({ error: "Invalid campaign" }, { status: 400 });
+      }
+      updates.campaign = parsedCampaign;
     }
   }
 
@@ -569,6 +584,7 @@ export async function PATCH(req, { params }) {
       "canReceiveSharedLeads",
       "selectsLeadSupervisor",
       "countryAccess",
+      "campaign",
     ],
     include: [
       {
@@ -587,6 +603,7 @@ export async function PATCH(req, { params }) {
           selectsLeadSupervisor:
             fresh.role === "agent" ? Boolean(fresh.selectsLeadSupervisor) : false,
           countryAccess: fresh.role === "admin" ? "both" : parseCountryAccess(fresh.countryAccess) || "usa",
+          campaign: normalizeCampaign(fresh.campaign),
           canUseTwilioDialer: fresh.canUseTwilioDialer !== false,
           canUseZoomPhone: Boolean(fresh.canUseZoomPhone),
         }

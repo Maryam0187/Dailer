@@ -12,6 +12,7 @@ import {
   isAfterShiftGrantExpired,
 } from "@/server/auth/afterShiftGrant.cjs";
 import { parseCountryAccess } from "@/lib/countries";
+import { normalizeCampaign } from "@/lib/campaigns";
 
 /**
  * Debounce window for updating `activeSessionLastSeenAt`. Every authenticated
@@ -196,6 +197,7 @@ async function resolveAuthedUser() {
       selectsLeadSupervisor:
         user.role === "agent" ? Boolean(user.selectsLeadSupervisor) : false,
       countryAccess: user.role === "admin" ? "both" : parseCountryAccess(user.countryAccess) || "usa",
+      campaign: normalizeCampaign(user.campaign),
     },
     logoutReason: null,
   };

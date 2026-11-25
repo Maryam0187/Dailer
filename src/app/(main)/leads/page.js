@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
+import { CAMPAIGN_SOFTWARE, normalizeCampaign } from "@/lib/campaigns";
 import LeadsClient from "@/components/Leads/LeadsClient";
 import SignedInAs, { loadAssignedSupervisorName } from "@/components/layout/SignedInAs";
 
@@ -7,6 +8,9 @@ export default async function LeadsPage({ searchParams }) {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   if (authedUser.accessMode === "limited") redirect("/");
+  if (authedUser.role !== "admin" && normalizeCampaign(authedUser.campaign) === CAMPAIGN_SOFTWARE) {
+    redirect("/software-leads");
+  }
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
   const initialShowForm = sp?.new === "1";
