@@ -8,7 +8,7 @@ const OPTIONS = [
   { value: COUNTRY_CANADA, label: "Canada" },
 ];
 
-export default function NavbarCountrySwitch() {
+export default function NavbarCountrySwitch({ fullWidth = false }) {
   const { country, canSwitchCountry, setCountry } = useCountry();
   if (!canSwitchCountry) return null;
 
@@ -16,7 +16,9 @@ export default function NavbarCountrySwitch() {
     <div
       role="group"
       aria-label="Country"
-      className="inline-flex shrink-0 rounded-lg border border-zinc-200 bg-white p-0.5 dark:border-zinc-600 dark:bg-zinc-900"
+      className={`shrink-0 rounded-lg border border-zinc-200 bg-white p-0.5 dark:border-zinc-600 dark:bg-zinc-900 ${
+        fullWidth ? "flex w-full" : "inline-flex"
+      }`}
     >
       {OPTIONS.map((option) => {
         const selected = country === option.value;
@@ -26,7 +28,9 @@ export default function NavbarCountrySwitch() {
             type="button"
             aria-pressed={selected}
             onClick={() => setCountry(option.value)}
-            className={`rounded-md px-2 py-1 text-xs font-semibold sm:px-2.5 sm:text-sm ${
+            className={`rounded-md font-semibold ${
+              fullWidth ? "flex-1 px-3 py-2 text-sm" : "px-2 py-1 text-xs sm:px-2.5 sm:text-sm"
+            } ${
               selected
                 ? option.value === COUNTRY_CANADA
                   ? "bg-red-600 text-white"

@@ -644,7 +644,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
               className="w-[10rem]"
             >
               <option value="both">Both</option>
-              <option value="twilio">Twilio</option>
+              <option value="twilio">Dialer</option>
               <option value="zoom">Zoom</option>
             </FilterSelect>
           </div>
@@ -795,7 +795,7 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                   : providerFilter === "zoom"
                     ? "No Zoom calls in this range."
                     : providerFilter === "twilio"
-                      ? "No Twilio calls in this range."
+                      ? "No Dialer calls in this range."
                       : lineFilter === "2"
                         ? "No Line 2 calls in this range."
                         : lineFilter === "1"
@@ -892,7 +892,14 @@ export default function CallLogsClient({ initialScope = "all", userRole = "agent
                             >
                               Zoom
                             </span>
-                          ) : null}
+                          ) : (
+                            <span
+                              className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:bg-red-950/60 dark:text-red-200"
+                              title="Dialer"
+                            >
+                              Dialer
+                            </span>
+                          )}
                         </span>
                         {c.voiceProvider === "zoom" &&
                         (c.zoomExtensionNumber || c.zoomPhoneNumber || c.zoomDisplayName) ? (

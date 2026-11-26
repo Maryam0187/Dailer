@@ -604,6 +604,7 @@ function buildAlertsQuery({ offset, limit, type, from, to }) {
 }
 
 export default function ChargeflowAlertsClient() {
+  const initialMonthRange = getPresetRange("month");
   const [alerts, setAlerts] = useState([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [pagination, setPagination] = useState({
@@ -616,15 +617,15 @@ export default function ChargeflowAlertsClient() {
   const [error, setError] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
 
-  const [rangePreset, setRangePreset] = useState("all");
-  const [rangeFrom, setRangeFrom] = useState("");
-  const [rangeTo, setRangeTo] = useState("");
+  const [rangePreset, setRangePreset] = useState("month");
+  const [rangeFrom, setRangeFrom] = useState(initialMonthRange.from);
+  const [rangeTo, setRangeTo] = useState(initialMonthRange.to);
   const [monthFilter, setMonthFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
   const [applied, setApplied] = useState({
-    from: "",
-    to: "",
+    from: initialMonthRange.from,
+    to: initialMonthRange.to,
     type: "",
   });
 

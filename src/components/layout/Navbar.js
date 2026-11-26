@@ -573,7 +573,7 @@ export default function Navbar({
           : "border-sky-500/20 bg-gradient-to-r from-sky-100/70 via-white to-sky-50/70 dark:border-sky-500/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950"
       }`}
     >
-      <div className="pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center sm:right-3">
+      <div className="pointer-events-none absolute inset-y-0 right-2 z-20 hidden items-center sm:right-3 lg:flex">
         <div className="pointer-events-auto">
           <NavbarCountrySwitch />
         </div>
@@ -616,7 +616,7 @@ export default function Navbar({
             </button>
           </div>
 
-          <div className={`relative z-10 ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3 ${canSwitchCountry ? "max-[1560px]:mr-40" : ""}`}>
+          <div className={`relative z-10 ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/80 bg-white/60 px-1.5 py-1 dark:border-zinc-600/80 dark:bg-zinc-800/40 sm:gap-2 sm:px-2.5 sm:py-1.5 lg:gap-3 lg:px-3 ${canSwitchCountry ? "lg:max-[1560px]:mr-40" : ""}`}>
             {role === "admin" ? (
               <span className="hidden sm:inline-flex">
                 <ShiftStatusBadge initialShiftStatus={shiftStatus} />
@@ -645,6 +645,11 @@ export default function Navbar({
                   : "border-sky-500/15 bg-white/98 dark:border-sky-500/20 dark:bg-zinc-950/98"
               }`}
             >
+              {canSwitchCountry ? (
+                <div className="mb-3">
+                  <NavbarCountrySwitch fullWidth />
+                </div>
+              ) : null}
               {role === "admin" ? (
                 <div className="mb-3 sm:hidden">
                   <ShiftStatusBadge initialShiftStatus={shiftStatus} />
