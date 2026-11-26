@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-base text-zinc-900 shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-sky-400/70 dark:focus:ring-sky-400/20";
@@ -31,6 +31,132 @@ function groupNumbers(numbers) {
 function assigneeLabel(assignees) {
   if (!assignees?.length) return "Unassigned";
   return assignees.map((a) => `${a.username} (L${a.line})`).join(", ");
+}
+
+function userOptionLabel(user) {
+  return `${user.username} (${user.role}${user.canUseDialer2 ? ", 2 lines" : ""})`;
+}
+
+function AssignUserDropdown({ users, value, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+
+  const selected = useMemo(
+    () => users.find((user) => String(user.id) === String(value)) || null,
+    [users, value],
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((user) => {
+      const hay = `${user.username || ""} ${user.displayName || ""} ${user.role || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [users, query]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => searchRef.current?.focus(), 0);
+    function onPointerDown(event) {
+      if (rootRef.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+    function onKeyDown(event) {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function choose(userId) {
+    onChange(String(userId));
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        id="assign-user"
+        type="button"
+        className={`${inputClass} flex items-center justify-between gap-2 text-left`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className={`truncate ${selected ? "" : "text-zinc-400 dark:text-zinc-500"}`}>
+          {selected ? userOptionLabel(selected) : "Select user…"}
+        </span>
+        <svg
+          viewBox="0 0 20 20"
+          aria-hidden="true"
+          className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <path
+            fill="currentColor"
+            d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+          />
+        </svg>
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-600 dark:bg-zinc-950">
+          <div className="border-b border-zinc-200 p-2 dark:border-zinc-700">
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onMouseDown={(event) => event.stopPropagation()}
+              placeholder="Search users…"
+              autoComplete="off"
+              className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-sky-500/80 focus:ring-2 focus:ring-sky-500/25 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1" role="listbox" aria-label="Users">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2.5 text-sm text-zinc-500 dark:text-zinc-400">No users found</p>
+            ) : (
+              filtered.map((user) => {
+                const isSelected = String(user.id) === String(value);
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-sm ${
+                      isSelected
+                        ? "bg-sky-50 font-semibold text-sky-900 dark:bg-sky-950/50 dark:text-sky-100"
+                        : "text-zinc-800 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                    }`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      choose(user.id);
+                    }}
+                  >
+                    <span className="truncate">{userOptionLabel(user)}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function NumbersClient() {
@@ -263,7 +389,10 @@ export default function NumbersClient() {
   }
 
   const assignableUsers = useMemo(() => {
-    return (users || []).filter((u) => u.isActive !== false && u.role !== "admin");
+    return (users || [])
+      .filter((u) => u.isActive !== false && u.role !== "admin")
+      .slice()
+      .sort((a, b) => String(a.username).localeCompare(String(b.username)));
   }, [users]);
 
   function renderTable(rows) {
@@ -870,8 +999,8 @@ export default function NumbersClient() {
       )}
 
       {assignOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md overflow-visible rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
             <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Assign number</h3>
             <p className="mt-1 font-mono text-sm text-zinc-600 dark:text-zinc-400">{assignPhone}</p>
             <form onSubmit={onAssign} className="mt-4 space-y-4">
@@ -879,21 +1008,12 @@ export default function NumbersClient() {
                 <label className={labelClass} htmlFor="assign-user">
                   User
                 </label>
-                <select
-                  id="assign-user"
-                  className={inputClass}
+                <AssignUserDropdown
+                  users={assignableUsers}
                   value={assignUserId}
-                  onChange={(e) => setAssignUserId(e.target.value)}
-                  required
-                >
-                  <option value="">Select user…</option>
-                  {assignableUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.username} ({u.role}
-                      {u.canUseDialer2 ? ", 2 lines" : ""})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setAssignUserId}
+                  disabled={assigning}
+                />
               </div>
               <div>
                 <label className={labelClass} htmlFor="assign-line">
@@ -918,7 +1038,7 @@ export default function NumbersClient() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className={btnPrimary} disabled={assigning}>
+                <button type="submit" className={btnPrimary} disabled={assigning || !assignUserId}>
                   {assigning ? "Saving…" : "Assign"}
                 </button>
               </div>
