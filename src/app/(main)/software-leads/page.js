@@ -7,17 +7,16 @@ export default async function SoftwareLeadsPage() {
   const authedUser = await getAuthedUser();
   if (!authedUser) redirect("/sign-in");
   if (authedUser.accessMode === "limited") redirect("/");
-  const softwareUser =
-    authedUser.role === "admin" || normalizeCampaign(authedUser.campaign) === CAMPAIGN_SOFTWARE;
-  if (!softwareUser) redirect("/leads");
+  if (authedUser.role === "admin") redirect("/leads?campaign=software");
+  if (normalizeCampaign(authedUser.campaign) !== CAMPAIGN_SOFTWARE) redirect("/leads");
 
   return (
     <>
-      <div className="mb-8 border-b border-teal-200 pb-6 dark:border-teal-900">
-        <h1 className="text-3xl font-semibold tracking-tight text-teal-950 dark:text-teal-100">
+      <div className="mb-8 border-b border-zinc-200/80 pb-6 dark:border-zinc-800">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
           Software leads
         </h1>
-        <p className="mt-2 max-w-2xl text-base leading-relaxed text-teal-800/80 dark:text-teal-200/80">
+        <p className="mt-2 max-w-2xl text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
           Software telemarketing leads. Appointments, files, and profile stay on the same screens as the TV campaign.
         </p>
       </div>

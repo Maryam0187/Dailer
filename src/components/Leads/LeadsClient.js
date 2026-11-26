@@ -238,6 +238,7 @@ export default function LeadsClient({
   isOutside = false,
   canReceiveSharedLeads = false,
   selectsLeadSupervisor = false,
+  initialListTab = "leads",
 }) {
   const { country } = useCountry();
   const canadaTheme = country === COUNTRY_CANADA;
@@ -312,7 +313,9 @@ export default function LeadsClient({
   const [filterProcessors, setFilterProcessors] = useState([]);
   const [saveError, setSaveError] = useState(null);
   const [activeView, setActiveView] = useState("list");
-  const [leadsListTab, setLeadsListTab] = useState("leads"); // leads | shared_with_me
+  const [leadsListTab, setLeadsListTab] = useState(
+    initialListTab === "software" ? "software" : "leads",
+  );
   const initialRange = getPresetRange("today");
   const [rangePreset, setRangePreset] = useState("today");
   const [rangeFrom, setRangeFrom] = useState(initialRange.from);
@@ -1246,7 +1249,7 @@ export default function LeadsClient({
               }}
               className={`rounded-full px-5 py-1.5 text-sm font-semibold transition-colors ${
                 onSoftwareLeadsTab
-                  ? "bg-teal-600 text-white shadow-sm"
+                  ? "bg-indigo-600 text-white shadow-sm"
                   : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
               }`}
               aria-pressed={onSoftwareLeadsTab}

@@ -177,7 +177,9 @@ function buildNavItems(
     items.push({
       href: softwareUser ? "/software-leads" : "/leads",
       label: "Leads",
-      active: softwareUser ? pathname.startsWith("/software-leads") : pathname === "/leads",
+      active: softwareUser
+        ? pathname.startsWith("/software-leads")
+        : pathname === "/leads" || pathname.startsWith("/software-leads"),
       palette: "emerald",
     });
     items.push({

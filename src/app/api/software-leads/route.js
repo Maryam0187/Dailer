@@ -4,12 +4,28 @@ import db from "@/server/db";
 import { getAuthedUser } from "@/server/auth/getAuthedUser";
 import { canUseSoftwareLeads, softwareLeadListWhere } from "@/server/softwareLeads/access";
 import { serializeSoftwareLead, softwareLeadIncludes } from "@/server/softwareLeads/serialize";
+import { dateRangeWhereOn } from "@/server/calls/aggregateMetrics";
 
 function trimField(value, max) {
   if (value == null) return null;
   const trimmed = String(value).trim();
   if (!trimmed) return null;
   return trimmed.slice(0, max);
+}
+
+function parseDateOnly(value) {
+  if (!value || typeof value !== "string") return null;
+  const v = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  return v;
+}
+
+function andWhere(left, right) {
+  const leftEmpty = !left || Object.keys(left).length === 0;
+  const rightEmpty = !right || Object.keys(right).length === 0;
+  if (leftEmpty) return rightEmpty ? {} : right;
+  if (rightEmpty) return left;
+  return { [Op.and]: [left, right] };
 }
 
 function parseAppointment(body) {
@@ -39,6 +55,18 @@ export async function GET(req) {
       [Op.or]: [{ fullName: like }, { phone: like }, { company: like }, { email: like }],
     };
     where = authedUser.role === "admin" ? searchWhere : { [Op.and]: [accessWhere, searchWhere] };
+  }
+
+  const fromDate = parseDateOnly(searchParams.get("fromDate"));
+  const toDate = parseDateOnly(searchParams.get("toDate"));
+  if ((fromDate && !toDate) || (!fromDate && toDate)) {
+    return NextResponse.json({ error: "fromDate and toDate must both be provided" }, { status: 400 });
+  }
+  if (fromDate && toDate && fromDate > toDate) {
+    return NextResponse.json({ error: "fromDate must be before or equal to toDate" }, { status: 400 });
+  }
+  if (fromDate && toDate) {
+    where = andWhere(where, dateRangeWhereOn("createdAt", fromDate, toDate));
   }
 
   const { rows, count } = await db.SoftwareLead.findAndCountAll({

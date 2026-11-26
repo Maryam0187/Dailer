@@ -14,6 +14,7 @@ export default async function LeadsPage({ searchParams }) {
 
   const sp = searchParams && typeof searchParams.then === "function" ? await searchParams : searchParams;
   const initialShowForm = sp?.new === "1";
+  const initialListTab = sp?.campaign === "software" ? "software" : "leads";
   const supervisorName = await loadAssignedSupervisorName(authedUser);
 
   return (
@@ -35,6 +36,7 @@ export default async function LeadsPage({ searchParams }) {
         isOutside={Boolean(authedUser.isOutside)}
         canReceiveSharedLeads={Boolean(authedUser.canReceiveSharedLeads)}
         selectsLeadSupervisor={Boolean(authedUser.selectsLeadSupervisor)}
+        initialListTab={initialListTab}
       />
     </>
   );
