@@ -12,10 +12,29 @@
 
 const { Op } = require("sequelize");
 const db = require("../../../models");
-const { getSessionCalendarDate } = require("../auth/loginWindow.core.cjs");
 const {
   onlineTimeDeviceBucket,
 } = require("../activity/resolveDeviceType.core.cjs");
+
+/**
+ * Same calendar day as call duration and Today/Yesterday filters (US Eastern).
+ * Shift timezone is Asia/Karachi. Night shift is 1:00–6:00 AM Pakistan, which is
+ * still the previous evening in US Eastern, so a Pakistan date puts that whole
+ * shift on the next report day. Day shift (6:00–11:00 PM Pakistan) is the same
+ * calendar date in both zones, so this does not move day-shift time.
+ */
+const REPORT_TIMEZONE = "America/New_York";
+
+function reportCalendarDate(at = new Date()) {
+  const date = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: REPORT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
 
 const FLUSH_INTERVAL_MS = 60 * 1000;
 const MAX_SEGMENT_MS = 6 * 60 * 60 * 1000;
@@ -73,7 +92,8 @@ async function addOnlineMs(userId, deltaMs, at = new Date(), deviceBucket = "des
   }
   if (!user) return;
 
-  const calendarDate = getSessionCalendarDate(at, user);
+  const calendarDate = reportCalendarDate(at);
+  if (!calendarDate) return;
 
   try {
     const [record] = await db.AttendanceDailyRecord.findOrCreate({
